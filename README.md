@@ -1,22 +1,109 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# 🧺 نظام إدارة تخزين الغسيل - Laundry Storage Management V3
 
-# Run and deploy your AI Studio app
+**المطور:** [sanadgit](https://github.com/sanadgit)
 
-This contains everything you need to run your app locally.
+نظام متقدم لإدارة ومراقبة تخزين الملابس والغسيل مع واجهة ثلاثية الأبعاد وتخزين البيانات السحابي.
 
-View your app in AI Studio: https://ai.studio/apps/3c12dbc1-dae8-49b7-8484-304923b12fd9
+---
 
-## Run Locally
+## 📋 نبذة عن المشروع
 
-**Prerequisites:**  Node.js
+يوفر هذا المشروع حلاً متكاملاً لإدارة المستودعات والتخزين مع:
+- 📦 إدارة المخزون والتخزين الفعال
+- 🎯 عرض ثلاثي الأبعاد (3D) للمستودع
+- 🔍 نظام بحث متقدم عن المنتجات
+- 📊 لوحة تحكم شاملة للمراقبة
+- ☁️ تخزين البيانات السحابي (Supabase)
+- 🎨 واجهة مستخدم حديثة وسهلة الاستخدام
 
+---
 
-1. Install dependencies:
-   `npm install`
-2. Create a local `.env` file (see `.env` for an example).
-   - Set `GEMINI_API_KEY`.
-   - To use Supabase, set `VITE_SUPABASE_ENABLED="true"` and provide `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY`.
-3. Run the app:
-   `npm run dev`
+## 🛠️ المتطلبات
+
+- **Node.js** (الإصدار 16 أو أحدث)
+- **npm** أو **yarn**
+- حساب **Supabase** (اختياري - للتخزين السحابي)
+
+---
+
+## 🚀 التثبيت والتشغيل
+
+### 1. استنساخ المستودع
+```bash
+git clone https://github.com/sanadgit/LAUNDRY-storage-management-V3.git
+cd LAUNDRY-storage-management-V3
+```
+
+### 2. تثبيت المكتبات
+```bash
+npm install
+```
+
+### 3. إنشاء ملف `.env` المحلي
+أنشئ ملف `.env` في جذر المشروع بناءً على `.env.example`:
+```env
+VITE_SUPABASE_ENABLED=true
+VITE_SUPABASE_URL=your_supabase_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+```
+
+### 4. تشغيل التطبيق
+```bash
+npm run dev
+```
+
+سيتم فتح التطبيق على `http://localhost:5173`
+
+---
+
+## 📂 هيكل المشروع
+
+```
+src/
+├── components/        # مكونات React
+├── context/          # إدارة الحالة
+├── constants/        # الثوابت والإعدادات
+├── lib/              # المكتبات والعملاء
+├── pages/            # الصفحات الرئيسية
+├── server/           # سكريبتات الخادم
+├── store/            # إدارة المتجر
+└── utils/            # دوال مساعدة
+```
+
+---
+
+## 🎯 المميزات الرئيسية
+
+- ✅ **إدارة المستودع**: تنظيم وتتبع المنتجات
+- ✅ **عرض 3D**: تصور مرئي للمستودع
+- ✅ **نظام البحث**: البحث السريع عن المنتجات
+- ✅ **لوحة التحكم**: تقارير وإحصائيات فورية
+- ✅ **التكامل السحابي**: Supabase للبيانات الموثوقة
+
+---
+
+## 🔧 الأوامر المتاحة
+
+- `npm run dev` - تشغيل الخادم التطويري
+- `npm run build` - بناء التطبيق للإنتاج
+- `npm run preview` - معاينة البناء الإنتاجي
+
+---
+
+## 📦 المكتبات المستخدمة
+
+- **React 18** - مكتبة واجهة المستخدم
+- **TypeScript** - لغة البرمجة بأمان النوع
+- **Vite** - أداة البناء السريعة
+- **Supabase** - قاعدة البيانات السحابية
+- **Three.js** - رسوميات ثلاثية الأبعاد
+
+---
+
+## 📝 الترخيص
+
+هذا المشروع مفتوح المصدر ومتاح للاستخدام بحرية.
+
+---
+
+**تم آخر تحديث:** 17 أبريل 2026
