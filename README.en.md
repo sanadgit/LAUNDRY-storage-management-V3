@@ -28,12 +28,12 @@ Real-time overview of your blanket storage system with key metrics and recent ac
 ### Warehouse Management
 Manage blankets and storage configurations with quick actions and comprehensive statistics.
 
-![Warehouse Management](screenshots/management.png)
+![Warehouse Management](screenshots/Management.png)
 
 ### 3D View & Search
 Interactive 3D warehouse visualization with advanced search and grid layer management.
 
-![3D View](screenshots/3d-view.png)
+![3D View](screenshots/3D View.jpg)
 
 ---
 

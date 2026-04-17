@@ -18,13 +18,13 @@
 
 ### Warehouse Management
 <div align="center">
-  <img src="screenshots/management.png" alt="Management" width="800">
+  <img src="screenshots/Management.png" alt="Management" width="800">
   <p><em>Manage blankets and storage configurations</em></p>
 </div>
 
 ### 3D Interactive View
 <div align="center">
-  <img src="screenshots/3d-view.png" alt="3D View" width="800">
+  <img src="screenshots/3D View.jpg" alt="3D View" width="800">
   <p><em>Interactive 3D warehouse visualization with search</em></p>
 </div>
 
