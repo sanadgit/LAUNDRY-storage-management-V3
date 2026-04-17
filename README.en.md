@@ -18,7 +18,26 @@ This project provides an integrated solution for warehouse and storage managemen
 
 ---
 
-## 🛠️ Requirements
+## � Screenshots
+
+### Dashboard
+Real-time overview of your blanket storage system with key metrics and recent activity.
+
+![Dashboard](screenshots/dashboard.png)
+
+### Warehouse Management
+Manage blankets and storage configurations with quick actions and comprehensive statistics.
+
+![Warehouse Management](screenshots/management.png)
+
+### 3D View & Search
+Interactive 3D warehouse visualization with advanced search and grid layer management.
+
+![3D View](screenshots/3d-view.png)
+
+---
+
+## �🛠️ Requirements
 
 - **Node.js** (version 16 or later)
 - **npm** or **yarn**
