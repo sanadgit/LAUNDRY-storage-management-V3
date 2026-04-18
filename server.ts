@@ -930,7 +930,7 @@ const getSupabaseUsers = async (username?: string) => {
 
 async function startServer() {
   const app = express();
-  const PORT = 3001;
+  const PORT =   git pull origin main;
 
   app.set('trust proxy', true);
   app.use(cors());
@@ -1849,9 +1849,18 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, { maxAge: '1d' }));
+    
+    // SPA fallback: serve index.html for any route that's not an API endpoint or static file
     app.get('*', (_req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      // Make sure we're not trying to serve non-existent files
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.sendFile(path.join(distPath, 'index.html'), (err) => {
+        if (err) {
+          console.error('Error serving index.html:', err);
+          res.status(500).json({ error: 'Failed to load application' });
+        }
+      });
     });
   }
 
