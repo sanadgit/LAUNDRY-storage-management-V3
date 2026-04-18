@@ -1010,9 +1010,15 @@ async function startServer() {
   // These endpoints let the frontend call the local server, and the server talks to Supabase using the service key.
   app.get('/api/supabase/stores', async (_req, res) => {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
-    const { data, error } = await supabaseAdmin.from('stores').select('*').order('store_name', { ascending: true });
-    if (error) return res.status(500).json({ error: error.message, code: (error as any).code });
-    return res.json(data ?? []);
+    try {
+      const { data, error } = await supabaseAdmin.from('stores').select('*').order('store_name', { ascending: true });
+      if (error) return res.status(500).json({ error: error.message, code: (error as any).code });
+      const stores = Array.isArray(data) ? data : [];
+      return res.json(stores);
+    } catch (error: any) {
+      console.error('Error fetching stores from Supabase:', error);
+      return res.status(500).json({ error: error.message || 'Failed to fetch stores' });
+    }
   });
 
   app.post('/api/supabase/stores', async (req, res) => {
@@ -1087,9 +1093,15 @@ async function startServer() {
 
   app.get('/api/supabase/blankets', async (_req, res) => {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
-    const { data, error } = await supabaseAdmin.from('blankets').select('*').order('created_at', { ascending: false });
-    if (error) return res.status(500).json({ error: error.message, code: (error as any).code });
-    return res.json(data ?? []);
+    try {
+      const { data, error } = await supabaseAdmin.from('blankets').select('*').order('created_at', { ascending: false });
+      if (error) return res.status(500).json({ error: error.message, code: (error as any).code });
+      const blankets = Array.isArray(data) ? data : [];
+      return res.json(blankets);
+    } catch (error: any) {
+      console.error('Error fetching blankets from Supabase:', error);
+      return res.status(500).json({ error: error.message || 'Failed to fetch blankets' });
+    }
   });
 
   app.post('/api/supabase/blankets', async (req, res) => {
@@ -1221,15 +1233,21 @@ async function startServer() {
 
   app.get('/api/supabase/logs', async (req, res) => {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
-    const limit = Math.min(1000, Math.max(1, Number(req.query.limit ?? 500)));
-    const { data, error } = await supabaseAdmin
-      .from('logs')
-      .select('*')
-      .order('timestamp', { ascending: false })
-      .order('id', { ascending: false })
-      .limit(limit);
-    if (error) return res.status(500).json({ error: error.message, code: (error as any).code });
-    return res.json(data ?? []);
+    try {
+      const limit = Math.min(1000, Math.max(1, Number(req.query.limit ?? 500)));
+      const { data, error } = await supabaseAdmin
+        .from('logs')
+        .select('*')
+        .order('timestamp', { ascending: false })
+        .order('id', { ascending: false })
+        .limit(limit);
+      if (error) return res.status(500).json({ error: error.message, code: (error as any).code });
+      const logs = Array.isArray(data) ? data : [];
+      return res.json(logs);
+    } catch (error: any) {
+      console.error('Error fetching logs from Supabase:', error);
+      return res.status(500).json({ error: error.message || 'Failed to fetch logs' });
+    }
   });
 
   app.post('/api/supabase/logs', async (req, res) => {
@@ -1548,8 +1566,14 @@ async function startServer() {
   });
 
   app.get('/api/stores', (_req, res) => {
-    const stores = db.prepare('SELECT * FROM stores').all();
-    res.json(stores);
+    try {
+      const stores = db.prepare('SELECT * FROM stores').all();
+      const storesArray = Array.isArray(stores) ? stores : [];
+      res.json(storesArray);
+    } catch (error: any) {
+      console.error('Error fetching stores from SQLite:', error);
+      res.status(500).json({ error: error.message || 'Failed to fetch stores' });
+    }
   });
 
   app.post('/api/stores', (req, res) => {
@@ -1667,8 +1691,14 @@ async function startServer() {
   });
 
   app.get('/api/blankets', (_req, res) => {
-    const blankets = db.prepare('SELECT * FROM blankets ORDER BY created_at DESC').all();
-    res.json(blankets);
+    try {
+      const blankets = db.prepare('SELECT * FROM blankets ORDER BY created_at DESC').all();
+      const blanketsArray = Array.isArray(blankets) ? blankets : [];
+      res.json(blanketsArray);
+    } catch (error: any) {
+      console.error('Error fetching blankets from SQLite:', error);
+      res.status(500).json({ error: error.message || 'Failed to fetch blankets' });
+    }
   });
 
   app.post('/api/blankets', (req, res) => {
@@ -1777,11 +1807,17 @@ async function startServer() {
   });
 
   app.get('/api/logs', (req, res) => {
-    // Order by id as a tie-breaker so multiple events in the same second don't appear to "overwrite" each other.
-    const rawLimit = Number(req.query.limit ?? 500);
-    const limit = Number.isFinite(rawLimit) ? Math.min(1000, Math.max(1, rawLimit)) : 500;
-    const logs = db.prepare('SELECT * FROM logs ORDER BY timestamp DESC, id DESC LIMIT ?').all(limit);
-    res.json(logs);
+    try {
+      // Order by id as a tie-breaker so multiple events in the same second don't appear to "overwrite" each other.
+      const rawLimit = Number(req.query.limit ?? 500);
+      const limit = Number.isFinite(rawLimit) ? Math.min(1000, Math.max(1, rawLimit)) : 500;
+      const logs = db.prepare('SELECT * FROM logs ORDER BY timestamp DESC, id DESC LIMIT ?').all(limit);
+      const logsArray = Array.isArray(logs) ? logs : [];
+      res.json(logsArray);
+    } catch (error: any) {
+      console.error('Error fetching logs from SQLite:', error);
+      res.status(500).json({ error: error.message || 'Failed to fetch logs' });
+    }
   });
 
   app.post('/api/logs', (req, res) => {
