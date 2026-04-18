@@ -930,7 +930,7 @@ const getSupabaseUsers = async (username?: string) => {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = 3001;
 
   app.set('trust proxy', true);
   app.use(cors());
