@@ -930,7 +930,7 @@ const getSupabaseUsers = async (username?: string) => {
 
 async function startServer() {
   const app = express();
-  const PORT =   git pull origin main;
+  const PORT = 3001;
 
   app.set('trust proxy', true);
   app.use(cors());
