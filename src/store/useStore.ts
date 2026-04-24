@@ -5,10 +5,11 @@ import {
   STORE_LOCAL_FOOTPRINT_DEPTH,
   STORE_LOCAL_FOOTPRINT_WIDTH,
 } from '../constants/storeGeometry';
-import { supabase, isSupabaseEnabled } from '../lib/supabaseClient';
-import { toSupabaseUserEmail } from '../lib/userEmail';
+import { isSupabaseEnabled } from '../lib/supabaseClient';
 
 const supabaseProxyBase = '/api/supabase';
+const AUTH_TOKEN_KEY = 'authToken';
+const LEGACY_USERNAME_KEY = 'currentUser';
 
 const describeAxiosError = (error: any) => {
   const status = error?.response?.status;
@@ -63,6 +64,24 @@ const tryVibrate = (pattern: number | number[]) => {
   }
 };
 
+const isAdminRole = (role: User['role'] | null | undefined) =>
+  role === 'admin' || role === 'super-admin';
+
+const readAuthToken = () =>
+  typeof localStorage === 'undefined' ? null : localStorage.getItem(AUTH_TOKEN_KEY);
+
+const applyAuthToken = (token: string | null) => {
+  if (token && token.trim().length > 0) {
+    axios.defaults.headers.common.Authorization = `Bearer ${token}`;
+    return;
+  }
+  delete axios.defaults.headers.common.Authorization;
+};
+
+if (typeof window !== 'undefined') {
+  applyAuthToken(readAuthToken());
+}
+
 export interface Store {
   store_name: string;
   position_x: number;
@@ -87,6 +106,10 @@ export interface Store {
   cell_width: number;
   /** 3D overlay cell depth (local model units). */
   cell_depth: number;
+  /** 3D overlay cell height (local model units). */
+  cell_height: number;
+  /** Require barcode scan confirmation before marking as picked. */
+  require_pick_scan: boolean;
 }
 
 export interface Blanket {
@@ -159,6 +182,8 @@ interface AppState {
   gridFace: GridFace;
   /** Click-selected cell in 3D overlay (binds to DB row/column for store) */
   selectedGridCell: { store: string; row: number; column: number } | null;
+  /** Mobile search UI mode: hide top app bar when true. */
+  searchImmersive: boolean;
   users: User[];
   currentUser: User | null;
 
@@ -188,6 +213,7 @@ interface AppState {
   setLastInsertedCell: (cell: { row: number, column: number } | null) => void;
   setGridFace: (face: GridFace) => void;
   setSelectedGridCell: (cell: { store: string; row: number; column: number } | null) => void;
+  setSearchImmersive: (value: boolean) => void;
 }
 
 const defaultStoreSlots = [
@@ -199,6 +225,19 @@ const defaultStoreSlots = [
   { x: 10, z: 0 },
   { x: 20, z: 0 },
 ];
+
+const MIN_CELL_DIMENSION = -20;
+const MAX_CELL_DIMENSION = 20;
+const MIN_ABS_CELL_DIMENSION = 0.001;
+
+const normalizeSignedCellDimension = (value: unknown, fallback: number) => {
+  const fallbackNumber = Number.isFinite(Number(fallback)) ? Number(fallback) : 0.5;
+  const candidate = Number(value ?? fallbackNumber);
+  const parsed = Number.isFinite(candidate) ? candidate : fallbackNumber;
+  const clamped = Math.min(MAX_CELL_DIMENSION, Math.max(MIN_CELL_DIMENSION, parsed));
+  if (Math.abs(clamped) >= MIN_ABS_CELL_DIMENSION) return clamped;
+  return clamped < 0 || Object.is(clamped, -0) ? -MIN_ABS_CELL_DIMENSION : MIN_ABS_CELL_DIMENSION;
+};
 
 const normalizeStore = (store: Partial<Store> & Pick<Store, 'store_name'>): Store => {
   const storeType: Store['store_type'] = store.store_type === 'hanger' ? 'hanger' : 'grid';
@@ -219,10 +258,23 @@ const normalizeStore = (store: Partial<Store> & Pick<Store, 'store_name'>): Stor
   const rawColor = String((store as any).store_color ?? '#3b82f6').trim();
   const storeColor = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(rawColor) ? rawColor : '#3b82f6';
   const storeOpacity = Math.min(1, Math.max(0.1, Number((store as any).store_opacity ?? 1) || 1));
+  const rawRequirePickScan = (store as any).require_pick_scan;
+  const requirePickScan =
+    rawRequirePickScan === true ||
+    rawRequirePickScan === 1 ||
+    rawRequirePickScan === '1'
+      ? true
+      : rawRequirePickScan === false ||
+        rawRequirePickScan === 0 ||
+        rawRequirePickScan === '0'
+      ? false
+      : storeType === 'hanger';
   const defaultCellWidth = STORE_LOCAL_FOOTPRINT_WIDTH / Math.max(1, columns);
   const defaultCellDepth = STORE_LOCAL_FOOTPRINT_DEPTH / Math.max(1, rows);
-  const cellWidth = Math.min(20, Math.max(0.1, Number((store as any).cell_width ?? defaultCellWidth) || defaultCellWidth));
-  const cellDepth = Math.min(20, Math.max(0.1, Number((store as any).cell_depth ?? defaultCellDepth) || defaultCellDepth));
+  const defaultCellHeight = 0.11;
+  const cellWidth = normalizeSignedCellDimension((store as any).cell_width, defaultCellWidth);
+  const cellDepth = normalizeSignedCellDimension((store as any).cell_depth, defaultCellDepth);
+  const cellHeight = normalizeSignedCellDimension((store as any).cell_height, defaultCellHeight);
 
   return {
     store_name: store.store_name,
@@ -241,8 +293,10 @@ const normalizeStore = (store: Partial<Store> & Pick<Store, 'store_name'>): Stor
     slot_capacity: slotCapacity,
     store_color: storeColor,
     store_opacity: storeOpacity,
+    require_pick_scan: requirePickScan,
     cell_width: cellWidth,
     cell_depth: cellDepth,
+    cell_height: cellHeight,
   };
 };
 
@@ -291,7 +345,14 @@ const deriveBlanketAction = (
   return 'updated';
 };
 
-export const useStore = create<AppState>((set, get) => ({
+export const useStore = create<AppState>((set, get) => {
+  const ensureAdminAccess = () => {
+    const user = get().currentUser;
+    if (!user) throw new Error('Please sign in first.');
+    if (!isAdminRole(user.role)) throw new Error('Admin only.');
+  };
+
+  return ({
   stores: [],
   blankets: [],
   logs: [],
@@ -304,100 +365,140 @@ export const useStore = create<AppState>((set, get) => ({
   lastInsertedCell: null,
   gridFace: 'front',
   selectedGridCell: null,
+  searchImmersive: false,
   users: [],
   currentUser: null,
 
   fetchUsers: async () => {
+    const token = readAuthToken();
+    if (!token) {
+      const legacyUsername = typeof localStorage === 'undefined' ? null : localStorage.getItem(LEGACY_USERNAME_KEY);
+      applyAuthToken(null);
+      if (!legacyUsername) {
+        set({ users: [], currentUser: null });
+        return;
+      }
+
+      try {
+        const res = await axios.get('/api/users');
+        const users = Array.isArray(res.data)
+          ? res.data as User[]
+          : Array.isArray(res.data?.users)
+            ? res.data.users as User[]
+            : [];
+        const active = users.find((u) => u.username === legacyUsername && u.is_active) ?? null;
+        if (!active) {
+          localStorage.removeItem(LEGACY_USERNAME_KEY);
+          set({ users: [], currentUser: null });
+          return;
+        }
+        set({ users, currentUser: active });
+      } catch {
+        localStorage.removeItem(LEGACY_USERNAME_KEY);
+        set({ users: [], currentUser: null });
+      }
+      return;
+    }
+
+    applyAuthToken(token);
     try {
+      const sessionRes = await axios.get('/api/session');
+      const currentUser = sessionRes.data as User;
+      if (!currentUser?.is_active) {
+        localStorage.removeItem(AUTH_TOKEN_KEY);
+        applyAuthToken(null);
+        set({ users: [], currentUser: null });
+        return;
+      }
+
+      if (!isAdminRole(currentUser.role)) {
+        set({ users: [], currentUser });
+        return;
+      }
+
       const res = await axios.get('/api/users');
-      const storedUsername = localStorage.getItem('currentUser');
       const users = Array.isArray(res.data)
         ? res.data as User[]
         : Array.isArray(res.data?.users)
           ? res.data.users as User[]
           : [];
-      const active = storedUsername ? users.find((u) => u.username === storedUsername) ?? null : null;
-      if (active && !active.is_active) {
-        localStorage.removeItem('currentUser');
-        set({ users, currentUser: null });
-        return;
-      }
-      set({ users, currentUser: active });
+      set({ users, currentUser });
     } catch (error) {
       console.error('fetchUsers failed:', error);
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+      localStorage.removeItem(LEGACY_USERNAME_KEY);
+      applyAuthToken(null);
       set({ users: [], currentUser: null });
     }
   },
 
   loginUser: async (username, password) => {
-    if (isSupabaseEnabled) {
-      const profileRes = await axios.get('/api/users', { params: { username } });
-      const userData = profileRes.data as User;
-      const email = userData.email || toSupabaseUserEmail(username);
+    const res = await axios.post('/api/login', { username, password });
+    const data = res.data ?? {};
+    const token = typeof data?.token === 'string' ? data.token.trim() : '';
+    const userCandidate = (data?.user ?? data) as Partial<User> | null;
+    const hasUserShape = Boolean(
+      userCandidate &&
+      typeof userCandidate.username === 'string' &&
+      typeof userCandidate.role === 'string'
+    );
 
-      if (!userData.is_active) {
-        throw new Error('This user is inactive. Ask an administrator to reactivate the account.');
-      }
-
-      const {
-        data: authData,
-        error: authError,
-      } = await supabase.auth.signInWithPassword({ email, password });
-
-      if (authError) {
-        throw authError;
-      }
-
-      if (!authData?.session) {
-        throw new Error('Unable to sign in. Please verify your credentials.');
-      }
-
-      await axios.post(`/api/users/${userData.id}/touch-login`);
-
-      localStorage.setItem('currentUser', userData.username);
-      set({
-        currentUser: {
-          ...userData,
-          last_login_at: new Date().toISOString(),
-        },
-      });
-      await get().fetchUsers();
-      return;
+    if (!hasUserShape) {
+      throw new Error('Login failed: invalid server response.');
     }
 
-    const res = await axios.post('/api/login', { username, password });
-    const user = res.data as User;
-    localStorage.setItem('currentUser', user.username);
+    const user = userCandidate as User;
+    if (token) {
+      localStorage.setItem(AUTH_TOKEN_KEY, token);
+      localStorage.removeItem(LEGACY_USERNAME_KEY);
+      applyAuthToken(token);
+    } else {
+      // Backward compatibility with older backend response shape.
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+      localStorage.setItem(LEGACY_USERNAME_KEY, user.username);
+      applyAuthToken(null);
+    }
+
     set({ currentUser: user });
+    if (token || isAdminRole(user.role)) {
+      await get().fetchUsers();
+    }
   },
 
   logoutUser: async () => {
-    if (isSupabaseEnabled) {
-      await supabase.auth.signOut();
+    try {
+      await axios.post('/api/logout');
+    } catch {
+      // ignore logout transport errors and clear local session anyway
     }
-    localStorage.removeItem('currentUser');
-    set({ currentUser: null });
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(LEGACY_USERNAME_KEY);
+    applyAuthToken(null);
+    set({ currentUser: null, users: [], stores: [], blankets: [], logs: [], searchImmersive: false });
   },
 
   addUser: async (user) => {
+    ensureAdminAccess();
     await axios.post('/api/users', user);
     await get().fetchUsers();
   },
 
   updateUser: async (id, data) => {
+    ensureAdminAccess();
     await axios.put(`/api/users/${id}`, data);
-    if (get().currentUser?.id === id && data.username) {
-      localStorage.setItem('currentUser', data.username);
-    }
     await get().fetchUsers();
   },
 
   deleteUser: async (id) => {
+    ensureAdminAccess();
     await axios.delete(`/api/users/${id}`);
     const state = get();
     if (state.currentUser?.id === id) {
-      localStorage.removeItem('currentUser');
-      set({ currentUser: null });
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+      localStorage.removeItem(LEGACY_USERNAME_KEY);
+      applyAuthToken(null);
+      set({ currentUser: null, users: [] });
+      return;
     }
     await get().fetchUsers();
   },
@@ -426,6 +527,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   addStore: async (storeData) => {
+    ensureAdminAccess();
     if (isSupabaseEnabled) {
       const position = getNextStorePosition(get().stores);
       const payload = normalizeStore({
@@ -448,6 +550,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   updateStore: async (name, data) => {
+    ensureAdminAccess();
     const store = get().stores.find((item) => item.store_name === name);
     if (!store) return;
 
@@ -469,6 +572,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   deleteStore: async (name) => {
+    ensureAdminAccess();
     try {
       if (isSupabaseEnabled) {
         await requireSupabaseProxy(() => axios.delete(`${supabaseProxyBase}/stores/${encodeURIComponent(name)}`));
@@ -507,6 +611,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   addBlanket: async (blanket) => {
+    ensureAdminAccess();
     if (isSupabaseEnabled) {
       const meta = createRequestMeta(blanket.notes);
       await requireSupabaseProxy(async () => {
@@ -550,6 +655,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   updateBlanket: async (id, data) => {
+    ensureAdminAccess();
     if (isSupabaseEnabled) {
       await requireSupabaseProxy(async () => {
         const meta = createRequestMeta((data as any).notes);
@@ -577,6 +683,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   deleteBlanket: async (id) => {
+    ensureAdminAccess();
     if (isSupabaseEnabled) {
       await requireSupabaseProxy(async () => {
         const meta = createRequestMeta();
@@ -625,6 +732,7 @@ export const useStore = create<AppState>((set, get) => ({
   setViewMode: (mode) => set({ viewMode: mode }),
 
   markAsPicked: async (blanket) => {
+    ensureAdminAccess();
     const state = get();
     const store = state.stores.find((item) => item.store_name === blanket.store);
     const maxRows = store?.rows || 0;
@@ -709,4 +817,6 @@ export const useStore = create<AppState>((set, get) => ({
   setLastInsertedCell: (cell) => set({ lastInsertedCell: cell }),
   setGridFace: (face) => set({ gridFace: face }),
   setSelectedGridCell: (cell) => set({ selectedGridCell: cell }),
-}));
+  setSearchImmersive: (value) => set({ searchImmersive: value }),
+  });
+});

@@ -172,6 +172,9 @@ const Viewer3DContext = createContext<Viewer3DContextValue | null>(null);
 
 export function Viewer3DSettingsProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<ViewerSettings>(() => loadInitialViewerSettings());
+  // Use the currently loaded settings as this session's baseline defaults.
+  // This makes Reset return to the "current" tuned scene values instead of hardcoded legacy values.
+  const defaultSettingsRef = useRef<ViewerSettings>(loadInitialViewerSettings());
   const [cameraResetToken, setCameraResetToken] = useState(0);
   const [focusSelectedToken, setFocusSelectedToken] = useState(0);
   const [cellFocusToken, setCellFocusToken] = useState(0);
@@ -184,9 +187,10 @@ export function Viewer3DSettingsProvider({ children }: { children: ReactNode }) 
   }, []);
 
   const resetSettings = useCallback(() => {
-    setSettings({ ...defaultViewerSettings });
+    const baseline = { ...defaultSettingsRef.current };
+    setSettings(baseline);
     if (typeof window !== 'undefined') {
-      window.localStorage.removeItem(VIEWER_SETTINGS_STORAGE_KEY);
+      window.localStorage.setItem(VIEWER_SETTINGS_STORAGE_KEY, JSON.stringify(baseline));
     }
   }, []);
 

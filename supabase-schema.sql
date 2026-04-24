@@ -32,16 +32,20 @@ CREATE TABLE IF NOT EXISTS stores (
   store_type text NOT NULL DEFAULT 'grid',
   hanger_slots integer NOT NULL DEFAULT 0,
   slot_capacity integer NOT NULL DEFAULT 1,
+  require_pick_scan boolean NOT NULL DEFAULT false,
   store_color text NOT NULL DEFAULT '#3b82f6',
   store_opacity numeric NOT NULL DEFAULT 1,
   cell_width numeric NOT NULL DEFAULT 0.5,
-  cell_depth numeric NOT NULL DEFAULT 0.5
+  cell_depth numeric NOT NULL DEFAULT 0.5,
+  cell_height numeric NOT NULL DEFAULT 0.11
 );
 
 -- If you created the `stores` table before `slot_capacity` existed,
 -- this adds the missing column without dropping data.
 ALTER TABLE stores
   ADD COLUMN IF NOT EXISTS slot_capacity integer NOT NULL DEFAULT 1;
+ALTER TABLE stores
+  ADD COLUMN IF NOT EXISTS require_pick_scan boolean;
 ALTER TABLE stores
   ADD COLUMN IF NOT EXISTS store_color text NOT NULL DEFAULT '#3b82f6';
 ALTER TABLE stores
@@ -50,15 +54,35 @@ ALTER TABLE stores
   ADD COLUMN IF NOT EXISTS cell_width numeric NOT NULL DEFAULT 0.5;
 ALTER TABLE stores
   ADD COLUMN IF NOT EXISTS cell_depth numeric NOT NULL DEFAULT 0.5;
+ALTER TABLE stores
+  ADD COLUMN IF NOT EXISTS cell_height numeric NOT NULL DEFAULT 0.11;
 
 -- Backfill cell dimensions for old rows that do not have valid values.
 UPDATE stores
 SET cell_width = 5.0 / GREATEST(1, columns)
-WHERE cell_width IS NULL OR cell_width <= 0;
+WHERE cell_width IS NULL OR ABS(cell_width) < 0.001;
 
 UPDATE stores
 SET cell_depth = 5.0 / GREATEST(1, rows)
-WHERE cell_depth IS NULL OR cell_depth <= 0;
+WHERE cell_depth IS NULL OR ABS(cell_depth) < 0.001;
+
+UPDATE stores
+SET cell_height = 0.11
+WHERE cell_height IS NULL OR ABS(cell_height) < 0.001;
+
+-- Backfill pick-scan flag for stores created before this column existed.
+UPDATE stores
+SET require_pick_scan = CASE
+  WHEN lower(coalesce(store_type, 'grid')) = 'hanger' THEN true
+  ELSE false
+END
+WHERE require_pick_scan IS NULL;
+
+ALTER TABLE stores
+  ALTER COLUMN require_pick_scan SET DEFAULT false;
+
+ALTER TABLE stores
+  ALTER COLUMN require_pick_scan SET NOT NULL;
 
 CREATE TABLE IF NOT EXISTS blankets (
   id serial PRIMARY KEY,

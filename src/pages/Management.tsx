@@ -1,15 +1,28 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useStore, Blanket, Store } from '../store/useStore';
-import { Plus, Edit2, Trash2, Search, X, Check, ChevronLeft, ChevronRight, LayoutGrid, Zap, AlertCircle, Package, Settings, History, Download, Filter, RefreshCcw, Printer } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, X, Check, ChevronLeft, ChevronRight, LayoutGrid, Zap, AlertCircle, Package, Settings, History, Download, Filter, RefreshCcw, Printer, Users } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import UserManagementPanel from '../components/UserManagementPanel';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+const normalizeCellDimensionInput = (value: unknown, fallback: number) => {
+  const fallbackNumber = Number.isFinite(Number(fallback)) ? Number(fallback) : 0.5;
+  const candidate = Number(value ?? fallbackNumber);
+  const parsed = Number.isFinite(candidate) ? candidate : fallbackNumber;
+  const clamped = Math.min(20, Math.max(-20, parsed));
+  if (Math.abs(clamped) >= 0.001) return clamped;
+  return clamped < 0 || Object.is(clamped, -0) ? -0.001 : 0.001;
+};
+
 export default function Management() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const { 
     blankets, 
     logs,
@@ -30,7 +43,7 @@ export default function Management() {
   } = useStore();
   const isAdmin = ['admin', 'super-admin'].includes(currentUser?.role || '');
   
-  const [activeTab, setActiveTab] = useState<'blankets' | 'stores' | 'activity' | 'backup' | 'labels'>('blankets');
+  const [activeTab, setActiveTab] = useState<'orders' | 'stores' | 'users' | 'activity' | 'backup' | 'labels'>('orders');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isStoreModalOpen, setIsStoreModalOpen] = useState(false);
@@ -157,11 +170,33 @@ export default function Management() {
     hanger_slots: 10,
     slot_capacity: 1,
     auto_settle: true,
+    require_pick_scan: false,
     store_color: '#3b82f6',
     store_opacity: 1,
     cell_width: 0.5,
     cell_depth: 0.5,
+    cell_height: 0.11,
   });
+
+  const openQuickAdd = () => {
+    setIsQuickAddOpen(true);
+    const params = new URLSearchParams(location.search);
+    if (params.get('quickadd') !== '1') {
+      params.set('quickadd', '1');
+      const next = params.toString();
+      navigate({ pathname: '/management', search: next ? `?${next}` : '' }, { replace: true });
+    }
+  };
+
+  const closeQuickAdd = () => {
+    setIsQuickAddOpen(false);
+    const params = new URLSearchParams(location.search);
+    if (params.has('quickadd')) {
+      params.delete('quickadd');
+      const next = params.toString();
+      navigate({ pathname: '/management', search: next ? `?${next}` : '' }, { replace: true });
+    }
+  };
 
   useEffect(() => {
     if (editingStore) return;
@@ -175,6 +210,13 @@ export default function Management() {
     if (activeTab !== 'activity') return;
     fetchLogs(activityLimit);
   }, [activeTab, activityLimit]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('quickadd') === '1' && isAdmin) {
+      setIsQuickAddOpen(true);
+    }
+  }, [location.search, isAdmin]);
 
   const downloadBackupSnapshot = async () => {
     setBackupBusy(true);
@@ -545,10 +587,12 @@ export default function Management() {
       hanger_slots: storeFormData.store_type === 'hanger' ? storeFormData.hanger_slots : 0,
       slot_capacity: storeFormData.store_type === 'hanger' ? 1 : Math.max(1, Number(storeFormData.slot_capacity || 1)),
       auto_settle: storeFormData.auto_settle,
+      require_pick_scan: storeFormData.require_pick_scan,
       store_color: normalizedColor,
       store_opacity: Math.min(1, Math.max(0.1, Number(storeFormData.store_opacity || 1))),
-      cell_width: Math.min(20, Math.max(0.1, Number(storeFormData.cell_width || 0.5))),
-      cell_depth: Math.min(20, Math.max(0.1, Number(storeFormData.cell_depth || 0.5))),
+      cell_width: normalizeCellDimensionInput(storeFormData.cell_width, 0.5),
+      cell_depth: normalizeCellDimensionInput(storeFormData.cell_depth, 0.5),
+      cell_height: normalizeCellDimensionInput(storeFormData.cell_height, 0.11),
     };
 
     if (editingStore) {
@@ -653,12 +697,18 @@ export default function Management() {
             ? 1
             : Math.max(1, Number((store as any).slot_capacity ?? (/^folding\\b/i.test(store.store_name) ? 20 : 1))),
         auto_settle: store.auto_settle !== false,
+        require_pick_scan:
+          (store as any).require_pick_scan === true ||
+          (store as any).require_pick_scan === 1 ||
+          (store as any).require_pick_scan === '1' ||
+          ((store as any).require_pick_scan == null && store.store_type === 'hanger'),
         store_color: /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test((store as any).store_color || '')
           ? (store as any).store_color
           : '#3b82f6',
         store_opacity: Math.min(1, Math.max(0.1, Number((store as any).store_opacity ?? 1))),
-        cell_width: Math.min(20, Math.max(0.1, Number((store as any).cell_width ?? (5 / Math.max(1, store.columns))))),
-        cell_depth: Math.min(20, Math.max(0.1, Number((store as any).cell_depth ?? (5 / Math.max(1, store.rows))))),
+        cell_width: normalizeCellDimensionInput((store as any).cell_width, 5 / Math.max(1, store.columns)),
+        cell_depth: normalizeCellDimensionInput((store as any).cell_depth, 5 / Math.max(1, store.rows)),
+        cell_height: normalizeCellDimensionInput((store as any).cell_height, 0.11),
       });
     } else {
       setEditingStore(null);
@@ -670,10 +720,12 @@ export default function Management() {
         hanger_slots: type === 'hanger' ? 10 : 10,
         slot_capacity: type === 'hanger' ? 1 : 1,
         auto_settle: true,
+        require_pick_scan: type === 'hanger',
         store_color: '#3b82f6',
         store_opacity: 1,
         cell_width: 0.5,
         cell_depth: type === 'hanger' ? 5 : 0.5,
+        cell_height: 0.11,
       });
     }
     setIsStoreModalOpen(true);
@@ -685,7 +737,7 @@ export default function Management() {
   };
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8 max-w-7xl mx-auto">
+    <div className="p-3 sm:p-6 lg:p-8 space-y-5 sm:space-y-8 max-w-7xl mx-auto">
       {!isAdmin && (
         <div className="rounded-3xl border border-amber-300/40 bg-amber-50/70 p-6 text-amber-900">
           <p className="font-semibold">Read-only access</p>
@@ -697,12 +749,12 @@ export default function Management() {
           <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight text-slate-900">Warehouse Management</h1>
           <p className="text-slate-500 text-base sm:text-lg">Manage blankets and storage configurations.</p>
         </div>
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 w-full md:w-auto">
           <button 
-            onClick={() => setIsQuickAddOpen(true)}
+            onClick={openQuickAdd}
             disabled={!isAdmin}
             className={cn(
-              "px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95",
+              "w-full sm:w-auto justify-center px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95",
               isAdmin
                 ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20"
                 : "bg-slate-700 text-slate-400 cursor-not-allowed shadow-none"
@@ -715,7 +767,7 @@ export default function Management() {
             onClick={() => openModal()}
             disabled={!isAdmin}
             className={cn(
-              "px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95",
+              "w-full sm:w-auto justify-center px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95",
               isAdmin
                 ? "bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/20"
                 : "bg-slate-700 text-slate-400 cursor-not-allowed shadow-none"
@@ -728,16 +780,17 @@ export default function Management() {
       </header>
 
       {/* Tabs */}
-      <div className="flex items-center justify-between">
-        <div className="flex bg-slate-100 p-1 rounded-2xl w-fit border border-slate-200">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="w-full overflow-x-auto pb-1">
+          <div className="flex bg-slate-100 p-1 rounded-2xl w-max border border-slate-200 min-w-max">
           <button 
-            onClick={() => setActiveTab('blankets')}
+            onClick={() => setActiveTab('orders')}
             className={cn(
               "px-8 py-3 rounded-xl font-bold transition-all",
-              activeTab === 'blankets' ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              activeTab === 'orders' ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
             )}
           >
-            Blankets
+            Orders
           </button>
           <button 
             onClick={() => setActiveTab('stores')}
@@ -747,6 +800,16 @@ export default function Management() {
             )}
           >
             Stores
+          </button>
+          <button
+            onClick={() => setActiveTab('users')}
+            className={cn(
+              "px-8 py-3 rounded-xl font-bold transition-all flex items-center gap-2",
+              activeTab === 'users' ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+            )}
+          >
+            <Users size={16} />
+            Users
           </button>
           <button 
             onClick={() => setActiveTab('activity')}
@@ -778,15 +841,16 @@ export default function Management() {
             <Printer size={16} />
             Labels
           </button>
+          </div>
         </div>
 
         {activeTab === 'stores' && (
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3">
             <button 
               onClick={() => openStoreModal()}
               disabled={!isAdmin}
               className={cn(
-                "px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95",
+                "w-full sm:w-auto justify-center px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95",
                 isAdmin
                   ? "bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/20"
                   : "bg-slate-700 text-slate-400 cursor-not-allowed shadow-none"
@@ -799,7 +863,7 @@ export default function Management() {
               onClick={() => openStoreModal(undefined, 'hanger')}
               disabled={!isAdmin}
               className={cn(
-                "px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95",
+                "w-full sm:w-auto justify-center px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95",
                 isAdmin
                   ? "bg-sky-600 hover:bg-sky-700 text-white shadow-sky-600/20"
                   : "bg-slate-700 text-slate-400 cursor-not-allowed shadow-none"
@@ -812,7 +876,7 @@ export default function Management() {
         )}
       </div>
 
-       {activeTab === 'blankets' ? (
+       {activeTab === 'orders' ? (
          <>
            {/* Stats / Last Used */}
            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -1101,6 +1165,8 @@ export default function Management() {
             </div>
           ))}
         </div>
+      ) : activeTab === 'users' ? (
+        <UserManagementPanel />
       ) : activeTab === 'backup' ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 sm:p-8 space-y-5">
@@ -1434,7 +1500,7 @@ export default function Management() {
                         </div>
                       )}
                       <div style={{ marginTop: '2mm', fontSize: '7pt', color: '#64748b' }}>
-                        Blanket Hub
+                        Smart Storage Hub
                       </div>
                     </div>
                   </div>
@@ -1677,7 +1743,9 @@ export default function Management() {
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      onClick={() => setStoreFormData({ ...storeFormData, store_type: 'grid' })}
+                      onClick={() =>
+                        setStoreFormData({ ...storeFormData, store_type: 'grid', require_pick_scan: false })
+                      }
                       className={cn(
                         "px-4 py-3 rounded-2xl font-bold transition-all border",
                         storeFormData.store_type === 'grid'
@@ -1689,7 +1757,9 @@ export default function Management() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setStoreFormData({ ...storeFormData, store_type: 'hanger' })}
+                      onClick={() =>
+                        setStoreFormData({ ...storeFormData, store_type: 'hanger', require_pick_scan: true })
+                      }
                       className={cn(
                         "px-4 py-3 rounded-2xl font-bold transition-all border",
                         storeFormData.store_type === 'hanger'
@@ -1709,7 +1779,7 @@ export default function Management() {
                       type="number"
                       required
                       min={1}
-                      max={50}
+                      max={500}
                       className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-bold"
                       value={storeFormData.hanger_slots}
                       onChange={(e) => setStoreFormData({ ...storeFormData, hanger_slots: parseInt(e.target.value) })}
@@ -1765,14 +1835,14 @@ export default function Management() {
 
               <div className="space-y-2">
                 <label className="text-xs font-black text-slate-400 uppercase tracking-widest">3D Cell Size</label>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Cell Width</label>
                     <input
                       type="number"
-                      min={0.1}
+                      min={-20}
                       max={20}
-                      step={0.1}
+                      step={0.01}
                       className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-bold"
                       value={storeFormData.cell_width}
                       onChange={(e) => setStoreFormData({ ...storeFormData, cell_width: Number(e.target.value) })}
@@ -1782,12 +1852,24 @@ export default function Management() {
                     <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Cell Depth</label>
                     <input
                       type="number"
-                      min={0.1}
+                      min={-20}
                       max={20}
-                      step={0.1}
+                      step={0.01}
                       className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-bold"
                       value={storeFormData.cell_depth}
                       onChange={(e) => setStoreFormData({ ...storeFormData, cell_depth: Number(e.target.value) })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Cell Height</label>
+                    <input
+                      type="number"
+                      min={-20}
+                      max={20}
+                      step={0.01}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-bold"
+                      value={storeFormData.cell_height}
+                      onChange={(e) => setStoreFormData({ ...storeFormData, cell_height: Number(e.target.value) })}
                     />
                   </div>
                 </div>
@@ -1804,6 +1886,19 @@ export default function Management() {
                     className="accent-blue-600 w-5 h-5"
                   />
                   <span className="font-semibold text-slate-700">Enable auto settle for this store</span>
+                </label>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Picked Confirmation</label>
+                <label className="flex items-center gap-3 p-4 rounded-2xl bg-slate-50 border border-slate-200 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={storeFormData.require_pick_scan}
+                    onChange={(e) => setStoreFormData({ ...storeFormData, require_pick_scan: e.target.checked })}
+                    className="accent-blue-600 w-5 h-5"
+                  />
+                  <span className="font-semibold text-slate-700">Require barcode scan before mark as picked</span>
                 </label>
               </div>
 
@@ -1889,20 +1984,20 @@ export default function Management() {
 
       {/* Quick Add Modal */}
       {isQuickAddOpen && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-50 p-4 overflow-auto">
-          <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-6xl overflow-hidden animate-in fade-in zoom-in duration-300 flex flex-col md:flex-row h-[90vh]">
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-50 p-0 sm:p-4 overflow-auto">
+          <div className="bg-white w-full sm:max-w-6xl overflow-hidden animate-in fade-in zoom-in duration-300 flex flex-col md:flex-row h-[100dvh] sm:h-[90vh] rounded-none sm:rounded-[40px]">
             {/* Left: Store & Input */}
-            <div className="w-full md:w-80 bg-slate-50 border-r border-slate-100 p-8 flex flex-col gap-8 overflow-y-auto">
+            <div className="w-full md:w-80 bg-slate-50 md:border-r border-slate-100 p-4 sm:p-6 md:p-8 flex flex-col gap-4 sm:gap-6 md:gap-8 overflow-y-auto max-h-[48dvh] md:max-h-none">
               <div className="flex items-center justify-between">
-                <h2 className="text-3xl font-black tracking-tighter text-slate-900">QUICK ADD</h2>
-                <button onClick={() => setIsQuickAddOpen(false)} className="md:hidden p-2 hover:bg-slate-200 rounded-xl">
+                <h2 className="text-2xl sm:text-3xl font-black tracking-tighter text-slate-900">QUICK ADD</h2>
+                <button onClick={closeQuickAdd} className="md:hidden p-2 hover:bg-slate-200 rounded-xl">
                   <X size={24} />
                 </button>
               </div>
 
               <div className="space-y-4">
                 <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Select Store</label>
-                <div className="grid grid-cols-1 gap-2">
+                <div className="grid grid-cols-2 md:grid-cols-1 gap-2">
                   {stores.map(s => (
                     <button
                       key={s.store_name}
@@ -1911,7 +2006,7 @@ export default function Management() {
                         setSelectedCell(null);
                       }}
                       className={cn(
-                        "p-4 rounded-2xl font-bold text-left transition-all border",
+                        "p-3 sm:p-4 rounded-2xl font-bold text-left transition-all border",
                         quickAddStore === s.store_name 
                           ? "bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-600/20" 
                           : "bg-white text-slate-600 border-slate-200 hover:border-blue-300"
@@ -1923,13 +2018,13 @@ export default function Management() {
                 </div>
               </div>
 
-              <div className="mt-auto space-y-6">
-                <div className="p-6 bg-white rounded-3xl border border-slate-200 shadow-sm space-y-2">
+              <div className="md:mt-auto space-y-5">
+                <div className="p-4 sm:p-6 bg-white rounded-3xl border border-slate-200 shadow-sm space-y-2">
                   <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Selected Position</span>
                   {selectedCell ? (
-                    <div className="text-3xl font-black text-slate-900">R{selectedCell.row} : C{selectedCell.col}</div>
+                    <div className="text-2xl sm:text-3xl font-black text-slate-900">R{selectedCell.row} : C{selectedCell.col}</div>
                   ) : (
-                    <div className="text-xl font-bold text-slate-300 italic">Select a cell...</div>
+                    <div className="text-lg sm:text-xl font-bold text-slate-300 italic">Select a cell...</div>
                   )}
                 </div>
 
@@ -1940,14 +2035,14 @@ export default function Management() {
                       ref={inputRef}
                       type="text" 
                       placeholder="Type number..."
-                      className="w-full p-5 bg-white border-2 border-slate-200 rounded-3xl focus:border-blue-600 outline-none transition-all text-2xl font-black"
+                      className="w-full p-4 sm:p-5 bg-white border-2 border-slate-200 rounded-3xl focus:border-blue-600 outline-none transition-all text-xl sm:text-2xl font-black"
                       value={quickAddNumber}
                       onChange={(e) => setQuickAddNumber(e.target.value)}
                     />
                   </div>
                   <button 
                     disabled={!selectedCell || !quickAddNumber}
-                    className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white py-5 rounded-3xl font-black text-xl shadow-xl shadow-blue-600/20 transition-all active:scale-95"
+                    className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white py-4 sm:py-5 rounded-3xl font-black text-lg sm:text-xl shadow-xl shadow-blue-600/20 transition-all active:scale-95"
                   >
                     SAVE & NEXT
                   </button>
@@ -2011,8 +2106,8 @@ export default function Management() {
             </div>
 
             {/* Right: Grid Display */}
-            <div className="flex-1 bg-white p-8 flex flex-col overflow-hidden">
-              <div className="flex items-center justify-between mb-8">
+            <div className="flex-1 bg-white p-4 sm:p-6 md:p-8 flex flex-col overflow-hidden">
+              <div className="flex items-center justify-between mb-4 sm:mb-6 md:mb-8">
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 bg-slate-900 rounded-2xl flex items-center justify-center text-white font-black">
                     {quickAddStore[0]}
@@ -2024,14 +2119,14 @@ export default function Management() {
                     </p>
                   </div>
                 </div>
-                <button onClick={() => setIsQuickAddOpen(false)} className="hidden md:block p-3 hover:bg-slate-100 rounded-2xl transition-colors">
-                  <X size={32} className="text-slate-400" />
+                <button onClick={closeQuickAdd} className="p-2 sm:p-3 hover:bg-slate-100 rounded-2xl transition-colors">
+                  <X size={26} className="text-slate-400" />
                 </button>
               </div>
 
-              <div className="flex-1 overflow-auto p-4 flex items-center justify-center bg-slate-50 rounded-[32px] border border-slate-100">
+              <div className="flex-1 overflow-auto p-2 sm:p-4 flex items-center justify-center bg-slate-50 rounded-2xl sm:rounded-[32px] border border-slate-100">
                 <div 
-                  className="grid gap-2 p-6"
+                  className="grid gap-1.5 sm:gap-2 p-3 sm:p-6"
                   style={{ 
                     gridTemplateColumns: `repeat(${currentStore?.columns || 1}, minmax(0, 1fr))`,
                   }}
@@ -2084,7 +2179,7 @@ export default function Management() {
                             }
                           }}
                           className={cn(
-                            "w-12 h-12 rounded-xl flex items-center justify-center text-[10px] font-black transition-all duration-200 relative group",
+                            "w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center text-[10px] font-black transition-all duration-200 relative group",
                             isSelected 
                               ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/40 scale-110 z-10 ring-4 ring-emerald-200" 
                               : isMoving
@@ -2126,7 +2221,7 @@ export default function Management() {
                 </div>
               </div>
 
-              <div className="mt-8 flex items-center gap-8 text-xs font-black text-slate-400 uppercase tracking-widest">
+              <div className="mt-4 sm:mt-8 flex flex-wrap items-center gap-4 sm:gap-8 text-[10px] sm:text-xs font-black text-slate-400 uppercase tracking-widest">
                 <div className="flex items-center gap-2">
                   <div className="w-4 h-4 bg-emerald-500 rounded-md"></div>
                   <span>Selected</span>

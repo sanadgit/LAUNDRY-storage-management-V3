@@ -69,6 +69,14 @@ type ApiUser = {
   last_login_at: string | null;
 };
 
+type SessionRecord = {
+  token: string;
+  user_id: number;
+  username: string;
+  role: AppUserRole;
+  expires_at: number;
+};
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,10 +100,12 @@ db.exec(`
     store_type TEXT DEFAULT 'grid',
     hanger_slots INTEGER DEFAULT 0,
     slot_capacity INTEGER DEFAULT 1,
+    require_pick_scan INTEGER DEFAULT 0,
     store_color TEXT DEFAULT '#3b82f6',
     store_opacity REAL DEFAULT 1,
     cell_width REAL DEFAULT 0.5,
-    cell_depth REAL DEFAULT 0.5
+    cell_depth REAL DEFAULT 0.5,
+    cell_height REAL DEFAULT 0.11
   );
 
   CREATE TABLE IF NOT EXISTS blankets (
@@ -142,10 +152,12 @@ ensureColumn('stores', 'auto_settle', 'INTEGER DEFAULT 1');
 ensureColumn('stores', 'store_type', "TEXT DEFAULT 'grid'");
 ensureColumn('stores', 'hanger_slots', 'INTEGER DEFAULT 0');
 ensureColumn('stores', 'slot_capacity', 'INTEGER DEFAULT 1');
+ensureColumn('stores', 'require_pick_scan', 'INTEGER');
 ensureColumn('stores', 'store_color', "TEXT DEFAULT '#3b82f6'");
 ensureColumn('stores', 'store_opacity', 'REAL DEFAULT 1');
 ensureColumn('stores', 'cell_width', 'REAL DEFAULT 0.5');
 ensureColumn('stores', 'cell_depth', 'REAL DEFAULT 0.5');
+ensureColumn('stores', 'cell_height', 'REAL DEFAULT 0.11');
 
 // Backfill: folded shelves can hold multiple bags per cell.
 // If you already use a different capacity, edit it from the Management UI.
@@ -154,13 +166,26 @@ db.prepare(
 ).run();
 db.prepare(
   `UPDATE stores
+   SET require_pick_scan = CASE
+     WHEN lower(COALESCE(store_type, 'grid')) = 'hanger' THEN 1
+     ELSE 0
+   END
+   WHERE require_pick_scan IS NULL`
+).run();
+db.prepare(
+  `UPDATE stores
    SET cell_width = ${STORE_LOCAL_FOOTPRINT}.0 / CASE WHEN COALESCE(columns, 0) <= 0 THEN 1 ELSE columns END
-   WHERE cell_width IS NULL OR cell_width <= 0`
+   WHERE cell_width IS NULL OR ABS(cell_width) < 0.001`
 ).run();
 db.prepare(
   `UPDATE stores
    SET cell_depth = ${STORE_LOCAL_FOOTPRINT}.0 / CASE WHEN COALESCE(rows, 0) <= 0 THEN 1 ELSE rows END
-   WHERE cell_depth IS NULL OR cell_depth <= 0`
+   WHERE cell_depth IS NULL OR ABS(cell_depth) < 0.001`
+).run();
+db.prepare(
+  `UPDATE stores
+   SET cell_height = 0.11
+   WHERE cell_height IS NULL OR ABS(cell_height) < 0.001`
 ).run();
 
 ensureColumn('users', 'password', "TEXT DEFAULT ''");
@@ -194,6 +219,67 @@ const isAdminUsername = async (username: unknown) => {
   const row = db.prepare('SELECT role FROM users WHERE username = ?').get(username.trim()) as { role?: string } | undefined;
   const role = String(row?.role ?? '').toLowerCase();
   return role === 'admin' || role === 'super-admin';
+};
+
+const SESSION_TTL_MS = 1000 * 60 * 60 * 12; // 12 hours
+const sessionStore = new Map<string, SessionRecord>();
+
+const isAdminRole = (role: unknown) => {
+  const normalized = String(role ?? '').toLowerCase();
+  return normalized === 'admin' || normalized === 'super-admin';
+};
+
+const extractBearerToken = (req: any) => {
+  const header = String(req.headers?.authorization ?? '').trim();
+  if (!header.toLowerCase().startsWith('bearer ')) return null;
+  const token = header.slice(7).trim();
+  return token.length > 0 ? token : null;
+};
+
+const getSessionFromRequest = (req: any): SessionRecord | null => {
+  const token = extractBearerToken(req);
+  if (!token) return null;
+  const session = sessionStore.get(token);
+  if (!session) return null;
+  if (session.expires_at <= Date.now()) {
+    sessionStore.delete(token);
+    return null;
+  }
+  return session;
+};
+
+const issueSession = (user: Pick<SQLiteUserRecord, 'id' | 'username' | 'role'>) => {
+  const token = randomUUID();
+  const session: SessionRecord = {
+    token,
+    user_id: user.id,
+    username: user.username,
+    role: user.role,
+    expires_at: Date.now() + SESSION_TTL_MS,
+  };
+  sessionStore.set(token, session);
+  return session;
+};
+
+const requireAuth = (req: any, res: any, next: any) => {
+  const session = getSessionFromRequest(req);
+  if (!session) {
+    return res.status(401).json({ error: 'Authentication required.' });
+  }
+  req.auth = session;
+  next();
+};
+
+const requireAdmin = (req: any, res: any, next: any) => {
+  const session = getSessionFromRequest(req);
+  if (!session) {
+    return res.status(401).json({ error: 'Authentication required.' });
+  }
+  if (!isAdminRole(session.role)) {
+    return res.status(403).json({ error: 'Admin only.' });
+  }
+  req.auth = session;
+  next();
 };
 
 const readSqliteSnapshot = (opts: { logsLimit: number; blanketsLimit: number }) => {
@@ -246,8 +332,8 @@ const restoreSqliteFromSnapshot = (snapshot: { stores: any[]; blankets: any[]; l
     const insertStore = db.prepare(`
       INSERT OR REPLACE INTO stores (
         store_name, position_x, position_y, position_z, width, depth, height,
-        rows, columns, rotation_y, auto_settle, store_type, hanger_slots, slot_capacity, store_color, store_opacity, cell_width, cell_depth
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        rows, columns, rotation_y, auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_opacity, cell_width, cell_depth, cell_height
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     for (const s of snapshot.stores ?? []) {
@@ -266,10 +352,12 @@ const restoreSqliteFromSnapshot = (snapshot: { stores: any[]; blankets: any[]; l
         s.store_type ?? 'grid',
         s.hanger_slots ?? 0,
         s.slot_capacity ?? 1,
+        normalizeStoreRequirePickScan((s as any).require_pick_scan, s.store_type ?? 'grid') ? 1 : 0,
         normalizeStoreColor(s.store_color),
         normalizeStoreOpacity(s.store_opacity),
         normalizeStoreCellDimension(s.cell_width, deriveDefaultCellWidth(s.columns ?? 10)),
-        normalizeStoreCellDimension(s.cell_depth, deriveDefaultCellDepth(s.rows ?? 10))
+        normalizeStoreCellDimension(s.cell_depth, deriveDefaultCellDepth(s.rows ?? 10)),
+        normalizeStoreCellDimension(s.cell_height, deriveDefaultCellHeight())
       );
     }
 
@@ -553,8 +641,8 @@ if (storeCount.count === 0) {
   const insertStore = db.prepare(`
     INSERT INTO stores (
       store_name, position_x, position_y, position_z, width, depth, height,
-      rows, columns, rotation_y, auto_settle, store_type, hanger_slots, slot_capacity, store_color, store_opacity, cell_width, cell_depth
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      rows, columns, rotation_y, auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_opacity, cell_width, cell_depth, cell_height
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   initialStores.forEach((store) => {
@@ -573,10 +661,12 @@ if (storeCount.count === 0) {
       store.store_type,
       store.hanger_slots,
       store.slot_capacity,
+      normalizeStoreRequirePickScan((store as any).require_pick_scan, store.store_type) ? 1 : 0,
       normalizeStoreColor((store as any).store_color),
       normalizeStoreOpacity((store as any).store_opacity),
       normalizeStoreCellDimension((store as any).cell_width, deriveDefaultCellWidth(store.columns)),
-      normalizeStoreCellDimension((store as any).cell_depth, deriveDefaultCellDepth(store.rows))
+      normalizeStoreCellDimension((store as any).cell_depth, deriveDefaultCellDepth(store.rows)),
+      normalizeStoreCellDimension((store as any).cell_height, deriveDefaultCellHeight())
     );
   });
 }
@@ -653,14 +743,28 @@ const normalizeStoreOpacity = (value: unknown) => {
   return Math.min(1, Math.max(0.1, Number(value ?? 1) || 1));
 };
 
+const normalizeStoreRequirePickScan = (value: unknown, storeType: unknown) => {
+  if (value === true || value === 1 || value === '1') return true;
+  if (value === false || value === 0 || value === '0') return false;
+  return String(storeType ?? '').toLowerCase() === 'hanger';
+};
+
 const deriveDefaultCellWidth = (columns: unknown) =>
   STORE_LOCAL_FOOTPRINT / Math.max(1, Number(columns ?? 1) || 1);
 
 const deriveDefaultCellDepth = (rows: unknown) =>
   STORE_LOCAL_FOOTPRINT / Math.max(1, Number(rows ?? 1) || 1);
 
-const normalizeStoreCellDimension = (value: unknown, fallback: number) =>
-  Math.min(20, Math.max(0.1, Number(value ?? fallback) || fallback));
+const deriveDefaultCellHeight = () => 0.11;
+
+const normalizeStoreCellDimension = (value: unknown, fallback: number) => {
+  const fallbackNumber = Number.isFinite(Number(fallback)) ? Number(fallback) : 0.5;
+  const candidate = Number(value ?? fallbackNumber);
+  const parsed = Number.isFinite(candidate) ? candidate : fallbackNumber;
+  const clamped = Math.min(20, Math.max(-20, parsed));
+  if (Math.abs(clamped) >= 0.001) return clamped;
+  return clamped < 0 || Object.is(clamped, -0) ? -0.001 : 0.001;
+};
 
 const getLogMeta = (req: express.Request) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
@@ -961,9 +1065,8 @@ async function startServer() {
 
   app.get(
     '/api/backup/snapshot',
+    requireAdmin,
     asyncHandler(async (req, res) => {
-      const user = typeof req.query.user === 'string' ? req.query.user : '';
-      if (!(await isAdminUsername(user))) return res.status(403).json({ error: 'Admin only.' });
 
       const rawLogsLimit = Number(req.query.logsLimit ?? 20000);
       const rawBlanketsLimit = Number(req.query.blanketsLimit ?? 100000);
@@ -1008,7 +1111,7 @@ async function startServer() {
   // Supabase data proxy.
   // Some environments have trouble connecting to Supabase REST from the browser (HTTP/2 / connection resets).
   // These endpoints let the frontend call the local server, and the server talks to Supabase using the service key.
-  app.get('/api/supabase/stores', async (_req, res) => {
+  app.get('/api/supabase/stores', requireAuth, async (_req, res) => {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
     try {
       const { data, error } = await supabaseAdmin.from('stores').select('*').order('store_name', { ascending: true });
@@ -1021,24 +1124,28 @@ async function startServer() {
     }
   });
 
-  app.post('/api/supabase/stores', async (req, res) => {
+  app.post('/api/supabase/stores', requireAdmin, async (req, res) => {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
     const payload = req.body ?? {};
     const visualPayload = {
       ...payload,
+      require_pick_scan: normalizeStoreRequirePickScan((payload as any).require_pick_scan, (payload as any).store_type),
       store_color: normalizeStoreColor((payload as any).store_color),
       store_opacity: normalizeStoreOpacity((payload as any).store_opacity),
       cell_width: normalizeStoreCellDimension((payload as any).cell_width, deriveDefaultCellWidth((payload as any).columns ?? 10)),
       cell_depth: normalizeStoreCellDimension((payload as any).cell_depth, deriveDefaultCellDepth((payload as any).rows ?? 10)),
+      cell_height: normalizeStoreCellDimension((payload as any).cell_height, deriveDefaultCellHeight()),
     };
     let { error } = await supabaseAdmin.from('stores').insert(visualPayload);
     // Backwards compatibility with older Supabase schema (without visual columns).
     if (error && ((error as any).code === '42703' || (error as any).code === 'PGRST204')) {
       const {
+        require_pick_scan: _requirePickScan,
         store_color: _storeColor,
         store_opacity: _storeOpacity,
         cell_width: _cellWidth,
         cell_depth: _cellDepth,
+        cell_height: _cellHeight,
         ...legacyPayload
       } = visualPayload as any;
       const retry = await supabaseAdmin.from('stores').insert(legacyPayload);
@@ -1048,25 +1155,29 @@ async function startServer() {
     return res.json({ success: true });
   });
 
-  app.put('/api/supabase/stores/:name', async (req, res) => {
+  app.put('/api/supabase/stores/:name', requireAdmin, async (req, res) => {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
     const name = req.params.name;
     const payload = req.body ?? {};
     const visualPayload = {
       ...payload,
+      require_pick_scan: normalizeStoreRequirePickScan((payload as any).require_pick_scan, (payload as any).store_type),
       store_color: normalizeStoreColor((payload as any).store_color),
       store_opacity: normalizeStoreOpacity((payload as any).store_opacity),
       cell_width: normalizeStoreCellDimension((payload as any).cell_width, deriveDefaultCellWidth((payload as any).columns ?? 10)),
       cell_depth: normalizeStoreCellDimension((payload as any).cell_depth, deriveDefaultCellDepth((payload as any).rows ?? 10)),
+      cell_height: normalizeStoreCellDimension((payload as any).cell_height, deriveDefaultCellHeight()),
     };
     let { error } = await supabaseAdmin.from('stores').update(visualPayload).eq('store_name', name);
     // Backwards compatibility with older Supabase schema (without visual columns).
     if (error && ((error as any).code === '42703' || (error as any).code === 'PGRST204')) {
       const {
+        require_pick_scan: _requirePickScan,
         store_color: _storeColor,
         store_opacity: _storeOpacity,
         cell_width: _cellWidth,
         cell_depth: _cellDepth,
+        cell_height: _cellHeight,
         ...legacyPayload
       } = visualPayload as any;
       const retry = await supabaseAdmin.from('stores').update(legacyPayload).eq('store_name', name);
@@ -1076,7 +1187,7 @@ async function startServer() {
     return res.json({ success: true });
   });
 
-  app.delete('/api/supabase/stores/:name', async (req, res) => {
+  app.delete('/api/supabase/stores/:name', requireAdmin, async (req, res) => {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
     const name = req.params.name;
     const { count, error: countError } = await supabaseAdmin
@@ -1091,7 +1202,7 @@ async function startServer() {
     return res.json({ success: true });
   });
 
-  app.get('/api/supabase/blankets', async (_req, res) => {
+  app.get('/api/supabase/blankets', requireAuth, async (_req, res) => {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
     try {
       const { data, error } = await supabaseAdmin.from('blankets').select('*').order('created_at', { ascending: false });
@@ -1104,7 +1215,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/supabase/blankets', async (req, res) => {
+  app.post('/api/supabase/blankets', requireAdmin, async (req, res) => {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
     const { blanket_number, store, row, column, status, user } = req.body ?? {};
     const action = status || 'stored';
@@ -1147,7 +1258,7 @@ async function startServer() {
     return res.json({ success: true, blanket: insertedBlanket });
   });
 
-  app.put('/api/supabase/blankets/:id', async (req, res) => {
+  app.put('/api/supabase/blankets/:id', requireAdmin, async (req, res) => {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
     const id = Number(req.params.id);
     const { user, request_id, device, ip, notes, ...payload } = req.body ?? {};
@@ -1196,7 +1307,7 @@ async function startServer() {
     return res.json({ success: true });
   });
 
-  app.delete('/api/supabase/blankets/:id', async (req, res) => {
+  app.delete('/api/supabase/blankets/:id', requireAdmin, async (req, res) => {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
     const id = Number(req.params.id);
     const user = req.body?.user ?? 'system';
@@ -1231,7 +1342,7 @@ async function startServer() {
     return res.json({ success: true });
   });
 
-  app.get('/api/supabase/logs', async (req, res) => {
+  app.get('/api/supabase/logs', requireAuth, async (req, res) => {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
     try {
       const limit = Math.min(1000, Math.max(1, Number(req.query.limit ?? 500)));
@@ -1250,7 +1361,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/supabase/logs', async (req, res) => {
+  app.post('/api/supabase/logs', requireAdmin, async (req, res) => {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
     const meta = getLogMeta(req);
     const payload = { ...(req.body ?? {}) } as Record<string, unknown>;
@@ -1269,9 +1380,9 @@ async function startServer() {
 
   app.post(
     '/api/restore/sqlite',
+    requireAdmin,
     asyncHandler(async (req, res) => {
-      const { snapshot, source, confirm, user } = req.body ?? {};
-      if (!(await isAdminUsername(user))) return res.status(403).json({ error: 'Admin only.' });
+      const { snapshot, source, confirm } = req.body ?? {};
       if (confirm !== 'RESTORE') return res.status(400).json({ error: 'Confirmation required. Set confirm="RESTORE".' });
       if (!snapshot || (source !== 'sqlite' && source !== 'supabase')) {
         return res.status(400).json({ error: 'Invalid payload. Provide snapshot + source.' });
@@ -1293,10 +1404,10 @@ async function startServer() {
 
   app.post(
     '/api/restore/supabase',
+    requireAdmin,
     asyncHandler(async (req, res) => {
       if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
-      const { snapshot, source, confirm, user } = req.body ?? {};
-      if (!(await isAdminUsername(user))) return res.status(403).json({ error: 'Admin only.' });
+      const { snapshot, source, confirm } = req.body ?? {};
       if (confirm !== 'RESTORE') return res.status(400).json({ error: 'Confirmation required. Set confirm="RESTORE".' });
       if (!snapshot || (source !== 'sqlite' && source !== 'supabase')) {
         return res.status(400).json({ error: 'Invalid payload. Provide snapshot + source.' });
@@ -1329,10 +1440,12 @@ async function startServer() {
         store_type: s.store_type ?? 'grid',
         hanger_slots: s.hanger_slots ?? 0,
         slot_capacity: s.slot_capacity ?? 1,
+        require_pick_scan: normalizeStoreRequirePickScan((s as any).require_pick_scan, s.store_type ?? 'grid'),
         store_color: normalizeStoreColor(s.store_color),
         store_opacity: normalizeStoreOpacity(s.store_opacity),
         cell_width: normalizeStoreCellDimension(s.cell_width, deriveDefaultCellWidth(s.columns ?? 10)),
         cell_depth: normalizeStoreCellDimension(s.cell_depth, deriveDefaultCellDepth(s.rows ?? 10)),
+        cell_height: normalizeStoreCellDimension(s.cell_height, deriveDefaultCellHeight()),
       }));
 
       for (const batch of chunk(storesPayload, 500)) {
@@ -1385,7 +1498,7 @@ async function startServer() {
     })
   );
 
-  app.get('/api/users', async (req, res) => {
+  app.get('/api/users', requireAdmin, async (req, res) => {
     try {
       const username = typeof req.query.username === 'string' ? req.query.username : undefined;
       const users = isSupabaseAdminEnabled ? await getSupabaseUsers(username) : getSQLiteUsers(username);
@@ -1405,7 +1518,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/users', async (req, res) => {
+  app.post('/api/users', requireAdmin, async (req, res) => {
     try {
       const payload = parseUserPayload(req.body);
 
@@ -1433,7 +1546,7 @@ async function startServer() {
     }
   });
 
-  app.put('/api/users/:id', async (req, res) => {
+  app.put('/api/users/:id', requireAdmin, async (req, res) => {
     try {
       const userId = Number(req.params.id);
       const payload = parseUserPayload(req.body);
@@ -1486,7 +1599,7 @@ async function startServer() {
     }
   });
 
-  app.delete('/api/users/:id', async (req, res) => {
+  app.delete('/api/users/:id', requireAdmin, async (req, res) => {
     try {
       const userId = Number(req.params.id);
       const sqliteExisting = db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as SQLiteUserRecord | undefined;
@@ -1521,9 +1634,14 @@ async function startServer() {
     }
   });
 
-  app.post('/api/users/:id/touch-login', async (req, res) => {
+  app.post('/api/users/:id/touch-login', requireAuth, async (req: any, res) => {
     try {
       const userId = Number(req.params.id);
+      const auth = req.auth as SessionRecord | undefined;
+      if (!auth) return res.status(401).json({ error: 'Authentication required.' });
+      if (auth.user_id !== userId && !isAdminRole(auth.role)) {
+        return res.status(403).json({ error: 'Forbidden.' });
+      }
       const timestamp = new Date().toISOString();
       touchSQLiteLastLogin(userId, timestamp);
 
@@ -1562,10 +1680,29 @@ async function startServer() {
     const timestamp = new Date().toISOString();
     touchSQLiteLastLogin(user.id, timestamp);
 
-    res.json(normalizeSQLiteUser({ ...user, last_login_at: timestamp }));
+    const normalizedUser = normalizeSQLiteUser({ ...user, last_login_at: timestamp });
+    const session = issueSession({ id: user.id, username: user.username, role: user.role });
+    res.json({ user: normalizedUser, token: session.token, expires_at: session.expires_at });
   });
 
-  app.get('/api/stores', (_req, res) => {
+  app.get('/api/session', requireAuth, (req: any, res) => {
+    const auth = req.auth as SessionRecord | undefined;
+    if (!auth) return res.status(401).json({ error: 'Authentication required.' });
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(auth.user_id) as SQLiteUserRecord | undefined;
+    if (!user || user.is_active === 0) {
+      sessionStore.delete(auth.token);
+      return res.status(401).json({ error: 'Session expired.' });
+    }
+    res.json(normalizeSQLiteUser(user));
+  });
+
+  app.post('/api/logout', requireAuth, (req: any, res) => {
+    const auth = req.auth as SessionRecord | undefined;
+    if (auth) sessionStore.delete(auth.token);
+    res.json({ success: true });
+  });
+
+  app.get('/api/stores', requireAuth, (_req, res) => {
     try {
       const stores = db.prepare('SELECT * FROM stores').all();
       const storesArray = Array.isArray(stores) ? stores : [];
@@ -1576,8 +1713,8 @@ async function startServer() {
     }
   });
 
-  app.post('/api/stores', (req, res) => {
-    const { store_name, rows, columns, auto_settle, store_type, hanger_slots, slot_capacity, width, depth, height, store_color, store_opacity, cell_width, cell_depth } = req.body;
+  app.post('/api/stores', requireAdmin, (req, res) => {
+    const { store_name, rows, columns, auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, width, depth, height, store_color, store_opacity, cell_width, cell_depth, cell_height } = req.body;
 
     const normalizedRows = store_type === 'hanger' ? 1 : Math.max(1, Number(rows ?? 10) || 1);
     const normalizedHangerSlots = store_type === 'hanger'
@@ -1589,8 +1726,10 @@ async function startServer() {
     const normalizedHeight = Math.max(0.1, Number(height ?? 3) || 3);
     const normalizedStoreColor = normalizeStoreColor(store_color);
     const normalizedStoreOpacity = normalizeStoreOpacity(store_opacity);
+    const normalizedRequirePickScan = normalizeStoreRequirePickScan(require_pick_scan, store_type || 'grid');
     const normalizedCellWidth = normalizeStoreCellDimension(cell_width, deriveDefaultCellWidth(normalizedColumns));
     const normalizedCellDepth = normalizeStoreCellDimension(cell_depth, deriveDefaultCellDepth(normalizedRows));
+    const normalizedCellHeight = normalizeStoreCellDimension(cell_height, deriveDefaultCellHeight());
     const normalizedSlotCapacity =
       store_type === 'hanger'
         ? 1
@@ -1607,9 +1746,9 @@ async function startServer() {
     db.prepare(`
       INSERT INTO stores (
         store_name, position_x, position_z, width, depth, height, rows, columns,
-        auto_settle, store_type, hanger_slots, slot_capacity, store_color, store_opacity, cell_width, cell_depth
+        auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_opacity, cell_width, cell_depth, cell_height
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       store_name,
       position_x,
@@ -1623,18 +1762,20 @@ async function startServer() {
       store_type || 'grid',
       normalizedHangerSlots,
       normalizedSlotCapacity,
+      normalizedRequirePickScan ? 1 : 0,
       normalizedStoreColor,
       normalizedStoreOpacity,
       normalizedCellWidth,
-      normalizedCellDepth
+      normalizedCellDepth,
+      normalizedCellHeight
     );
 
     res.json({ success: true });
   });
 
-  app.put('/api/stores/:name', (req, res) => {
+  app.put('/api/stores/:name', requireAdmin, (req, res) => {
     const { name } = req.params;
-    const { position_x, position_y, position_z, width, depth, height, rows, columns, rotation_y, auto_settle, store_type, hanger_slots, slot_capacity, store_color, store_opacity, cell_width, cell_depth } = req.body;
+    const { position_x, position_y, position_z, width, depth, height, rows, columns, rotation_y, auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_opacity, cell_width, cell_depth, cell_height } = req.body;
 
     const normalizedRows = store_type === 'hanger' ? 1 : Math.max(1, Number(rows ?? 10) || 1);
     const normalizedHangerSlots = store_type === 'hanger'
@@ -1646,13 +1787,15 @@ async function startServer() {
     const normalizedHeight = Math.max(0.1, Number(height ?? 3) || 3);
     const normalizedStoreColor = normalizeStoreColor(store_color);
     const normalizedStoreOpacity = normalizeStoreOpacity(store_opacity);
+    const normalizedRequirePickScan = normalizeStoreRequirePickScan(require_pick_scan, store_type || 'grid');
     const normalizedCellWidth = normalizeStoreCellDimension(cell_width, deriveDefaultCellWidth(normalizedColumns));
     const normalizedCellDepth = normalizeStoreCellDimension(cell_depth, deriveDefaultCellDepth(normalizedRows));
+    const normalizedCellHeight = normalizeStoreCellDimension(cell_height, deriveDefaultCellHeight());
     const normalizedSlotCapacity = store_type === 'hanger' ? 1 : Math.max(1, Number(slot_capacity ?? 1));
 
     db.prepare(`
       UPDATE stores
-      SET position_x = ?, position_y = ?, position_z = ?, width = ?, depth = ?, height = ?, rows = ?, columns = ?, rotation_y = ?, auto_settle = ?, store_type = ?, hanger_slots = ?, slot_capacity = ?, store_color = ?, store_opacity = ?, cell_width = ?, cell_depth = ?
+      SET position_x = ?, position_y = ?, position_z = ?, width = ?, depth = ?, height = ?, rows = ?, columns = ?, rotation_y = ?, auto_settle = ?, store_type = ?, hanger_slots = ?, slot_capacity = ?, require_pick_scan = ?, store_color = ?, store_opacity = ?, cell_width = ?, cell_depth = ?, cell_height = ?
       WHERE store_name = ?
     `).run(
       position_x,
@@ -1668,17 +1811,19 @@ async function startServer() {
       store_type || 'grid',
       normalizedHangerSlots,
       normalizedSlotCapacity,
+      normalizedRequirePickScan ? 1 : 0,
       normalizedStoreColor,
       normalizedStoreOpacity,
       normalizedCellWidth,
       normalizedCellDepth,
+      normalizedCellHeight,
       name
     );
 
     res.json({ success: true });
   });
 
-  app.delete('/api/stores/:name', (req, res) => {
+  app.delete('/api/stores/:name', requireAdmin, (req, res) => {
     const { name } = req.params;
 
     const blanketCount = db.prepare('SELECT COUNT(*) as count FROM blankets WHERE store = ?').get(name) as { count: number };
@@ -1690,7 +1835,7 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.get('/api/blankets', (_req, res) => {
+  app.get('/api/blankets', requireAuth, (_req, res) => {
     try {
       const blankets = db.prepare('SELECT * FROM blankets ORDER BY created_at DESC').all();
       const blanketsArray = Array.isArray(blankets) ? blankets : [];
@@ -1701,7 +1846,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/blankets', (req, res) => {
+  app.post('/api/blankets', requireAdmin, (req, res) => {
     const { blanket_number, store, row, column, status, user, notes } = req.body;
     const action = status || 'stored';
     const meta = getLogMeta(req);
@@ -1736,7 +1881,7 @@ async function startServer() {
     res.json({ id: result.lastInsertRowid });
   });
 
-  app.put('/api/blankets/:id', (req, res) => {
+  app.put('/api/blankets/:id', requireAdmin, (req, res) => {
     const { id } = req.params;
     const { blanket_number, store, row, column, status, user, notes } = req.body;
     const meta = getLogMeta(req);
@@ -1777,7 +1922,7 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.delete('/api/blankets/:id', (req, res) => {
+  app.delete('/api/blankets/:id', requireAdmin, (req, res) => {
     const { id } = req.params;
     const meta = getLogMeta(req);
     const blanket = db.prepare('SELECT blanket_number, store, row, column, status FROM blankets WHERE id = ?').get(id) as
@@ -1806,7 +1951,7 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.get('/api/logs', (req, res) => {
+  app.get('/api/logs', requireAuth, (req, res) => {
     try {
       // Order by id as a tie-breaker so multiple events in the same second don't appear to "overwrite" each other.
       const rawLimit = Number(req.query.limit ?? 500);
@@ -1820,7 +1965,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/logs', (req, res) => {
+  app.post('/api/logs', requireAdmin, (req, res) => {
     const { blanket_number, action, user, store, row, column, status, notes } = req.body;
     const meta = getLogMeta(req);
     db.prepare(

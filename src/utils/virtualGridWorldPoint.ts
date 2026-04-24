@@ -8,6 +8,15 @@ import type { Store } from '../store/useStore';
 
 type Point3 = { x: number; y: number; z: number };
 
+const normalizeCellDimension = (value: unknown, fallback: number) => {
+  const fallbackNumber = Number.isFinite(Number(fallback)) ? Number(fallback) : 0.5;
+  const candidate = Number(value ?? fallbackNumber);
+  const parsed = Number.isFinite(candidate) ? candidate : fallbackNumber;
+  const clamped = Math.min(20, Math.max(-20, parsed));
+  if (Math.abs(clamped) >= 0.001) return clamped;
+  return clamped < 0 || Object.is(clamped, -0) ? -0.001 : 0.001;
+};
+
 /**
  * Compute an approximate world-space focus point for a (row,column) cell on the
  * VirtualBlanketGridOverlay, matching the overlay math in `VirtualBlanketGridOverlay.tsx`.
@@ -24,20 +33,9 @@ export function getVirtualGridCellWorldPoint(params: {
   const storeRows = Math.max(1, store.rows || 1);
   const storeCols = Math.max(1, store.columns || 1);
 
-  const cellWidth = Math.min(
-    20,
-    Math.max(
-      0.1,
-      Number((store as any).cell_width ?? (STORE_LOCAL_FOOTPRINT_WIDTH / storeCols)) || (STORE_LOCAL_FOOTPRINT_WIDTH / storeCols)
-    )
-  );
-  const cellDepth = Math.min(
-    20,
-    Math.max(
-      0.1,
-      Number((store as any).cell_depth ?? (STORE_LOCAL_FOOTPRINT_DEPTH / storeRows)) || (STORE_LOCAL_FOOTPRINT_DEPTH / storeRows)
-    )
-  );
+  const cellWidth = normalizeCellDimension((store as any).cell_width, STORE_LOCAL_FOOTPRINT_WIDTH / storeCols);
+  const cellDepth = normalizeCellDimension((store as any).cell_depth, STORE_LOCAL_FOOTPRINT_DEPTH / storeRows);
+  const cellHeight = Math.abs(normalizeCellDimension((store as any).cell_height, 0.11));
   const gridHalfWidth = (cellWidth * storeCols) / 2;
   const gridHalfDepth = (cellDepth * storeRows) / 2;
   const zFaceShift = gridFace === 'front' ? -GRID_FACE_Z_OFFSET : GRID_FACE_Z_OFFSET;
@@ -47,7 +45,7 @@ export function getVirtualGridCellWorldPoint(params: {
   const x = (storeCols - column) * cellWidth + cellWidth / 2;
   // z in [0..STORE_LOCAL_FOOTPRINT_DEPTH] maps to vertical axis after overlay rotation (-PI/2 around X).
   const z = (row - 1) * cellDepth + cellDepth / 2 + zFaceShift;
-  const boxY = 0.09;
+  const boxY = Math.max(0.06, cellHeight * 0.5 + 0.03);
 
   // Apply the overlay group transform: rotation [-PI/2,0,0] then translation [-gridHalfWidth,0,-gridHalfDepth].
   // After rotation around X by -PI/2: (x, y, z) -> (x, z, -y)
