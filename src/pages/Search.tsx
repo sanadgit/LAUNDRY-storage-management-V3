@@ -29,8 +29,6 @@ export default function SearchPage() {
     selectedStore,
     setSelectedStore,
     gridFace,
-    setGridFace,
-    selectedGridCell,
     setSelectedGridCell,
     currentUser,
   } = useStore();
@@ -440,11 +438,7 @@ export default function SearchPage() {
             </div>
           )}
         </div>
-        {currentUser ? (
-          <div className="rounded-3xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm text-slate-200">
-            Signed in as <span className="font-bold text-white">{currentUser.username}</span> ({currentUser.role})
-          </div>
-        ) : (
+        {!currentUser && (
           <div className="rounded-3xl border border-rose-600 bg-rose-950/60 px-4 py-3 text-sm text-rose-200">
             Select a user from the sidebar before picking blankets.
           </div>
@@ -524,8 +518,10 @@ export default function SearchPage() {
       <div className="flex-1 relative flex overflow-hidden">
         {/* Left Sidebar: Results & Guided Retrieval */}
         <div className={cn(
-          "bg-slate-900 border-r border-slate-800 flex flex-col transition-all duration-500 z-20 absolute sm:relative inset-y-0 left-0 w-full sm:w-96",
-          hasQuery && searchPanelOpen ? "translate-x-0" : "-translate-x-full"
+          "bg-slate-900/95 backdrop-blur-md sm:bg-slate-900 flex flex-col transition-all duration-500 z-20 absolute sm:relative overflow-y-auto overscroll-y-contain",
+          hasQuery && searchPanelOpen
+            ? "pointer-events-auto left-0 right-0 bottom-0 max-h-[72vh] rounded-t-3xl border-t border-slate-800 translate-y-0 sm:inset-y-0 sm:left-0 sm:right-auto sm:bottom-auto sm:max-h-none sm:rounded-none sm:border-t-0 sm:border-r sm:w-96 sm:opacity-100"
+            : "pointer-events-none left-0 right-0 bottom-0 max-h-[72vh] rounded-t-3xl border-t border-slate-800 translate-y-full sm:translate-y-0 sm:inset-y-0 sm:left-0 sm:right-auto sm:bottom-auto sm:max-h-none sm:rounded-none sm:border-t-0 sm:border-r-0 sm:w-0 sm:opacity-0 sm:pointer-events-none"
         )}>
           {hasQuery && (
             <div className="flex items-center justify-between gap-3 px-6 sm:px-8 pt-6 sm:pt-8 pb-4">
@@ -543,7 +539,7 @@ export default function SearchPage() {
             </div>
           )}
           {retrievalMode && storedMatches.length > 0 ? (
-            <div className="p-6 sm:p-8 flex flex-col h-full overflow-hidden">
+            <div className="p-6 sm:p-8 flex flex-col h-full overflow-y-auto sm:overflow-hidden">
               <div className="bg-slate-800 rounded-3xl p-6 sm:p-8 border border-slate-700 shadow-2xl mb-6 sm:mb-8 flex-1 flex flex-col justify-center items-center text-center space-y-6">
                 <div className="w-24 h-24 bg-blue-600 rounded-full flex items-center justify-center text-4xl font-black shadow-xl shadow-blue-900/40 animate-pulse">
                   {retrievalIndex + 1}
@@ -665,7 +661,7 @@ export default function SearchPage() {
               )}
             </div>
           ) : storedMatches.length === 1 ? (
-            <div className="p-6 sm:p-8 flex flex-col h-full overflow-hidden">
+            <div className="p-6 sm:p-8 flex flex-col h-full overflow-y-auto sm:overflow-hidden">
               <div className="bg-slate-800 rounded-3xl p-6 sm:p-8 border border-slate-700 shadow-2xl mb-6 sm:mb-8 flex-1 flex flex-col justify-center items-center text-center space-y-6">
                 <div className="w-24 h-24 bg-emerald-600 rounded-full flex items-center justify-center text-4xl font-black shadow-xl shadow-emerald-900/40">
                   <Package size={48} />
@@ -754,7 +750,7 @@ export default function SearchPage() {
               )}
             </div>
           ) : (
-            <div className="p-6 sm:p-8 flex flex-col h-full overflow-hidden">
+            <div className="p-6 sm:p-8 flex flex-col h-full overflow-y-auto sm:overflow-hidden">
               {!hasQuery ? (
                 <div className="flex flex-col items-center justify-center h-full text-center space-y-6 opacity-40">
                   <Search size={80} className="text-slate-700" />
@@ -856,13 +852,13 @@ export default function SearchPage() {
           )}
           
           {/* Store Selector Overlay */}
-          <div className="absolute bottom-4 sm:bottom-8 left-1/2 -translate-x-1/2 flex bg-slate-900/80 backdrop-blur-md p-2 rounded-3xl border border-slate-700 shadow-2xl z-10 max-w-[94%] sm:max-w-[90%] overflow-x-auto no-scrollbar">
+          <div className="absolute bottom-2 sm:bottom-8 left-2 right-2 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 flex bg-slate-900/80 backdrop-blur-md p-1.5 sm:p-2 rounded-2xl sm:rounded-3xl border border-slate-700 shadow-2xl z-10 sm:max-w-[90%] overflow-x-auto no-scrollbar">
             {stores.map(s => (
               <button
                 key={s.store_name}
                 onClick={() => setSelectedStore(s.store_name)}
                 className={cn(
-                  "px-4 sm:px-6 py-2.5 sm:py-3 rounded-2xl font-bold whitespace-nowrap transition-all text-sm sm:text-base",
+                  "px-3 sm:px-6 py-2 sm:py-3 rounded-xl sm:rounded-2xl font-bold whitespace-nowrap transition-all text-xs sm:text-base",
                   selectedStore === s.store_name 
                     ? "bg-blue-600 text-white shadow-lg" 
                     : "text-slate-400 hover:text-white hover:bg-slate-800"
@@ -874,70 +870,28 @@ export default function SearchPage() {
           </div>
 
           {/* View Info Overlay */}
-          <div className="absolute top-4 sm:top-8 right-4 sm:right-8 flex flex-col gap-3 z-10 items-end">
-            <div className="bg-slate-900/80 backdrop-blur-md p-4 rounded-2xl border border-slate-700 shadow-xl flex flex-wrap items-center gap-x-4 gap-y-2 justify-end max-w-md">
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-slate-600/80 border border-slate-500" />
-                <span className="text-xs font-bold text-slate-300 uppercase tracking-widest">Empty</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]" />
-                <span className="text-xs font-bold text-slate-300 uppercase tracking-widest">Occupied</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.5)]" />
-                <span className="text-xs font-bold text-slate-300 uppercase tracking-widest">Selected</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-lime-400 shadow-[0_0_12px_rgba(163,230,53,0.6)] animate-pulse" />
-                <span className="text-xs font-bold text-slate-300 uppercase tracking-widest">Search</span>
+          {viewMode === '2D' && (
+            <div className="absolute top-2.5 sm:top-8 right-2.5 sm:right-8 z-10 items-end">
+              <div className="bg-slate-900/80 backdrop-blur-md p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-700 shadow-xl flex flex-wrap items-center gap-x-3 sm:gap-x-4 gap-y-1.5 sm:gap-y-2 justify-end max-w-[88vw] sm:max-w-md">
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-slate-600/80 border border-slate-500" />
+                  <span className="text-[10px] sm:text-xs font-bold text-slate-300 uppercase tracking-widest">Empty</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]" />
+                  <span className="text-[10px] sm:text-xs font-bold text-slate-300 uppercase tracking-widest">Occupied</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.5)]" />
+                  <span className="text-[10px] sm:text-xs font-bold text-slate-300 uppercase tracking-widest">Selected</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-lime-400 shadow-[0_0_12px_rgba(163,230,53,0.6)] animate-pulse" />
+                  <span className="text-[10px] sm:text-xs font-bold text-slate-300 uppercase tracking-widest">Search</span>
+                </div>
               </div>
             </div>
-            {viewMode === '3D' && (
-              <div className="bg-slate-900/90 backdrop-blur-md px-3 py-2 rounded-2xl border border-slate-700 shadow-xl flex flex-wrap items-center gap-2">
-                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mr-1">Grid layer</span>
-                <button
-                  type="button"
-                  onClick={() => setGridFace('front')}
-                  className={cn(
-                    'px-3 py-1.5 rounded-xl text-[10px] font-black uppercase transition-all',
-                    gridFace === 'front'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-slate-800 text-slate-400 hover:text-white'
-                  )}
-                >
-                  Front
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setGridFace('back')}
-                  className={cn(
-                    'px-3 py-1.5 rounded-xl text-[10px] font-black uppercase transition-all',
-                    gridFace === 'back'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-slate-800 text-slate-400 hover:text-white'
-                  )}
-                >
-                  Back
-                </button>
-                {selectedGridCell && selectedGridCell.store === selectedStore && (
-                  <>
-                    <span className="text-[10px] font-bold text-slate-500 mx-1">|</span>
-                    <span className="text-[11px] font-black tabular-nums text-emerald-400">
-                      R{selectedGridCell.row}·C{selectedGridCell.column}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedGridCell(null)}
-                      className="text-[10px] font-bold text-slate-500 hover:text-white uppercase"
-                    >
-                      Clear
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
+          )}
         </div>
       </div>
     </div>
