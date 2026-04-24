@@ -43,6 +43,23 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+const focusStorePopupInput = () => {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+  const focusNow = () => {
+    const input = document.querySelector<HTMLInputElement>('[data-store-popup-input="true"]');
+    if (!input) return false;
+    input.focus({ preventScroll: true });
+    input.select();
+    return true;
+  };
+
+  if (focusNow()) return;
+  window.requestAnimationFrame(() => {
+    focusNow();
+  });
+};
+
 // SAT Collision Detection Helpers
 const getCorners = (x: number, z: number, w: number, d: number, rot: number) => {
   const cos = Math.cos(rot);
@@ -281,6 +298,8 @@ function StoreObject({ store, isSelected, onSelect, mode }: { store: StoreType, 
   const storeColor = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test((store as any).store_color || '')
     ? (store as any).store_color
     : '#3b82f6';
+  const storeColorVisible = (store as any).store_color_visible !== false;
+  const displayStoreColor = storeColorVisible ? storeColor : '#94a3b8';
   const storeOpacity = Math.min(1, Math.max(0.1, Number((store as any).store_opacity ?? 1) || 1));
   const overlayCellWidth = Math.min(
     20,
@@ -356,7 +375,7 @@ function StoreObject({ store, isSelected, onSelect, mode }: { store: StoreType, 
     }
 
     if (hasSearchMatch) {
-      materialRef.current.emissive.set(storeColor);
+      materialRef.current.emissive.set(displayStoreColor);
       materialRef.current.emissiveIntensity = 0.3 + (Math.sin(t * 8) * 0.2 + 0.2);
     } else {
       materialRef.current.emissive.set('#000000');
@@ -425,7 +444,7 @@ function StoreObject({ store, isSelected, onSelect, mode }: { store: StoreType, 
             <boxGeometry args={[STORE_LOCAL_FOOTPRINT_WIDTH, STORE_LOCAL_HIGHLIGHT_HEIGHT, STORE_LOCAL_FOOTPRINT_DEPTH]} />
             <meshStandardMaterial
               ref={materialRef}
-              color={storeColor}
+              color={displayStoreColor}
               transparent
               opacity={storeOpacity}
               depthWrite={storeOpacity >= 0.999}
@@ -443,8 +462,8 @@ function StoreObject({ store, isSelected, onSelect, mode }: { store: StoreType, 
             <boxGeometry args={[STORE_LOCAL_FOOTPRINT_WIDTH, STORE_LOCAL_HIGHLIGHT_HEIGHT, STORE_LOCAL_FOOTPRINT_DEPTH]} />
             <meshStandardMaterial
               ref={glowRef}
-              color={storeColor}
-              emissive={storeColor}
+              color={displayStoreColor}
+              emissive={displayStoreColor}
               emissiveIntensity={0}
               transparent
               opacity={0}
@@ -500,6 +519,7 @@ function StoreObject({ store, isSelected, onSelect, mode }: { store: StoreType, 
                 y: cell.position.y,
                 z: cell.position.z,
               });
+              focusStorePopupInput();
             }}
           />
         )}
@@ -1282,6 +1302,25 @@ function Viewer3DControlPanel() {
                       }
                     />
                   </label>
+                  <div className="col-span-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        patchStore({
+                          store_color_visible: (selected as any).store_color_visible === false,
+                        } as Partial<StoreType>)
+                      }
+                      className={cn(
+                        'w-full py-2 rounded-lg text-[10px] font-black uppercase border transition-colors',
+                        (selected as any).store_color_visible !== false
+                          ? 'bg-amber-500/10 border-amber-400/40 text-amber-300 hover:bg-amber-500/20'
+                          : 'bg-emerald-500/10 border-emerald-400/40 text-emerald-300 hover:bg-emerald-500/20'
+                      )}
+                      title={(selected as any).store_color_visible !== false ? 'Hide color' : 'Show color'}
+                    >
+                      {(selected as any).store_color_visible !== false ? 'إخفاء اللون' : 'إظهار اللون'}
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -1310,6 +1349,7 @@ function StoreQuickPopup() {
     setSelectedStore,
     addBlanket,
     markAsPicked,
+    fetchBlankets,
     currentUser,
   } = useStore();
 
@@ -1411,8 +1451,23 @@ function StoreQuickPopup() {
         status: 'stored',
       });
       setNewNumber('');
+      // Auto-advance selection when the current cell reaches capacity.
+      // For capacity=1 (e.g., B1-back), this prevents repeated "slot is full" on next entry.
+      if (selectedCellCount + 1 >= slotCapacity) {
+        setSelectedGridCell(null);
+      }
+      focusStorePopupInput();
     } catch (err: any) {
-      setError(err?.message || 'Failed to store blanket.');
+      const message = String(err?.message || '');
+      if (/slot\s+is\s+full/i.test(message)) {
+        // Move to next available cell automatically, then keep typing.
+        setSelectedGridCell(null);
+        setError('Selected cell was full, moved to next available cell.');
+        await fetchBlankets();
+        focusStorePopupInput();
+      } else {
+        setError(message || 'Failed to store blanket.');
+      }
     } finally {
       setBusy(false);
     }
@@ -1433,24 +1488,37 @@ function StoreQuickPopup() {
   if (!selected) return null;
 
   return (
-    <div className="absolute top-24 left-6 z-20 w-[min(92vw,420px)] max-h-[calc(100vh-8rem)] pointer-events-auto">
-      <div className="h-full bg-slate-900/95 backdrop-blur-md border border-slate-700 rounded-3xl shadow-2xl overflow-hidden flex flex-col">
-        <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+    <div className="absolute top-3 left-2 right-2 sm:top-24 sm:left-6 sm:right-auto sm:w-[min(92vw,420px)] z-20 max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-8rem)] pointer-events-auto">
+      <div className="h-full bg-slate-900/95 backdrop-blur-md border border-slate-700 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col">
+        <div className="px-3 sm:px-4 py-3 border-b border-slate-800 flex items-center justify-between gap-2">
           <div>
             <div className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">Store Popup</div>
-            <div className="text-sm font-black text-white">{selected.store_name}</div>
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <div className="text-sm sm:text-base font-black text-white">{selected.store_name}</div>
+              <span
+                className={cn(
+                  'text-[9px] sm:text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-full border',
+                  selected.auto_settle !== false
+                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40'
+                    : 'bg-slate-700/40 text-slate-300 border-slate-600'
+                )}
+                title="Auto-settle status for this store"
+              >
+                Auto-settle: {selected.auto_settle !== false ? 'Enabled' : 'Disabled'}
+              </span>
+            </div>
           </div>
           <button
             type="button"
             onClick={() => setSelectedStore(null)}
-            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300"
+            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 shrink-0"
             title="Close popup"
           >
             <X size={16} />
           </button>
         </div>
 
-        <div className="p-4 space-y-4 overflow-auto">
+        <div className="p-3 sm:p-4 space-y-3 sm:space-y-4 overflow-auto">
           <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-3 space-y-3">
             <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest">
               <span className="text-slate-500">Grid Matrix</span>
@@ -1458,16 +1526,15 @@ function StoreQuickPopup() {
                 {selected.rows}R × {selected.columns}C
               </span>
             </div>
-            <div className="max-h-52 overflow-auto rounded-xl border border-slate-800 p-2 bg-slate-950">
+            <div className="max-h-44 sm:max-h-52 overflow-auto rounded-xl border border-slate-800 p-2 bg-slate-950">
               <div
-                className="grid gap-1.5"
+                className="grid gap-1 sm:gap-1.5"
                 style={{ gridTemplateColumns: `repeat(${selected.columns}, minmax(0, 1fr))` }}
               >
                 {Array.from({ length: selected.rows }).flatMap((_, rIdx) =>
                   Array.from({ length: selected.columns }).map((_, cIdx) => {
-                    // Match visual Y direction with the 3D scene:
-                    // top row in popup should target the top row seen in scene.
-                    const row = selected.rows - rIdx;
+                    // Keep popup rows in natural top-to-bottom order.
+                    const row = rIdx + 1;
                     const col = selected.columns - cIdx;
                     const key = `${row},${col}`;
                     const count = cellItemsMap.get(key)?.length ?? 0;
@@ -1478,9 +1545,12 @@ function StoreQuickPopup() {
                       <button
                         key={`popup-cell-${key}`}
                         type="button"
-                        onClick={() => setSelectedGridCell({ store: selected.store_name, row, column: col })}
+                        onClick={() => {
+                          setSelectedGridCell({ store: selected.store_name, row, column: col });
+                          focusStorePopupInput();
+                        }}
                         className={cn(
-                          'h-8 rounded-lg text-[10px] font-black tabular-nums transition-all border',
+                          'h-7 sm:h-8 rounded-lg text-[10px] font-black tabular-nums transition-all border',
                           isSelected
                             ? 'bg-emerald-500 text-white border-emerald-300 shadow-lg shadow-emerald-600/30'
                             : count > 0
@@ -1509,20 +1579,26 @@ function StoreQuickPopup() {
                 {selectedCellCount}/{slotCapacity}
               </span>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <input
                 type="text"
+                data-store-popup-input="true"
                 value={newNumber}
                 onChange={(e) => setNewNumber(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter') return;
+                  e.preventDefault();
+                  void handleStoreBlanket();
+                }}
                 placeholder="Blanket number..."
-                className="flex-1 rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-white font-bold outline-none focus:border-blue-500"
+                className="flex-1 rounded-xl bg-slate-900 border border-slate-700 px-3 py-2.5 text-base sm:text-sm text-white font-bold outline-none focus:border-blue-500"
               />
               <button
                 type="button"
                 onClick={handleStoreBlanket}
                 disabled={busy || !selectedCell || selectedCellFull || !newNumber.trim() || !currentUser}
                 className={cn(
-                  'px-3 rounded-xl text-xs font-black uppercase tracking-widest flex items-center gap-1.5',
+                  'px-3 h-11 sm:h-auto rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-1.5',
                   busy || !selectedCell || selectedCellFull || !newNumber.trim() || !currentUser
                     ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
                     : 'bg-blue-600 hover:bg-blue-500 text-white'
@@ -1607,7 +1683,9 @@ function Warehouse3DInner() {
         <Scene mode={mode} />
       </Canvas>
 
-      <Viewer3DControlPanel />
+      <div className="hidden lg:block">
+        <Viewer3DControlPanel />
+      </div>
       <StoreQuickPopup />
 
       {stores.length === 0 && (
@@ -1621,7 +1699,7 @@ function Warehouse3DInner() {
       )}
 
       {/* Mode Selector Toolbar */}
-      <div className="absolute top-32 left-8 flex flex-col gap-2 z-10">
+      <div className="hidden md:flex absolute top-32 left-8 flex-col gap-2 z-10">
         <div className="bg-slate-900/80 backdrop-blur-md p-1.5 rounded-2xl border border-slate-700 shadow-2xl flex flex-col gap-1">
           <button 
             onClick={() => setMode('translate')}
@@ -1660,7 +1738,7 @@ function Warehouse3DInner() {
       </div>
 
       {/* Controls Help Overlay */}
-      <div className="absolute bottom-24 right-8 bg-slate-900/80 backdrop-blur-md p-6 rounded-3xl border border-slate-700 shadow-2xl space-y-4 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="hidden lg:block absolute bottom-24 right-8 bg-slate-900/80 backdrop-blur-md p-6 rounded-3xl border border-slate-700 shadow-2xl space-y-4 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
         <h4 className="text-sm font-black text-blue-400 uppercase tracking-widest">Editor Controls</h4>
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-8">
@@ -1682,26 +1760,6 @@ function Warehouse3DInner() {
         </div>
       </div>
 
-      {/* Selection Info Overlay */}
-      <div className="absolute top-8 left-8 pointer-events-none flex flex-col gap-4">
-        <div className="bg-slate-900/80 backdrop-blur-md p-6 rounded-3xl border border-slate-700 shadow-2xl flex items-center gap-6 animate-in slide-in-from-left duration-500">
-          <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-3xl font-black shadow-xl shadow-blue-900/40">
-            3D
-          </div>
-          <div>
-            <h3 className="text-xl font-black tracking-tighter text-white uppercase">Interactive Editor</h3>
-            <p className="text-slate-500 font-bold text-xs uppercase tracking-widest">Game-like Warehouse Management</p>
-          </div>
-        </div>
-        
-        {/* Debug Info */}
-        <div className="bg-slate-900/80 backdrop-blur-md px-4 py-2 rounded-2xl border border-slate-700 shadow-2xl flex items-center gap-3 self-start">
-          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-          <span className="text-[10px] font-black text-white uppercase tracking-widest">
-            {stores.length} Stores Loaded
-          </span>
-        </div>
-      </div>
     </div>
   );
 }
