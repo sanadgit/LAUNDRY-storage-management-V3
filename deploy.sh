@@ -1,124 +1,134 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Laundry Storage Management V3 - Production Deployment Script
+# Laundry Storage Management V3 - Safe Production Deployment Script
 # Usage: bash deploy.sh
+# Env overrides:
+#   PROJECT_DIR=/root/LAUNDRY-storage-management-V3
+#   PM2_APP_NAME=laundry-warehouse
+#   GIT_BRANCH=main
 
-set -e  # Exit on any error
+set -Eeuo pipefail
 
-echo "================================================"
-echo "🚀 Laundry Storage Management V3 Deployment"
-echo "================================================"
-echo ""
-
-# Colors for output
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Configuration
-PROJECT_DIR="$HOME/LAUNDRY-storage-management-V3"
-PM2_APP_NAME="laundry-warehouse"
+PROJECT_DIR="${PROJECT_DIR:-$HOME/LAUNDRY-storage-management-V3}"
+PM2_APP_NAME="${PM2_APP_NAME:-laundry-warehouse}"
+GIT_BRANCH="${GIT_BRANCH:-main}"
+DB_FILE="blanket_storage.db"
+BACKUP_DIR="$HOME/backups/laundry-storage"
+TIMESTAMP="$(date +%F-%H%M%S)"
+DB_BACKUP_PATH=""
 
-# Step 1: Navigate to project directory
-echo -e "${BLUE}[1/8]${NC} Navigating to project directory..."
-if [ ! -d "$PROJECT_DIR" ]; then
-    echo -e "${RED}❌ Project directory not found: $PROJECT_DIR${NC}"
-    echo "Please clone the repository first:"
-    echo "git clone https://github.com/sanadgit/LAUNDRY-storage-management-V3.git"
-    exit 1
+print_header() {
+  echo "================================================"
+  echo "🚀 Laundry Storage Management V3 Deployment"
+  echo "================================================"
+  echo ""
+}
+
+print_step() {
+  echo -e "${BLUE}[$1/10]${NC} $2"
+}
+
+print_header
+
+print_step 1 "Navigating to project directory..."
+if [[ ! -d "$PROJECT_DIR" ]]; then
+  echo -e "${RED}❌ Project directory not found: $PROJECT_DIR${NC}"
+  echo "Clone first:"
+  echo "git clone https://github.com/sanadgit/LAUNDRY-storage-management-V3.git $PROJECT_DIR"
+  exit 1
 fi
 cd "$PROJECT_DIR"
 echo -e "${GREEN}✅ Switched to: $(pwd)${NC}"
 echo ""
 
-# Step 2: Pull latest code
-echo -e "${BLUE}[2/8]${NC} Pulling latest code from GitHub..."
-git fetch origin
-git pull origin main
-echo -e "${GREEN}✅ Code updated${NC}"
+print_step 2 "Backing up local SQLite database (if present)..."
+mkdir -p "$BACKUP_DIR"
+if [[ -f "$DB_FILE" ]]; then
+  DB_BACKUP_PATH="$BACKUP_DIR/${DB_FILE%.db}.$TIMESTAMP.db"
+  cp "$DB_FILE" "$DB_BACKUP_PATH"
+  echo -e "${GREEN}✅ Backup created: $DB_BACKUP_PATH${NC}"
+else
+  echo -e "${YELLOW}⚠️  $DB_FILE not found, skipping backup${NC}"
+fi
 echo ""
 
-# Step 3: Install dependencies
-echo -e "${BLUE}[3/8]${NC} Installing dependencies..."
-npm install
-echo -e "${GREEN}✅ Dependencies installed${NC}"
+print_step 3 "Fetching latest code..."
+git fetch origin "$GIT_BRANCH"
+echo -e "${GREEN}✅ Fetch complete${NC}"
 echo ""
 
-# Step 4: Clean old build
-echo -e "${BLUE}[4/8]${NC} Cleaning old build..."
-npm run clean
-echo -e "${GREEN}✅ Old build removed${NC}"
+print_step 4 "Hard-syncing working tree to origin/$GIT_BRANCH..."
+git reset --hard "origin/$GIT_BRANCH"
+echo -e "${GREEN}✅ Code synced to origin/$GIT_BRANCH${NC}"
 echo ""
 
-# Step 5: Build frontend
-echo -e "${BLUE}[5/8]${NC} Building frontend and backend..."
+print_step 5 "Restoring local SQLite database..."
+if [[ -n "$DB_BACKUP_PATH" && -f "$DB_BACKUP_PATH" ]]; then
+  cp "$DB_BACKUP_PATH" "$DB_FILE"
+  echo -e "${GREEN}✅ Local DB restored from backup${NC}"
+else
+  echo -e "${YELLOW}⚠️  No backup to restore${NC}"
+fi
+echo ""
+
+print_step 6 "Installing root dependencies..."
+npm ci
+echo -e "${GREEN}✅ Root dependencies installed${NC}"
+echo ""
+
+print_step 7 "Installing customer-site dependencies..."
+npm --prefix apps/customer-site ci
+echo -e "${GREEN}✅ Customer-site dependencies installed${NC}"
+echo ""
+
+print_step 8 "Building both apps..."
 npm run build
-echo -e "${GREEN}✅ Build complete${NC}"
+[[ -f "dist-smart-storage-hub/index.html" ]] || { echo -e "${RED}❌ Missing dist-smart-storage-hub/index.html${NC}"; exit 1; }
+[[ -f "apps/customer-site/dist/index.html" ]] || { echo -e "${RED}❌ Missing apps/customer-site/dist/index.html${NC}"; exit 1; }
+echo -e "${GREEN}✅ Build successful${NC}"
 echo ""
 
-# Step 6: Stop old server
-echo -e "${BLUE}[6/8]${NC} Stopping old server..."
-if pm2 list | grep -q "$PM2_APP_NAME"; then
-    pm2 stop "$PM2_APP_NAME"
-    pm2 delete "$PM2_APP_NAME"
-    echo -e "${GREEN}✅ Old server stopped${NC}"
-else
-    echo -e "${YELLOW}⚠️  No existing PM2 process found${NC}"
-fi
-echo ""
-
-# Step 7: Start new server with PM2
-echo -e "${BLUE}[7/8]${NC} Starting server with PM2..."
+print_step 9 "Restarting PM2 service..."
 export NODE_ENV=production
-pm2 start npm --name "$PM2_APP_NAME" -- start
+if pm2 describe "$PM2_APP_NAME" >/dev/null 2>&1; then
+  pm2 restart "$PM2_APP_NAME"
+else
+  pm2 start npm --name "$PM2_APP_NAME" -- start
+fi
 pm2 save
-pm2 startup
-echo -e "${GREEN}✅ Server started${NC}"
+echo -e "${GREEN}✅ PM2 service active: $PM2_APP_NAME${NC}"
 echo ""
 
-# Step 8: Verify deployment
-echo -e "${BLUE}[8/8]${NC} Verifying deployment..."
-sleep 3  # Wait for server to start
+print_step 10 "Verifying HTTP routes..."
+sleep 2
+ROOT_CODE="$(curl -o /dev/null -s -w '%{http_code}' http://127.0.0.1:3001/ || true)"
+HUB_CODE="$(curl -o /dev/null -s -w '%{http_code}' http://127.0.0.1:3001/smart-storage-hub || true)"
 
-# Check if server is running
-if pm2 list | grep -q "$PM2_APP_NAME"; then
-    echo -e "${GREEN}✅ PM2 process is running${NC}"
-    
-    # Try to connect to the server
-    if curl -s http://localhost:3001/ > /dev/null; then
-        echo -e "${GREEN}✅ Server is responding on port 3001${NC}"
-    else
-        echo -e "${YELLOW}⚠️  Server may take a moment to start${NC}"
-    fi
+if [[ "$ROOT_CODE" == "200" && "$HUB_CODE" == "200" ]]; then
+  echo -e "${GREEN}✅ Health check passed (/, /smart-storage-hub)${NC}"
 else
-    echo -e "${RED}❌ PM2 process failed to start${NC}"
-    pm2 logs "$PM2_APP_NAME"
-    exit 1
+  echo -e "${YELLOW}⚠️  Health check status codes: / => $ROOT_CODE, /smart-storage-hub => $HUB_CODE${NC}"
+  echo -e "${YELLOW}⚠️  Check logs: pm2 logs $PM2_APP_NAME --lines 80${NC}"
 fi
 echo ""
 
-# Print final status
 echo "================================================"
-echo -e "${GREEN}✅ Deployment Successful!${NC}"
+echo -e "${GREEN}✅ Deployment Completed${NC}"
 echo "================================================"
 echo ""
-echo "📊 Server Status:"
+echo "📊 PM2:"
 pm2 list
 echo ""
-echo "📋 Useful Commands:"
-echo "  • View logs:        pm2 logs $PM2_APP_NAME"
-echo "  • Restart:          pm2 restart $PM2_APP_NAME"
-echo "  • Stop:             pm2 stop $PM2_APP_NAME"
-echo "  • View all PM2 apps: pm2 list"
+echo "🧪 Quick checks:"
+echo "  curl -I http://127.0.0.1:3001/"
+echo "  curl -I http://127.0.0.1:3001/smart-storage-hub"
 echo ""
-echo "🌐 Access your application:"
-echo "  • Local: http://localhost:3001"
-echo "  • Remote: http://srv951589:3001"
-echo ""
-echo "📝 Next steps:"
-echo "  1. Configure Nginx to proxy to http://localhost:3001"
-echo "  2. Test API endpoints: curl http://localhost:3001/api/stores"
-echo "  3. Check logs if needed: pm2 logs $PM2_APP_NAME"
+echo "🧾 Logs:"
+echo "  pm2 logs $PM2_APP_NAME --lines 100"
 echo ""

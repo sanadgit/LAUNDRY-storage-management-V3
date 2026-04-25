@@ -46,6 +46,8 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+const SHOP_MODEL_URL = `${import.meta.env.BASE_URL}models/shop.glb`;
+
 const normalizeCellDimension = (value: unknown, fallback: number) => {
   const fallbackNumber = Number.isFinite(Number(fallback)) ? Number(fallback) : 0.5;
   const candidate = Number(value ?? fallbackNumber);
@@ -134,7 +136,7 @@ function ShopModel({
   position: [number, number, number];
   rotationY: number;
 }) {
-  const gltf = useGLTF('/models/shop.glb');
+  const gltf = useGLTF(SHOP_MODEL_URL);
 
   const scene = useMemo(() => gltf.scene.clone(true), [gltf.scene]);
 
@@ -2106,4 +2108,4 @@ export default function Warehouse3D() {
   return <Warehouse3DInner />;
 }
 
-useGLTF.preload('/models/shop.glb');
+useGLTF.preload(SHOP_MODEL_URL);
