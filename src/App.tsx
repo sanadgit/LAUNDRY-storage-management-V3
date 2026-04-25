@@ -414,11 +414,11 @@ function AppLayout() {
   }
 
   return (
-    <div className="flex bg-slate-50 min-h-screen font-sans text-slate-900">
+    <div className="flex w-full overflow-x-hidden bg-slate-50 min-h-screen font-sans text-slate-900">
       <Sidebar mobileOpen={mobileSidebarOpen} onMobileClose={() => setMobileSidebarOpen(false)} />
       <div className="flex-1 min-w-0 flex flex-col h-screen">
         {!hideMobileTopBar && <MobileTopBar onOpenSidebar={() => setMobileSidebarOpen(true)} />}
-        <main className="flex-1 overflow-auto">
+        <main className="flex-1 overflow-y-auto overflow-x-hidden">
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/management" element={isAdmin ? <Management /> : <Navigate to="/search" replace />} />

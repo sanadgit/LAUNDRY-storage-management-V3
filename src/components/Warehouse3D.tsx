@@ -38,6 +38,7 @@ import {
   STORE_LOCAL_FOOTPRINT_WIDTH,
 } from '../constants/storeGeometry';
 import { extractTicketNumberFromScan } from '../utils/barcode';
+import { getScannerSupportMessage, startCameraBarcodeScanner } from '../utils/cameraScanner';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -1478,8 +1479,6 @@ function StoreQuickPopup() {
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-  const scannerRafRef = useRef<number | null>(null);
   const canModify = ['admin', 'super-admin'].includes(currentUser?.role || '');
   const isConveyerStore = useMemo(
     () => Boolean(selected && /convey/i.test(selected.store_name.trim())),
@@ -1551,89 +1550,52 @@ function StoreQuickPopup() {
     if (!scannerOpen) return;
 
     let cancelled = false;
+    let consumed = false;
+    let stopSession: (() => void) | null = null;
     setScannerError(null);
-
-    const stop = () => {
-      if (scannerRafRef.current) {
-        window.cancelAnimationFrame(scannerRafRef.current);
-        scannerRafRef.current = null;
-      }
-      const stream = mediaStreamRef.current;
-      mediaStreamRef.current = null;
-      if (stream) {
-        for (const track of stream.getTracks()) track.stop();
-      }
-      if (videoRef.current) {
-        videoRef.current.srcObject = null;
-      }
-    };
 
     const start = async () => {
       try {
-        const hasBarcodeDetector = typeof (globalThis as any).BarcodeDetector !== 'undefined';
-        if (!hasBarcodeDetector) {
-          throw new Error('Scanner not supported on this device/browser (BarcodeDetector missing).');
-        }
-
-        const detector = new (globalThis as any).BarcodeDetector({
-          formats: ['qr_code', 'code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e'],
-        });
-
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' } },
-          audio: false,
-        });
-
-        if (cancelled) {
-          for (const track of stream.getTracks()) track.stop();
-          return;
-        }
-
-        mediaStreamRef.current = stream;
-
         const video = videoRef.current;
         if (!video) throw new Error('Scanner video element not ready.');
 
-        video.srcObject = stream;
-        await video.play();
-
-        const tick = async () => {
-          if (cancelled || !videoRef.current) return;
-          try {
-            const results = await detector.detect(videoRef.current);
-            if (Array.isArray(results) && results.length > 0) {
-              const rawValue = results[0]?.rawValue ?? '';
-              const extracted = extractTicketNumberFromScan(String(rawValue));
-              if (extracted) {
-                try {
-                  navigator.vibrate?.(50);
-                } catch {
-                  // ignore
-                }
-                setNewNumber(extracted);
-                setScannerOpen(false);
-                focusStorePopupInput();
-                return;
-              }
+        const session = await startCameraBarcodeScanner({
+          videoElement: video,
+          onDetected: (rawValue) => {
+            if (cancelled || consumed) return;
+            const extracted = extractTicketNumberFromScan(String(rawValue));
+            if (!extracted) return;
+            consumed = true;
+            stopSession?.();
+            try {
+              navigator.vibrate?.(50);
+            } catch {
+              // ignore
             }
-          } catch {
-            // ignore frame-level scanner errors
-          }
-          scannerRafRef.current = window.requestAnimationFrame(tick);
-        };
+            setNewNumber(extracted);
+            setScannerOpen(false);
+            focusStorePopupInput();
+          },
+          onRuntimeError: (runtimeError) => {
+            if (cancelled) return;
+            setScannerError(getScannerSupportMessage(runtimeError));
+          },
+        });
 
-        scannerRafRef.current = window.requestAnimationFrame(tick);
-      } catch (scanError: any) {
-        const message =
-          typeof scanError?.message === 'string' ? scanError.message : 'Failed to start scanner.';
-        setScannerError(message);
+        if (cancelled) {
+          session.stop();
+          return;
+        }
+        stopSession = session.stop;
+      } catch (scanError) {
+        setScannerError(getScannerSupportMessage(scanError));
       }
     };
 
     start();
     return () => {
       cancelled = true;
-      stop();
+      stopSession?.();
     };
   }, [scannerOpen]);
 
@@ -1760,16 +1722,16 @@ function StoreQuickPopup() {
 
   return (
     <>
-      <div className="absolute top-3 left-2 right-2 sm:top-24 sm:left-6 sm:right-auto sm:w-[min(92vw,420px)] z-20 max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-8rem)] pointer-events-auto">
+      <div className="absolute top-2 left-2 right-2 sm:top-24 sm:left-6 sm:right-auto sm:w-[min(92vw,420px)] z-20 max-h-[calc(100vh-1rem)] sm:max-h-[calc(100vh-8rem)] pointer-events-auto">
         <div className="h-full bg-slate-900/95 backdrop-blur-md border border-slate-700 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col">
-        <div className="px-3 sm:px-4 py-3 border-b border-slate-800 flex items-center justify-between gap-2">
-          <div>
+        <div className="px-3 sm:px-4 py-2.5 border-b border-slate-800 flex items-center justify-between gap-2">
+          <div className="min-w-0">
             <div className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">Store Popup</div>
-            <div className="flex items-center gap-1.5 sm:gap-2">
-              <div className="text-sm sm:text-base font-black text-white">{selected.store_name}</div>
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap pr-2">
+              <div className="text-sm sm:text-base font-black text-white truncate max-w-[58vw] sm:max-w-none">{selected.store_name}</div>
               <span
                 className={cn(
-                  'text-[9px] sm:text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-full border',
+                  'text-[9px] sm:text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-full border whitespace-nowrap',
                   selected.auto_settle !== false
                     ? 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40'
                     : 'bg-slate-700/40 text-slate-300 border-slate-600'
@@ -1857,7 +1819,7 @@ function StoreQuickPopup() {
               </span>
             </div>
             {isConveyerStore && (
-              <div className="space-y-1">
+              <div className="space-y-1 sm:max-w-[260px]">
                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Slot Number</label>
                 <input
                   type="number"
@@ -1872,11 +1834,18 @@ function StoreQuickPopup() {
                     focusStorePopupInput();
                   }}
                   placeholder={`1 .. ${selected.columns}`}
-                  className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2.5 text-sm text-white font-bold outline-none focus:border-blue-500"
+                  className="w-full h-10 sm:h-11 rounded-xl bg-slate-900 border border-slate-700 px-3 text-sm text-white font-bold outline-none focus:border-blue-500"
                 />
               </div>
             )}
-            <div className="flex flex-col sm:flex-row gap-2">
+            <div
+              className={cn(
+                "grid gap-2 sm:gap-2.5",
+                isConveyerStore
+                  ? "grid-cols-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]"
+                  : "grid-cols-[minmax(0,1fr)_auto]"
+              )}
+            >
               <input
                 type="text"
                 data-store-popup-input="true"
@@ -1888,13 +1857,16 @@ function StoreQuickPopup() {
                   void handleStoreBlanket();
                 }}
                 placeholder={isConveyerStore ? 'Invoice / barcode number...' : 'Blanket number...'}
-                className="flex-1 rounded-xl bg-slate-900 border border-slate-700 px-3 py-2.5 text-base sm:text-sm text-white font-bold outline-none focus:border-blue-500"
+                className={cn(
+                  "min-w-0 rounded-xl bg-slate-900 border border-slate-700 px-3 h-10 sm:h-11 text-sm text-white font-bold outline-none focus:border-blue-500",
+                  isConveyerStore ? "col-span-2 sm:col-span-1" : "col-span-1"
+                )}
               />
               {isConveyerStore && (
                 <button
                   type="button"
                   onClick={() => setScannerOpen(true)}
-                  className="px-3 h-11 sm:h-auto rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-600"
+                  className="px-3 sm:px-4 h-10 sm:h-11 rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-600 min-w-[96px]"
                   title="Scan barcode with camera"
                 >
                   <ScanLine size={14} />
@@ -1913,14 +1885,14 @@ function StoreQuickPopup() {
                   (isConveyerStore && !hasValidConveyerSlot)
                 }
                 className={cn(
-                  'px-3 h-11 sm:h-auto rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-1.5',
+                  'px-3 sm:px-4 h-10 sm:h-11 rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 min-w-[96px]',
                   busy ||
                   !selectedCell ||
                   selectedCellFull ||
                   !newNumber.trim() ||
                   !canModify ||
                   (isConveyerStore && !hasValidConveyerSlot)
-                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                    ? 'bg-slate-800 text-slate-300/70 border border-slate-700 cursor-not-allowed'
                     : 'bg-blue-600 hover:bg-blue-500 text-white'
                 )}
               >
@@ -2009,7 +1981,7 @@ function StoreQuickPopup() {
               <div className="max-w-lg w-full rounded-3xl border border-rose-700 bg-rose-950/60 px-5 py-4 text-rose-200 text-sm font-bold">
                 {scannerError}
                 <div className="mt-2 text-xs text-rose-200/80 font-semibold">
-                  Tip: Use Chrome on Android and allow camera permission.
+                  Tip: Works on Android, iPhone (Safari/Chrome), and desktop browsers. Allow camera permission.
                 </div>
               </div>
             ) : (

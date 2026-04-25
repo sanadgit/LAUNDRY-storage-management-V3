@@ -6,7 +6,11 @@
 
 @layer base {
   html, body, #root {
-    @apply h-full w-full overflow-hidden;
+    @apply h-full w-full overflow-x-hidden overflow-y-hidden;
+  }
+
+  body {
+    @apply bg-slate-900;
   }
 }
 

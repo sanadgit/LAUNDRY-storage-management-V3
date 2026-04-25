@@ -4,6 +4,7 @@ import { Check, Plus, ScanLine, X } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { extractTicketNumberFromScan } from '../utils/barcode';
+import { getScannerSupportMessage, startCameraBarcodeScanner } from '../utils/cameraScanner';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -32,8 +33,6 @@ export default function Grid2D() {
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-  const scannerRafRef = useRef<number | null>(null);
   const canModify = ['admin', 'super-admin'].includes(currentUser?.role || '');
 
   const store = useMemo(
@@ -117,87 +116,52 @@ export default function Grid2D() {
     if (!scannerOpen) return;
 
     let cancelled = false;
+    let consumed = false;
+    let stopSession: (() => void) | null = null;
     setScannerError(null);
-
-    const stop = () => {
-      if (scannerRafRef.current) {
-        window.cancelAnimationFrame(scannerRafRef.current);
-        scannerRafRef.current = null;
-      }
-      const stream = mediaStreamRef.current;
-      mediaStreamRef.current = null;
-      if (stream) {
-        for (const track of stream.getTracks()) track.stop();
-      }
-      if (videoRef.current) {
-        videoRef.current.srcObject = null;
-      }
-    };
 
     const start = async () => {
       try {
-        const hasBarcodeDetector = typeof (globalThis as any).BarcodeDetector !== 'undefined';
-        if (!hasBarcodeDetector) {
-          throw new Error('Scanner not supported on this device/browser (BarcodeDetector missing).');
-        }
+        const video = videoRef.current;
+        if (!video) throw new Error('Scanner video element not ready.');
 
-        const detector = new (globalThis as any).BarcodeDetector({
-          formats: ['qr_code', 'code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e'],
-        });
-
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' } },
-          audio: false,
+        const session = await startCameraBarcodeScanner({
+          videoElement: video,
+          onDetected: (rawValue) => {
+            if (cancelled || consumed) return;
+            const extracted = extractTicketNumberFromScan(String(rawValue));
+            if (!extracted) return;
+            consumed = true;
+            stopSession?.();
+            try {
+              navigator.vibrate?.(50);
+            } catch {
+              // ignore
+            }
+            setNewNumber(extracted);
+            setScannerOpen(false);
+            inputRef.current?.focus();
+          },
+          onRuntimeError: (runtimeError) => {
+            if (cancelled) return;
+            setScannerError(getScannerSupportMessage(runtimeError));
+          },
         });
 
         if (cancelled) {
-          for (const track of stream.getTracks()) track.stop();
+          session.stop();
           return;
         }
-
-        mediaStreamRef.current = stream;
-        const video = videoRef.current;
-        if (!video) throw new Error('Scanner video element not ready.');
-        video.srcObject = stream;
-        await video.play();
-
-        const tick = async () => {
-          if (cancelled || !videoRef.current) return;
-          try {
-            const results = await detector.detect(videoRef.current);
-            if (Array.isArray(results) && results.length > 0) {
-              const rawValue = results[0]?.rawValue ?? '';
-              const extracted = extractTicketNumberFromScan(String(rawValue));
-              if (extracted) {
-                try {
-                  navigator.vibrate?.(50);
-                } catch {
-                  // ignore
-                }
-                setNewNumber(extracted);
-                setScannerOpen(false);
-                inputRef.current?.focus();
-                return;
-              }
-            }
-          } catch {
-            // ignore frame-level scanner errors
-          }
-          scannerRafRef.current = window.requestAnimationFrame(tick);
-        };
-
-        scannerRafRef.current = window.requestAnimationFrame(tick);
-      } catch (scanError: any) {
-        const message =
-          typeof scanError?.message === 'string' ? scanError.message : 'Failed to start scanner.';
-        setScannerError(message);
+        stopSession = session.stop;
+      } catch (scanError) {
+        setScannerError(getScannerSupportMessage(scanError));
       }
     };
 
     start();
     return () => {
       cancelled = true;
-      stop();
+      stopSession?.();
     };
   }, [scannerOpen]);
 
@@ -335,12 +299,12 @@ export default function Grid2D() {
   const storeCapacity = Math.max(1, store.rows * store.columns * slotCapacity);
 
   return (
-    <div className="h-full w-full flex flex-col p-3 sm:p-6 lg:p-10 pb-24 sm:pb-32 overflow-auto bg-slate-950">
+    <div className="h-full w-full min-w-0 flex flex-col p-3 sm:p-6 lg:p-10 pb-20 sm:pb-28 overflow-y-auto overflow-x-hidden bg-slate-950">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6">
         <div className="flex flex-col gap-2">
-          <h2 className="text-2xl sm:text-4xl lg:text-5xl font-black tracking-tighter text-white uppercase">{store.store_name}</h2>
+          <h2 className="text-xl sm:text-4xl lg:text-5xl font-black tracking-tighter text-white uppercase">{store.store_name}</h2>
           <p className="text-slate-500 font-bold text-[11px] sm:text-base uppercase tracking-widest">
-            {store.rows} Rows × {store.columns} Columns • {storeBlankets.length} Items Stored
+            {store.rows} Rows × {store.columns} Columns • {storeBlankets.length} Items Stored • {Math.round((storeBlankets.length / storeCapacity) * 100)}% Capacity
           </p>
         </div>
 
@@ -355,14 +319,10 @@ export default function Grid2D() {
           >
             Auto-settle: {store.auto_settle !== false ? 'Enabled' : 'Disabled'}
           </span>
-          <div className="bg-slate-900 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-800 shadow-2xl flex flex-col items-center justify-center min-w-[96px] sm:min-w-[110px]">
-            <span className="text-slate-500 text-[10px] font-bold uppercase tracking-widest mb-1">Capacity</span>
-            <span className="text-xl sm:text-2xl font-black text-white">{Math.round((storeBlankets.length / storeCapacity) * 100)}%</span>
-          </div>
         </div>
       </div>
 
-      <div className="mb-4 sm:mb-6 rounded-2xl sm:rounded-3xl border border-slate-800 bg-slate-900/85 p-3 sm:p-4 shadow-2xl space-y-3">
+      <div className="mb-4 sm:mb-6 rounded-2xl sm:rounded-3xl border border-slate-800 bg-slate-900/85 p-3 sm:p-4 shadow-2xl space-y-2.5 sm:space-y-3">
         <div className="flex items-center justify-between text-[11px] font-black text-white">
           <span>
             {isConveyerStore
@@ -374,7 +334,7 @@ export default function Grid2D() {
           </span>
         </div>
         {isConveyerStore && (
-          <div className="space-y-1">
+          <div className="space-y-1 sm:max-w-[260px]">
             <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Slot Number</label>
             <input
               type="number"
@@ -389,11 +349,18 @@ export default function Grid2D() {
                 inputRef.current?.focus();
               }}
               placeholder={`1 .. ${store.columns}`}
-              className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2.5 text-sm text-white font-bold outline-none focus:border-blue-500"
+              className="w-full h-10 sm:h-11 rounded-xl bg-slate-900 border border-slate-700 px-3 text-sm text-white font-bold outline-none focus:border-blue-500"
             />
           </div>
         )}
-        <div className="flex flex-col sm:flex-row gap-2">
+        <div
+          className={cn(
+            "grid gap-2 sm:gap-2.5",
+            isConveyerStore
+              ? "grid-cols-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]"
+              : "grid-cols-[minmax(0,1fr)_auto]"
+          )}
+        >
           <input
             ref={inputRef}
             type="text"
@@ -405,13 +372,16 @@ export default function Grid2D() {
               void handleStoreBlanket();
             }}
             placeholder={isConveyerStore ? 'Invoice / barcode number...' : 'Blanket number...'}
-            className="flex-1 rounded-xl bg-slate-900 border border-slate-700 px-3 py-2.5 text-base sm:text-sm text-white font-bold outline-none focus:border-blue-500"
+            className={cn(
+              "min-w-0 rounded-xl bg-slate-900 border border-slate-700 px-3 h-10 sm:h-11 text-sm text-white font-bold outline-none focus:border-blue-500",
+              isConveyerStore ? "col-span-2 sm:col-span-1" : "col-span-1"
+            )}
           />
           {isConveyerStore && (
             <button
               type="button"
               onClick={() => setScannerOpen(true)}
-              className="px-3 h-11 sm:h-auto rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-600"
+              className="px-3 sm:px-4 h-10 sm:h-11 rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-600 min-w-[96px]"
               title="Scan barcode with camera"
             >
               <ScanLine size={14} />
@@ -430,14 +400,14 @@ export default function Grid2D() {
               (isConveyerStore && !hasValidConveyerSlot)
             }
             className={cn(
-              'px-3 h-11 sm:h-auto rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-1.5',
+              'px-3 sm:px-4 h-10 sm:h-11 rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 min-w-[96px]',
               busy ||
               !selectedCell ||
               selectedCellFull ||
               !newNumber.trim() ||
               !canModify ||
               (isConveyerStore && !hasValidConveyerSlot)
-                ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                ? 'bg-slate-800 text-slate-300/70 border border-slate-700 cursor-not-allowed'
                 : 'bg-blue-600 hover:bg-blue-500 text-white'
             )}
           >
@@ -486,7 +456,7 @@ export default function Grid2D() {
         )}
       </div>
 
-      <div className="flex-1 min-h-0 flex items-center justify-center">
+      <div className="flex-1 min-h-0 flex items-start sm:items-center justify-center">
         <div className="w-full overflow-auto pb-2">
           <div
             className="mx-auto w-max grid gap-1 sm:gap-2 p-3 sm:p-6 bg-slate-900 rounded-[26px] sm:rounded-[40px] border border-slate-800 shadow-2xl"
@@ -595,7 +565,7 @@ export default function Grid2D() {
               <div className="max-w-lg w-full rounded-3xl border border-rose-700 bg-rose-950/60 px-5 py-4 text-rose-200 text-sm font-bold">
                 {scannerError}
                 <div className="mt-2 text-xs text-rose-200/80 font-semibold">
-                  Tip: Use Chrome on Android and allow camera permission.
+                  Tip: Works on Android, iPhone (Safari/Chrome), and desktop browsers. Allow camera permission.
                 </div>
               </div>
             ) : (
