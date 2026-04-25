@@ -1,7 +1,6 @@
 node_modules/
 build/
 dist/
-dist-smart-storage-hub/
 coverage/
 .DS_Store
 *.log

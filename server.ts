@@ -1993,17 +1993,40 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath, { maxAge: '1d' }));
-    
-    // SPA fallback: serve index.html for any route that's not an API endpoint or static file
-    app.get('*', (_req, res) => {
-      // Make sure we're not trying to serve non-existent files
+    const hubDistPath = path.join(process.cwd(), 'dist-smart-storage-hub');
+    const customerDistPath = path.join(process.cwd(), 'apps', 'customer-site', 'dist');
+
+    app.use('/smart-storage-hub', express.static(hubDistPath, { maxAge: '1d' }));
+    app.use(express.static(customerDistPath, { maxAge: '1d' }));
+
+    // Smart Storage Hub SPA fallback under /smart-storage-hub/*
+    app.get('/smart-storage-hub', (_req, res) => {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.sendFile(path.join(distPath, 'index.html'), (err) => {
+      res.sendFile(path.join(hubDistPath, 'index.html'), (err) => {
         if (err) {
-          console.error('Error serving index.html:', err);
-          res.status(500).json({ error: 'Failed to load application' });
+          console.error('Error serving Smart Storage Hub index.html:', err);
+          res.status(500).json({ error: 'Failed to load Smart Storage Hub' });
+        }
+      });
+    });
+
+    app.get('/smart-storage-hub/*', (_req, res) => {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.sendFile(path.join(hubDistPath, 'index.html'), (err) => {
+        if (err) {
+          console.error('Error serving Smart Storage Hub index.html:', err);
+          res.status(500).json({ error: 'Failed to load Smart Storage Hub' });
+        }
+      });
+    });
+
+    // Customer site SPA fallback at root.
+    app.get('*', (_req, res) => {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.sendFile(path.join(customerDistPath, 'index.html'), (err) => {
+        if (err) {
+          console.error('Error serving customer site index.html:', err);
+          res.status(500).json({ error: 'Failed to load customer site' });
         }
       });
     });

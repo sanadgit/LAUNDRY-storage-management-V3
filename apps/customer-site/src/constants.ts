@@ -1,0 +1,359 @@
+import { Order, Service, Branch, SiteConfig } from './types';
+
+export const INITIAL_SITE_CONFIG: SiteConfig = {
+  hero: {
+    title: 'من الاستلام إلى التسليم بكل احترافية',
+    subtitle: 'مصبغة In & Out تعمل بنظام متكامل يتتبع ملابسك في كل مرحلة — من لحظة الاستلام حتى تصل إليك نظيفة ومكوية ومرتبة.',
+    cta_primary: 'اطلب استلاماً الآن',
+    cta_secondary: 'تتبع طلبك'
+  },
+  stats: {
+    delivery_hours: '٢٤',
+    delivery_label: 'ساعة تسليم',
+    satisfied_customers: '+٥٠٠٠',
+    satisfied_label: 'عميل راضٍ',
+    process_steps: '٦',
+    satisfaction_rate: '٩٩٪'
+  },
+  gallery: [
+    { id: '1', icon: '👕', label: 'مغاسل صناعية' },
+    { id: '2', icon: '🧺', label: 'استلام الطلبات' },
+    { id: '3', icon: '♨️', label: 'كوي بخاري' },
+    { id: '4', icon: '📦', label: 'تغليف وتسليم' },
+    { id: '5', icon: '🏷️', label: 'ترميز الملابس' },
+    { id: '6', icon: '🚿', label: 'تنظيف جاف' },
+  ],
+  whatsapp_number: '0565865506',
+  maintenance_mode: false,
+  accept_orders: true,
+  whatsapp_notifications: true,
+  site_name: 'In & Out Laundry',
+  contact_email: 'info@inandoutuae.com',
+  business_address: 'أبوظبي، مصفح M-13، الإمارات العربية المتحدة',
+  vat_number: '100XXXXXXXXXXXX',
+  google_maps_url: 'https://maps.google.com/?q=In+And+Out+Laundry+Abu+Dhabi',
+  footer_text: 'جميع الحقوق محفوظة لمصبغة In & Out © ٢٠٢٥',
+  social_media: {
+    instagram: '@inandoutuae',
+    tiktok: '@inandoutuae',
+    facebook: 'inandoutuae'
+  },
+  delivery_fee: 10,
+  min_order_amount: 50,
+  vat_percentage: 5,
+  pricing: [
+    { barcode: '3', name_en: 'ABAYA', name_ar: 'عباءة', category: 'women', wash_dry: 15, iron: 7, wash_iron: 20, dry: 15, active: true },
+    { barcode: '4', name_en: 'Army Uniform', name_ar: 'زي عسكري', category: 'men', wash_dry: 15, iron: 8, wash_iron: 20, dry: 15, active: true },
+    { barcode: '5', name_en: 'BEDSHEET-BIG', name_ar: 'شرشف سرير كبير', category: 'home', wash_dry: 15, iron: 5, wash_iron: 20, dry: 15, active: true },
+    { barcode: '14', name_en: 'BEDSHEET-SMALL', name_ar: 'شرشف سرير صغير', category: 'home', wash_dry: 8, iron: 5, wash_iron: 15, dry: 8, active: true },
+    { barcode: '19', name_en: 'BISHT', name_ar: 'بشت فاخر', category: 'men', wash_dry: 30, iron: 15, wash_iron: 45, dry: 30, active: true },
+    { barcode: '23', name_en: 'BLANKET-BIG', name_ar: 'بطانية كبيرة', category: 'home', wash_dry: 20, iron: 0, wash_iron: 40, dry: 20, active: true },
+    { barcode: '24', name_en: 'BLANKET-SMALL', name_ar: 'بطانية صغيرة', category: 'home', wash_dry: 15, iron: 0, wash_iron: 30, dry: 15, active: true },
+    { barcode: '26', name_en: 'BLOUSE', name_ar: 'بلوزة', category: 'women', wash_dry: 5, iron: 3, wash_iron: 10, dry: 5, active: true },
+    { barcode: '34', name_en: 'BRA', name_ar: 'حمالة صدر', category: 'women', wash_dry: 5, iron: 2.5, wash_iron: 8, dry: 5, active: true },
+    { barcode: '35', name_en: 'Baby clothes', name_ar: 'ملابس أطفال', category: 'kids', wash_dry: 3, iron: 2, wash_iron: 6, dry: 3, active: true },
+    { barcode: '58', name_en: 'CURTAIN-BIG', name_ar: 'ستارة كبيرة', category: 'home', wash_dry: 40, iron: 20, wash_iron: 60, dry: 40, active: true },
+    { barcode: '62', name_en: 'CURTAIN-MEDIUM', name_ar: 'ستارة متوسطة', category: 'home', wash_dry: 30, iron: 15, wash_iron: 45, dry: 30, active: true },
+    { barcode: '63', name_en: 'CURTAIN-SMALL', name_ar: 'ستارة صغيرة', category: 'home', wash_dry: 20, iron: 10, wash_iron: 30, dry: 20, active: true },
+    { barcode: '117', name_en: 'DRESS LADY', name_ar: 'فستان نسائي', category: 'women', wash_dry: 20, iron: 10, wash_iron: 30, dry: 20, active: true },
+    { barcode: '1', name_en: 'DRESS WEDDING', name_ar: 'فستان زفاف', category: 'women', wash_dry: 200, iron: 50, wash_iron: 250, dry: 200, active: true },
+    { barcode: '2', name_en: 'FANELA', name_ar: 'فانيلة', category: 'men', wash_dry: 3, iron: 1.5, wash_iron: 5, dry: 3, active: true },
+    { barcode: '6', name_en: 'GUTRA', name_ar: 'غترة', category: 'men', wash_dry: 4, iron: 3, wash_iron: 7, dry: 4, active: true },
+    { barcode: '7', name_en: 'Gutra Whool', name_ar: 'غترة صوف', category: 'men', wash_dry: 10, iron: 5, wash_iron: 15, dry: 10, active: true },
+    { barcode: '8', name_en: 'JACKET', name_ar: 'جاكيت', category: 'men', wash_dry: 15, iron: 5, wash_iron: 20, dry: 15, active: true },
+    { barcode: '9', name_en: 'JACKET LEATHER', name_ar: 'جاكيت جلد', category: 'men', wash_dry: 20, iron: 8, wash_iron: 30, dry: 20, active: true },
+    { barcode: '10', name_en: 'JALLABIYA', name_ar: 'جلابية', category: 'women', wash_dry: 15, iron: 8, wash_iron: 20, dry: 15, active: true },
+    { barcode: '11', name_en: 'Jujitsu uniform', name_ar: 'زي جوجيتسو', category: 'men', wash_dry: 15, iron: 8, wash_iron: 20, dry: 15, active: true },
+    { barcode: '12', name_en: 'KANDOORA', name_ar: 'كندورة', category: 'men', wash_dry: 6, iron: 3.5, wash_iron: 10, dry: 6, active: true },
+    { barcode: '13', name_en: 'Kandoora + tarbosh', name_ar: 'كندورة مع طربوش', category: 'men', wash_dry: 6, iron: 3.5, wash_iron: 10, dry: 6, active: true },
+    { barcode: '15', name_en: 'Kandoora Whool', name_ar: 'كندورة صوف', category: 'men', wash_dry: 15, iron: 5, wash_iron: 20, dry: 15, active: true },
+    { barcode: '16', name_en: 'OVERHOLL', name_ar: 'بدلة عمل', category: 'men', wash_dry: 10, iron: 5, wash_iron: 15, dry: 10, active: true },
+    { barcode: '17', name_en: 'Over coat', name_ar: 'معطف طويل', category: 'men', wash_dry: 15, iron: 5, wash_iron: 20, dry: 15, active: true },
+    { barcode: '18', name_en: 'PANTS', name_ar: 'بنطلون', category: 'men', wash_dry: 5, iron: 3, wash_iron: 8, dry: 5, active: true },
+    { barcode: '20', name_en: 'PILLOW CASE', name_ar: 'غطاء وسادة', category: 'home', wash_dry: 3, iron: 1, wash_iron: 5, dry: 3, active: true },
+    { barcode: '21', name_en: 'Police Uniform', name_ar: 'زي شرطة', category: 'men', wash_dry: 15, iron: 8, wash_iron: 20, dry: 15, active: true },
+    { barcode: '22', name_en: 'SHEELA', name_ar: 'شيلة', category: 'women', wash_dry: 5, iron: 3, wash_iron: 8, dry: 5, active: true },
+    { barcode: '25', name_en: 'SHIRT', name_ar: 'قميص', category: 'men', wash_dry: 5, iron: 3, wash_iron: 8, dry: 5, active: true },
+    { barcode: '27', name_en: 'SHORT', name_ar: 'شورت', category: 'men', wash_dry: 4, iron: 2, wash_iron: 6, dry: 4, active: true },
+    { barcode: '28', name_en: 'SKIRT', name_ar: 'تنورة', category: 'women', wash_dry: 5, iron: 3, wash_iron: 8, dry: 5, active: true },
+    { barcode: '29', name_en: 'SOCKS', name_ar: 'جوارب', category: 'men', wash_dry: 2, iron: 1, wash_iron: 4, dry: 2, active: true },
+    { barcode: '30', name_en: 'SUIT', name_ar: 'بدلة رجالي كاملة', category: 'men', wash_dry: 20, iron: 10, wash_iron: 30, dry: 20, active: true },
+    { barcode: '31', name_en: 'SWEATER WOOL', name_ar: 'سويتر صوف', category: 'men', wash_dry: 10, iron: 5, wash_iron: 15, dry: 10, active: true },
+    { barcode: '32', name_en: 'Special Takeya', name_ar: 'طاقية خاصة', category: 'men', wash_dry: 5, iron: 2, wash_iron: 7, dry: 5, active: true },
+    { barcode: '33', name_en: 'T SHIRT', name_ar: 'تي شيرت', category: 'men', wash_dry: 5, iron: 3, wash_iron: 8, dry: 5, active: true },
+    { barcode: '37', name_en: 'TAKIYA', name_ar: 'طاقية', category: 'men', wash_dry: 2, iron: 1, wash_iron: 4, dry: 2, active: true },
+    { barcode: '38', name_en: 'TANORA', name_ar: 'تنورة طويلة', category: 'women', wash_dry: 5, iron: 3, wash_iron: 8, dry: 5, active: true },
+    { barcode: '59', name_en: 'TIE', name_ar: 'ربطة عنق', category: 'men', wash_dry: 5, iron: 2, wash_iron: 7, dry: 5, active: true },
+    { barcode: '60', name_en: 'TOWEL', name_ar: 'منشفة', category: 'home', wash_dry: 3, iron: 0, wash_iron: 6, dry: 3, active: true },
+    { barcode: '61', name_en: 'UNDERWEAR', name_ar: 'ملابس داخلية', category: 'men', wash_dry: 3, iron: 1.5, wash_iron: 5, dry: 3, active: true },
+    { barcode: '889909', name_en: 'WEZAR', name_ar: 'وزار', category: 'men', wash_dry: 3, iron: 1.5, wash_iron: 5, dry: 3, active: true },
+    { barcode: '889910', name_en: 'baby dress school', name_ar: 'زي مدرسي أطفال', category: 'kids', wash_dry: 5, iron: 3, wash_iron: 8, dry: 5, active: true },
+    { barcode: '889911', name_en: 'baby dresses', name_ar: 'فساتين أطفال', category: 'kids', wash_dry: 8, iron: 3, wash_iron: 11, dry: 8, active: true },
+    { barcode: '889913', name_en: 'bed sheet single', name_ar: 'شرشف سرير مفرد', category: 'home', wash_dry: 5, iron: 3, wash_iron: 8, dry: 5, active: true },
+    { barcode: '889914', name_en: 'dovet', name_ar: 'لحاف', category: 'home', wash_dry: 30, iron: 0, wash_iron: 45, dry: 30, active: true },
+    { barcode: '889916', name_en: 'niqab', name_ar: 'نقاب', category: 'women', wash_dry: 3, iron: 1.5, wash_iron: 5, dry: 3, active: true },
+    { barcode: '889915', name_en: 'pilow', name_ar: 'وسادة', category: 'home', wash_dry: 8, iron: 0, wash_iron: 12, dry: 8, active: true },
+    { barcode: '889917', name_en: 'sofa cover', name_ar: 'غطاء صوفا', category: 'home', wash_dry: 10, iron: 0, wash_iron: 20, dry: 10, active: true }
+  ],
+  branches: [
+    {
+      id: 'alfalah',
+      name: 'فرع الفلاح',
+      address: 'شارع الفلاح، الرياض',
+      phone: '025864164',
+      whatsapp: '025864164',
+      hours: '٨ص – ١٠م',
+      coordinates: { lat: 24.4539, lng: 54.3773 },
+      status: 'active'
+    },
+    {
+      id: 'mussaffah',
+      name: 'فرع المصفح',
+      address: 'منطقة المصفح الصناعية',
+      phone: '025631778',
+      whatsapp: '025631778',
+      hours: '٨ص – ١٠م',
+      coordinates: { lat: 24.3486, lng: 54.5028 },
+      status: 'active'
+    },
+    {
+      id: 'mbz',
+      name: 'فرع محمد بن زايد',
+      address: 'مدينة محمد بن زايد',
+      phone: '025555929',
+      whatsapp: '025555929',
+      hours: '٨ص – ١٠م',
+      coordinates: { lat: 24.3214, lng: 54.5492 },
+      status: 'active'
+    }
+  ],
+  drivers: [
+    {
+      id: 'DRV-001',
+      name: 'سائق ١',
+      phone: '0565865506',
+      branch: 'فرع الفلاح',
+      status: 'online',
+      rating: 4.9,
+      total_ratings: 216,
+      orders_completed: 142,
+      earnings_today: 85,
+      avatar: '🧑'
+    }
+  ],
+  offers: [
+    {
+      id: 'welcome',
+      name: 'عرض الترحيب',
+      discount: '١٥٪',
+      condition: 'أول طلب فقط',
+      active: true
+    },
+    {
+      id: 'thursday',
+      name: 'عرض الخميس',
+      discount: '٢٠٪',
+      condition: 'طلب > ٢٠٠ درهم',
+      active: false
+    }
+  ]
+};
+
+export const JOURNEY_STEPS = [
+  { key: '📦', label: 'الاستلام', fullLabel: 'مرحلة الاستلام', chips: ['استلام منزلي', 'فرع المصبغة', 'استلام سريع'], note: 'يتم استلام الملابس من عند العميل أو من الفرع مع توقيت الاستلام وتوقعات التسليم. كل طلب له رقم تتبع فوري.', color: 'bg-primary' },
+  { key: '💻', label: 'إدخال النظام', fullLabel: 'إدخال البيانات في النظام', chips: ['ترميز كل قطعة', 'تصوير ملاحظات', 'SMS للعميل'], note: 'كل قطعة تحصل على كود خاص ويتم تسجيل حالتها، ملاحظات التنظيف، والأولويات في نظام إدارة المصبغة.', color: 'bg-secondary' },
+  { key: '🫧', label: 'الغسيل والكوي', fullLabel: 'الغسيل والكوي', chips: ['غسيل عادي', 'تنظيف جاف', 'كوي بخاري', 'تعطير فاخر'], note: 'نستخدم مواد منظفة عالية الجودة مع فصل الملابس بحسب اللون والنسيج. الكوي يدوي أو بخاري حسب نوع القماش.', color: 'bg-primary' },
+  { key: '🗂️', label: 'الفرز', fullLabel: 'مرحلة الفرز', chips: ['فرز بالكود', 'فرز بالعميل', 'فرز بالنوع'], note: 'بعد الانتهاء يتم فرز الملابس بدقة بحسب طلب كل عميل للتأكد من عدم الخلط وسهولة التغليف والتسليم.', color: 'bg-secondary' },
+  { key: '🏷️', label: 'التخزين', fullLabel: 'التخزين المؤقت', chips: ['رفوف مرقمة', 'نظام FIFO', 'حماية من الغبار'], note: 'تُخزَّن الملابس على رفوف منظمة مرقمة بأكياس نظيفة إلى حين موعد التسليم مع نظام تنبيه للطلبات الجاهزة.', color: 'bg-primary' },
+  { key: '🚗', label: 'التسليم', fullLabel: 'التسليم للعميل', chips: ['توصيل منزلي', 'استلام من الفرع', 'إشعار واتساب'], note: 'يتلقى العميل إشعاراً فور جاهزية طلبه مع خيار التوصيل المنزلي أو الاستلام من أقرب فرع.', color: 'bg-success' }
+];
+
+export const MOCK_ORDERS: Order[] = [
+  {
+    id: 'INO-1041',
+    customerName: 'محمد الكعبي',
+    customerPhone: '0501234567',
+    dateReceived: 'اليوم ١١ص',
+    itemCount: 5,
+    serviceType: 'غسيل+كوي',
+    branch: 'فرع الفلاح',
+    status: 'on_the_way',
+    amount: 120,
+    priority: 'high',
+    paymentStatus: 'pending',
+    deliveryAddress: 'الفلاح، شارع ٢٢، عمارة B، شقة ٣٠٤',
+    distanceKm: 2.3,
+    etaMinutes: 12,
+    assignedDriverId: 'DRV-001',
+    steps: [
+      { key: 'accepted', label: 'قبول', status: 'done' },
+      { key: 'on_the_way', label: 'في الطريق', status: 'active' },
+      { key: 'pickup', label: 'استلام', status: 'pending' },
+      { key: 'completed', label: 'اكتمل', status: 'pending' }
+    ]
+  },
+  {
+    id: 'INO-1039',
+    customerName: 'أحمد الشامسي',
+    customerPhone: '0556543210',
+    dateReceived: 'أمس ٣م',
+    itemCount: 12,
+    serviceType: 'مفارش',
+    branch: 'فرع محمد بن زايد',
+    status: 'on_the_way',
+    amount: 210,
+    priority: 'normal',
+    paymentStatus: 'unpaid',
+    paymentMethod: 'cash',
+    deliveryAddress: 'محمد بن زايد، سكتور ١٦، فيلا ٤٢',
+    distanceKm: 5.1,
+    etaMinutes: 18,
+    assignedDriverId: 'DRV-001',
+    steps: [
+      { key: 'received', label: 'استلام', status: 'done' },
+      { key: 'ready', label: 'جاهز', status: 'done' },
+      { key: 'on_the_way', label: 'في الطريق', status: 'active' },
+      { key: 'delivered', label: 'تسليم', status: 'pending' }
+    ]
+  },
+  {
+    id: 'INO-1042',
+    customerName: 'سارة المنصوري',
+    customerPhone: '0509876543',
+    customerNotes: 'الجرس لا يعمل، اتصل على الهاتف قبل الوصول بـ١٠ دقائق',
+    dateReceived: 'اليوم ١٠ص',
+    itemCount: 6,
+    serviceType: 'طلب استلام',
+    branch: 'فرع المصفح',
+    status: 'new',
+    amount: 0,
+    priority: 'high',
+    paymentStatus: 'pending',
+    deliveryAddress: 'المصفح الصناعي، شارع ١٥، فيلا رقم ٧',
+    distanceKm: 3.8,
+    timeSlot: { from: '10:00', to: '12:00' },
+    items: [
+      { icon: '👗', name: 'فستان سهرة', qty: 2 },
+      { icon: '🧕', name: 'عباية', qty: 1 },
+      { icon: '👔', name: 'قميص رجالي', qty: 3 }
+    ]
+  },
+  {
+    id: 'INO-1043',
+    customerName: 'خالد الرميثي',
+    customerPhone: '0521234567',
+    dateReceived: 'اليوم ٢م',
+    itemCount: 3,
+    serviceType: 'طلب استلام',
+    branch: 'فرع الفلاح',
+    status: 'new',
+    amount: 0,
+    priority: 'normal',
+    paymentStatus: 'pending',
+    deliveryAddress: 'شارع الفلاح، برج السلام، طابق ٦',
+    distanceKm: 1.2,
+    timeSlot: { from: '14:00', to: '16:00' },
+    items: [
+      { icon: '🛏️', name: 'طقم سرير', qty: 2 },
+      { icon: '🧣', name: 'بطانية', qty: 1 }
+    ]
+  },
+  {
+    id: 'INO-1044',
+    customerName: 'نورة الزعابي',
+    customerPhone: '0521234567',
+    dateReceived: 'اليوم ٤م',
+    itemCount: 3,
+    serviceType: 'طلب استلام',
+    branch: 'فرع الفلاح',
+    status: 'new',
+    amount: 0,
+    priority: 'urgent',
+    paymentStatus: 'pending',
+    deliveryAddress: 'شارع ٣١، حي الفلاح، بجانب صيدلية الشفاء',
+    distanceKm: 1.1,
+    deadline: '16:00',
+    items: [
+      { icon: '🥼', name: 'بدلة', qty: 1 },
+      { icon: '👔', name: 'قميص رجالي', qty: 2 }
+    ]
+  },
+  {
+    id: 'INO-1038',
+    customerName: 'نورة الزعابي',
+    customerPhone: '0521234567',
+    dateReceived: 'أمس ٤م',
+    itemCount: 5,
+    serviceType: 'طلب تسليم',
+    branch: 'فرع الفلاح',
+    status: 'ready',
+    amount: 65,
+    priority: 'normal',
+    paymentStatus: 'unpaid',
+    paymentMethod: 'cash',
+    deliveryAddress: 'الفلاح، شارع ٤٥، أبراج الياسمين، شقة ٢٠٢',
+    distanceKm: 2.7,
+    timeSlot: { from: '16:00', to: '18:00' },
+    assignedDriverId: 'DRV-001',
+    items: [
+      { icon: '👗', name: 'فستان', qty: 1 },
+      { icon: '👔', name: 'قمصان', qty: 4 }
+    ]
+  },
+  {
+    id: 'INO-1036',
+    customerName: 'مريم الهاملي',
+    customerPhone: '0501234567',
+    dateReceived: 'أمس ٦م',
+    itemCount: 3,
+    serviceType: 'طلب تسليم',
+    branch: 'فرع الفلاح',
+    status: 'ready',
+    amount: 145,
+    priority: 'normal',
+    paymentStatus: 'unpaid',
+    paymentMethod: 'card',
+    deliveryAddress: 'الفلاح، شارع ١٠، بلوك ٣',
+    distanceKm: 4.0,
+    timeSlot: { from: '18:00', to: '20:00' },
+    assignedDriverId: 'DRV-001',
+    items: [
+      { icon: '🛏️', name: 'طقم سرير', qty: 1 },
+      { icon: '🧴', name: 'ستارة', qty: 2 }
+    ]
+  },
+  {
+    id: 'INO-1035',
+    customerName: 'أحمد الشامسي',
+    dateReceived: 'اليوم ٩ص',
+    itemCount: 0,
+    serviceType: 'تسليم',
+    branch: 'فرع الفلاح',
+    status: 'completed',
+    amount: 120,
+    priority: 'normal',
+    paymentStatus: 'paid',
+    assignedDriverId: 'DRV-001'
+  },
+  {
+    id: 'INO-1033',
+    customerName: 'عميل غير معروف',
+    dateReceived: 'اليوم ٨ص',
+    itemCount: 0,
+    serviceType: 'استلام',
+    branch: 'فرع الفلاح',
+    status: 'cancelled',
+    amount: 0,
+    priority: 'normal',
+    paymentStatus: 'pending',
+    assignedDriverId: 'DRV-001'
+  }
+];
+
+export const SERVICES: Service[] = [
+  { id: 'wash', title: 'غسيل عادي', description: 'من ٢ درهم', icon: '👔' },
+  { id: 'dry', title: 'تنظيف جاف', description: 'من ١٥ درهم', icon: '🥼' },
+  { id: 'iron', title: 'كوي فقط', description: 'من ٣ درهم', icon: '♨️' },
+  { id: 'bedding', title: 'مفارش وبطاطين', description: 'من ٢٠ درهم', icon: '🛏️' },
+  { id: 'dresses', title: 'فساتين سهرة', description: 'من ٣٠ درهم', icon: '👗' }
+];

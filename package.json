@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "tsx server.ts",
     "start": "NODE_ENV=production tsx server.ts",
-    "build": "vite build",
+    "build": "npm run build:hub && npm run build:customer",
+    "build:hub": "vite build --base /smart-storage-hub/ --outDir dist-smart-storage-hub",
+    "build:customer": "npm --prefix apps/customer-site run build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
