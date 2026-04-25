@@ -22,18 +22,29 @@ export type VirtualGridCell = {
   state: VirtualGridCellState;
 };
 
+const normalizeCellDimension = (value: unknown, fallback: number) => {
+  const fallbackNumber = Number.isFinite(Number(fallback)) ? Number(fallback) : 0.5;
+  const candidate = Number(value ?? fallbackNumber);
+  const parsed = Number.isFinite(candidate) ? candidate : fallbackNumber;
+  const clamped = Math.min(20, Math.max(-20, parsed));
+  if (Math.abs(clamped) >= 0.001) return clamped;
+  return clamped < 0 || Object.is(clamped, -0) ? -0.001 : 0.001;
+};
+
 function SearchGlowMesh({
   x,
   y,
   z,
   w,
   d,
+  h,
 }: {
   x: number;
   y: number;
   z: number;
   w: number;
   d: number;
+  h: number;
 }) {
   const ref = useRef<THREE.Mesh>(null);
   useFrame(({ clock }) => {
@@ -46,7 +57,7 @@ function SearchGlowMesh({
   });
   return (
     <mesh ref={ref} position={[x, y, z]} renderOrder={3}>
-      <boxGeometry args={[w * 1.02, 0.14, d * 1.02]} />
+      <boxGeometry args={[w * 1.02, Math.max(0.12, h * 1.22), d * 1.02]} />
       <meshStandardMaterial
         color="#22c55e"
         emissive="#16a34a"
@@ -65,12 +76,14 @@ function SelectionPulseMesh({
   z,
   w,
   d,
+  h,
 }: {
   x: number;
   y: number;
   z: number;
   w: number;
   d: number;
+  h: number;
 }) {
   const ref = useRef<THREE.Group>(null);
   useFrame(({ clock }) => {
@@ -81,7 +94,7 @@ function SelectionPulseMesh({
   return (
     <group ref={ref} position={[x, y, z]}>
       <mesh renderOrder={4}>
-        <boxGeometry args={[w * 1.06, 0.16, d * 1.06]} />
+        <boxGeometry args={[w * 1.06, Math.max(0.14, h * 1.35), d * 1.06]} />
         <meshStandardMaterial
           color="#15803d"
           emissive="#4ade80"
@@ -101,6 +114,7 @@ type Props = {
   storeCols: number;
   cellWidth: number;
   cellDepth: number;
+  cellHeight: number;
   slotCapacity: number;
   storeBlankets: Blanket[];
   searchTargetFlats: Set<number>;
@@ -121,6 +135,7 @@ export function VirtualBlanketGridOverlay({
   storeCols,
   cellWidth,
   cellDepth,
+  cellHeight,
   slotCapacity,
   storeBlankets,
   searchTargetFlats,
@@ -133,16 +148,22 @@ export function VirtualBlanketGridOverlay({
 }: Props) {
   const [hovered, setHovered] = useState<{ r: number; c: number } | null>(null);
 
-  const overlayCellWidth = Math.min(20, Math.max(0.1, Number(cellWidth) || (STORE_LOCAL_FOOTPRINT_WIDTH / Math.max(1, storeCols))));
-  const overlayCellDepth = Math.min(20, Math.max(0.1, Number(cellDepth) || (STORE_LOCAL_FOOTPRINT_DEPTH / Math.max(1, storeRows))));
+  const overlayCellWidth = normalizeCellDimension(cellWidth, STORE_LOCAL_FOOTPRINT_WIDTH / Math.max(1, storeCols));
+  const overlayCellDepth = normalizeCellDimension(cellDepth, STORE_LOCAL_FOOTPRINT_DEPTH / Math.max(1, storeRows));
+  const overlayCellHeight = normalizeCellDimension(cellHeight, 0.11);
+  const overlayCellWidthAbs = Math.max(0.001, Math.abs(overlayCellWidth));
+  const overlayCellDepthAbs = Math.max(0.001, Math.abs(overlayCellDepth));
+  const overlayCellHeightAbs = Math.max(0.001, Math.abs(overlayCellHeight));
   const gridTotalWidth = overlayCellWidth * storeCols;
   const gridTotalDepth = overlayCellDepth * storeRows;
   const gridHalfWidth = gridTotalWidth / 2;
   const gridHalfDepth = gridTotalDepth / 2;
   const zFaceShift = gridFace === 'front' ? -GRID_FACE_Z_OFFSET : GRID_FACE_Z_OFFSET;
-  const rowAxisX = -Math.max(0.38, overlayCellWidth * 0.32);
-  const colAxisZ = -Math.max(0.42, overlayCellDepth * 0.32) + zFaceShift;
-  const boxY = 0.09;
+  const rowAxisX = -Math.max(0.38, overlayCellWidthAbs * 0.32);
+  const colAxisZ = -Math.max(0.42, overlayCellDepthAbs * 0.32) + zFaceShift;
+  const boxHeight = overlayCellHeightAbs;
+  const boxY = Math.max(0.06, boxHeight * 0.5 + 0.03);
+  const axisY = Math.max(0.14, boxY + boxHeight * 0.45);
   const gridCapacity = storeRows * storeCols;
 
   const storeActiveSearch = searchQuery.trim().length > 0;
@@ -228,8 +249,8 @@ export function VirtualBlanketGridOverlay({
           emissiveIntensity = 0;
         }
 
-        const bw = overlayCellWidth * 0.9;
-        const bd = overlayCellDepth * 0.9;
+        const bw = overlayCellWidthAbs * 0.9;
+        const bd = overlayCellDepthAbs * 0.9;
 
         const cellState: VirtualGridCellState = sel
           ? 'selected'
@@ -266,7 +287,7 @@ export function VirtualBlanketGridOverlay({
                 document.body.style.cursor = 'auto';
               }}
             >
-              <boxGeometry args={[bw, 0.11, bd]} />
+              <boxGeometry args={[bw, boxHeight, bd]} />
               <meshStandardMaterial
                 color={color}
                 transparent
@@ -280,13 +301,13 @@ export function VirtualBlanketGridOverlay({
               />
             </mesh>
             {isSearch && !sel && (
-              <SearchGlowMesh x={x} y={boxY} z={z} w={bw} d={bd} />
+              <SearchGlowMesh x={x} y={boxY} z={z} w={bw} d={bd} h={boxHeight} />
             )}
-            {sel && <SelectionPulseMesh x={x} y={boxY} z={z} w={bw} d={bd} />}
+            {sel && <SelectionPulseMesh x={x} y={boxY} z={z} w={bw} d={bd} h={boxHeight} />}
             {storeHighlightSearch && r === 1 && c === 1 && (
-              <group position={[gridTotalWidth / 2, boxY + 0.02, gridTotalDepth / 2 + zFaceShift]} renderOrder={2}>
+              <group position={[gridTotalWidth / 2, boxY + Math.max(0.02, boxHeight * 0.15), gridTotalDepth / 2 + zFaceShift]} renderOrder={2}>
                 <mesh>
-                  <boxGeometry args={[bw * storeCols * 1.02, 0.12, bd * storeRows * 1.02]} />
+                  <boxGeometry args={[bw * storeCols * 1.02, Math.max(0.12, boxHeight * 1.08), bd * storeRows * 1.02]} />
                   <meshStandardMaterial
                     color="#f87171"
                     emissive="#f87171"
@@ -298,7 +319,7 @@ export function VirtualBlanketGridOverlay({
                   />
                 </mesh>
                 <mesh>
-                  <boxGeometry args={[bw * storeCols * 1.08, 0.14, bd * storeRows * 1.08]} />
+                  <boxGeometry args={[bw * storeCols * 1.08, Math.max(0.14, boxHeight * 1.25), bd * storeRows * 1.08]} />
                   <meshStandardMaterial
                     color="#f87171" 
                     emissive="#f87171"
@@ -344,8 +365,8 @@ export function VirtualBlanketGridOverlay({
         return (
           <Text
             key={`vaxis-r-${r}`}
-            position={[rowAxisX, 0.14, z]}
-            fontSize={Math.min(0.18, overlayCellDepth * 0.38)}
+            position={[rowAxisX, axisY, z]}
+            fontSize={Math.min(0.18, overlayCellDepthAbs * 0.38)}
             color="#64748b"
             anchorX="right"
             anchorY="middle"
@@ -360,8 +381,8 @@ export function VirtualBlanketGridOverlay({
         return (
           <Text
             key={`vaxis-c-${c}`}
-            position={[x, 0.14, colAxisZ]}
-            fontSize={Math.min(0.16, overlayCellWidth * 0.35)}
+            position={[x, axisY, colAxisZ]}
+            fontSize={Math.min(0.16, overlayCellWidthAbs * 0.35)}
             color="#64748b"
             anchorX="center"
             anchorY="top"

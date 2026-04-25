@@ -25,6 +25,7 @@ import {
   SlidersHorizontal,
   Sun,
   Video,
+  ScanLine,
   Crosshair,
   RotateCcw,
   Layers,
@@ -36,12 +37,23 @@ import {
   STORE_LOCAL_FOOTPRINT_DEPTH,
   STORE_LOCAL_FOOTPRINT_WIDTH,
 } from '../constants/storeGeometry';
+import { extractTicketNumberFromScan } from '../utils/barcode';
+import { getScannerSupportMessage, startCameraBarcodeScanner } from '../utils/cameraScanner';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
+
+const normalizeCellDimension = (value: unknown, fallback: number) => {
+  const fallbackNumber = Number.isFinite(Number(fallback)) ? Number(fallback) : 0.5;
+  const candidate = Number(value ?? fallbackNumber);
+  const parsed = Number.isFinite(candidate) ? candidate : fallbackNumber;
+  const clamped = Math.min(20, Math.max(-20, parsed));
+  if (Math.abs(clamped) >= 0.001) return clamped;
+  return clamped < 0 || Object.is(clamped, -0) ? -0.001 : 0.001;
+};
 
 const focusStorePopupInput = () => {
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
@@ -303,11 +315,15 @@ function StoreObject({ store, isSelected, onSelect, mode }: { store: StoreType, 
   const storeOpacity = Math.min(1, Math.max(0.1, Number((store as any).store_opacity ?? 1) || 1));
   const overlayCellWidth = Math.min(
     20,
-    Math.max(0.1, Number((store as any).cell_width ?? (STORE_LOCAL_FOOTPRINT_WIDTH / Math.max(1, store.columns))) || (STORE_LOCAL_FOOTPRINT_WIDTH / Math.max(1, store.columns)))
+    normalizeCellDimension((store as any).cell_width, STORE_LOCAL_FOOTPRINT_WIDTH / Math.max(1, store.columns))
   );
   const overlayCellDepth = Math.min(
     20,
-    Math.max(0.1, Number((store as any).cell_depth ?? (STORE_LOCAL_FOOTPRINT_DEPTH / Math.max(1, store.rows))) || (STORE_LOCAL_FOOTPRINT_DEPTH / Math.max(1, store.rows)))
+    normalizeCellDimension((store as any).cell_depth, STORE_LOCAL_FOOTPRINT_DEPTH / Math.max(1, store.rows))
+  );
+  const overlayCellHeight = Math.min(
+    20,
+    normalizeCellDimension((store as any).cell_height, 0.11)
   );
   const STORE_LOCAL_HIGHLIGHT_HEIGHT = 8;
 
@@ -503,6 +519,7 @@ function StoreObject({ store, isSelected, onSelect, mode }: { store: StoreType, 
             storeCols={store.columns}
             cellWidth={overlayCellWidth}
             cellDepth={overlayCellDepth}
+            cellHeight={overlayCellHeight}
             slotCapacity={store.slot_capacity}
             storeBlankets={storeBlankets}
             searchTargetFlats={searchTargetFlats}
@@ -753,6 +770,21 @@ function Viewer3DControlPanel() {
   const [open, setOpen] = useState(true);
   const [batchEdit, setBatchEdit] = useState(false);
   const selected = stores.find((s) => s.store_name === selectedStore);
+  const selectedCellWidth = selected
+    ? normalizeCellDimension((selected as any).cell_width, STORE_LOCAL_FOOTPRINT_WIDTH / Math.max(1, selected.columns))
+    : null;
+  const selectedCellDepth = selected
+    ? normalizeCellDimension((selected as any).cell_depth, STORE_LOCAL_FOOTPRINT_DEPTH / Math.max(1, selected.rows))
+    : null;
+  const selectedCellHeight = selected
+    ? normalizeCellDimension((selected as any).cell_height, 0.11)
+    : null;
+  const [cellDraft, setCellDraft] = useState<{
+    storeName: string;
+    w: string;
+    d: string;
+    h: string;
+  } | null>(null);
 
   const patchStore = (partial: Partial<StoreType>) => {
     if (batchEdit) {
@@ -761,6 +793,86 @@ function Viewer3DControlPanel() {
     }
     if (!selected) return;
     updateStore(selected.store_name, partial);
+  };
+
+  useEffect(() => {
+    if (!selected || selectedCellWidth == null || selectedCellDepth == null || selectedCellHeight == null) {
+      setCellDraft(null);
+      return;
+    }
+
+    setCellDraft((prev) => {
+      const next = {
+        storeName: selected.store_name,
+        w: String(selectedCellWidth),
+        d: String(selectedCellDepth),
+        h: String(selectedCellHeight),
+      };
+      if (
+        prev &&
+        prev.storeName === next.storeName &&
+        prev.w === next.w &&
+        prev.d === next.d &&
+        prev.h === next.h
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, [selected?.store_name, selectedCellWidth, selectedCellDepth, selectedCellHeight]);
+
+  const parseDraftNumber = (raw: string) => {
+    const normalized = String(raw ?? '').trim().replace(',', '.');
+    if (!normalized || normalized === '-' || normalized === '.' || normalized === '-.') return null;
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const updateCellDraft = (key: 'w' | 'd' | 'h', raw: string) => {
+    if (!selected || selectedCellWidth == null || selectedCellDepth == null || selectedCellHeight == null) return;
+    setCellDraft((prev) => ({
+      storeName: selected.store_name,
+      w: key === 'w' ? raw : prev?.storeName === selected.store_name ? prev.w : String(selectedCellWidth),
+      d: key === 'd' ? raw : prev?.storeName === selected.store_name ? prev.d : String(selectedCellDepth),
+      h: key === 'h' ? raw : prev?.storeName === selected.store_name ? prev.h : String(selectedCellHeight),
+    }));
+
+    const parsed = parseDraftNumber(raw);
+    if (parsed == null) return;
+    if (key === 'w') {
+      patchStore({ cell_width: normalizeCellDimension(parsed, selectedCellWidth) } as Partial<StoreType>);
+      return;
+    }
+    if (key === 'd') {
+      patchStore({ cell_depth: normalizeCellDimension(parsed, selectedCellDepth) } as Partial<StoreType>);
+      return;
+    }
+    patchStore({ cell_height: normalizeCellDimension(parsed, selectedCellHeight) } as Partial<StoreType>);
+  };
+
+  const commitCellDraft = (key: 'w' | 'd' | 'h') => {
+    if (!selected || !cellDraft || cellDraft.storeName !== selected.store_name) return;
+    const base =
+      key === 'w'
+        ? selectedCellWidth ?? 0.5
+        : key === 'd'
+        ? selectedCellDepth ?? 0.5
+        : selectedCellHeight ?? 0.11;
+    const raw = key === 'w' ? cellDraft.w : key === 'd' ? cellDraft.d : cellDraft.h;
+    const parsed = parseDraftNumber(raw);
+    const normalized = normalizeCellDimension(parsed ?? base, base);
+    if (key === 'w') {
+      patchStore({ cell_width: normalized } as Partial<StoreType>);
+    } else if (key === 'd') {
+      patchStore({ cell_depth: normalized } as Partial<StoreType>);
+    } else {
+      patchStore({ cell_height: normalized } as Partial<StoreType>);
+    }
+    setCellDraft((prev) =>
+      prev && prev.storeName === selected.store_name
+        ? { ...prev, [key]: String(normalized) }
+        : prev
+    );
   };
 
   return (
@@ -1244,33 +1356,34 @@ function Viewer3DControlPanel() {
                   <label className="text-[9px] font-bold text-slate-500 uppercase">
                     Cell W
                     <input
-                      type="number"
-                      step={0.1}
-                      min={0.1}
-                      max={20}
+                      type="text"
+                      inputMode="decimal"
                       className="mt-0.5 w-full px-1.5 py-1 rounded-lg bg-slate-800 border border-slate-600 text-white text-xs font-mono"
-                      value={Number((Math.min(20, Math.max(0.1, Number((selected as any).cell_width ?? (STORE_LOCAL_FOOTPRINT_WIDTH / Math.max(1, selected.columns))) || (STORE_LOCAL_FOOTPRINT_WIDTH / Math.max(1, selected.columns))))).toFixed(2))}
-                      onChange={(e) =>
-                        patchStore({
-                          cell_width: Math.min(20, Math.max(0.1, parseFloat(e.target.value) || 0.1)),
-                        } as Partial<StoreType>)
-                      }
+                      value={cellDraft?.storeName === selected.store_name ? cellDraft.w : String(selectedCellWidth ?? 0.5)}
+                      onChange={(e) => updateCellDraft('w', e.target.value)}
+                      onBlur={() => commitCellDraft('w')}
                     />
                   </label>
                   <label className="text-[9px] font-bold text-slate-500 uppercase">
                     Cell D
                     <input
-                      type="number"
-                      step={0.1}
-                      min={0.1}
-                      max={20}
+                      type="text"
+                      inputMode="decimal"
                       className="mt-0.5 w-full px-1.5 py-1 rounded-lg bg-slate-800 border border-slate-600 text-white text-xs font-mono"
-                      value={Number((Math.min(20, Math.max(0.1, Number((selected as any).cell_depth ?? (STORE_LOCAL_FOOTPRINT_DEPTH / Math.max(1, selected.rows))) || (STORE_LOCAL_FOOTPRINT_DEPTH / Math.max(1, selected.rows))))).toFixed(2))}
-                      onChange={(e) =>
-                        patchStore({
-                          cell_depth: Math.min(20, Math.max(0.1, parseFloat(e.target.value) || 0.1)),
-                        } as Partial<StoreType>)
-                      }
+                      value={cellDraft?.storeName === selected.store_name ? cellDraft.d : String(selectedCellDepth ?? 0.5)}
+                      onChange={(e) => updateCellDraft('d', e.target.value)}
+                      onBlur={() => commitCellDraft('d')}
+                    />
+                  </label>
+                  <label className="text-[9px] font-bold text-slate-500 uppercase">
+                    Cell H
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      className="mt-0.5 w-full px-1.5 py-1 rounded-lg bg-slate-800 border border-slate-600 text-white text-xs font-mono"
+                      value={cellDraft?.storeName === selected.store_name ? cellDraft.h : String(selectedCellHeight ?? 0.11)}
+                      onChange={(e) => updateCellDraft('h', e.target.value)}
+                      onBlur={() => commitCellDraft('h')}
                     />
                   </label>
                   <label className="text-[9px] font-bold text-slate-500 uppercase">
@@ -1359,13 +1472,25 @@ function StoreQuickPopup() {
   );
 
   const [newNumber, setNewNumber] = useState('');
+  const [slotInput, setSlotInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [pickingId, setPickingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerError, setScannerError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canModify = ['admin', 'super-admin'].includes(currentUser?.role || '');
+  const isConveyerStore = useMemo(
+    () => Boolean(selected && /convey/i.test(selected.store_name.trim())),
+    [selected?.store_name]
+  );
 
   useEffect(() => {
     setNewNumber('');
+    setSlotInput('');
     setError(null);
+    setScannerOpen(false);
+    setScannerError(null);
   }, [selected?.store_name]);
 
   const slotCapacity = useMemo(() => {
@@ -1416,26 +1541,130 @@ function StoreQuickPopup() {
   }, [selected, selectedGridCell]);
 
   useEffect(() => {
+    if (!selected || !isConveyerStore) return;
+    if (!activeCell) return;
+    setSlotInput((prev) => (prev === String(activeCell.column) ? prev : String(activeCell.column)));
+  }, [selected?.store_name, isConveyerStore, activeCell?.column]);
+
+  useEffect(() => {
+    if (!scannerOpen) return;
+
+    let cancelled = false;
+    let consumed = false;
+    let stopSession: (() => void) | null = null;
+    setScannerError(null);
+
+    const start = async () => {
+      try {
+        const video = videoRef.current;
+        if (!video) throw new Error('Scanner video element not ready.');
+
+        const session = await startCameraBarcodeScanner({
+          videoElement: video,
+          onDetected: (rawValue) => {
+            if (cancelled || consumed) return;
+            const extracted = extractTicketNumberFromScan(String(rawValue));
+            if (!extracted) return;
+            consumed = true;
+            stopSession?.();
+            try {
+              navigator.vibrate?.(50);
+            } catch {
+              // ignore
+            }
+            setNewNumber(extracted);
+            setScannerOpen(false);
+            focusStorePopupInput();
+          },
+          onRuntimeError: (runtimeError) => {
+            if (cancelled) return;
+            setScannerError(getScannerSupportMessage(runtimeError));
+          },
+        });
+
+        if (cancelled) {
+          session.stop();
+          return;
+        }
+        stopSession = session.stop;
+      } catch (scanError) {
+        setScannerError(getScannerSupportMessage(scanError));
+      }
+    };
+
+    start();
+    return () => {
+      cancelled = true;
+      stopSession?.();
+    };
+  }, [scannerOpen]);
+
+  useEffect(() => {
     if (!selected) return;
     if (activeCell) return;
     const fallback = firstAvailableCell ?? { row: 1, column: selected.columns };
     setSelectedGridCell({ store: selected.store_name, row: fallback.row, column: fallback.column });
   }, [selected, activeCell, firstAvailableCell, setSelectedGridCell]);
 
-  const selectedCell = activeCell ?? firstAvailableCell;
+  const parsedSlot = Number.parseInt(slotInput, 10);
+  const hasValidConveyerSlot =
+    isConveyerStore &&
+    selected &&
+    Number.isFinite(parsedSlot) &&
+    parsedSlot >= 1 &&
+    parsedSlot <= selected.columns;
+
+  const selectedCell =
+    isConveyerStore && hasValidConveyerSlot
+      ? { row: 1, column: parsedSlot }
+      : activeCell ?? firstAvailableCell;
   const selectedCellKey = selectedCell ? `${selectedCell.row},${selectedCell.column}` : null;
   const selectedCellItems = selectedCellKey ? cellItemsMap.get(selectedCellKey) ?? [] : [];
   const selectedCellCount = selectedCellItems.length;
   const selectedCellFull = selectedCellCount >= slotCapacity;
 
-  const handleStoreBlanket = async () => {
-    if (!selected || !selectedCell) return;
-    const value = newNumber.trim();
-    if (!value) {
-      setError('Enter blanket number first.');
+  useEffect(() => {
+    if (!selected || !isConveyerStore || !hasValidConveyerSlot) return;
+    if (
+      selectedGridCell?.store === selected.store_name &&
+      selectedGridCell.row === 1 &&
+      selectedGridCell.column === parsedSlot
+    ) {
       return;
     }
-    if (selectedCellFull) {
+    setSelectedGridCell({ store: selected.store_name, row: 1, column: parsedSlot });
+  }, [
+    selected?.store_name,
+    isConveyerStore,
+    hasValidConveyerSlot,
+    parsedSlot,
+    selectedGridCell?.store,
+    selectedGridCell?.row,
+    selectedGridCell?.column,
+    setSelectedGridCell,
+  ]);
+
+  const handleStoreBlanket = async () => {
+    if (!selected) return;
+    const value = newNumber.trim();
+    if (!value) {
+      setError(isConveyerStore ? 'Enter invoice number first.' : 'Enter blanket number first.');
+      return;
+    }
+
+    if (isConveyerStore && !hasValidConveyerSlot) {
+      setError(`Enter a valid slot between 1 and ${selected.columns}.`);
+      return;
+    }
+
+    if (!selectedCell) {
+      setError('Select a slot first.');
+      return;
+    }
+
+    const targetCell = selectedCell;
+    const targetCount = cellItemsMap.get(`${targetCell.row},${targetCell.column}`)?.length ?? 0;
+    if (targetCount >= slotCapacity) {
       setError('Selected cell is full.');
       return;
     }
@@ -1446,14 +1675,14 @@ function StoreQuickPopup() {
       await addBlanket({
         blanket_number: value,
         store: selected.store_name,
-        row: selectedCell.row,
-        column: selectedCell.column,
+        row: targetCell.row,
+        column: targetCell.column,
         status: 'stored',
       });
       setNewNumber('');
       // Auto-advance selection when the current cell reaches capacity.
       // For capacity=1 (e.g., B1-back), this prevents repeated "slot is full" on next entry.
-      if (selectedCellCount + 1 >= slotCapacity) {
+      if (!isConveyerStore && targetCount + 1 >= slotCapacity) {
         setSelectedGridCell(null);
       }
       focusStorePopupInput();
@@ -1461,8 +1690,12 @@ function StoreQuickPopup() {
       const message = String(err?.message || '');
       if (/slot\s+is\s+full/i.test(message)) {
         // Move to next available cell automatically, then keep typing.
-        setSelectedGridCell(null);
-        setError('Selected cell was full, moved to next available cell.');
+        if (!isConveyerStore) {
+          setSelectedGridCell(null);
+          setError('Selected cell was full, moved to next available cell.');
+        } else {
+          setError('Selected slot is full. Enter another slot.');
+        }
         await fetchBlankets();
         focusStorePopupInput();
       } else {
@@ -1488,16 +1721,17 @@ function StoreQuickPopup() {
   if (!selected) return null;
 
   return (
-    <div className="absolute top-3 left-2 right-2 sm:top-24 sm:left-6 sm:right-auto sm:w-[min(92vw,420px)] z-20 max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-8rem)] pointer-events-auto">
-      <div className="h-full bg-slate-900/95 backdrop-blur-md border border-slate-700 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col">
-        <div className="px-3 sm:px-4 py-3 border-b border-slate-800 flex items-center justify-between gap-2">
-          <div>
+    <>
+      <div className="absolute top-2 left-2 right-2 sm:top-24 sm:left-6 sm:right-auto sm:w-[min(92vw,420px)] z-20 max-h-[calc(100vh-1rem)] sm:max-h-[calc(100vh-8rem)] pointer-events-auto">
+        <div className="h-full bg-slate-900/95 backdrop-blur-md border border-slate-700 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col">
+        <div className="px-3 sm:px-4 py-2.5 border-b border-slate-800 flex items-center justify-between gap-2">
+          <div className="min-w-0">
             <div className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">Store Popup</div>
-            <div className="flex items-center gap-1.5 sm:gap-2">
-              <div className="text-sm sm:text-base font-black text-white">{selected.store_name}</div>
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap pr-2">
+              <div className="text-sm sm:text-base font-black text-white truncate max-w-[58vw] sm:max-w-none">{selected.store_name}</div>
               <span
                 className={cn(
-                  'text-[9px] sm:text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-full border',
+                  'text-[9px] sm:text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-full border whitespace-nowrap',
                   selected.auto_settle !== false
                     ? 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40'
                     : 'bg-slate-700/40 text-slate-300 border-slate-600'
@@ -1547,6 +1781,9 @@ function StoreQuickPopup() {
                         type="button"
                         onClick={() => {
                           setSelectedGridCell({ store: selected.store_name, row, column: col });
+                          if (isConveyerStore) {
+                            setSlotInput(String(col));
+                          }
                           focusStorePopupInput();
                         }}
                         className={cn(
@@ -1573,13 +1810,42 @@ function StoreQuickPopup() {
           <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-3 space-y-3">
             <div className="flex items-center justify-between text-[11px] font-black text-white">
               <span>
-                Selected: {selectedCell ? `R${selectedCell.row} · C${selectedCell.column}` : '—'}
+                {isConveyerStore
+                  ? `Slot: ${selectedCell ? `${selectedCell.column}` : '—'}`
+                  : `Selected: ${selectedCell ? `R${selectedCell.row} · C${selectedCell.column}` : '—'}`}
               </span>
               <span className={cn('text-xs', selectedCellFull ? 'text-rose-400' : 'text-emerald-400')}>
                 {selectedCellCount}/{slotCapacity}
               </span>
             </div>
-            <div className="flex flex-col sm:flex-row gap-2">
+            {isConveyerStore && (
+              <div className="space-y-1 sm:max-w-[260px]">
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Slot Number</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={selected.columns}
+                  step={1}
+                  value={slotInput}
+                  onChange={(e) => setSlotInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return;
+                    e.preventDefault();
+                    focusStorePopupInput();
+                  }}
+                  placeholder={`1 .. ${selected.columns}`}
+                  className="w-full h-10 sm:h-11 rounded-xl bg-slate-900 border border-slate-700 px-3 text-sm text-white font-bold outline-none focus:border-blue-500"
+                />
+              </div>
+            )}
+            <div
+              className={cn(
+                "grid gap-2 sm:gap-2.5",
+                isConveyerStore
+                  ? "grid-cols-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]"
+                  : "grid-cols-[minmax(0,1fr)_auto]"
+              )}
+            >
               <input
                 type="text"
                 data-store-popup-input="true"
@@ -1590,17 +1856,43 @@ function StoreQuickPopup() {
                   e.preventDefault();
                   void handleStoreBlanket();
                 }}
-                placeholder="Blanket number..."
-                className="flex-1 rounded-xl bg-slate-900 border border-slate-700 px-3 py-2.5 text-base sm:text-sm text-white font-bold outline-none focus:border-blue-500"
+                placeholder={isConveyerStore ? 'Invoice / barcode number...' : 'Blanket number...'}
+                className={cn(
+                  "min-w-0 rounded-xl bg-slate-900 border border-slate-700 px-3 h-10 sm:h-11 text-sm text-white font-bold outline-none focus:border-blue-500",
+                  isConveyerStore ? "col-span-2 sm:col-span-1" : "col-span-1"
+                )}
               />
+              {isConveyerStore && (
+                <button
+                  type="button"
+                  onClick={() => setScannerOpen(true)}
+                  className="px-3 sm:px-4 h-10 sm:h-11 rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-600 min-w-[96px]"
+                  title="Scan barcode with camera"
+                >
+                  <ScanLine size={14} />
+                  Scan
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleStoreBlanket}
-                disabled={busy || !selectedCell || selectedCellFull || !newNumber.trim() || !currentUser}
+                disabled={
+                  busy ||
+                  !selectedCell ||
+                  selectedCellFull ||
+                  !newNumber.trim() ||
+                  !canModify ||
+                  (isConveyerStore && !hasValidConveyerSlot)
+                }
                 className={cn(
-                  'px-3 h-11 sm:h-auto rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-1.5',
-                  busy || !selectedCell || selectedCellFull || !newNumber.trim() || !currentUser
-                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                  'px-3 sm:px-4 h-10 sm:h-11 rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 min-w-[96px]',
+                  busy ||
+                  !selectedCell ||
+                  selectedCellFull ||
+                  !newNumber.trim() ||
+                  !canModify ||
+                  (isConveyerStore && !hasValidConveyerSlot)
+                    ? 'bg-slate-800 text-slate-300/70 border border-slate-700 cursor-not-allowed'
                     : 'bg-blue-600 hover:bg-blue-500 text-white'
                 )}
               >
@@ -1629,10 +1921,10 @@ function StoreQuickPopup() {
                       <button
                         type="button"
                         onClick={() => handlePicked(item)}
-                        disabled={pickingId === item.id || !currentUser}
+                        disabled={pickingId === item.id || !canModify}
                         className={cn(
                           'px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-1',
-                          pickingId === item.id || !currentUser
+                          pickingId === item.id || !canModify
                             ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
                             : 'bg-emerald-600 hover:bg-emerald-500 text-white'
                         )}
@@ -1652,9 +1944,55 @@ function StoreQuickPopup() {
               </div>
             )}
           </div>
+          </div>
         </div>
       </div>
-    </div>
+      {scannerOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-sm flex flex-col">
+          <div className="p-4 sm:p-6 flex items-center justify-between gap-3 border-b border-slate-800">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-blue-600 flex items-center justify-center">
+                <ScanLine size={22} />
+              </div>
+              <div>
+                <div className="text-sm font-black uppercase tracking-widest text-slate-200">Conveyer Scanner</div>
+                <div className="text-xs text-slate-400 font-bold">Point camera to the invoice barcode</div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setScannerOpen(false)}
+              className="rounded-2xl bg-slate-800 border border-slate-700 px-4 py-3 text-xs font-black uppercase tracking-widest text-slate-200 hover:bg-slate-700 flex items-center gap-2"
+            >
+              <X size={18} />
+              Close
+            </button>
+          </div>
+
+          <div className="flex-1 p-4 sm:p-6 flex flex-col items-center justify-center gap-4">
+            <div className="w-full max-w-lg aspect-[3/4] sm:aspect-video rounded-3xl overflow-hidden border border-slate-800 bg-slate-900 relative">
+              <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+              <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                <div className="w-56 h-56 sm:w-72 sm:h-72 border-2 border-emerald-400/80 rounded-3xl shadow-[0_0_0_999px_rgba(2,6,23,0.55)]" />
+              </div>
+            </div>
+
+            {scannerError ? (
+              <div className="max-w-lg w-full rounded-3xl border border-rose-700 bg-rose-950/60 px-5 py-4 text-rose-200 text-sm font-bold">
+                {scannerError}
+                <div className="mt-2 text-xs text-rose-200/80 font-semibold">
+                  Tip: Works on Android, iPhone (Safari/Chrome), and desktop browsers. Allow camera permission.
+                </div>
+              </div>
+            ) : (
+              <div className="max-w-lg w-full rounded-3xl border border-slate-800 bg-slate-900/60 px-5 py-4 text-slate-200 text-sm font-bold">
+                Scanning... it will fill invoice number automatically.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

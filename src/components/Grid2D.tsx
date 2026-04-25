@@ -1,8 +1,10 @@
 import { useStore, type Blanket } from '../store/useStore';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Plus } from 'lucide-react';
+import { Check, Plus, ScanLine, X } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { extractTicketNumberFromScan } from '../utils/barcode';
+import { getScannerSupportMessage, startCameraBarcodeScanner } from '../utils/cameraScanner';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -24,13 +26,22 @@ export default function Grid2D() {
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [newNumber, setNewNumber] = useState('');
+  const [slotInput, setSlotInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [pickingId, setPickingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerError, setScannerError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canModify = ['admin', 'super-admin'].includes(currentUser?.role || '');
 
   const store = useMemo(
     () => stores.find((s) => s.store_name === selectedStore) || stores[0],
     [stores, selectedStore]
+  );
+  const isConveyerStore = useMemo(
+    () => Boolean(store && /convey/i.test(store.store_name.trim())),
+    [store?.store_name]
   );
 
   const storeBlankets = useMemo(
@@ -89,8 +100,70 @@ export default function Grid2D() {
 
   useEffect(() => {
     setNewNumber('');
+    setSlotInput('');
     setError(null);
+    setScannerOpen(false);
+    setScannerError(null);
   }, [store?.store_name]);
+
+  useEffect(() => {
+    if (!store || !isConveyerStore) return;
+    if (!activeCell) return;
+    setSlotInput((prev) => (prev === String(activeCell.column) ? prev : String(activeCell.column)));
+  }, [store?.store_name, isConveyerStore, activeCell?.column]);
+
+  useEffect(() => {
+    if (!scannerOpen) return;
+
+    let cancelled = false;
+    let consumed = false;
+    let stopSession: (() => void) | null = null;
+    setScannerError(null);
+
+    const start = async () => {
+      try {
+        const video = videoRef.current;
+        if (!video) throw new Error('Scanner video element not ready.');
+
+        const session = await startCameraBarcodeScanner({
+          videoElement: video,
+          onDetected: (rawValue) => {
+            if (cancelled || consumed) return;
+            const extracted = extractTicketNumberFromScan(String(rawValue));
+            if (!extracted) return;
+            consumed = true;
+            stopSession?.();
+            try {
+              navigator.vibrate?.(50);
+            } catch {
+              // ignore
+            }
+            setNewNumber(extracted);
+            setScannerOpen(false);
+            inputRef.current?.focus();
+          },
+          onRuntimeError: (runtimeError) => {
+            if (cancelled) return;
+            setScannerError(getScannerSupportMessage(runtimeError));
+          },
+        });
+
+        if (cancelled) {
+          session.stop();
+          return;
+        }
+        stopSession = session.stop;
+      } catch (scanError) {
+        setScannerError(getScannerSupportMessage(scanError));
+      }
+    };
+
+    start();
+    return () => {
+      cancelled = true;
+      stopSession?.();
+    };
+  }, [scannerOpen]);
 
   useEffect(() => {
     if (!store) return;
@@ -101,20 +174,64 @@ export default function Grid2D() {
 
   if (!store) return null;
 
-  const selectedCell = activeCell ?? firstAvailableCell;
+  const parsedSlot = Number.parseInt(slotInput, 10);
+  const hasValidConveyerSlot =
+    isConveyerStore &&
+    Number.isFinite(parsedSlot) &&
+    parsedSlot >= 1 &&
+    parsedSlot <= store.columns;
+
+  const selectedCell =
+    isConveyerStore && hasValidConveyerSlot
+      ? { row: 1, column: parsedSlot }
+      : activeCell ?? firstAvailableCell;
   const selectedCellKey = selectedCell ? `${selectedCell.row},${selectedCell.column}` : null;
   const selectedCellItems = selectedCellKey ? cellItemsMap.get(selectedCellKey) ?? [] : [];
   const selectedCellCount = selectedCellItems.length;
   const selectedCellFull = selectedCellCount >= slotCapacity;
 
-  const handleStoreBlanket = async () => {
-    if (!selectedCell) return;
-    const value = newNumber.trim();
-    if (!value) {
-      setError('Enter blanket number first.');
+  useEffect(() => {
+    if (!store || !isConveyerStore || !hasValidConveyerSlot) return;
+    if (
+      selectedGridCell?.store === store.store_name &&
+      selectedGridCell.row === 1 &&
+      selectedGridCell.column === parsedSlot
+    ) {
       return;
     }
-    if (selectedCellFull) {
+    setSelectedGridCell({ store: store.store_name, row: 1, column: parsedSlot });
+  }, [
+    store?.store_name,
+    isConveyerStore,
+    hasValidConveyerSlot,
+    parsedSlot,
+    selectedGridCell?.store,
+    selectedGridCell?.row,
+    selectedGridCell?.column,
+    setSelectedGridCell,
+  ]);
+
+  const handleStoreBlanket = async () => {
+    if (!store) return;
+    const value = newNumber.trim();
+    if (!value) {
+      setError(isConveyerStore ? 'Enter invoice number first.' : 'Enter blanket number first.');
+      return;
+    }
+
+    if (isConveyerStore && !hasValidConveyerSlot) {
+      setError(`Enter a valid slot between 1 and ${store.columns}.`);
+      return;
+    }
+
+    if (!selectedCell) {
+      setError('Select a slot first.');
+      return;
+    }
+
+    const targetCell = selectedCell;
+    const targetCount = cellItemsMap.get(`${targetCell.row},${targetCell.column}`)?.length ?? 0;
+    if (targetCount >= slotCapacity) {
       setError('Selected cell is full.');
       return;
     }
@@ -125,20 +242,24 @@ export default function Grid2D() {
       await addBlanket({
         blanket_number: value,
         store: store.store_name,
-        row: selectedCell.row,
-        column: selectedCell.column,
+        row: targetCell.row,
+        column: targetCell.column,
         status: 'stored',
       });
       setNewNumber('');
-      if (selectedCellCount + 1 >= slotCapacity) {
+      if (!isConveyerStore && targetCount + 1 >= slotCapacity) {
         setSelectedGridCell(null);
       }
       inputRef.current?.focus();
     } catch (err: any) {
       const message = String(err?.message || '');
       if (/slot\s+is\s+full/i.test(message)) {
-        setSelectedGridCell(null);
-        setError('Selected cell was full, moved to next available cell.');
+        if (!isConveyerStore) {
+          setSelectedGridCell(null);
+          setError('Selected cell was full, moved to next available cell.');
+        } else {
+          setError('Selected slot is full. Enter another slot.');
+        }
         await fetchBlankets();
       } else {
         setError(message || 'Failed to store blanket.');
@@ -178,12 +299,12 @@ export default function Grid2D() {
   const storeCapacity = Math.max(1, store.rows * store.columns * slotCapacity);
 
   return (
-    <div className="h-full w-full flex flex-col p-3 sm:p-6 lg:p-10 pb-24 sm:pb-32 overflow-auto bg-slate-950">
+    <div className="h-full w-full min-w-0 flex flex-col p-3 sm:p-6 lg:p-10 pb-20 sm:pb-28 overflow-y-auto overflow-x-hidden bg-slate-950">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6">
         <div className="flex flex-col gap-2">
-          <h2 className="text-2xl sm:text-4xl lg:text-5xl font-black tracking-tighter text-white uppercase">{store.store_name}</h2>
+          <h2 className="text-xl sm:text-4xl lg:text-5xl font-black tracking-tighter text-white uppercase">{store.store_name}</h2>
           <p className="text-slate-500 font-bold text-[11px] sm:text-base uppercase tracking-widest">
-            {store.rows} Rows × {store.columns} Columns • {storeBlankets.length} Items Stored
+            {store.rows} Rows × {store.columns} Columns • {storeBlankets.length} Items Stored • {Math.round((storeBlankets.length / storeCapacity) * 100)}% Capacity
           </p>
         </div>
 
@@ -198,21 +319,48 @@ export default function Grid2D() {
           >
             Auto-settle: {store.auto_settle !== false ? 'Enabled' : 'Disabled'}
           </span>
-          <div className="bg-slate-900 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-800 shadow-2xl flex flex-col items-center justify-center min-w-[96px] sm:min-w-[110px]">
-            <span className="text-slate-500 text-[10px] font-bold uppercase tracking-widest mb-1">Capacity</span>
-            <span className="text-xl sm:text-2xl font-black text-white">{Math.round((storeBlankets.length / storeCapacity) * 100)}%</span>
-          </div>
         </div>
       </div>
 
-      <div className="mb-4 sm:mb-6 rounded-2xl sm:rounded-3xl border border-slate-800 bg-slate-900/85 p-3 sm:p-4 shadow-2xl space-y-3">
+      <div className="mb-4 sm:mb-6 rounded-2xl sm:rounded-3xl border border-slate-800 bg-slate-900/85 p-3 sm:p-4 shadow-2xl space-y-2.5 sm:space-y-3">
         <div className="flex items-center justify-between text-[11px] font-black text-white">
-          <span>Selected: {selectedCell ? `R${selectedCell.row} · C${selectedCell.column}` : '—'}</span>
+          <span>
+            {isConveyerStore
+              ? `Slot: ${selectedCell ? `${selectedCell.column}` : '—'}`
+              : `Selected: ${selectedCell ? `R${selectedCell.row} · C${selectedCell.column}` : '—'}`}
+          </span>
           <span className={cn('text-xs', selectedCellFull ? 'text-rose-400' : 'text-emerald-400')}>
             {selectedCellCount}/{slotCapacity}
           </span>
         </div>
-        <div className="flex flex-col sm:flex-row gap-2">
+        {isConveyerStore && (
+          <div className="space-y-1 sm:max-w-[260px]">
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Slot Number</label>
+            <input
+              type="number"
+              min={1}
+              max={store.columns}
+              step={1}
+              value={slotInput}
+              onChange={(e) => setSlotInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                inputRef.current?.focus();
+              }}
+              placeholder={`1 .. ${store.columns}`}
+              className="w-full h-10 sm:h-11 rounded-xl bg-slate-900 border border-slate-700 px-3 text-sm text-white font-bold outline-none focus:border-blue-500"
+            />
+          </div>
+        )}
+        <div
+          className={cn(
+            "grid gap-2 sm:gap-2.5",
+            isConveyerStore
+              ? "grid-cols-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]"
+              : "grid-cols-[minmax(0,1fr)_auto]"
+          )}
+        >
           <input
             ref={inputRef}
             type="text"
@@ -223,17 +371,43 @@ export default function Grid2D() {
               e.preventDefault();
               void handleStoreBlanket();
             }}
-            placeholder="Blanket number..."
-            className="flex-1 rounded-xl bg-slate-900 border border-slate-700 px-3 py-2.5 text-base sm:text-sm text-white font-bold outline-none focus:border-blue-500"
+            placeholder={isConveyerStore ? 'Invoice / barcode number...' : 'Blanket number...'}
+            className={cn(
+              "min-w-0 rounded-xl bg-slate-900 border border-slate-700 px-3 h-10 sm:h-11 text-sm text-white font-bold outline-none focus:border-blue-500",
+              isConveyerStore ? "col-span-2 sm:col-span-1" : "col-span-1"
+            )}
           />
+          {isConveyerStore && (
+            <button
+              type="button"
+              onClick={() => setScannerOpen(true)}
+              className="px-3 sm:px-4 h-10 sm:h-11 rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-600 min-w-[96px]"
+              title="Scan barcode with camera"
+            >
+              <ScanLine size={14} />
+              Scan
+            </button>
+          )}
           <button
             type="button"
             onClick={handleStoreBlanket}
-            disabled={busy || !selectedCell || selectedCellFull || !newNumber.trim() || !currentUser}
+            disabled={
+              busy ||
+              !selectedCell ||
+              selectedCellFull ||
+              !newNumber.trim() ||
+              !canModify ||
+              (isConveyerStore && !hasValidConveyerSlot)
+            }
             className={cn(
-              'px-3 h-11 sm:h-auto rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-1.5',
-              busy || !selectedCell || selectedCellFull || !newNumber.trim() || !currentUser
-                ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+              'px-3 sm:px-4 h-10 sm:h-11 rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 min-w-[96px]',
+              busy ||
+              !selectedCell ||
+              selectedCellFull ||
+              !newNumber.trim() ||
+              !canModify ||
+              (isConveyerStore && !hasValidConveyerSlot)
+                ? 'bg-slate-800 text-slate-300/70 border border-slate-700 cursor-not-allowed'
                 : 'bg-blue-600 hover:bg-blue-500 text-white'
             )}
           >
@@ -259,10 +433,10 @@ export default function Grid2D() {
                   <button
                     type="button"
                     onClick={() => handlePicked(item)}
-                    disabled={pickingId === item.id || !currentUser}
+                    disabled={pickingId === item.id || !canModify}
                     className={cn(
                       'px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-1',
-                      pickingId === item.id || !currentUser
+                      pickingId === item.id || !canModify
                         ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
                         : 'bg-emerald-600 hover:bg-emerald-500 text-white'
                     )}
@@ -282,7 +456,7 @@ export default function Grid2D() {
         )}
       </div>
 
-      <div className="flex-1 min-h-0 flex items-center justify-center">
+      <div className="flex-1 min-h-0 flex items-start sm:items-center justify-center">
         <div className="w-full overflow-auto pb-2">
           <div
             className="mx-auto w-max grid gap-1 sm:gap-2 p-3 sm:p-6 bg-slate-900 rounded-[26px] sm:rounded-[40px] border border-slate-800 shadow-2xl"
@@ -300,6 +474,9 @@ export default function Grid2D() {
                     type="button"
                     onClick={() => {
                       setSelectedGridCell({ store: store.store_name, row: cell.r, column: cell.c });
+                      if (isConveyerStore) {
+                        setSlotInput(String(cell.c));
+                      }
                       inputRef.current?.focus();
                     }}
                     className={cn(
@@ -353,6 +530,52 @@ export default function Grid2D() {
           </div>
         </div>
       </div>
+
+      {scannerOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-sm flex flex-col">
+          <div className="p-4 sm:p-6 flex items-center justify-between gap-3 border-b border-slate-800">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-blue-600 flex items-center justify-center">
+                <ScanLine size={22} />
+              </div>
+              <div>
+                <div className="text-sm font-black uppercase tracking-widest text-slate-200">Conveyer Scanner</div>
+                <div className="text-xs text-slate-400 font-bold">Point camera to the invoice barcode</div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setScannerOpen(false)}
+              className="rounded-2xl bg-slate-800 border border-slate-700 px-4 py-3 text-xs font-black uppercase tracking-widest text-slate-200 hover:bg-slate-700 flex items-center gap-2"
+            >
+              <X size={18} />
+              Close
+            </button>
+          </div>
+
+          <div className="flex-1 p-4 sm:p-6 flex flex-col items-center justify-center gap-4">
+            <div className="w-full max-w-lg aspect-[3/4] sm:aspect-video rounded-3xl overflow-hidden border border-slate-800 bg-slate-900 relative">
+              <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+              <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                <div className="w-56 h-56 sm:w-72 sm:h-72 border-2 border-emerald-400/80 rounded-3xl shadow-[0_0_0_999px_rgba(2,6,23,0.55)]" />
+              </div>
+            </div>
+
+            {scannerError ? (
+              <div className="max-w-lg w-full rounded-3xl border border-rose-700 bg-rose-950/60 px-5 py-4 text-rose-200 text-sm font-bold">
+                {scannerError}
+                <div className="mt-2 text-xs text-rose-200/80 font-semibold">
+                  Tip: Works on Android, iPhone (Safari/Chrome), and desktop browsers. Allow camera permission.
+                </div>
+              </div>
+            ) : (
+              <div className="max-w-lg w-full rounded-3xl border border-slate-800 bg-slate-900/60 px-5 py-4 text-slate-200 text-sm font-bold">
+                Scanning... it will fill invoice number automatically.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

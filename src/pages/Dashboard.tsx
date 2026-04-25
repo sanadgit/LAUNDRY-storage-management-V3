@@ -87,7 +87,7 @@ export default function Dashboard() {
             <p className="text-blue-100 mb-8">Common tasks for warehouse workers.</p>
             <div className="space-y-4">
               <button 
-                onClick={() => navigate('/management')}
+                onClick={() => navigate('/management?quickadd=1')}
                 className="w-full bg-white/10 hover:bg-white/20 p-4 rounded-2xl text-left font-semibold backdrop-blur-sm transition-all border border-white/10 flex items-center gap-3"
               >
                 <Plus size={20} />

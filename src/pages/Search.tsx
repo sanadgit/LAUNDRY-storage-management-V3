@@ -5,12 +5,17 @@ import Grid2D from '../components/Grid2D';
 import Warehouse3D from '../components/Warehouse3D';
 import { useViewer3D } from '../context/Viewer3DSettings';
 import { getVirtualGridCellWorldPoint } from '../utils/virtualGridWorldPoint';
+import { extractTicketNumberFromScan } from '../utils/barcode';
+import { getScannerSupportMessage, startCameraBarcodeScanner } from '../utils/cameraScanner';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
+
+type ScannerMode = 'search' | 'pick-confirm';
+type MobilePanelSnap = 'peek' | 'expanded';
 
 export default function SearchPage() {
   const { 
@@ -31,130 +36,150 @@ export default function SearchPage() {
     gridFace,
     setSelectedGridCell,
     currentUser,
+    setSearchImmersive,
   } = useStore();
 
   const { requestFocusCellWorld } = useViewer3D();
 
   const [searchPanelOpen, setSearchPanelOpen] = useState(true);
+  const [mobilePanelSnap, setMobilePanelSnap] = useState<MobilePanelSnap>('peek');
+  const [isMobileViewport, setIsMobileViewport] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 639px)').matches : false
+  );
   const [pickError, setPickError] = useState<string | null>(null);
   const [queryInput, setQueryInput] = useState(searchQuery);
   const deferredQuery = useDeferredValue(queryInput);
   const suggestionBlurTimeout = useRef<number | null>(null);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerMode, setScannerMode] = useState<ScannerMode>('search');
   const [scannerError, setScannerError] = useState<string | null>(null);
+  const [pendingPickScanBlanket, setPendingPickScanBlanket] = useState<Blanket | null>(null);
+  const canModify = ['admin', 'super-admin'].includes(currentUser?.role || '');
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-  const scannerRafRef = useRef<number | null>(null);
+  const scannerModeRef = useRef<ScannerMode>('search');
+  const pendingPickScanBlanketRef = useRef<Blanket | null>(null);
+  const completeMarkAsPickedRef = useRef<(payload: Blanket) => Promise<boolean>>(async () => false);
+  const panelDragStartYRef = useRef<number | null>(null);
+  const panelDragStartSnapRef = useRef<MobilePanelSnap>('peek');
 
   useEffect(() => {
     setQueryInput(searchQuery);
   }, [searchQuery]);
 
-  const extractBlanketNumberFromScan = (raw: string) => {
-    const value = (raw ?? '').trim();
-    if (!value) return '';
-    try {
-      const url = new URL(value);
-      const fromQuery =
-        url.searchParams.get('blanket') ||
-        url.searchParams.get('blanket_number') ||
-        url.searchParams.get('n') ||
-        url.searchParams.get('number');
-      if (fromQuery) return fromQuery.trim();
-    } catch {
-      // not a URL; treat as a raw number
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const media = window.matchMedia('(max-width: 639px)');
+    const update = () => setIsMobileViewport(media.matches);
+    update();
+    if (typeof media.addEventListener === 'function') {
+      media.addEventListener('change', update);
+      return () => media.removeEventListener('change', update);
     }
-    return value.replace(/^#/, '').split(/\s+/)[0].trim();
-  };
+    media.addListener(update);
+    return () => media.removeListener(update);
+  }, []);
+
+  useEffect(() => {
+    scannerModeRef.current = scannerMode;
+  }, [scannerMode]);
+
+  useEffect(() => {
+    pendingPickScanBlanketRef.current = pendingPickScanBlanket;
+  }, [pendingPickScanBlanket]);
+
+  const normalizeTicketForCompare = (value: string) => String(value ?? '').trim().toLowerCase();
 
   useEffect(() => {
     if (!scannerOpen) return;
 
     let cancelled = false;
+    let consumed = false;
+    let stopSession: (() => void) | null = null;
     setScannerError(null);
-
-    const stop = () => {
-      if (scannerRafRef.current) {
-        window.cancelAnimationFrame(scannerRafRef.current);
-        scannerRafRef.current = null;
-      }
-      const stream = mediaStreamRef.current;
-      mediaStreamRef.current = null;
-      if (stream) {
-        for (const track of stream.getTracks()) track.stop();
-      }
-      if (videoRef.current) {
-        videoRef.current.srcObject = null;
-      }
-    };
 
     const start = async () => {
       try {
-        const hasBarcodeDetector = typeof (globalThis as any).BarcodeDetector !== 'undefined';
-        if (!hasBarcodeDetector) {
-          throw new Error('Scanner not supported on this device/browser (BarcodeDetector missing).');
-        }
-
-        const detector = new (globalThis as any).BarcodeDetector({
-          formats: ['qr_code', 'code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e'],
-        });
-
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' } },
-          audio: false,
-        });
-
-        if (cancelled) {
-          for (const track of stream.getTracks()) track.stop();
-          return;
-        }
-
-        mediaStreamRef.current = stream;
-
         const video = videoRef.current;
         if (!video) throw new Error('Scanner video element not ready.');
 
-        video.srcObject = stream;
-        await video.play();
+        const session = await startCameraBarcodeScanner({
+          videoElement: video,
+          onDetected: async (rawValue) => {
+            if (cancelled || consumed) return;
+            const extracted = extractTicketNumberFromScan(String(rawValue));
+            if (!extracted) return;
 
-        const tick = async () => {
-          if (cancelled || !videoRef.current) return;
-          try {
-            const results = await detector.detect(videoRef.current);
-            if (Array.isArray(results) && results.length > 0) {
-              const rawValue = results[0]?.rawValue ?? '';
-              const extracted = extractBlanketNumberFromScan(String(rawValue));
-              if (extracted) {
+            const mode = scannerModeRef.current;
+            if (mode === 'pick-confirm') {
+              const target = pendingPickScanBlanketRef.current;
+              if (!target) {
+                setScannerError('No pending pick target. Try pressing MARK AS PICKED again.');
+                return;
+              }
+              const scanned = normalizeTicketForCompare(extracted);
+              const expected = normalizeTicketForCompare(target.blanket_number);
+              if (scanned !== expected) {
                 try {
-                  navigator.vibrate?.(50);
+                  navigator.vibrate?.([40, 40, 40]);
                 } catch {
                   // ignore
                 }
-                setQueryInput(extracted);
-                setSearchQuery(extracted);
-                setSearchPanelOpen(true);
-                setScannerOpen(false);
+                setScannerError(`Scanned #${extracted} does not match required #${target.blanket_number}.`);
                 return;
               }
-            }
-          } catch (error) {
-            // ignore single-frame detect failures
-          }
-          scannerRafRef.current = window.requestAnimationFrame(tick);
-        };
 
-        scannerRafRef.current = window.requestAnimationFrame(tick);
-      } catch (error: any) {
-        const message = typeof error?.message === 'string' ? error.message : 'Failed to start scanner.';
-        setScannerError(message);
+              consumed = true;
+              stopSession?.();
+              try {
+                navigator.vibrate?.(70);
+              } catch {
+                // ignore
+              }
+              setScannerError(null);
+              setScannerOpen(false);
+              const marked = await completeMarkAsPickedRef.current(target);
+              if (marked) {
+                setPendingPickScanBlanket(null);
+                pendingPickScanBlanketRef.current = null;
+                setScannerMode('search');
+                scannerModeRef.current = 'search';
+              }
+              return;
+            }
+
+            consumed = true;
+            stopSession?.();
+            try {
+              navigator.vibrate?.(50);
+            } catch {
+              // ignore
+            }
+            setQueryInput(extracted);
+            setSearchQuery(extracted);
+            setSearchPanelOpen(true);
+            setScannerOpen(false);
+          },
+          onRuntimeError: (runtimeError) => {
+            if (cancelled) return;
+            setScannerError(getScannerSupportMessage(runtimeError));
+          },
+        });
+
+        if (cancelled) {
+          session.stop();
+          return;
+        }
+        stopSession = session.stop;
+      } catch (error) {
+        setScannerError(getScannerSupportMessage(error));
       }
     };
 
     start();
     return () => {
       cancelled = true;
-      stop();
+      stopSession?.();
     };
   }, [scannerOpen, setSearchQuery]);
 
@@ -169,6 +194,15 @@ export default function SearchPage() {
   const normalizedQuery = deferredQuery.trim();
   const normalizedQueryLower = normalizedQuery.toLowerCase();
   const hasQuery = normalizedQuery.length > 0;
+  const isSearchImmersive = isMobileViewport && hasQuery && searchPanelOpen && mobilePanelSnap === 'expanded';
+
+  useEffect(() => {
+    setSearchImmersive(isSearchImmersive);
+  }, [isSearchImmersive, setSearchImmersive]);
+
+  useEffect(() => {
+    return () => setSearchImmersive(false);
+  }, [setSearchImmersive]);
 
   const latestLogBySlotKey = useMemo(() => {
     const map = new Map<string, Log>();
@@ -294,14 +328,18 @@ export default function SearchPage() {
     
     if (!hasQuery) {
       setSearchPanelOpen(false);
+      setMobilePanelSnap('peek');
       return;
     }
     setSearchPanelOpen(true);
+    if (mobilePanelSnap !== 'expanded') {
+      setMobilePanelSnap('peek');
+    }
 
     if (storedMatches.length > 0) {
       setSelectedStore(storedMatches[0].store);
     }
-  }, [storedMatches.length, hasQuery, setRetrievalMode, setRetrievalIndex, setSelectedStore]);
+  }, [storedMatches.length, hasQuery, mobilePanelSnap, setRetrievalMode, setRetrievalIndex, setSelectedStore]);
 
   useEffect(() => {
     setRetrievalIndex(0);
@@ -328,27 +366,17 @@ export default function SearchPage() {
     requestFocusCellWorld(point);
   };
 
-  const handleMarkAsPicked = async () => {
-    if (!currentResult) return;
+  const completeMarkAsPicked = async (payload: Blanket) => {
     setPickError(null);
     try {
-      const payload: Blanket = {
-        id: currentResult.id,
-        blanket_number: currentResult.blanket_number,
-        store: currentResult.store,
-        row: currentResult.row,
-        column: currentResult.column,
-        status: currentResult.status,
-        created_at: currentResult.created_at,
-      };
       await markAsPicked(payload);
     } catch (error: any) {
       const message = typeof error?.message === 'string' ? error.message : 'Failed to mark as picked.';
       console.error('markAsPicked failed:', error);
       setPickError(message);
-      return;
+      return false;
     }
-    
+
     if (retrievalIndex < storedMatches.length - 1) {
       setRetrievalIndex(retrievalIndex + 1);
     } else {
@@ -357,6 +385,65 @@ export default function SearchPage() {
       setSearchQuery('');
       setQueryInput('');
     }
+    return true;
+  };
+
+  completeMarkAsPickedRef.current = completeMarkAsPicked;
+
+  const handleMarkAsPicked = async () => {
+    if (!currentResult) return;
+    const payload: Blanket = {
+      id: currentResult.id,
+      blanket_number: currentResult.blanket_number,
+      store: currentResult.store,
+      row: currentResult.row,
+      column: currentResult.column,
+      status: currentResult.status,
+      created_at: currentResult.created_at,
+    };
+    const store = stores.find((entry) => entry.store_name === currentResult.store);
+    if (store?.require_pick_scan) {
+      setPickError(null);
+      setScannerError(null);
+      setPendingPickScanBlanket(payload);
+      pendingPickScanBlanketRef.current = payload;
+      setScannerMode('pick-confirm');
+      scannerModeRef.current = 'pick-confirm';
+      setScannerOpen(true);
+      return;
+    }
+
+    const marked = await completeMarkAsPicked(payload);
+    if (!marked) {
+      return;
+    }
+  };
+
+  const scannerHeaderLabel = scannerMode === 'pick-confirm' ? 'Picked verification' : 'Scanner mode';
+  const scannerHint =
+    scannerMode === 'pick-confirm'
+      ? `Scan the picked invoice now. Required: #${pendingPickScanBlanket?.blanket_number ?? ''}`
+      : 'Point the camera at the sticker QR / barcode';
+  const scannerFooterHint =
+    scannerMode === 'pick-confirm'
+      ? 'Scanning… it will mark as picked only when the scanned code matches exactly.'
+      : 'Scanning… it will auto-search when the code is detected.';
+
+  const openSearchScanner = () => {
+    setScannerError(null);
+    setScannerMode('search');
+    scannerModeRef.current = 'search';
+    setPendingPickScanBlanket(null);
+    pendingPickScanBlanketRef.current = null;
+    setScannerOpen(true);
+  };
+
+  const closeScanner = () => {
+    setScannerOpen(false);
+    setPendingPickScanBlanket(null);
+    pendingPickScanBlanketRef.current = null;
+    setScannerMode('search');
+    scannerModeRef.current = 'search';
   };
 
   const handleSelectSuggestion = (value: string) => {
@@ -365,16 +452,69 @@ export default function SearchPage() {
     setSuggestionsOpen(false);
   };
 
+  const beginPanelDrag = (clientY: number) => {
+    if (!isMobileViewport || !searchPanelOpen || !hasQuery) return;
+    panelDragStartYRef.current = clientY;
+    panelDragStartSnapRef.current = mobilePanelSnap;
+  };
+
+  const endPanelDrag = (clientY: number) => {
+    const startY = panelDragStartYRef.current;
+    if (startY == null) return;
+    panelDragStartYRef.current = null;
+    const delta = clientY - startY;
+
+    if (Math.abs(delta) < 24) return;
+
+    if (delta < -40) {
+      setMobilePanelSnap('expanded');
+      return;
+    }
+
+    if (delta > 110 && panelDragStartSnapRef.current === 'peek') {
+      setSearchPanelOpen(false);
+      setMobilePanelSnap('peek');
+      return;
+    }
+
+    if (delta > 48 && panelDragStartSnapRef.current === 'expanded') {
+      setMobilePanelSnap('peek');
+    }
+  };
+
+  const mobileOpenPanelClass =
+    mobilePanelSnap === 'expanded'
+      ? 'h-[62dvh]'
+      : 'h-[34dvh]';
+
+  const mobileViewportBottomInsetStyle =
+    isMobileViewport && hasQuery && searchPanelOpen
+      ? { paddingBottom: mobilePanelSnap === 'expanded' ? 'calc(62dvh + 0.5rem)' : 'calc(34dvh + 0.5rem)' }
+      : undefined;
+
+  const mobileStoreSelectorBottomStyle =
+    isMobileViewport && hasQuery && searchPanelOpen
+      ? { bottom: mobilePanelSnap === 'expanded' ? 'calc(62dvh + 0.5rem)' : 'calc(34dvh + 0.5rem)' }
+      : undefined;
+
+  const hideMobileStoreSelector = isMobileViewport && hasQuery && searchPanelOpen && mobilePanelSnap === 'expanded';
+  const mobileSafeAreaInsets = isMobileViewport
+    ? {
+        paddingLeft: 'max(0.5rem, env(safe-area-inset-left))',
+        paddingRight: 'max(0.5rem, env(safe-area-inset-right))',
+      }
+    : undefined;
+
   return (
-    <div className="h-full flex flex-col bg-slate-900 text-white overflow-hidden">
+    <div className="h-full w-full min-w-0 flex flex-col bg-slate-900 text-white overflow-hidden">
       {/* Header / Search Bar */}
-      <div className="p-4 sm:p-6 bg-slate-900 border-b border-slate-800 flex flex-col md:flex-row items-center gap-4 sm:gap-6 z-20">
+      <div className="p-3 sm:p-6 bg-slate-900 border-b border-slate-800 flex flex-col md:flex-row items-center gap-3 sm:gap-6 z-20">
         <div className="relative flex-1 max-w-2xl w-full">
           <Search className="absolute left-4 sm:left-5 top-1/2 -translate-y-1/2 text-slate-500" size={22} />
           <input 
             type="text" 
             placeholder="Enter Blanket Number to Retrieve..." 
-            className="w-full pl-12 sm:pl-14 pr-4 sm:pr-6 py-3.5 sm:py-5 bg-slate-800 border border-slate-700 rounded-3xl focus:outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-base sm:text-xl font-bold placeholder:text-slate-600"
+            className="w-full pl-12 sm:pl-14 pr-4 sm:pr-6 py-3 sm:py-4 bg-slate-800 border border-slate-700 rounded-3xl focus:outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm sm:text-lg font-bold placeholder:text-slate-600"
             value={queryInput}
             onChange={(e) => setQueryInput(e.target.value)}
             onFocus={() => {
@@ -393,14 +533,15 @@ export default function SearchPage() {
                   setQueryInput('');
                   setSearchQuery('');
                 }}
-                className="p-2 hover:bg-slate-700 rounded-xl text-slate-400"
+                className="p-2 hover:bg-slate-700 rounded-xl text-slate-400 flex items-center justify-center"
               >
-                Clear
+                <X size={14} className="sm:hidden" />
+                <span className="hidden sm:inline">Clear</span>
               </button>
             )}
             <button
               type="button"
-              onClick={() => setScannerOpen(true)}
+              onClick={openSearchScanner}
               className="p-2 hover:bg-slate-700 rounded-xl text-slate-200 bg-slate-800 border border-slate-700"
               title="Scanner mode"
             >
@@ -448,7 +589,7 @@ export default function SearchPage() {
           <button 
             onClick={() => setViewMode('2D')}
             className={cn(
-              "flex-1 md:flex-none justify-center flex items-center gap-2 px-4 sm:px-6 py-3 rounded-xl font-bold transition-all",
+              "flex-1 md:flex-none justify-center flex items-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl text-sm sm:text-base font-bold transition-all",
               viewMode === '2D' ? "bg-blue-600 text-white shadow-lg" : "text-slate-400 hover:text-white"
             )}
           >
@@ -458,7 +599,7 @@ export default function SearchPage() {
           <button 
             onClick={() => setViewMode('3D')}
             className={cn(
-              "flex-1 md:flex-none justify-center flex items-center gap-2 px-4 sm:px-6 py-3 rounded-xl font-bold transition-all",
+              "flex-1 md:flex-none justify-center flex items-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl text-sm sm:text-base font-bold transition-all",
               viewMode === '3D' ? "bg-blue-600 text-white shadow-lg" : "text-slate-400 hover:text-white"
             )}
           >
@@ -476,13 +617,13 @@ export default function SearchPage() {
                 <ScanLine size={22} />
               </div>
               <div>
-                <div className="text-sm font-black uppercase tracking-widest text-slate-200">Scanner mode</div>
-                <div className="text-xs text-slate-400 font-bold">Point the camera at the sticker QR / barcode</div>
+                <div className="text-sm font-black uppercase tracking-widest text-slate-200">{scannerHeaderLabel}</div>
+                <div className="text-xs text-slate-400 font-bold">{scannerHint}</div>
               </div>
             </div>
             <button
               type="button"
-              onClick={() => setScannerOpen(false)}
+              onClick={closeScanner}
               className="rounded-2xl bg-slate-800 border border-slate-700 px-4 py-3 text-xs font-black uppercase tracking-widest text-slate-200 hover:bg-slate-700 flex items-center gap-2"
             >
               <X size={18} />
@@ -502,12 +643,12 @@ export default function SearchPage() {
               <div className="max-w-lg w-full rounded-3xl border border-rose-700 bg-rose-950/60 px-5 py-4 text-rose-200 text-sm font-bold">
                 {scannerError}
                 <div className="mt-2 text-xs text-rose-200/80 font-semibold">
-                  Tip: Use Chrome on Android, and allow camera permission.
+                  Tip: Works on Android, iPhone (Safari/Chrome), and desktop browsers. Allow camera permission.
                 </div>
               </div>
             ) : (
               <div className="max-w-lg w-full rounded-3xl border border-slate-800 bg-slate-900/60 px-5 py-4 text-slate-200 text-sm font-bold">
-                Scanning… it will auto-search when the code is detected.
+                {scannerFooterHint}
               </div>
             )}
           </div>
@@ -515,14 +656,26 @@ export default function SearchPage() {
       )}
 
       {/* Main Content Area */}
-      <div className="flex-1 relative flex overflow-hidden">
+      <div className="flex-1 relative flex min-w-0 overflow-hidden">
         {/* Left Sidebar: Results & Guided Retrieval */}
         <div className={cn(
           "bg-slate-900/95 backdrop-blur-md sm:bg-slate-900 flex flex-col transition-all duration-500 z-20 absolute sm:relative overflow-y-auto overscroll-y-contain",
           hasQuery && searchPanelOpen
-            ? "pointer-events-auto left-0 right-0 bottom-0 max-h-[72vh] rounded-t-3xl border-t border-slate-800 translate-y-0 sm:inset-y-0 sm:left-0 sm:right-auto sm:bottom-auto sm:max-h-none sm:rounded-none sm:border-t-0 sm:border-r sm:w-96 sm:opacity-100"
+            ? `${mobileOpenPanelClass} pointer-events-auto left-0 right-0 bottom-0 rounded-t-3xl border-t border-slate-800 translate-y-0 sm:inset-y-0 sm:left-0 sm:right-auto sm:bottom-auto sm:max-h-none sm:rounded-none sm:border-t-0 sm:border-r sm:w-96 sm:opacity-100`
             : "pointer-events-none left-0 right-0 bottom-0 max-h-[72vh] rounded-t-3xl border-t border-slate-800 translate-y-full sm:translate-y-0 sm:inset-y-0 sm:left-0 sm:right-auto sm:bottom-auto sm:max-h-none sm:rounded-none sm:border-t-0 sm:border-r-0 sm:w-0 sm:opacity-0 sm:pointer-events-none"
         )}>
+          {hasQuery && (
+            <div
+              className="sm:hidden px-6 pt-3 pb-3 touch-none"
+              onTouchStart={(event) => beginPanelDrag(event.touches[0]?.clientY ?? 0)}
+              onTouchEnd={(event) => endPanelDrag(event.changedTouches[0]?.clientY ?? 0)}
+            >
+              <div className="mx-auto h-1.5 w-14 rounded-full bg-slate-600/80" />
+              <div className="mt-2 text-center text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+                Swipe up / down
+              </div>
+            </div>
+          )}
           {hasQuery && (
             <div className="flex items-center justify-between gap-3 px-6 sm:px-8 pt-6 sm:pt-8 pb-4">
               <div className="flex items-center gap-3 text-blue-400">
@@ -531,7 +684,10 @@ export default function SearchPage() {
               </div>
               <button
                 type="button"
-                onClick={() => setSearchPanelOpen(false)}
+                onClick={() => {
+                  setSearchPanelOpen(false);
+                  setMobilePanelSnap('peek');
+                }}
                 className="rounded-2xl bg-slate-800 border border-slate-700 px-4 py-3 text-xs font-black uppercase tracking-widest text-slate-200 hover:bg-slate-700"
               >
                 Hide
@@ -575,10 +731,10 @@ export default function SearchPage() {
                 )}
                 <button 
                   onClick={handleMarkAsPicked}
-                  disabled={!currentUser}
+                  disabled={!canModify}
                   className={cn(
                     "w-full py-5 sm:py-6 rounded-3xl font-black text-xl sm:text-2xl shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3",
-                    currentUser 
+                    canModify 
                       ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/20" 
                       : "bg-slate-700 text-slate-400 cursor-not-allowed shadow-none"
                   )}
@@ -697,10 +853,10 @@ export default function SearchPage() {
                 )}
                 <button 
                   onClick={handleMarkAsPicked}
-                  disabled={!currentUser}
+                  disabled={!canModify}
                   className={cn(
                     "w-full py-5 sm:py-6 rounded-3xl font-black text-xl sm:text-2xl shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3",
-                    currentUser 
+                    canModify 
                       ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/20" 
                       : "bg-slate-700 text-slate-400 cursor-not-allowed shadow-none"
                   )}
@@ -835,8 +991,11 @@ export default function SearchPage() {
         {hasQuery && !searchPanelOpen && (
           <button
             type="button"
-            onClick={() => setSearchPanelOpen(true)}
-            className="absolute top-4 left-4 sm:top-6 sm:left-6 z-30 flex items-center gap-2 px-4 py-3 rounded-2xl bg-slate-900/90 border border-slate-700 text-sm font-bold text-white shadow-xl"
+            onClick={() => {
+              setSearchPanelOpen(true);
+              setMobilePanelSnap('peek');
+            }}
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 sm:translate-x-0 sm:top-6 sm:left-6 sm:bottom-auto z-30 flex items-center gap-2 px-4 py-3 rounded-2xl bg-slate-900/90 border border-slate-700 text-xs sm:text-sm font-bold text-white shadow-xl"
           >
             <ChevronRight size={16} />
             Show search panel
@@ -844,7 +1003,7 @@ export default function SearchPage() {
         )}
 
         {/* Center: Viewport */}
-        <div className="flex-1 relative bg-slate-950">
+        <div className="flex-1 min-w-0 relative bg-slate-950 overflow-hidden" style={mobileViewportBottomInsetStyle}>
           {viewMode === '2D' ? (
             <Grid2D />
           ) : (
@@ -852,7 +1011,13 @@ export default function SearchPage() {
           )}
           
           {/* Store Selector Overlay */}
-          <div className="absolute bottom-2 sm:bottom-8 left-2 right-2 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 flex bg-slate-900/80 backdrop-blur-md p-1.5 sm:p-2 rounded-2xl sm:rounded-3xl border border-slate-700 shadow-2xl z-10 sm:max-w-[90%] overflow-x-auto no-scrollbar">
+          <div
+            className={cn(
+              "absolute bottom-2 sm:bottom-8 left-2 right-2 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 flex bg-slate-900/80 backdrop-blur-md p-1.5 sm:p-2 rounded-2xl sm:rounded-3xl border border-slate-700 shadow-2xl z-10 sm:max-w-[90%] overflow-x-auto no-scrollbar transition-all",
+              hideMobileStoreSelector && "hidden sm:flex"
+            )}
+            style={{ ...mobileStoreSelectorBottomStyle, ...mobileSafeAreaInsets }}
+          >
             {stores.map(s => (
               <button
                 key={s.store_name}
@@ -869,29 +1034,6 @@ export default function SearchPage() {
             ))}
           </div>
 
-          {/* View Info Overlay */}
-          {viewMode === '2D' && (
-            <div className="absolute top-2.5 sm:top-8 right-2.5 sm:right-8 z-10 items-end">
-              <div className="bg-slate-900/80 backdrop-blur-md p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-700 shadow-xl flex flex-wrap items-center gap-x-3 sm:gap-x-4 gap-y-1.5 sm:gap-y-2 justify-end max-w-[88vw] sm:max-w-md">
-                <div className="flex items-center gap-2">
-                  <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-slate-600/80 border border-slate-500" />
-                  <span className="text-[10px] sm:text-xs font-bold text-slate-300 uppercase tracking-widest">Empty</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]" />
-                  <span className="text-[10px] sm:text-xs font-bold text-slate-300 uppercase tracking-widest">Occupied</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.5)]" />
-                  <span className="text-[10px] sm:text-xs font-bold text-slate-300 uppercase tracking-widest">Selected</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-lime-400 shadow-[0_0_12px_rgba(163,230,53,0.6)] animate-pulse" />
-                  <span className="text-[10px] sm:text-xs font-bold text-slate-300 uppercase tracking-widest">Search</span>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>
