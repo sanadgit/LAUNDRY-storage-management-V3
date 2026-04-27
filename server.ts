@@ -4,7 +4,7 @@ import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import cors from 'cors';
 import Database from 'better-sqlite3';
-import { randomUUID } from 'crypto';
+import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'crypto';
 import { fileURLToPath } from 'url';
 import {
   AppUserRole,
@@ -77,6 +77,38 @@ type SessionRecord = {
   expires_at: number;
 };
 
+type CustomerUserRecord = {
+  id: string;
+  name: string;
+  phone: string | null;
+  phone_normalized: string | null;
+  email: string | null;
+  email_normalized: string | null;
+  password_hash: string;
+  customer_type: string | null;
+  area: string | null;
+  pref_service: number | null;
+  notif_type: string | null;
+  is_active: number;
+  created_at: string | null;
+  updated_at: string | null;
+  last_login_at: string | null;
+};
+
+type CustomerSessionRecord = {
+  token: string;
+  user_id: string;
+  expires_at: number;
+};
+
+type DriverSessionRecord = {
+  token: string;
+  driver_id: string;
+  driver_name: string;
+  driver_phone: string;
+  expires_at: number;
+};
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -134,11 +166,64 @@ db.exec(`
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS customer_orders (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'new',
+    payload TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS customer_site_config (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    payload TEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS customer_users (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    phone TEXT,
+    phone_normalized TEXT,
+    email TEXT,
+    email_normalized TEXT,
+    password_hash TEXT NOT NULL,
+    customer_type TEXT DEFAULT 'individual',
+    area TEXT,
+    pref_service INTEGER DEFAULT 1,
+    notif_type TEXT DEFAULT 'whatsapp',
+    is_active INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_login_at DATETIME
+  );
+
+  CREATE TABLE IF NOT EXISTS customer_sessions (
+    token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS customer_driver_sessions (
+    token TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE INDEX IF NOT EXISTS idx_blankets_store ON blankets(store);
   CREATE INDEX IF NOT EXISTS idx_blankets_number ON blankets(blanket_number);
   CREATE INDEX IF NOT EXISTS idx_blankets_slot_status ON blankets(store, row, column, status);
   CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp);
   CREATE INDEX IF NOT EXISTS idx_logs_request_id ON logs(request_id);
+  CREATE INDEX IF NOT EXISTS idx_customer_orders_status ON customer_orders(status);
+  CREATE INDEX IF NOT EXISTS idx_customer_orders_updated_at ON customer_orders(updated_at);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_users_phone_norm ON customer_users(phone_normalized);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_users_email_norm ON customer_users(email_normalized);
+  CREATE INDEX IF NOT EXISTS idx_customer_sessions_user_id ON customer_sessions(user_id);
+  CREATE INDEX IF NOT EXISTS idx_customer_sessions_expires_at ON customer_sessions(expires_at);
+  CREATE INDEX IF NOT EXISTS idx_customer_driver_sessions_expires_at ON customer_driver_sessions(expires_at);
 `);
 
 const ensureColumn = (table: string, column: string, sqlType: string) => {
@@ -208,10 +293,304 @@ ensureColumn('logs', 'device', 'TEXT');
 ensureColumn('logs', 'ip', 'TEXT');
 ensureColumn('logs', 'notes', 'TEXT');
 
+ensureColumn('customer_users', 'name', "TEXT DEFAULT ''");
+ensureColumn('customer_users', 'phone', 'TEXT');
+ensureColumn('customer_users', 'phone_normalized', 'TEXT');
+ensureColumn('customer_users', 'email', 'TEXT');
+ensureColumn('customer_users', 'email_normalized', 'TEXT');
+ensureColumn('customer_users', 'password_hash', "TEXT DEFAULT ''");
+ensureColumn('customer_users', 'customer_type', "TEXT DEFAULT 'individual'");
+ensureColumn('customer_users', 'area', 'TEXT');
+ensureColumn('customer_users', 'pref_service', 'INTEGER DEFAULT 1');
+ensureColumn('customer_users', 'notif_type', "TEXT DEFAULT 'whatsapp'");
+ensureColumn('customer_users', 'is_active', 'INTEGER DEFAULT 1');
+ensureColumn('customer_users', 'created_at', 'DATETIME');
+ensureColumn('customer_users', 'updated_at', 'DATETIME');
+ensureColumn('customer_users', 'last_login_at', 'DATETIME');
+
+ensureColumn('customer_sessions', 'token', "TEXT DEFAULT ''");
+ensureColumn('customer_sessions', 'user_id', "TEXT DEFAULT ''");
+ensureColumn('customer_sessions', 'expires_at', 'INTEGER DEFAULT 0');
+ensureColumn('customer_sessions', 'created_at', 'DATETIME');
+
+ensureColumn('customer_driver_sessions', 'payload', "TEXT DEFAULT '{}'");
+ensureColumn('customer_driver_sessions', 'expires_at', 'INTEGER DEFAULT 0');
+ensureColumn('customer_driver_sessions', 'created_at', 'DATETIME');
+
+db.prepare(
+  `UPDATE customer_users
+   SET phone_normalized = REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')
+   WHERE phone IS NOT NULL AND TRIM(COALESCE(phone_normalized, '')) = ''`
+).run();
+
+db.prepare(
+  `UPDATE customer_users
+   SET email_normalized = lower(trim(email))
+   WHERE email IS NOT NULL AND TRIM(COALESCE(email_normalized, '')) = ''`
+).run();
+
+db.prepare('DELETE FROM customer_sessions WHERE expires_at <= ?').run(Date.now());
+db.prepare('DELETE FROM customer_driver_sessions WHERE expires_at <= ?').run(Date.now());
+
 const chunk = <T,>(arr: T[], size: number) => {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
+};
+
+const CUSTOMER_ORDER_STATUSES = new Set([
+  'new',
+  'accepted',
+  'on_the_way',
+  'pickup',
+  'washing',
+  'ready',
+  'delivery',
+  'completed',
+  'delivered',
+  'cancelled',
+]);
+
+const normalizeCustomerOrderStatus = (value: unknown) => {
+  const raw = String(value ?? '').trim().toLowerCase();
+  if (CUSTOMER_ORDER_STATUSES.has(raw)) return raw;
+  if (raw === 'in progress' || raw === 'ironing') return 'washing';
+  return 'new';
+};
+
+const parseCustomerOrderPayload = (rawPayload: unknown) => {
+  if (!rawPayload || typeof rawPayload !== 'object') return null;
+  const payload = rawPayload as Record<string, unknown>;
+  const id = String(payload.id ?? '').trim();
+  if (!id) return null;
+  return {
+    ...payload,
+    id,
+    status: normalizeCustomerOrderStatus(payload.status),
+  };
+};
+
+const extractBearerToken = (req: any) => {
+  const header = String(req.headers?.authorization ?? '').trim();
+  if (!header.toLowerCase().startsWith('bearer ')) return null;
+  const token = header.slice(7).trim();
+  return token.length > 0 ? token : null;
+};
+
+const CUSTOMER_SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
+const customerSessionStore = new Map<string, CustomerSessionRecord>();
+const DRIVER_SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
+const driverSessionStore = new Map<string, DriverSessionRecord>();
+
+const normalizeCustomerPhone = (value: unknown) => {
+  const digits = String(value ?? '').replace(/\D/g, '');
+  return digits.length > 0 ? digits : null;
+};
+
+const normalizeCustomerEmail = (value: unknown) => {
+  const email = String(value ?? '').trim().toLowerCase();
+  return email.includes('@') ? email : null;
+};
+
+const normalizeDriverPhone = (value: unknown) => {
+  return String(value ?? '').replace(/\D/g, '');
+};
+
+const DEFAULT_DRIVER_ACCOUNTS = [
+  { id: 'DRV-001', name: 'Driver 1', phone: '0565865506' },
+];
+
+const getConfiguredDrivers = () => {
+  const row = db.prepare('SELECT payload FROM customer_site_config WHERE id = 1').get() as { payload: string } | undefined;
+  if (!row?.payload) return DEFAULT_DRIVER_ACCOUNTS;
+  try {
+    const parsed = JSON.parse(row.payload) as { drivers?: Array<{ id?: unknown; name?: unknown; phone?: unknown }> };
+    const list = Array.isArray(parsed.drivers) ? parsed.drivers : [];
+    const normalized = list
+      .map((driver) => ({
+        id: String(driver?.id ?? '').trim(),
+        name: String(driver?.name ?? '').trim(),
+        phone: normalizeDriverPhone(driver?.phone ?? ''),
+      }))
+      .filter((driver) => Boolean(driver.id));
+    return normalized.length > 0 ? normalized : DEFAULT_DRIVER_ACCOUNTS;
+  } catch {
+    return DEFAULT_DRIVER_ACCOUNTS;
+  }
+};
+
+const hashCustomerPassword = (password: string, saltHex?: string) => {
+  const salt = saltHex ? Buffer.from(saltHex, 'hex') : randomBytes(16);
+  const hash = scryptSync(password, salt, 64);
+  return `${salt.toString('hex')}:${hash.toString('hex')}`;
+};
+
+const verifyCustomerPassword = (password: string, encodedHash: string) => {
+  const [saltHex, hashHex] = String(encodedHash ?? '').split(':');
+  if (!saltHex || !hashHex) return false;
+  const expectedHash = Buffer.from(hashHex, 'hex');
+  const actualHash = scryptSync(password, Buffer.from(saltHex, 'hex'), 64);
+  if (expectedHash.length !== actualHash.length) return false;
+  return timingSafeEqual(expectedHash, actualHash);
+};
+
+const normalizeCustomerUser = (user: CustomerUserRecord) => ({
+  id: user.id,
+  name: user.name || '',
+  phone: user.phone || '',
+  email: user.email || '',
+  type: user.customer_type || 'individual',
+  area: user.area || '',
+  prefService: Number(user.pref_service ?? 1) || 1,
+  notifType: user.notif_type || 'whatsapp',
+  created_at: user.created_at,
+  last_login_at: user.last_login_at,
+});
+
+const deleteCustomerSession = (token: string) => {
+  customerSessionStore.delete(token);
+  db.prepare('DELETE FROM customer_sessions WHERE token = ?').run(token);
+};
+
+const issueCustomerSession = (userId: string) => {
+  const token = randomUUID();
+  const session: CustomerSessionRecord = {
+    token,
+    user_id: userId,
+    expires_at: Date.now() + CUSTOMER_SESSION_TTL_MS,
+  };
+  customerSessionStore.set(token, session);
+  db.prepare(
+    `INSERT INTO customer_sessions (token, user_id, expires_at, created_at)
+     VALUES (?, ?, ?, ?)`
+  ).run(token, userId, session.expires_at, new Date().toISOString());
+  return session;
+};
+
+const getCustomerSessionFromRequest = (req: any): CustomerSessionRecord | null => {
+  const token = extractBearerToken(req);
+  if (!token) return null;
+
+  const fromMemory = customerSessionStore.get(token);
+  if (fromMemory) {
+    if (fromMemory.expires_at <= Date.now()) {
+      deleteCustomerSession(token);
+      return null;
+    }
+    return fromMemory;
+  }
+
+  const row = db
+    .prepare('SELECT token, user_id, expires_at FROM customer_sessions WHERE token = ?')
+    .get(token) as CustomerSessionRecord | undefined;
+
+  if (!row) return null;
+  if (Number(row.expires_at) <= Date.now()) {
+    deleteCustomerSession(token);
+    return null;
+  }
+
+  const session: CustomerSessionRecord = {
+    token: row.token,
+    user_id: row.user_id,
+    expires_at: Number(row.expires_at),
+  };
+  customerSessionStore.set(token, session);
+  return session;
+};
+
+const requireCustomerAuth = (req: any, res: any, next: any) => {
+  const session = getCustomerSessionFromRequest(req);
+  if (!session) return res.status(401).json({ error: 'Authentication required.' });
+  req.customerAuth = session;
+  next();
+};
+
+const deleteDriverSession = (token: string) => {
+  driverSessionStore.delete(token);
+  db.prepare('DELETE FROM customer_driver_sessions WHERE token = ?').run(token);
+};
+
+const issueDriverSession = (driver: { id: string; name: string; phone: string }) => {
+  const token = randomUUID();
+  const session: DriverSessionRecord = {
+    token,
+    driver_id: driver.id,
+    driver_name: driver.name,
+    driver_phone: driver.phone,
+    expires_at: Date.now() + DRIVER_SESSION_TTL_MS,
+  };
+  driverSessionStore.set(token, session);
+  db.prepare(
+    `INSERT INTO customer_driver_sessions (token, payload, expires_at, created_at)
+     VALUES (?, ?, ?, ?)`
+  ).run(token, JSON.stringify(session), session.expires_at, new Date().toISOString());
+  return session;
+};
+
+const getDriverSessionFromRequest = (req: any): DriverSessionRecord | null => {
+  const token = extractBearerToken(req);
+  if (!token) return null;
+
+  const fromMemory = driverSessionStore.get(token);
+  if (fromMemory) {
+    if (fromMemory.expires_at <= Date.now()) {
+      deleteDriverSession(token);
+      return null;
+    }
+    return fromMemory;
+  }
+
+  const row = db
+    .prepare('SELECT payload, expires_at FROM customer_driver_sessions WHERE token = ?')
+    .get(token) as { payload: string; expires_at: number } | undefined;
+
+  if (!row) return null;
+  if (Number(row.expires_at) <= Date.now()) {
+    deleteDriverSession(token);
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(row.payload) as DriverSessionRecord;
+    if (!parsed?.driver_id) {
+      deleteDriverSession(token);
+      return null;
+    }
+    const session: DriverSessionRecord = {
+      ...parsed,
+      token,
+      expires_at: Number(row.expires_at),
+    };
+    driverSessionStore.set(token, session);
+    return session;
+  } catch {
+    deleteDriverSession(token);
+    return null;
+  }
+};
+
+const requireDriverAuth = (req: any, res: any, next: any) => {
+  const session = getDriverSessionFromRequest(req);
+  if (!session) return res.status(401).json({ error: 'Driver authentication required.' });
+  req.driverAuth = session;
+  next();
+};
+
+const requireCustomerOrAdminAuth = (req: any, res: any, next: any) => {
+  const adminSession = getSessionFromRequest(req);
+  if (adminSession) {
+    req.auth = adminSession;
+    return next();
+  }
+
+  const customerSession = getCustomerSessionFromRequest(req);
+  if (customerSession) {
+    req.customerAuth = customerSession;
+    return next();
+  }
+
+  return res.status(401).json({ error: 'Authentication required.' });
 };
 
 const isAdminUsername = async (username: unknown) => {
@@ -227,13 +606,6 @@ const sessionStore = new Map<string, SessionRecord>();
 const isAdminRole = (role: unknown) => {
   const normalized = String(role ?? '').toLowerCase();
   return normalized === 'admin' || normalized === 'super-admin';
-};
-
-const extractBearerToken = (req: any) => {
-  const header = String(req.headers?.authorization ?? '').trim();
-  if (!header.toLowerCase().startsWith('bearer ')) return null;
-  const token = header.slice(7).trim();
-  return token.length > 0 ? token : null;
 };
 
 const getSessionFromRequest = (req: any): SessionRecord | null => {
@@ -1984,6 +2356,447 @@ async function startServer() {
       typeof notes === 'string' && notes.trim().length > 0 ? notes.trim() : meta.notes
     );
     res.json({ success: true });
+  });
+
+  // ------------------------------
+  // Customer-site public API
+  // ------------------------------
+  app.post('/api/customer/auth/register', (req, res) => {
+    try {
+      const name = String(req.body?.name ?? '').trim();
+      const rawPhone = String(req.body?.phone ?? '').trim();
+      const rawEmail = String(req.body?.email ?? '').trim();
+      const password = String(req.body?.password ?? '');
+      const customerType = String(req.body?.type ?? 'individual').trim() || 'individual';
+      const area = String(req.body?.area ?? '').trim();
+      const notifType = String(req.body?.notifType ?? 'whatsapp').trim() || 'whatsapp';
+      const prefService = Math.max(1, Number(req.body?.prefService ?? 1) || 1);
+
+      if (!name) return res.status(400).json({ error: 'Name is required.' });
+      if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+
+      const phoneNormalized = normalizeCustomerPhone(rawPhone);
+      const emailNormalized = normalizeCustomerEmail(rawEmail);
+      if (!phoneNormalized && !emailNormalized) {
+        return res.status(400).json({ error: 'Phone or email is required.' });
+      }
+
+      if (phoneNormalized) {
+        const exists = db
+          .prepare('SELECT id FROM customer_users WHERE phone_normalized = ?')
+          .get(phoneNormalized) as { id: string } | undefined;
+        if (exists) return res.status(409).json({ error: 'Account already exists for this phone.' });
+      }
+
+      if (emailNormalized) {
+        const exists = db
+          .prepare('SELECT id FROM customer_users WHERE email_normalized = ?')
+          .get(emailNormalized) as { id: string } | undefined;
+        if (exists) return res.status(409).json({ error: 'Account already exists for this email.' });
+      }
+
+      const userId = randomUUID();
+      const now = new Date().toISOString();
+      const passwordHash = hashCustomerPassword(password);
+
+      db.prepare(
+        `INSERT INTO customer_users (
+          id, name, phone, phone_normalized, email, email_normalized, password_hash,
+          customer_type, area, pref_service, notif_type, is_active, created_at, updated_at, last_login_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`
+      ).run(
+        userId,
+        name,
+        rawPhone || null,
+        phoneNormalized,
+        rawEmail || null,
+        emailNormalized,
+        passwordHash,
+        customerType,
+        area || null,
+        prefService,
+        notifType,
+        now,
+        now,
+        now
+      );
+
+      const user = db.prepare('SELECT * FROM customer_users WHERE id = ?').get(userId) as CustomerUserRecord | undefined;
+      if (!user) return res.status(500).json({ error: 'Failed to create account.' });
+
+      const session = issueCustomerSession(user.id);
+      res.status(201).json({
+        user: normalizeCustomerUser(user),
+        token: session.token,
+        expires_at: session.expires_at,
+      });
+    } catch (error: any) {
+      console.error('Failed to register customer:', error);
+      res.status(500).json({ error: error?.message || 'Failed to create customer account' });
+    }
+  });
+
+  app.post('/api/customer/auth/login', (req, res) => {
+    try {
+      const identifier = String(req.body?.identifier ?? '').trim();
+      const password = String(req.body?.password ?? '');
+      if (!identifier || !password) {
+        return res.status(400).json({ error: 'Identifier and password are required.' });
+      }
+
+      const emailNormalized = normalizeCustomerEmail(identifier);
+      const phoneNormalized = normalizeCustomerPhone(identifier);
+
+      let user: CustomerUserRecord | undefined;
+      if (emailNormalized) {
+        user = db
+          .prepare('SELECT * FROM customer_users WHERE email_normalized = ?')
+          .get(emailNormalized) as CustomerUserRecord | undefined;
+      } else if (phoneNormalized) {
+        user = db
+          .prepare('SELECT * FROM customer_users WHERE phone_normalized = ?')
+          .get(phoneNormalized) as CustomerUserRecord | undefined;
+      }
+
+      if (!user) {
+        user = db
+          .prepare('SELECT * FROM customer_users WHERE lower(trim(coalesce(email, \'\'))) = lower(trim(?)) OR trim(coalesce(phone, \'\')) = trim(?)')
+          .get(identifier, identifier) as CustomerUserRecord | undefined;
+      }
+
+      if (!user || !verifyCustomerPassword(password, user.password_hash)) {
+        return res.status(401).json({ error: 'Invalid credentials.' });
+      }
+
+      if (Number(user.is_active ?? 1) === 0) {
+        return res.status(403).json({ error: 'This account is inactive.' });
+      }
+
+      const now = new Date().toISOString();
+      db.prepare('UPDATE customer_users SET last_login_at = ?, updated_at = ? WHERE id = ?').run(now, now, user.id);
+
+      const refreshedUser = db.prepare('SELECT * FROM customer_users WHERE id = ?').get(user.id) as CustomerUserRecord | undefined;
+      if (!refreshedUser) return res.status(500).json({ error: 'Failed to load account.' });
+
+      const session = issueCustomerSession(refreshedUser.id);
+      res.json({
+        user: normalizeCustomerUser(refreshedUser),
+        token: session.token,
+        expires_at: session.expires_at,
+      });
+    } catch (error: any) {
+      console.error('Failed to login customer:', error);
+      res.status(500).json({ error: error?.message || 'Failed to login customer' });
+    }
+  });
+
+  app.get('/api/customer/auth/session', requireCustomerAuth, (req: any, res) => {
+    try {
+      const customerAuth = req.customerAuth as CustomerSessionRecord | undefined;
+      if (!customerAuth) return res.status(401).json({ error: 'Authentication required.' });
+
+      const user = db
+        .prepare('SELECT * FROM customer_users WHERE id = ?')
+        .get(customerAuth.user_id) as CustomerUserRecord | undefined;
+
+      if (!user || Number(user.is_active ?? 1) === 0) {
+        deleteCustomerSession(customerAuth.token);
+        return res.status(401).json({ error: 'Session expired.' });
+      }
+
+      res.json(normalizeCustomerUser(user));
+    } catch (error: any) {
+      console.error('Failed to fetch customer session:', error);
+      res.status(500).json({ error: error?.message || 'Failed to fetch customer session' });
+    }
+  });
+
+  app.post('/api/customer/auth/logout', requireCustomerAuth, (req: any, res) => {
+    const customerAuth = req.customerAuth as CustomerSessionRecord | undefined;
+    if (customerAuth?.token) deleteCustomerSession(customerAuth.token);
+    res.json({ success: true });
+  });
+
+  app.post('/api/customer/driver/auth/login', (req, res) => {
+    try {
+      const driverId = String(req.body?.driverId ?? '').trim();
+      const phoneInput = normalizeDriverPhone(req.body?.phone ?? '');
+
+      if (!driverId || !phoneInput) {
+        return res.status(400).json({ error: 'Driver ID and phone are required.' });
+      }
+
+      const drivers = getConfiguredDrivers();
+      const driver = drivers.find((entry) => entry.id === driverId);
+      if (!driver) return res.status(401).json({ error: 'Invalid driver credentials.' });
+
+      if (!driver.phone || driver.phone !== phoneInput) {
+        return res.status(401).json({ error: 'Invalid driver credentials.' });
+      }
+
+      const session = issueDriverSession(driver);
+      res.json({
+        driver: {
+          id: driver.id,
+          name: driver.name,
+          phone: driver.phone,
+        },
+        token: session.token,
+        expires_at: session.expires_at,
+      });
+    } catch (error: any) {
+      console.error('Failed to login driver:', error);
+      res.status(500).json({ error: error?.message || 'Failed to login driver' });
+    }
+  });
+
+  app.get('/api/customer/driver/auth/session', requireDriverAuth, (req: any, res) => {
+    const driverAuth = req.driverAuth as DriverSessionRecord | undefined;
+    if (!driverAuth) return res.status(401).json({ error: 'Driver authentication required.' });
+
+    const drivers = getConfiguredDrivers();
+    const current = drivers.find((driver) => driver.id === driverAuth.driver_id);
+    if (!current) {
+      deleteDriverSession(driverAuth.token);
+      return res.status(401).json({ error: 'Driver session expired.' });
+    }
+
+    res.json({
+      id: current.id,
+      name: current.name,
+      phone: current.phone,
+    });
+  });
+
+  app.post('/api/customer/driver/auth/logout', requireDriverAuth, (req: any, res) => {
+    const driverAuth = req.driverAuth as DriverSessionRecord | undefined;
+    if (driverAuth?.token) deleteDriverSession(driverAuth.token);
+    res.json({ success: true });
+  });
+
+  app.get('/api/customer/driver/orders', requireDriverAuth, (req: any, res) => {
+    try {
+      const driverAuth = req.driverAuth as DriverSessionRecord | undefined;
+      if (!driverAuth) return res.status(401).json({ error: 'Driver authentication required.' });
+
+      const rows = db
+        .prepare('SELECT payload FROM customer_orders ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC, id DESC')
+        .all() as { payload: string }[];
+
+      const orders = rows
+        .map((row) => {
+          try {
+            return JSON.parse(row.payload) as Record<string, unknown>;
+          } catch {
+            return null;
+          }
+        })
+        .filter(Boolean)
+        .filter((order) => {
+          const assigned = String(order?.assignedDriverId ?? '').trim();
+          const status = normalizeCustomerOrderStatus(order?.status);
+          const isMine = assigned === driverAuth.driver_id;
+          const isPickupPool = !assigned && status === 'new';
+          const isReadyPool = (!assigned || assigned === driverAuth.driver_id) && status === 'ready';
+          return isMine || isPickupPool || isReadyPool;
+        });
+
+      res.json(orders);
+    } catch (error: any) {
+      console.error('Failed to fetch driver orders:', error);
+      res.status(500).json({ error: error?.message || 'Failed to fetch driver orders' });
+    }
+  });
+
+  app.put('/api/customer/driver/orders/:id/status', requireDriverAuth, (req: any, res) => {
+    try {
+      const driverAuth = req.driverAuth as DriverSessionRecord | undefined;
+      if (!driverAuth) return res.status(401).json({ error: 'Driver authentication required.' });
+
+      const id = String(req.params.id ?? '').trim();
+      if (!id) return res.status(400).json({ error: 'Order id is required.' });
+
+      const requestedStatus = normalizeCustomerOrderStatus(req.body?.status);
+      const row = db.prepare('SELECT payload FROM customer_orders WHERE id = ?').get(id) as { payload: string } | undefined;
+      if (!row) return res.status(404).json({ error: 'Order not found.' });
+
+      const payload = JSON.parse(row.payload) as Record<string, unknown>;
+      const assignedDriverId = String(payload.assignedDriverId ?? '').trim();
+      const currentStatus = normalizeCustomerOrderStatus(payload.status);
+
+      if (assignedDriverId && assignedDriverId !== driverAuth.driver_id) {
+        return res.status(403).json({ error: 'This order is assigned to another driver.' });
+      }
+
+      const allowedStatuses = new Set(['accepted', 'on_the_way', 'pickup', 'delivery', 'delivered', 'completed']);
+      if (!allowedStatuses.has(requestedStatus)) {
+        return res.status(400).json({ error: `Status "${requestedStatus}" is not allowed for drivers.` });
+      }
+
+      const shouldAutoAssign = !assignedDriverId && (currentStatus === 'new' || currentStatus === 'ready');
+      const nextPayload = {
+        ...payload,
+        status: requestedStatus,
+        assignedDriverId: shouldAutoAssign ? driverAuth.driver_id : (assignedDriverId || driverAuth.driver_id),
+      };
+
+      db.prepare(
+        `UPDATE customer_orders
+         SET status = ?, payload = ?, updated_at = ?
+         WHERE id = ?`
+      ).run(requestedStatus, JSON.stringify(nextPayload), new Date().toISOString(), id);
+
+      res.json(nextPayload);
+    } catch (error: any) {
+      console.error('Failed to update driver order status:', error);
+      res.status(500).json({ error: error?.message || 'Failed to update driver order status' });
+    }
+  });
+
+  app.get('/api/customer/orders', requireCustomerOrAdminAuth, (_req, res) => {
+    try {
+      const rows = db
+        .prepare('SELECT payload FROM customer_orders ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC, id DESC')
+        .all() as { payload: string }[];
+
+      const orders = rows
+        .map((row) => {
+          try {
+            return JSON.parse(row.payload);
+          } catch {
+            return null;
+          }
+        })
+        .filter(Boolean);
+
+      res.json(orders);
+    } catch (error: any) {
+      console.error('Failed to fetch customer orders:', error);
+      res.status(500).json({ error: error?.message || 'Failed to fetch customer orders' });
+    }
+  });
+
+  app.get('/api/customer/orders/:id', requireCustomerOrAdminAuth, (req, res) => {
+    try {
+      const id = String(req.params.id ?? '').trim();
+      if (!id) return res.status(400).json({ error: 'Order id is required.' });
+
+      const row = db.prepare('SELECT payload FROM customer_orders WHERE id = ?').get(id) as { payload: string } | undefined;
+      if (!row) return res.status(404).json({ error: 'Order not found.' });
+
+      res.json(JSON.parse(row.payload));
+    } catch (error: any) {
+      console.error('Failed to fetch customer order:', error);
+      res.status(500).json({ error: error?.message || 'Failed to fetch customer order' });
+    }
+  });
+
+  app.post('/api/customer/orders', requireCustomerOrAdminAuth, (req, res) => {
+    try {
+      const order = parseCustomerOrderPayload(req.body);
+      if (!order) return res.status(400).json({ error: 'Valid order payload is required.' });
+
+      const now = new Date().toISOString();
+      db.prepare(
+        `INSERT INTO customer_orders (id, status, payload, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           status = excluded.status,
+           payload = excluded.payload,
+           updated_at = excluded.updated_at`
+      ).run(order.id, order.status, JSON.stringify(order), now, now);
+
+      res.status(201).json(order);
+    } catch (error: any) {
+      console.error('Failed to create customer order:', error);
+      res.status(500).json({ error: error?.message || 'Failed to create customer order' });
+    }
+  });
+
+  app.put('/api/customer/orders/:id', requireAdmin, (req, res) => {
+    try {
+      const id = String(req.params.id ?? '').trim();
+      if (!id) return res.status(400).json({ error: 'Order id is required.' });
+
+      const incoming = parseCustomerOrderPayload({ ...req.body, id });
+      if (!incoming) return res.status(400).json({ error: 'Valid order payload is required.' });
+
+      const existing = db.prepare('SELECT id FROM customer_orders WHERE id = ?').get(id) as { id: string } | undefined;
+      if (!existing) return res.status(404).json({ error: 'Order not found.' });
+
+      db.prepare(
+        `UPDATE customer_orders
+         SET status = ?, payload = ?, updated_at = ?
+         WHERE id = ?`
+      ).run(incoming.status, JSON.stringify(incoming), new Date().toISOString(), id);
+
+      res.json(incoming);
+    } catch (error: any) {
+      console.error('Failed to update customer order:', error);
+      res.status(500).json({ error: error?.message || 'Failed to update customer order' });
+    }
+  });
+
+  app.put('/api/customer/orders/:id/status', requireAdmin, (req, res) => {
+    try {
+      const id = String(req.params.id ?? '').trim();
+      const requestedStatus = normalizeCustomerOrderStatus(req.body?.status);
+      if (!id) return res.status(400).json({ error: 'Order id is required.' });
+
+      const row = db.prepare('SELECT payload FROM customer_orders WHERE id = ?').get(id) as { payload: string } | undefined;
+      if (!row) return res.status(404).json({ error: 'Order not found.' });
+
+      const payload = JSON.parse(row.payload);
+      const nextPayload = {
+        ...payload,
+        status: requestedStatus,
+      };
+
+      db.prepare(
+        `UPDATE customer_orders
+         SET status = ?, payload = ?, updated_at = ?
+         WHERE id = ?`
+      ).run(requestedStatus, JSON.stringify(nextPayload), new Date().toISOString(), id);
+
+      res.json(nextPayload);
+    } catch (error: any) {
+      console.error('Failed to update customer order status:', error);
+      res.status(500).json({ error: error?.message || 'Failed to update customer order status' });
+    }
+  });
+
+  app.get('/api/customer/site-config', (_req, res) => {
+    try {
+      const row = db.prepare('SELECT payload FROM customer_site_config WHERE id = 1').get() as { payload: string } | undefined;
+      if (!row) return res.json(null);
+      res.json(JSON.parse(row.payload));
+    } catch (error: any) {
+      console.error('Failed to fetch customer site config:', error);
+      res.status(500).json({ error: error?.message || 'Failed to fetch site config' });
+    }
+  });
+
+  app.put('/api/customer/site-config', requireAdmin, (req, res) => {
+    try {
+      const payload = req.body;
+      if (!payload || typeof payload !== 'object') {
+        return res.status(400).json({ error: 'Valid site config payload is required.' });
+      }
+
+      db.prepare(
+        `INSERT INTO customer_site_config (id, payload, updated_at)
+         VALUES (1, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           payload = excluded.payload,
+           updated_at = excluded.updated_at`
+      ).run(JSON.stringify(payload), new Date().toISOString());
+
+      res.json(payload);
+    } catch (error: any) {
+      console.error('Failed to update customer site config:', error);
+      res.status(500).json({ error: error?.message || 'Failed to update site config' });
+    }
   });
 
   if (process.env.NODE_ENV !== 'production') {

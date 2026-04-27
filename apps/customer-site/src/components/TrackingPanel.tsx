@@ -2,6 +2,7 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { Search, MapPin, Calendar, Layers, Clock, CheckCircle, Package } from 'lucide-react';
 import { Order, OrderStatus } from '../types';
+import { ORDER_STATUS_LABEL_AR } from '../lib/orders';
 
 interface TrackingPanelProps {
   order: Order | null;
@@ -87,7 +88,7 @@ export const TrackingPanel: React.FC<TrackingPanelProps> = ({ order, onSearch })
                <div className="mb-8 p-4 bg-primary/5 rounded-2xl border border-primary/10">
                   <div className="flex items-center gap-3">
                     <span className="text-2xl animate-pulse">⚙️</span>
-                    <p className="text-primary font-bold text-lg italic">ملابسك حالياً في مرحلة {order.status === 'Ironing' ? 'الغسيل والكوي' : order.status}</p>
+                    <p className="text-primary font-bold text-lg italic">ملابسك حالياً في مرحلة {ORDER_STATUS_LABEL_AR[order.status] ?? order.status}</p>
                   </div>
                </div>
 

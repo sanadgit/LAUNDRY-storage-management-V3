@@ -8,13 +8,25 @@ import {
 } from 'lucide-react';
 
 interface AuthWizardProps {
-  onComplete: (user: any) => void;
+  onLogin: (payload: { identifier: string; password: string }) => Promise<void>;
+  onRegister: (payload: {
+    name: string;
+    phone?: string;
+    email?: string;
+    password: string;
+    type?: string;
+    area?: string;
+    prefService?: number;
+    notifType?: string;
+  }) => Promise<void>;
 }
 
-export const AuthWizard: React.FC<AuthWizardProps> = ({ onComplete }) => {
+export const AuthWizard: React.FC<AuthWizardProps> = ({ onLogin, onRegister }) => {
   const [mode, setMode] = useState<'register' | 'login'>('register');
   const [step, setStep] = useState(0); 
   const [phone, setPhone] = useState('');
+  const [loginIdentifier, setLoginIdentifier] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [customer, setCustomer] = useState({
     name: '',
@@ -26,6 +38,8 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({ onComplete }) => {
     notifType: 'whatsapp'
   });
   const [timer, setTimer] = useState(59);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
     let interval: any;
@@ -35,10 +49,50 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({ onComplete }) => {
     return () => clearInterval(interval);
   }, [step, timer]);
 
+  useEffect(() => {
+    setErrorMessage('');
+  }, [step, mode]);
+
   const toAr = (n: any) => (Number(n) || 0).toLocaleString('ar-SA');
 
-  const handleRegister = () => {
-    onComplete({ ...customer, phone });
+  const parseApiError = (error: unknown) => {
+    const raw = error instanceof Error ? error.message : String(error ?? 'حدث خطأ غير متوقع');
+    const normalized = raw.trim();
+    if (normalized.toLowerCase().includes('invalid credentials')) return 'بيانات الدخول غير صحيحة.';
+    if (normalized.toLowerCase().includes('already exists')) return 'هذا الحساب موجود مسبقاً.';
+    if (normalized.toLowerCase().includes('password')) return 'كلمة المرور غير مطابقة للشروط.';
+    return normalized || 'تعذر إكمال العملية حالياً.';
+  };
+
+  const handleRegister = async () => {
+    setErrorMessage('');
+    setIsSubmitting(true);
+    try {
+      await onRegister({
+        ...customer,
+        phone,
+      });
+    } catch (error) {
+      setErrorMessage(parseApiError(error));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleLoginSubmit = async () => {
+    if (!loginIdentifier.trim() || !loginPassword) return;
+    setErrorMessage('');
+    setIsSubmitting(true);
+    try {
+      await onLogin({
+        identifier: loginIdentifier.trim(),
+        password: loginPassword,
+      });
+    } catch (error) {
+      setErrorMessage(parseApiError(error));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleOtpChange = (index: number, value: string) => {
@@ -52,6 +106,13 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({ onComplete }) => {
       nextInput?.focus();
     }
   };
+
+  const isRegisterStepBlocked =
+    (step === 1 && phone.length < 9) ||
+    (step === 2 && otp.join('').length < 6) ||
+    (step === 3 && (!customer.name.trim() || customer.password.length < 6));
+
+  const isLoginBlocked = !loginIdentifier.trim() || !loginPassword;
 
   return (
     <div className="max-w-md mx-auto bg-white rounded-[3rem] shadow-2xl shadow-primary/10 overflow-hidden border border-gray-100 min-h-[600px] flex flex-col font-sans">
@@ -166,6 +227,8 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({ onComplete }) => {
                       <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">رقم الجوال أو البريد الإلكتروني</label>
                       <input 
                         type="text"
+                        value={loginIdentifier}
+                        onChange={(e) => setLoginIdentifier(e.target.value)}
                         placeholder="05X XXX XXXX"
                         className="w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all"
                       />
@@ -174,6 +237,8 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({ onComplete }) => {
                       <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">كلمة المرور</label>
                       <input 
                         type="password"
+                        value={loginPassword}
+                        onChange={(e) => setLoginPassword(e.target.value)}
                         placeholder="••••••••"
                         className="w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all"
                       />
@@ -356,21 +421,33 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({ onComplete }) => {
                   </div>
                 </div>
               )}
+
+              {errorMessage && (
+                <div className="rounded-2xl border border-danger/20 bg-danger/5 px-4 py-3 text-xs font-bold text-danger">
+                  {errorMessage}
+                </div>
+              )}
             </div>
 
             <div className="p-8 border-t border-gray-100 bg-gray-50 flex flex-col gap-3">
                <button 
                  onClick={() => {
-                   if (mode === 'login' && step === 1) onComplete({ name: 'عميل سابق' });
+                   if (mode === 'login' && step === 1) {
+                     void handleLoginSubmit();
+                     return;
+                   }
                    else if (step === 1 && phone.length < 9) return;
                    else if (step === 2 && otp.join('').length < 6) return;
                    else if (step === 4) setStep(5);
                    else setStep(step + 1);
                  }}
-                 disabled={(mode === 'register' && step === 1 && phone.length < 9) || (step === 2 && otp.join('').length < 6)}
+                 disabled={
+                   isSubmitting ||
+                   (mode === 'login' ? isLoginBlocked : isRegisterStepBlocked)
+                 }
                  className="w-full bg-primary text-white py-4 rounded-2xl font-black italic shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                >
-                 {mode === 'login' ? 'دخول' : (step === 4 ? 'بدء الاستخدام واكتساب النقاط' : 'التالي')} <ChevronLeft size={18} />
+                 {isSubmitting ? 'جاري التنفيذ...' : (mode === 'login' ? 'دخول' : (step === 4 ? 'بدء الاستخدام واكتساب النقاط' : 'التالي'))} <ChevronLeft size={18} />
                </button>
                {mode === 'login' ? (
                   <button onClick={() => {setMode('register'); setStep(1);}} className="text-xs font-bold text-gray-400 text-center uppercase">ليس لديك حساب؟ سجل الآن</button>
@@ -394,10 +471,13 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({ onComplete }) => {
             <h2 className="text-3xl font-black italic tracking-tight text-secondary">أهلاً بك، <span className="text-primary">{customer.name.split(' ')[0] || 'ضيفنا'}!</span></h2>
             <p className="text-gray-500 font-medium text-sm">حسابك أصبح جاهزاً الآن.</p>
             <button 
-              onClick={() => onComplete({...customer, phone})}
-              className="w-full bg-primary text-white py-5 rounded-[2rem] font-black italic shadow-2xl shadow-primary/30 text-xl"
+              onClick={() => {
+                void handleRegister();
+              }}
+              disabled={isSubmitting || !customer.name.trim() || customer.password.length < 6}
+              className="w-full bg-primary text-white py-5 rounded-[2rem] font-black italic shadow-2xl shadow-primary/30 text-xl disabled:opacity-50"
             >
-              ابدأ طلبك الأول
+              {isSubmitting ? 'جاري إنشاء الحساب...' : 'ابدأ طلبك الأول'}
             </button>
           </motion.div>
         )}

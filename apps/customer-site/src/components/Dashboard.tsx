@@ -5,25 +5,42 @@ import {
   TrendingUp, CheckCircle2, Clock, Crown, ArrowUpRight, Info, ChevronLeft, ChevronRight,
   Package, X
 } from 'lucide-react';
-import { MOCK_ORDERS, JOURNEY_STEPS } from '../constants';
-import { Order } from '../types';
+import { JOURNEY_STEPS } from '../constants';
+import { CustomerUser, Order } from '../types';
+import { ORDER_STATUS_LABEL_AR } from '../lib/orders';
 
 interface DashboardProps {
   orders: Order[];
   onNewOrderClick: () => void;
+  onLogout: () => void;
+  user: CustomerUser;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ orders, onNewOrderClick }) => {
-  const activeOrder = orders[0];
+export const Dashboard: React.FC<DashboardProps> = ({ orders, onNewOrderClick, onLogout, user }) => {
+  const activeOrder: Order = orders[0] ?? {
+    id: '-',
+    customerName: '',
+    dateReceived: '',
+    itemCount: 0,
+    serviceType: '-',
+    branch: '-',
+    status: 'new',
+    amount: 0,
+    priority: 'normal',
+    paymentStatus: 'pending',
+    bags: [],
+    eta: '--',
+  };
+  const firstName = String(user.name || '').trim().split(' ')[0] || 'عميلنا';
   const [selectedStepIndex, setSelectedStepIndex] = useState<number>(2); // Default to Ironing (index 2)
   const [viewingOrder, setViewingOrder] = useState<Order | null>(null);
-  const [filterTab, setFilterTab] = useState<'All' | 'Delivered' | 'Active' | 'Cancelled'>('All');
+  const [filterTab, setFilterTab] = useState<'all' | 'delivered' | 'active' | 'cancelled'>('all');
 
   const filteredOrders = orders.filter(order => {
-    if (filterTab === 'All') return true;
-    if (filterTab === 'Delivered') return order.status === 'Delivered';
-    if (filterTab === 'Cancelled') return order.status === 'Cancelled';
-    if (filterTab === 'Active') return order.status !== 'Delivered' && order.status !== 'Cancelled';
+    if (filterTab === 'all') return true;
+    if (filterTab === 'delivered') return order.status === 'delivered' || order.status === 'completed';
+    if (filterTab === 'cancelled') return order.status === 'cancelled';
+    if (filterTab === 'active') return order.status !== 'delivered' && order.status !== 'completed' && order.status !== 'cancelled';
     return true;
   });
 
@@ -44,7 +61,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ orders, onNewOrderClick })
             <img src="https://picsum.photos/seed/user/200/200" alt="User" />
           </div>
           <div>
-            <p className="font-bold text-gray-900 leading-tight">Saleh Ahmed</p>
+            <p className="font-bold text-gray-900 leading-tight">{user.name}</p>
             <p className="text-[10px] font-bold text-primary uppercase tracking-widest flex items-center gap-1">
               <Crown size={10} /> Gold Member
             </p>
@@ -67,7 +84,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ orders, onNewOrderClick })
           ))}
         </nav>
 
-        <button className="flex items-center gap-3 px-4 py-3 rounded-2xl font-semibold text-danger hover:bg-danger/5 transition-all mt-auto cursor-pointer">
+        <button onClick={onLogout} className="flex items-center gap-3 px-4 py-3 rounded-2xl font-semibold text-danger hover:bg-danger/5 transition-all mt-auto cursor-pointer">
           <LogOut size={20} />
           تسجيل الخروج
         </button>
@@ -78,7 +95,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ orders, onNewOrderClick })
         <div className="max-w-5xl mx-auto">
           <header className="flex flex-col md:flex-row justify-between items-start md:items-end mb-12 gap-6 text-right">
             <div className="w-full">
-              <h1 className="text-3xl font-extrabold mb-2 italic">أهلاً بك مرة أخرى، <span className="text-primary italic">صالح</span></h1>
+              <h1 className="text-3xl font-extrabold mb-2 italic">أهلاً بك مرة أخرى، <span className="text-primary italic">{firstName}</span></h1>
               <p className="text-gray-500 font-medium tracking-tight">إليك نظرة سريعة على حالة طلباتك اليوم.</p>
             </div>
             <div className="bg-white p-2 rounded-2xl shadow-sm border border-gray-100 flex gap-2">
@@ -266,10 +283,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ orders, onNewOrderClick })
                 {/* Status Filters */}
                 <div className="flex bg-white p-1 rounded-2xl shadow-sm border border-gray-100 gap-1 self-start">
                    {[
-                     { id: 'All', label: 'الكل' },
-                     { id: 'Active', label: 'قيد التنفيذ' },
-                     { id: 'Delivered', label: 'مكتمل' },
-                     { id: 'Cancelled', label: 'ملغي' }
+                     { id: 'all', label: 'الكل' },
+                     { id: 'active', label: 'قيد التنفيذ' },
+                     { id: 'delivered', label: 'مكتمل' },
+                     { id: 'cancelled', label: 'ملغي' }
                    ].map(tab => (
                      <button
                        key={tab.id}
@@ -306,13 +323,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ orders, onNewOrderClick })
                           <td className="px-8 py-6 text-gray-900 font-medium whitespace-nowrap">{order.serviceType}</td>
                           <td className="px-8 py-6">
                             <span className={`text-[10px] font-bold px-3 py-1 rounded-full uppercase ${
-                              order.status === 'Delivered' ? 'bg-success/10 text-success' :
-                              order.status === 'Cancelled' ? 'bg-danger/10 text-danger' :
+                              order.status === 'delivered' || order.status === 'completed' ? 'bg-success/10 text-success' :
+                              order.status === 'cancelled' ? 'bg-danger/10 text-danger' :
                               'bg-primary/10 text-primary'
                             }`}>
-                              {order.status === 'Delivered' ? 'تم التسليم' :
-                               order.status === 'Cancelled' ? 'ملغي' :
-                               'قيد التنفيذ'}
+                              {ORDER_STATUS_LABEL_AR[order.status] ?? 'قيد التنفيذ'}
                             </span>
                           </td>
                           <td className="px-8 py-6 text-left">

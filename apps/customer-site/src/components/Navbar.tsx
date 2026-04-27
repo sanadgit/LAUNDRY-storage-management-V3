@@ -74,7 +74,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentRoute, setRoute, user, co
             className="hidden sm:flex items-center gap-2 px-6 py-2.5 text-xs font-bold bg-primary text-white rounded-full shadow-lg shadow-primary/20 hover:shadow-xl hover:bg-opacity-90 transition-all active:scale-95 cursor-pointer"
           >
             <User size={16} />
-            <span>{user ? (user.name.split(' ')[0] || 'حسابي') : 'دخول'}</span>
+            <span>{user ? (String(user.name || '').split(' ')[0] || 'حسابي') : 'دخول'}</span>
           </button>
           <button 
             onClick={() => setRoute('/book')}
@@ -125,7 +125,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentRoute, setRoute, user, co
                 className="flex items-center gap-2 text-lg font-semibold py-2 text-gray-800"
               >
                 <User size={20} />
-                <span>{user ? (user.name.split(' ')[0] || 'حسابي') : 'تسجيل الدخول'}</span>
+                <span>{user ? (String(user.name || '').split(' ')[0] || 'حسابي') : 'تسجيل الدخول'}</span>
               </button>
             </div>
           </motion.div>

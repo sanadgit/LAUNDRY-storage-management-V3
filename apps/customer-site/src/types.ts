@@ -76,6 +76,7 @@ export interface PricingItem {
   name_ar: string;
   name_en: string;
   category: string;
+  icon?: string;
   wash_iron: number;
   iron: number;
   wash_dry: number;
@@ -147,4 +148,49 @@ export interface SiteConfig {
   branches: Branch[];
   drivers: Driver[];
   offers: Offer[];
+}
+
+export interface CustomerUser {
+  id: string;
+  name: string;
+  phone: string;
+  email: string;
+  type: string;
+  area: string;
+  prefService: number;
+  notifType: string;
+  created_at: string | null;
+  last_login_at: string | null;
+}
+
+export interface CustomerAuthResponse {
+  user: CustomerUser;
+  token: string;
+  expires_at: number;
+}
+
+export interface AdminUser {
+  id: number;
+  username: string;
+  role: string;
+  full_name?: string;
+  email?: string;
+}
+
+export interface AdminAuthResponse {
+  user: AdminUser;
+  token: string;
+  expires_at: number;
+}
+
+export interface DriverAuthUser {
+  id: string;
+  name: string;
+  phone: string;
+}
+
+export interface DriverAuthResponse {
+  driver: DriverAuthUser;
+  token: string;
+  expires_at: number;
 }

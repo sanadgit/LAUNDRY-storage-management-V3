@@ -111,7 +111,7 @@ export const OrderWizard: React.FC<OrderWizardProps> = ({ onOrderSuccess, onBack
       id: code,
       dateReceived: new Date().toLocaleDateString('ar-EG', { day: 'numeric', month: 'long' }),
       serviceType: SERVICES.filter(s => selSvcs.includes(s.id)).map(s => s.name).join(' + '),
-      status: 'In Progress',
+      status: 'new',
       customerName: customer.name || 'عميل جديد',
       phoneNumber: customer.phone,
       itemCount: isBagSelected ? 0 : totalItems,
