@@ -446,8 +446,16 @@ export default function App() {
     setRoute('/dashboard');
   };
 
-  const handleCustomerLogin = async (payload: { identifier: string; password: string }) => {
-    const result = await customerApi.login(payload);
+  const handleCustomerSendOtp = async (payload: { phone: string; purpose: 'register' | 'login' }) => {
+    return customerApi.sendOtp(payload);
+  };
+
+  const handleCustomerVerifyOtp = async (payload: { challengeId: string; code: string }) => {
+    return customerApi.verifyOtp(payload);
+  };
+
+  const handleCustomerLoginWithOtp = async (payload: { phone: string; verificationToken: string }) => {
+    const result = await customerApi.loginWithOtp(payload);
     handleCustomerAuthSuccess(result);
   };
 
@@ -455,7 +463,8 @@ export default function App() {
     name: string;
     phone?: string;
     email?: string;
-    password: string;
+    password?: string;
+    verificationToken?: string;
     type?: string;
     area?: string;
     prefService?: number;
@@ -595,7 +604,12 @@ export default function App() {
             exit={{ opacity: 0 }}
             className="pt-24 pb-20 md:pt-32 min-h-screen bg-brand-bg px-4"
           >
-            <AuthWizard onLogin={handleCustomerLogin} onRegister={handleCustomerRegister} />
+            <AuthWizard
+              onSendOtp={handleCustomerSendOtp}
+              onVerifyOtp={handleCustomerVerifyOtp}
+              onLoginWithOtp={handleCustomerLoginWithOtp}
+              onRegister={handleCustomerRegister}
+            />
           </motion.div>
         );
       case '/services':
@@ -689,9 +703,11 @@ export default function App() {
     }
   };
 
+  const isDriverRoute = route === '/driver';
+
   return (
     <div className="min-h-screen flex flex-col font-sans select-none selection:bg-primary/20">
-      <Navbar currentRoute={route} setRoute={setRoute} user={user} config={siteConfig} />
+      {!isDriverRoute && <Navbar currentRoute={route} setRoute={setRoute} user={user} config={siteConfig} />}
       
       <main className="flex-1">
         {!loadedRemoteData && (
@@ -700,7 +716,7 @@ export default function App() {
           </div>
         )}
         {(!authReady || !adminReady || !driverReady) && (
-          <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[70] px-4 py-2 rounded-full bg-primary text-white text-[11px] font-bold tracking-wider">
+          <div className={`fixed left-1/2 -translate-x-1/2 z-[70] px-4 py-2 rounded-full bg-primary text-white text-[11px] font-bold tracking-wider ${isDriverRoute ? 'top-4' : 'top-16'}`}>
             Restoring your session...
           </div>
         )}
@@ -712,41 +728,45 @@ export default function App() {
       {route !== '/dashboard' && route !== '/admin' && route !== '/driver' && <Footer setRoute={setRoute} config={siteConfig} />}
 
       {/* Floating WhatsApp CTA */}
-      <motion.button
-        whileHover={{ scale: 1.1 }}
-        whileTap={{ scale: 0.9 }}
-        className="fixed bottom-24 md:bottom-8 right-8 z-50 w-16 h-16 bg-success text-white rounded-full flex items-center justify-center shadow-2xl shadow-success/40 cursor-pointer"
-      >
-        <MessageCircle size={32} />
-        <span className="absolute -top-1 -right-1 w-5 h-5 bg-danger rounded-full flex items-center justify-center text-[10px] font-bold">1</span>
-      </motion.button>
+      {!isDriverRoute && (
+        <motion.button
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+          className="fixed bottom-24 md:bottom-8 right-8 z-50 w-16 h-16 bg-success text-white rounded-full flex items-center justify-center shadow-2xl shadow-success/40 cursor-pointer"
+        >
+          <MessageCircle size={32} />
+          <span className="absolute -top-1 -right-1 w-5 h-5 bg-danger rounded-full flex items-center justify-center text-[10px] font-bold">1</span>
+        </motion.button>
+      )}
 
       {/* Sticky Bottom Nav (Mobile Only) */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 glass h-20 px-6 flex items-center justify-between z-40 border-t border-gray-100">
-        <button 
-          onClick={() => setRoute('/')}
-          className={`flex flex-col items-center gap-1 ${route === '/' ? 'text-primary' : 'text-gray-400'}`}
-        >
-          <div className={`w-1 h-1 rounded-full mb-1 ${route === '/' ? 'bg-primary' : 'transparent'}`} />
-          <span className="text-[10px] font-bold uppercase tracking-widest leading-none">الرئيسية</span>
-        </button>
-        <button 
-          onClick={() => setRoute('/track')}
-          className={`flex flex-col items-center gap-1 ${route === '/track' ? 'text-primary' : 'text-gray-400'}`}
-        >
-          <div className={`w-1 h-1 rounded-full mb-1 ${route === '/track' ? 'bg-primary' : 'transparent'}`} />
-          <span className="text-[10px] font-bold uppercase tracking-widest leading-none">تتبع</span>
-        </button>
-        <button 
-          onClick={() => setRoute(user ? '/dashboard' : '/auth')}
-          className={`flex flex-col items-center gap-1 ${route === '/dashboard' || route === '/auth' ? 'text-primary' : 'text-gray-400'}`}
-        >
-          <div className={`w-1 h-1 rounded-full mb-1 ${route === '/dashboard' || route === '/auth' ? 'bg-primary' : 'transparent'}`} />
-          <span className="text-[10px] font-bold uppercase tracking-widest leading-none">
-            {user ? 'حسابي' : 'دخول'}
-          </span>
-        </button>
-      </div>
+      {!isDriverRoute && (
+        <div className="md:hidden fixed bottom-0 left-0 right-0 glass h-20 px-6 flex items-center justify-between z-40 border-t border-gray-100">
+          <button 
+            onClick={() => setRoute('/')}
+            className={`flex flex-col items-center gap-1 ${route === '/' ? 'text-primary' : 'text-gray-400'}`}
+          >
+            <div className={`w-1 h-1 rounded-full mb-1 ${route === '/' ? 'bg-primary' : 'transparent'}`} />
+            <span className="text-[10px] font-bold uppercase tracking-widest leading-none">الرئيسية</span>
+          </button>
+          <button 
+            onClick={() => setRoute('/track')}
+            className={`flex flex-col items-center gap-1 ${route === '/track' ? 'text-primary' : 'text-gray-400'}`}
+          >
+            <div className={`w-1 h-1 rounded-full mb-1 ${route === '/track' ? 'bg-primary' : 'transparent'}`} />
+            <span className="text-[10px] font-bold uppercase tracking-widest leading-none">تتبع</span>
+          </button>
+          <button 
+            onClick={() => setRoute(user ? '/dashboard' : '/auth')}
+            className={`flex flex-col items-center gap-1 ${route === '/dashboard' || route === '/auth' ? 'text-primary' : 'text-gray-400'}`}
+          >
+            <div className={`w-1 h-1 rounded-full mb-1 ${route === '/dashboard' || route === '/auth' ? 'bg-primary' : 'transparent'}`} />
+            <span className="text-[10px] font-bold uppercase tracking-widest leading-none">
+              {user ? 'حسابي' : 'دخول'}
+            </span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

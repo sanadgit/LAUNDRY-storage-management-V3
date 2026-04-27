@@ -5,12 +5,125 @@ import {
   Search, MapPin, Phone, Clock, Navigation, 
   LogOut, Camera, CheckCircle2, AlertCircle,
   TrendingUp, CreditCard, Wallet, Smartphone,
-  ExternalLink, ChevronRight, Star, Settings,
+  ExternalLink, ChevronRight, Star, Settings, Globe,
   Map as MapIcon, X as CloseIcon
 } from 'lucide-react';
 import { Order, Driver, OrderStatus } from '../types';
 import { MapContainer, TileLayer, Marker, Popup, useMap, Circle } from 'react-leaflet';
 import L from 'leaflet';
+
+type DriverLanguage = 'ar' | 'en';
+
+const DRIVER_COPY: Record<DriverLanguage, Record<string, string>> = {
+  ar: {
+    online: 'متصل',
+    offline: 'غير متصل',
+    tabPickup: 'استلام',
+    tabDelivery: 'تسليم',
+    tabHistory: 'السجل',
+    tabProfile: 'حسابي',
+    browserNoLocation: 'المتصفح لا يدعم تحديد الموقع',
+    locationFailed: 'تعذر تحديد الموقع. يرجى تفعيل GPS',
+    currentLocation: 'موقعك الحالي',
+    loadingLocation: 'جاري تحديد الموقع...',
+    activeMissions: 'المهام الجارية',
+    onTheWay: 'في الطريق',
+    pickupDone: 'تم الاستلام',
+    activeMission: 'مهمة نشطة',
+    distance: 'المسافة',
+    accept: 'قبول',
+    goDeliver: 'توصيل',
+    confirmDelivery: 'تأكيد التسليم',
+    confirmPickup: 'تأكيد الاستلام',
+    availablePickup: 'طلبات الاستلام المتاحة',
+    availableDelivery: 'طلبات جاهزة للتسليم',
+    refresh: 'تحديث',
+    noOrders: 'لا توجد طلبات متاحة حالياً',
+    dayAchievements: 'إنجازات اليوم',
+    dayEarnings: 'أرباح اليوم',
+    noHistory: 'لا توجد سجلات لليوم بعد',
+    efficiency: 'كفاءة العمل',
+    wallet: 'المحفظة',
+    withdraw: 'سحب الأرباح',
+    pickupMode: 'وضع استقبال الطلبات',
+    pickupModeHint: 'تنبيه صوتي ومرئي للطلبات الجديدة',
+    systemSettings: 'إعدادات النظام',
+    systemSettingsHint: 'اللغة، التنسيق، الحساب',
+    language: 'اللغة',
+    languageHint: 'يمكنك تغيير لغة التطبيق فوراً',
+    arabic: 'العربية',
+    english: 'English',
+    logout: 'تسجيل الخروج من النظام',
+    detailsList: 'قائمة التفاصيل',
+    photoProof: 'التوثيق بالصور (مطلوب)',
+    photoQty: 'الكمية',
+    photoCondition: 'الحالة',
+    photoDone: 'تمت',
+    cancel: 'إلغاء',
+    completeDelivery: 'إتمام التسليم',
+    completePickup: 'إتمام الاستلام',
+    confirmedDeliveryToast: 'تم تسليم الطلب بنجاح',
+    confirmedPickupToast: 'تم استلام الطلب بنجاح',
+    confirmOperationDelivery: 'تأكيد عملية التسليم للعميل',
+    confirmOperationPickup: 'تأكيد عملية الاستلام من العميل',
+    today: 'اليوم',
+    ready: 'جاهز',
+  },
+  en: {
+    online: 'Online',
+    offline: 'Offline',
+    tabPickup: 'Pickup',
+    tabDelivery: 'Delivery',
+    tabHistory: 'History',
+    tabProfile: 'Profile',
+    browserNoLocation: 'This browser does not support geolocation',
+    locationFailed: 'Location access failed. Please enable GPS',
+    currentLocation: 'Your current location',
+    loadingLocation: 'Detecting location...',
+    activeMissions: 'Active Missions',
+    onTheWay: 'On the way',
+    pickupDone: 'Picked up',
+    activeMission: 'Active mission',
+    distance: 'Distance',
+    accept: 'Accept',
+    goDeliver: 'Deliver',
+    confirmDelivery: 'Confirm Delivery',
+    confirmPickup: 'Confirm Pickup',
+    availablePickup: 'Available pickup jobs',
+    availableDelivery: 'Ready for delivery',
+    refresh: 'Refresh',
+    noOrders: 'No orders available right now',
+    dayAchievements: 'Today achievements',
+    dayEarnings: 'Today earnings',
+    noHistory: 'No history records yet',
+    efficiency: 'Efficiency',
+    wallet: 'Wallet',
+    withdraw: 'Withdraw earnings',
+    pickupMode: 'Pickup mode',
+    pickupModeHint: 'Sound and visual alerts for new jobs',
+    systemSettings: 'System settings',
+    systemSettingsHint: 'Language, layout, account',
+    language: 'Language',
+    languageHint: 'Change app language instantly',
+    arabic: 'Arabic',
+    english: 'English',
+    logout: 'Sign out',
+    detailsList: 'Details list',
+    photoProof: 'Photo proof (required)',
+    photoQty: 'Quantity',
+    photoCondition: 'Condition',
+    photoDone: 'Done',
+    cancel: 'Cancel',
+    completeDelivery: 'Complete Delivery',
+    completePickup: 'Complete Pickup',
+    confirmedDeliveryToast: 'Order delivered successfully',
+    confirmedPickupToast: 'Order picked up successfully',
+    confirmOperationDelivery: 'Confirm delivery to customer',
+    confirmOperationPickup: 'Confirm pickup from customer',
+    today: 'Today',
+    ready: 'Ready',
+  },
+};
 
 // Fix Leaflet marker icon issue
 const DefaultIcon = L.icon({
@@ -46,9 +159,19 @@ interface DriverPanelProps {
   onLogout: () => void;
 }
 
+const DRIVER_LANGUAGE_STORAGE_KEY = 'io_driver_lang';
+
 export const DriverPanel: React.FC<DriverPanelProps> = ({ 
   driver, orders, onUpdateOrderStatus, onLogout 
 }) => {
+  const languageStorageKey = `io_driver_lang_${driver.id}`;
+  const [driverLanguage, setDriverLanguage] = useState<DriverLanguage>(() => {
+    if (typeof window === 'undefined') return 'ar';
+    const savedByDriver = window.localStorage.getItem(languageStorageKey);
+    if (savedByDriver === 'en' || savedByDriver === 'ar') return savedByDriver;
+    const shared = window.localStorage.getItem(DRIVER_LANGUAGE_STORAGE_KEY);
+    return shared === 'en' ? 'en' : 'ar';
+  });
   const [activeTab, setActiveTab] = useState<'pickup' | 'delivery' | 'history' | 'profile'>('pickup');
   const [isOnline, setIsOnline] = useState(driver.status !== 'offline');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -59,18 +182,26 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
   // Location state
   const [location, setLocation] = useState<[number, number] | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
+  const isArabic = driverLanguage === 'ar';
+  const copy = DRIVER_COPY[driverLanguage];
 
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 3000);
   };
 
-  const toAr = (n: any) => (Number(n) || 0).toLocaleString('ar-SA');
+  const formatNumber = (n: any) => (Number(n) || 0).toLocaleString(isArabic ? 'ar-SA' : 'en-US');
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(languageStorageKey, driverLanguage);
+    window.localStorage.setItem(DRIVER_LANGUAGE_STORAGE_KEY, driverLanguage);
+  }, [driverLanguage, languageStorageKey]);
 
   // Watch location
   useEffect(() => {
     if (!navigator.geolocation) {
-      setLocationError('المتصفح لا يدعم تحديد الموقع');
+      setLocationError(copy.browserNoLocation);
       return;
     }
 
@@ -80,14 +211,14 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
         setLocationError(null);
       },
       (err) => {
-        setLocationError('تعذر تحديد الموقع. يرجى تفعيل GPS');
+        setLocationError(copy.locationFailed);
         console.error(err);
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
 
     return () => navigator.geolocation.clearWatch(watchId);
-  }, []);
+  }, [copy.browserNoLocation, copy.locationFailed]);
 
   // Filter orders
   const pickupOrders = orders.filter(o => 
@@ -123,7 +254,7 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
   };
 
   return (
-    <div className="max-w-[480px] mx-auto min-h-screen flex flex-col font-sans relative overflow-hidden shadow-2xl" style={{ backgroundColor: colors.bg, color: colors.text }}>
+    <div dir={isArabic ? 'rtl' : 'ltr'} className="w-full max-w-[480px] mx-auto min-h-screen flex flex-col font-sans relative overflow-hidden shadow-2xl" style={{ backgroundColor: colors.bg, color: colors.text }}>
       
       {/* STATUS BAR */}
       <div className="bg-[#1e142b] p-4 flex justify-between items-center sticky top-0 z-50 shadow-lg border-b border-[#2d1b3d]">
@@ -136,7 +267,7 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
           >
             <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-[#c084fc] animate-pulse' : 'bg-[#4a3b5a]'}`} />
             <span className={`text-[10px] font-bold ${isOnline ? 'text-[#e9d5ff]' : 'text-[#64748b]'}`}>
-              {isOnline ? 'متصل' : 'غير متصل'}
+              {isOnline ? copy.online : copy.offline}
             </span>
           </button>
           <span className="text-[11px] text-[#e9d5ff] font-bold">{driver.name}</span>
@@ -160,10 +291,10 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
       {/* TABS */}
       <div className="flex bg-[#1a1221] border-b border-[#2d1b3d] sticky top-[68px] z-40">
         {[
-          { id: 'pickup', label: 'استلام', icon: <Package size={16} />, badge: pickupOrders.length, badgeClr: 'bg-[#fbbf24]' },
-          { id: 'delivery', label: 'تسليم', icon: <Truck size={16} />, badge: deliveryOrders.length, badgeClr: 'bg-[#9333ea]' },
-          { id: 'history', label: 'السجل', icon: <ClipboardList size={16} /> },
-          { id: 'profile', label: 'حسابي', icon: <User size={16} /> },
+          { id: 'pickup', label: copy.tabPickup, icon: <Package size={16} />, badge: pickupOrders.length, badgeClr: 'bg-[#fbbf24]' },
+          { id: 'delivery', label: copy.tabDelivery, icon: <Truck size={16} />, badge: deliveryOrders.length, badgeClr: 'bg-[#9333ea]' },
+          { id: 'history', label: copy.tabHistory, icon: <ClipboardList size={16} /> },
+          { id: 'profile', label: copy.tabProfile, icon: <User size={16} /> },
         ].map(tab => (
           <button
             key={tab.id}
@@ -179,7 +310,7 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
               <span className="text-[11px] font-bold">{tab.label}</span>
               {tab.badge !== undefined && tab.badge > 0 && (
                 <span className={`${tab.badgeClr} text-white text-[8px] px-1.5 py-0.5 rounded-full font-black`}>
-                  {toAr(tab.badge)}
+                  {formatNumber(tab.badge)}
                 </span>
               )}
             </div>
@@ -215,7 +346,7 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
                   attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
                 />
                 <Marker position={location} icon={DriverIcon}>
-                  <Popup>موقعك الحالي 🚗</Popup>
+                  <Popup>{copy.currentLocation} 🚗</Popup>
                 </Marker>
                 <Circle 
                   center={location} 
@@ -243,7 +374,7 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
               <div className="absolute inset-0 flex items-center justify-center bg-[#0D1117]">
                 <div className="flex flex-col items-center gap-3">
                   <div className="w-8 h-8 border-4 border-[#1D9E75] border-t-transparent rounded-full animate-spin"></div>
-                  <p className="text-[10px] font-bold text-[#656D76]">جاري تحديد الموقع…</p>
+                  <p className="text-[10px] font-bold text-[#656D76]">{copy.loadingLocation}</p>
                 </div>
               </div>
             )}
@@ -273,14 +404,14 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
               {/* Active Missions */}
               {activeMissions.length > 0 && (
                 <div className="space-y-4">
-                  <div className="text-[10px] text-[#94a3b8] font-black uppercase tracking-[0.2em]">المهام الجارية ({activeMissions.length})</div>
+                  <div className="text-[10px] text-[#94a3b8] font-black uppercase tracking-[0.2em]">{copy.activeMissions} ({formatNumber(activeMissions.length)})</div>
                   {activeMissions.map(mission => (
                     <div key={mission.id} className="bg-gradient-to-br from-[#2d1b3d] to-[#1a1221] border border-[#9333ea] rounded-2xl p-4 shadow-xl">
                       <div className="flex justify-between items-center mb-3">
                         <div className="flex items-center gap-2">
                           <span className="w-2 h-2 rounded-full bg-[#c084fc] animate-pulse" />
                           <span className="text-[10px] font-black text-[#c084fc] uppercase tracking-widest">
-                            {mission.status === 'on_the_way' ? 'في الطريق' : mission.status === 'pickup' ? 'تم الاستلام' : 'مهمة نشطة'}
+                            {mission.status === 'on_the_way' ? copy.onTheWay : mission.status === 'pickup' ? copy.pickupDone : copy.activeMission}
                           </span>
                         </div>
                         <span className="bg-[#581c87] text-[#e9d5ff] px-2 py-0.5 rounded-lg text-[9px] font-black">{mission.id}</span>
@@ -295,18 +426,18 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
                           </div>
                         </div>
                         <div className="text-left">
-                          <div className="text-[10px] text-[#94a3b8] font-bold">المسافة</div>
-                          <div className="text-xs font-black text-[#f3e8ff]">{toAr(mission.distanceKm || 0)} كم</div>
+                          <div className="text-[10px] text-[#94a3b8] font-bold">{copy.distance}</div>
+                          <div className="text-xs font-black text-[#f3e8ff]">{formatNumber(mission.distanceKm || 0)} {isArabic ? 'كم' : 'km'}</div>
                         </div>
                       </div>
 
                       {/* Steps Visualization */}
                       <div className="flex justify-between items-center mb-6 px-1">
                         {(mission.steps || [
-                          { key: 'accepted', label: 'قبول', status: 'done' },
-                          { key: 'on_the_way', label: 'الطريق', status: mission.status === 'on_the_way' ? 'active' : 'done' },
-                          { key: 'pickup', label: 'استلام', status: mission.status === 'on_the_way' ? 'pending' : 'active' },
-                          { key: 'completed', label: 'اكتمل', status: 'pending' }
+                          { key: 'accepted', label: copy.accept, status: 'done' },
+                          { key: 'on_the_way', label: copy.onTheWay, status: mission.status === 'on_the_way' ? 'active' : 'done' },
+                          { key: 'pickup', label: copy.tabPickup, status: mission.status === 'on_the_way' ? 'pending' : 'active' },
+                          { key: 'completed', label: copy.ready, status: 'pending' }
                         ]).map((step, idx, arr) => (
                           <React.Fragment key={step.key}>
                             <div className="flex flex-col items-center gap-1.5 relative z-10">
@@ -331,7 +462,7 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
                           onClick={() => { setSelectedOrder(mission); setShowConfirmModal(true); }}
                           className="flex-1 bg-[#9333ea] hover:bg-[#a855f7] text-white py-3 rounded-xl text-xs font-bold shadow-lg shadow-[#9333ea]/20 transition-all active:scale-95"
                         >
-                          {mission.status === 'delivery' ? 'تأكيد التسليم ✓' : 'تأكيد الاستلام 📦'}
+                          {mission.status === 'delivery' ? `${copy.confirmDelivery} ✓` : `${copy.confirmPickup} 📦`}
                         </button>
                         <button className="bg-[#1a1221] p-3 rounded-xl border border-[#2d1b3d] hover:bg-[#9333ea]/10 group transition-all">
                           <Navigation size={18} className="text-[#c084fc] group-hover:scale-110 transition-transform" />
@@ -348,8 +479,8 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
               {/* Available Orders */}
               <div className="space-y-4">
                 <div className="flex justify-between items-center text-[10px] text-[#94a3b8] font-black uppercase tracking-[0.2em]">
-                  <span>{activeTab === 'pickup' ? 'طلبات الاستلام المتاحة' : 'طلبات جاهزة للتسليم'} ({activeTab === 'pickup' ? pickupOrders.length : deliveryOrders.length})</span>
-                  <span className="text-[#c084fc] cursor-pointer hover:underline">تحديث ↺</span>
+                  <span>{activeTab === 'pickup' ? copy.availablePickup : copy.availableDelivery} ({formatNumber(activeTab === 'pickup' ? pickupOrders.length : deliveryOrders.length)})</span>
+                  <span className="text-[#c084fc] cursor-pointer hover:underline">{copy.refresh} ↺</span>
                 </div>
 
                 {(activeTab === 'pickup' ? pickupOrders : deliveryOrders).map(order => (
@@ -370,21 +501,21 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
                           ? 'bg-[#fbbf24]/10 text-[#fbbf24] border-[#fbbf24]/30' 
                           : 'bg-[#9333ea]/10 text-[#9333ea] border-[#9333ea]/30'
                       }`}>
-                        {activeTab === 'pickup' ? '📦 استلام' : '🚗 تسليم'}
+                        {activeTab === 'pickup' ? `📦 ${copy.tabPickup}` : `🚗 ${copy.tabDelivery}`}
                       </span>
                     </div>
 
                     <div className="flex items-start gap-2 mb-3">
                       <MapPin size={14} className="text-[#9333ea] mt-0.5 flex-shrink-0" />
                       <span className="text-[11px] text-[#94a3b8] leading-relaxed flex-1 line-clamp-1">{order.deliveryAddress}</span>
-                      <span className="text-[9px] font-bold text-[#c084fc] flex-shrink-0">{toAr(order.distanceKm || 0)} كم</span>
+                      <span className="text-[9px] font-bold text-[#c084fc] flex-shrink-0">{formatNumber(order.distanceKm || 0)} {isArabic ? 'كم' : 'km'}</span>
                     </div>
 
                     {order.items && order.items.length > 0 && (
                       <div className="flex flex-wrap gap-1.5 mb-4">
                         {order.items.map((item, idx) => (
                           <span key={idx} className="bg-[#1e142b] text-[#94a3b8] text-[9px] px-2 py-1 rounded-lg border border-[#2d1b3d]">
-                            {item.icon} {item.name} ×{toAr(item.qty)}
+                            {item.icon} {item.name} ×{formatNumber(item.qty)}
                           </span>
                         ))}
                       </div>
@@ -393,7 +524,7 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
                     <div className="flex justify-between items-center pt-3 border-t border-[#2d1b3d]">
                       <div className="flex items-center gap-1.5 text-[10px] text-[#94a3b8]">
                         <Clock size={12} />
-                        <span>{order.timeSlot ? `${toAr(order.timeSlot.from)} - ${toAr(order.timeSlot.to)}` : order.dateReceived}</span>
+                        <span>{order.timeSlot ? `${order.timeSlot.from} - ${order.timeSlot.to}` : order.dateReceived}</span>
                       </div>
                       <div className="flex gap-2">
                         <button className="bg-[#1e142b] p-2 rounded-lg border border-[#2d1b3d] hover:bg-[#9333ea]/10 transition-colors text-[#94a3b8]"><Phone size={14} /></button>
@@ -401,7 +532,7 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
                           onClick={() => onUpdateOrderStatus(order.id, 'accepted')}
                           className="bg-[#9333ea] text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-[#a855f7] transition-all active:scale-95"
                         >
-                          {activeTab === 'pickup' ? 'قبول' : 'توصيل'}
+                          {activeTab === 'pickup' ? copy.accept : copy.goDeliver}
                         </button>
                       </div>
                     </div>
@@ -411,7 +542,7 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
                 {(activeTab === 'pickup' ? pickupOrders : deliveryOrders).length === 0 && (
                   <div className="py-12 text-center text-[#64748b]">
                     <div className="text-4xl mb-4">✨</div>
-                    <p className="text-xs font-bold italic">لا توجد طلبات متاحة حالياً</p>
+                    <p className="text-xs font-bold italic">{copy.noOrders}</p>
                   </div>
                 )}
               </div>
@@ -430,13 +561,13 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-[#581c87]/30 text-[#c084fc] rounded-full flex items-center justify-center font-bold">🎯</div>
                   <div>
-                    <div className="text-lg font-black text-[#f3e8ff]">{toAr(historyOrders.length)}</div>
-                    <div className="text-[10px] text-[#94a3b8] uppercase font-bold">إنجازات اليوم</div>
+                    <div className="text-lg font-black text-[#f3e8ff]">{formatNumber(historyOrders.length)}</div>
+                    <div className="text-[10px] text-[#94a3b8] uppercase font-bold">{copy.dayAchievements}</div>
                   </div>
                 </div>
                 <div className="text-left">
-                  <div className="text-lg font-black text-[#c084fc]">{toAr(driver.earnings_today)} د</div>
-                  <div className="text-[10px] text-[#94a3b8] uppercase font-bold">أرباح اليوم</div>
+                  <div className="text-lg font-black text-[#c084fc]">{formatNumber(driver.earnings_today)} {isArabic ? 'د' : 'AED'}</div>
+                  <div className="text-[10px] text-[#94a3b8] uppercase font-bold">{copy.dayEarnings}</div>
                 </div>
               </div>
 
@@ -457,7 +588,7 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
                       </div>
                     </div>
                     <div className="text-left">
-                      <div className="text-[11px] font-black text-[#c084fc]">+{toAr(12)} د</div>
+                      <div className="text-[11px] font-black text-[#c084fc]">+{formatNumber(12)} {isArabic ? 'د' : 'AED'}</div>
                       <div className="text-[9px] text-[#94a3b8] font-bold uppercase">{order.dateReceived}</div>
                     </div>
                   </div>
@@ -465,7 +596,7 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
                 {historyOrders.length === 0 && (
                   <div className="bg-[#1a1221] p-12 text-center text-[#64748b]">
                     <ClipboardList size={48} className="mx-auto mb-4 opacity-10" />
-                    <p className="text-xs font-bold italic">لا توجد سجلات لليوم بعد</p>
+                    <p className="text-xs font-bold italic">{copy.noHistory}</p>
                   </div>
                 )}
               </div>
@@ -486,13 +617,13 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
                   <div className="absolute bottom-2 right-0 w-8 h-8 bg-[#9333ea] rounded-full flex items-center justify-center border-2 border-[#1a1221]"><Camera size={14} /></div>
                 </div>
                 <h2 className="text-2xl font-black text-[#f3e8ff]">{driver.name}</h2>
-                <p className="text-[10px] text-[#94a3b8] font-bold uppercase tracking-widest mt-1">المعرف: {driver.id} — {driver.branch}</p>
+                <p className="text-[10px] text-[#94a3b8] font-bold uppercase tracking-widest mt-1">{isArabic ? 'المعرف' : 'ID'}: {driver.id} — {driver.branch}</p>
                 <div className="flex items-center justify-center gap-1.5 mt-3">
                   <div className="flex text-[#fbbf24] gap-0.5">
                     {[1,2,3,4,5].map(i => <Star key={i} size={14} fill={i <= Math.round(driver.rating) ? 'currentColor' : 'none'} />)}
                   </div>
-                  <span className="text-[11px] text-[#f3e8ff] font-bold">{toAr(driver.rating)} / ٥</span>
-                  <span className="text-[9px] text-[#94a3b8]">({toAr(driver.total_ratings || 0)} تقييم)</span>
+                  <span className="text-[11px] text-[#f3e8ff] font-bold">{formatNumber(driver.rating)} / 5</span>
+                  <span className="text-[9px] text-[#94a3b8]">({formatNumber(driver.total_ratings || 0)} {isArabic ? 'تقييم' : 'ratings'})</span>
                 </div>
               </div>
 
@@ -500,9 +631,9 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
                 <div className="bg-[#1a1221] border border-[#2d1b3d] rounded-2xl p-4">
                   <div className="flex items-center gap-2 mb-2">
                     <TrendingUp size={16} className="text-[#9333ea]" />
-                    <span className="text-[9px] font-black text-[#94a3b8] uppercase">كفاءة العمل</span>
+                    <span className="text-[9px] font-black text-[#94a3b8] uppercase">{copy.efficiency}</span>
                   </div>
-                  <div className="text-2xl font-black text-[#f3e8ff]">٩٧٪</div>
+                  <div className="text-2xl font-black text-[#f3e8ff]">{isArabic ? '٩٧٪' : '97%'}</div>
                   <div className="w-full h-1.5 bg-[#2d1b3d] rounded-full mt-2 overflow-hidden">
                     <div className="h-full bg-[#9333ea] w-[97%]" />
                   </div>
@@ -510,10 +641,10 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
                 <div className="bg-[#1a1221] border border-[#2d1b3d] rounded-2xl p-4">
                   <div className="flex items-center gap-2 mb-2">
                     <CreditCard size={16} className="text-[#c084fc]" />
-                    <span className="text-[9px] font-black text-[#94a3b8] uppercase">المحفظة</span>
+                    <span className="text-[9px] font-black text-[#94a3b8] uppercase">{copy.wallet}</span>
                   </div>
-                  <div className="text-2xl font-black text-[#f3e8ff]">{toAr(850)} د</div>
-                  <button className="text-[10px] font-bold text-[#c084fc] mt-2 underline">سحب الأرباح</button>
+                  <div className="text-2xl font-black text-[#f3e8ff]">{formatNumber(850)} {isArabic ? 'د' : 'AED'}</div>
+                  <button className="text-[10px] font-bold text-[#c084fc] mt-2 underline">{copy.withdraw}</button>
                 </div>
               </div>
 
@@ -522,8 +653,8 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
                   <div className="flex items-center gap-4">
                     <div className="w-10 h-10 bg-[#2d1b3d] rounded-xl flex items-center justify-center text-[#c084fc]"><Smartphone size={20} /></div>
                     <div>
-                      <div className="text-sm font-bold text-[#f3e8ff]">وضع استقبال الطلبات</div>
-                      <div className="text-[9px] text-[#94a3b8]">تنبيه صوتي ومرئي للطلبات الجديدة</div>
+                      <div className="text-sm font-bold text-[#f3e8ff]">{copy.pickupMode}</div>
+                      <div className="text-[9px] text-[#94a3b8]">{copy.pickupModeHint}</div>
                     </div>
                   </div>
                   <div className="w-12 h-6 bg-[#9333ea] rounded-full relative"><div className="absolute top-1 right-1 w-4 h-4 bg-white rounded-full shadow-sm" /></div>
@@ -532,19 +663,42 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
                   <div className="flex items-center gap-4">
                     <div className="w-10 h-10 bg-[#2d1b3d] rounded-xl flex items-center justify-center text-[#fbbf24]"><Settings size={20} /></div>
                     <div>
-                      <div className="text-sm font-bold text-[#f3e8ff]">إعدادات النظام</div>
-                      <div className="text-[9px] text-[#94a3b8]">اللغة، التنسيق، الحساب</div>
+                      <div className="text-sm font-bold text-[#f3e8ff]">{copy.systemSettings}</div>
+                      <div className="text-[9px] text-[#94a3b8]">{copy.systemSettingsHint}</div>
                     </div>
                   </div>
                   <ChevronRight size={18} className="text-[#94a3b8] opacity-30" />
                 </button>
+                <div className="w-full flex items-center justify-between p-4 text-right">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 bg-[#2d1b3d] rounded-xl flex items-center justify-center text-[#22d3ee]"><Globe size={20} /></div>
+                    <div>
+                      <div className="text-sm font-bold text-[#f3e8ff]">{copy.language}</div>
+                      <div className="text-[9px] text-[#94a3b8]">{copy.languageHint}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setDriverLanguage('ar')}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-black border transition-all ${driverLanguage === 'ar' ? 'bg-[#9333ea] text-white border-[#9333ea]' : 'bg-[#1e142b] text-[#94a3b8] border-[#2d1b3d]'}`}
+                    >
+                      {copy.arabic}
+                    </button>
+                    <button
+                      onClick={() => setDriverLanguage('en')}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-black border transition-all ${driverLanguage === 'en' ? 'bg-[#9333ea] text-white border-[#9333ea]' : 'bg-[#1e142b] text-[#94a3b8] border-[#2d1b3d]'}`}
+                    >
+                      {copy.english}
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <button 
                 onClick={onLogout}
                 className="w-full flex items-center justify-center gap-2 p-5 bg-[#451225] border border-[#ec4899]/30 text-[#ec4899] rounded-2xl font-black italic transition-all hover:bg-[#451225]/80 active:scale-95"
               >
-                <LogOut size={20} /> تسجيل الخروج من النظام
+                <LogOut size={20} /> {copy.logout}
               </button>
             </motion.div>
           )}
@@ -566,7 +720,7 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
               <div className="flex justify-between items-start mb-8">
                 <div>
                   <h3 className="text-2xl font-black text-[#f3e8ff] italic tracking-tighter">{selectedOrder.id}</h3>
-                  <p className="text-[10px] text-[#94a3b8] font-black uppercase tracking-widest mt-1">تأكيد عملية {selectedOrder.status === 'delivery' ? 'التسليم للعميل' : 'الاستلام من العميل'}</p>
+                  <p className="text-[10px] text-[#94a3b8] font-black uppercase tracking-widest mt-1">{selectedOrder.status === 'delivery' ? copy.confirmOperationDelivery : copy.confirmOperationPickup}</p>
                 </div>
                 <div className="bg-[#9333ea] text-white p-4 rounded-2xl shadow-lg shadow-[#9333ea]/20"><Package size={28} /></div>
               </div>
@@ -574,12 +728,12 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
               <div className="space-y-5 mb-10">
                 {selectedOrder.items && selectedOrder.items.length > 0 && (
                   <div className="bg-[#1e142b] p-5 rounded-2xl border border-[#2d1b3d]">
-                    <div className="text-[10px] text-[#94a3b8] font-black uppercase tracking-widest mb-4">قائمة التفاصيل</div>
+                    <div className="text-[10px] text-[#94a3b8] font-black uppercase tracking-widest mb-4">{copy.detailsList}</div>
                     <div className="space-y-3">
                       {selectedOrder.items.map((item, idx) => (
                         <div key={idx} className="flex justify-between items-center text-[12px] font-bold text-[#f3e8ff]">
                           <span className="flex items-center gap-2">{item.icon} {item.name}</span>
-                          <span className="text-[#c084fc] font-black text-sm">× {toAr(item.qty)}</span>
+                          <span className="text-[#c084fc] font-black text-sm">× {formatNumber(item.qty)}</span>
                         </div>
                       ))}
                     </div>
@@ -587,19 +741,19 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
                 )}
 
                 <div className="bg-[#1e142b] p-5 rounded-2xl border border-[#2d1b3d]">
-                  <div className="text-[10px] text-[#94a3b8] font-black uppercase tracking-widest mb-4">التوثيق بالصور (مطلوب)</div>
+                  <div className="text-[10px] text-[#94a3b8] font-black uppercase tracking-widest mb-4">{copy.photoProof}</div>
                   <div className="grid grid-cols-3 gap-3">
                     <div className="aspect-square bg-[#1a1221] border border-dashed border-[#2d1b3d] rounded-2xl flex flex-col items-center justify-center gap-2 hover:border-[#9333ea] transition-all cursor-pointer group">
                       <Camera size={24} className="text-[#64748b] group-hover:text-[#c084fc]" />
-                      <span className="text-[9px] text-[#64748b] font-black">الكمية</span>
+                      <span className="text-[9px] text-[#64748b] font-black">{copy.photoQty}</span>
                     </div>
                     <div className="aspect-square bg-[#1a1221] border border-dashed border-[#2d1b3d] rounded-2xl flex flex-col items-center justify-center gap-2 hover:border-[#9333ea] transition-all cursor-pointer group">
                       <Camera size={24} className="text-[#64748b] group-hover:text-[#c084fc]" />
-                      <span className="text-[9px] text-[#64748b] font-black">الحالة</span>
+                      <span className="text-[9px] text-[#64748b] font-black">{copy.photoCondition}</span>
                     </div>
                     <div className="aspect-square bg-[#9333ea]/10 border border-[#9333ea] rounded-2xl flex flex-col items-center justify-center shadow-inner">
                       <CheckCircle2 size={32} className="text-[#c084fc]" />
-                      <span className="text-[9px] text-[#c084fc] font-black uppercase mt-1">تمت</span>
+                      <span className="text-[9px] text-[#c084fc] font-black uppercase mt-1">{copy.photoDone}</span>
                     </div>
                   </div>
                 </div>
@@ -610,17 +764,17 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
                   onClick={() => setShowConfirmModal(false)}
                   className="flex-1 bg-[#1e142b] text-[#94a3b8] py-4 rounded-2xl font-black text-sm border border-[#2d1b3d] transition-all hover:bg-[#1a1221]"
                 >
-                  إلغاء
+                  {copy.cancel}
                 </button>
                 <button 
                   onClick={() => {
                     onUpdateOrderStatus(selectedOrder.id, selectedOrder.status === 'delivery' ? 'delivered' : 'pickup');
                     setShowConfirmModal(false);
-                    showToast(`✅ تم ${selectedOrder.status === 'delivery' ? 'تسليم' : 'استلام'} الطلب بنجاح`);
+                    showToast(`✅ ${selectedOrder.status === 'delivery' ? copy.confirmedDeliveryToast : copy.confirmedPickupToast}`);
                   }}
                   className="flex-[2] bg-[#9333ea] text-white py-4 rounded-2xl font-black italic text-sm shadow-2xl shadow-[#9333ea]/30 transition-all hover:bg-[#a855f7] active:scale-95"
                 >
-                  {selectedOrder.status === 'delivery' ? 'إتمام التسليم ✓' : 'إتمام الاستلام 📦'}
+                  {selectedOrder.status === 'delivery' ? `${copy.completeDelivery} ✓` : `${copy.completePickup} 📦`}
                 </button>
               </div>
             </motion.div>
@@ -643,10 +797,10 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({
       {/* FIXED BOTTOM NAV FOR MOBILE FLOW */}
       <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[480px] bg-[#1a1221] border-t border-[#2d1b3d] grid grid-cols-4 px-2 z-50 shadow-[0_-10px_30px_rgba(0,0,0,0.5)]">
         {[
-          { id: 'pickup', label: 'استلام', icon: '📦' },
-          { id: 'delivery', label: 'تسليم', icon: '🚗' },
-          { id: 'history', label: 'السجل', icon: '📋' },
-          { id: 'profile', label: 'حسابي', icon: '👤' },
+          { id: 'pickup', label: copy.tabPickup, icon: '📦' },
+          { id: 'delivery', label: copy.tabDelivery, icon: '🚗' },
+          { id: 'history', label: copy.tabHistory, icon: '📋' },
+          { id: 'profile', label: copy.tabProfile, icon: '👤' },
         ].map(item => (
           <button
             key={item.id}

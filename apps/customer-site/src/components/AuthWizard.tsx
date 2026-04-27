@@ -1,19 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  ChevronRight, ChevronLeft, Phone, Lock, User, 
-  Mail, MapPin, Sparkles, CheckCircle2, 
-  Briefcase, MessageCircle, Smartphone, Bell, 
-  Apple, Chrome, Crown, Gift, Gift as GiftIcon
-} from 'lucide-react';
+import { ChevronRight, ChevronLeft, Sparkles } from 'lucide-react';
 
 interface AuthWizardProps {
-  onLogin: (payload: { identifier: string; password: string }) => Promise<void>;
+  onSendOtp: (payload: { phone: string; purpose: 'register' | 'login' }) => Promise<{
+    challengeId: string;
+    expires_at: number;
+    cooldown_until: number;
+    provider: 'twilio' | 'aipsoft' | 'mock';
+    dev_code?: string;
+  }>;
+  onVerifyOtp: (payload: { challengeId: string; code: string }) => Promise<{
+    verified: boolean;
+    verificationToken: string;
+    expires_at: number;
+  }>;
+  onLoginWithOtp: (payload: { phone: string; verificationToken: string }) => Promise<void>;
   onRegister: (payload: {
     name: string;
     phone?: string;
     email?: string;
-    password: string;
+    password?: string;
+    verificationToken?: string;
     type?: string;
     area?: string;
     prefService?: number;
@@ -21,13 +29,20 @@ interface AuthWizardProps {
   }) => Promise<void>;
 }
 
-export const AuthWizard: React.FC<AuthWizardProps> = ({ onLogin, onRegister }) => {
+export const AuthWizard: React.FC<AuthWizardProps> = ({
+  onSendOtp,
+  onVerifyOtp,
+  onLoginWithOtp,
+  onRegister,
+}) => {
   const [mode, setMode] = useState<'register' | 'login'>('register');
   const [step, setStep] = useState(0); 
   const [phone, setPhone] = useState('');
-  const [loginIdentifier, setLoginIdentifier] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
+  const [loginPhone, setLoginPhone] = useState('');
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
+  const [otpChallengeId, setOtpChallengeId] = useState('');
+  const [otpVerificationToken, setOtpVerificationToken] = useState('');
+  const [otpTargetPhone, setOtpTargetPhone] = useState('');
   const [customer, setCustomer] = useState({
     name: '',
     email: '',
@@ -53,6 +68,14 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({ onLogin, onRegister }) =
     setErrorMessage('');
   }, [step, mode]);
 
+  useEffect(() => {
+    setOtp(['', '', '', '', '', '']);
+    setOtpChallengeId('');
+    setOtpVerificationToken('');
+    setOtpTargetPhone('');
+    setTimer(59);
+  }, [mode]);
+
   const toAr = (n: any) => (Number(n) || 0).toLocaleString('ar-SA');
 
   const parseApiError = (error: unknown) => {
@@ -60,6 +83,9 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({ onLogin, onRegister }) =
     const normalized = raw.trim();
     if (normalized.toLowerCase().includes('invalid credentials')) return 'بيانات الدخول غير صحيحة.';
     if (normalized.toLowerCase().includes('already exists')) return 'هذا الحساب موجود مسبقاً.';
+    if (normalized.toLowerCase().includes('no account found')) return 'لا يوجد حساب مرتبط بهذا الرقم.';
+    if (normalized.toLowerCase().includes('verification')) return 'رمز التحقق غير صحيح أو منتهي.';
+    if (normalized.toLowerCase().includes('wait before requesting')) return 'انتظر قليلاً قبل طلب رمز جديد.';
     if (normalized.toLowerCase().includes('password')) return 'كلمة المرور غير مطابقة للشروط.';
     return normalized || 'تعذر إكمال العملية حالياً.';
   };
@@ -71,6 +97,7 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({ onLogin, onRegister }) =
       await onRegister({
         ...customer,
         phone,
+        verificationToken: otpVerificationToken,
       });
     } catch (error) {
       setErrorMessage(parseApiError(error));
@@ -79,15 +106,56 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({ onLogin, onRegister }) =
     }
   };
 
-  const handleLoginSubmit = async () => {
-    if (!loginIdentifier.trim() || !loginPassword) return;
+  const sendOtp = async () => {
+    const targetPhone = (mode === 'login' ? loginPhone : phone).trim();
+    if (!targetPhone || targetPhone.replace(/\D/g, '').length < 9) {
+      setErrorMessage('أدخل رقم جوال صحيح قبل المتابعة.');
+      return;
+    }
     setErrorMessage('');
     setIsSubmitting(true);
     try {
-      await onLogin({
-        identifier: loginIdentifier.trim(),
-        password: loginPassword,
-      });
+      const purpose = mode === 'login' ? 'login' : 'register';
+      const response = await onSendOtp({ phone: targetPhone, purpose });
+      setOtpChallengeId(response.challengeId);
+      setOtpVerificationToken('');
+      setOtp(['', '', '', '', '', '']);
+      setOtpTargetPhone(targetPhone);
+      const remainingMs = Math.max(0, response.cooldown_until - Date.now());
+      setTimer(Math.ceil(remainingMs / 1000));
+      setStep(2);
+      if (response.dev_code && response.dev_code.length === 6) {
+        setOtp(response.dev_code.split(''));
+      }
+    } catch (error) {
+      setErrorMessage(parseApiError(error));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const verifyOtpAndContinue = async () => {
+    const code = otp.join('');
+    if (!otpChallengeId || code.length !== 6) {
+      setErrorMessage('أدخل رمز التحقق المكون من 6 أرقام.');
+      return;
+    }
+
+    setErrorMessage('');
+    setIsSubmitting(true);
+    try {
+      const verification = await onVerifyOtp({ challengeId: otpChallengeId, code });
+      setOtpVerificationToken(verification.verificationToken);
+
+      if (mode === 'login') {
+        await onLoginWithOtp({
+          phone: otpTargetPhone || loginPhone.trim(),
+          verificationToken: verification.verificationToken,
+        });
+        return;
+      }
+
+      setStep(3);
     } catch (error) {
       setErrorMessage(parseApiError(error));
     } finally {
@@ -110,9 +178,39 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({ onLogin, onRegister }) =
   const isRegisterStepBlocked =
     (step === 1 && phone.length < 9) ||
     (step === 2 && otp.join('').length < 6) ||
-    (step === 3 && (!customer.name.trim() || customer.password.length < 6));
+    (step === 3 && (!customer.name.trim() || (customer.password.length > 0 && customer.password.length < 6)));
 
-  const isLoginBlocked = !loginIdentifier.trim() || !loginPassword;
+  const isLoginStepBlocked =
+    (step === 1 && loginPhone.trim().replace(/\D/g, '').length < 9) ||
+    (step === 2 && otp.join('').length < 6);
+
+  const handlePrimaryAction = async () => {
+    if (mode === 'login') {
+      if (step === 1) {
+        await sendOtp();
+        return;
+      }
+      if (step === 2) {
+        await verifyOtpAndContinue();
+        return;
+      }
+      return;
+    }
+
+    if (step === 1) {
+      await sendOtp();
+      return;
+    }
+    if (step === 2) {
+      await verifyOtpAndContinue();
+      return;
+    }
+    if (step === 4) {
+      setStep(5);
+      return;
+    }
+    setStep(step + 1);
+  };
 
   return (
     <div className="max-w-md mx-auto bg-white rounded-[3rem] shadow-2xl shadow-primary/10 overflow-hidden border border-gray-100 min-h-[600px] flex flex-col font-sans">
@@ -194,7 +292,9 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({ onLogin, onRegister }) =
               </button>
               <div className="flex-1">
                 <h3 className="text-white font-bold leading-tight">
-                  {mode === 'login' ? 'تسجيل الدخول' : (step === 1 ? 'رقم الجوال' : step === 2 ? 'رمز التحقق' : step === 3 ? 'بيانات الحساب' : 'تفضيلاتك')}
+                  {mode === 'login'
+                    ? (step === 1 ? 'رقم الجوال' : 'رمز التحقق')
+                    : (step === 1 ? 'رقم الجوال' : step === 2 ? 'رمز التحقق' : step === 3 ? 'بيانات الحساب' : 'تفضيلاتك')}
                 </h3>
                 {mode === 'register' && <p className="text-primary/60 text-[10px] font-bold uppercase tracking-widest">{toAr(step)} من {toAr(4)} خطوات</p>}
               </div>
@@ -219,44 +319,24 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({ onLogin, onRegister }) =
                   <div className="space-y-2">
                     <div className="w-14 h-14 bg-primary/10 text-primary rounded-2xl flex items-center justify-center text-2xl shadow-inner">🔑</div>
                     <h2 className="text-2xl font-black italic tracking-tight text-gray-900">مرحباً بك <span className="text-primary italic">من جديد</span></h2>
-                    <p className="text-gray-500 font-medium text-xs leading-relaxed">سجّل دخولك للوصول لطلباتك وتاريخ غسيلك.</p>
-                  </div>
-
-                  <div className="space-y-6">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">رقم الجوال أو البريد الإلكتروني</label>
-                      <input 
-                        type="text"
-                        value={loginIdentifier}
-                        onChange={(e) => setLoginIdentifier(e.target.value)}
-                        placeholder="05X XXX XXXX"
-                        className="w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">كلمة المرور</label>
-                      <input 
-                        type="password"
-                        value={loginPassword}
-                        onChange={(e) => setLoginPassword(e.target.value)}
-                        placeholder="••••••••"
-                        className="w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all"
-                      />
-                      <div className="text-left">
-                        <button className="text-[10px] font-bold text-primary hover:underline italic">نسيت كلمة المرور؟</button>
-                      </div>
-                    </div>
+                    <p className="text-gray-500 font-medium text-xs leading-relaxed">أدخل رقم الجوال وسنرسل لك رمز تحقق عبر SMS.</p>
                   </div>
 
                   <div className="space-y-4">
-                    <div className="flex items-center gap-4 py-2 text-gray-300">
-                      <div className="h-px flex-1 bg-gray-100" />
-                      <span className="text-[10px] font-bold uppercase tracking-widest">أو</span>
-                      <div className="h-px flex-1 bg-gray-100" />
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">رقم الجوال</label>
+                      <input 
+                        type="tel"
+                        value={loginPhone}
+                        onChange={(e) => setLoginPhone(e.target.value)}
+                        placeholder="05X XXX XXXX"
+                        className="w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm text-left transition-all"
+                        dir="ltr"
+                      />
                     </div>
-                    <button className="w-full flex items-center justify-center gap-2 p-4 bg-gray-50 rounded-2xl hover:bg-gray-100 transition-all font-bold text-xs">
-                      <Chrome size={18} className="text-amber-500" /> الدخول عبر Google
-                    </button>
+                    <p className={`text-[10px] font-bold transition-all ${loginPhone.replace(/\D/g, '').length >= 9 ? 'text-primary' : 'text-gray-400'}`}>
+                      {loginPhone.replace(/\D/g, '').length >= 9 ? '✓ رقم جوال صالح' : 'أدخل رقم الجوال المكون من ٩-١٠ أرقام'}
+                    </p>
                   </div>
                 </div>
               )}
@@ -296,7 +376,7 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({ onLogin, onRegister }) =
                   <div className="space-y-2 text-right">
                     <div className="w-14 h-14 bg-primary/10 text-primary rounded-2xl flex items-center justify-center text-2xl shadow-inner mx-auto mb-4">🔐</div>
                     <h2 className="text-2xl font-black italic tracking-tight text-gray-900 text-center">أدخل رمز <span className="text-primary italic">التحقق</span></h2>
-                    <p className="text-gray-500 font-medium text-xs leading-relaxed text-center">أرسلنا رمزاً من ٦ أرقام للهاتف <span className="dir-ltr text-gray-900 font-bold">{phone}</span></p>
+                    <p className="text-gray-500 font-medium text-xs leading-relaxed text-center">أرسلنا رمزاً من ٦ أرقام للهاتف <span className="dir-ltr text-gray-900 font-bold">{otpTargetPhone || (mode === 'login' ? loginPhone : phone)}</span></p>
                   </div>
 
                   <div className="flex justify-between gap-2 max-w-[300px] mx-auto">
@@ -322,7 +402,9 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({ onLogin, onRegister }) =
                     <p className="text-primary font-black text-sm">٠:{timer < 10 ? `٠${timer}` : timer}</p>
                     <button 
                       disabled={timer > 0}
-                      onClick={() => setTimer(59)}
+                      onClick={() => {
+                        void sendOtp();
+                      }}
                       className="text-[10px] font-bold uppercase tracking-widest text-gray-400 hover:text-primary transition-colors disabled:opacity-50"
                     >
                       إعادة إرسال الرمز
@@ -351,12 +433,12 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({ onLogin, onRegister }) =
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">كلمة المرور</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">كلمة المرور (اختياري)</label>
                       <input 
                         type="password"
                         value={customer.password}
                         onChange={(e) => setCustomer({...customer, password: e.target.value})}
-                        placeholder="٨ أحرف على الأقل"
+                        placeholder="إن أردت الدخول مستقبلاً بكلمة مرور"
                         className="w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all"
                       />
                     </div>
@@ -432,22 +514,15 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({ onLogin, onRegister }) =
             <div className="p-8 border-t border-gray-100 bg-gray-50 flex flex-col gap-3">
                <button 
                  onClick={() => {
-                   if (mode === 'login' && step === 1) {
-                     void handleLoginSubmit();
-                     return;
-                   }
-                   else if (step === 1 && phone.length < 9) return;
-                   else if (step === 2 && otp.join('').length < 6) return;
-                   else if (step === 4) setStep(5);
-                   else setStep(step + 1);
+                   void handlePrimaryAction();
                  }}
                  disabled={
                    isSubmitting ||
-                   (mode === 'login' ? isLoginBlocked : isRegisterStepBlocked)
+                   (mode === 'login' ? isLoginStepBlocked : isRegisterStepBlocked)
                  }
                  className="w-full bg-primary text-white py-4 rounded-2xl font-black italic shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                >
-                 {isSubmitting ? 'جاري التنفيذ...' : (mode === 'login' ? 'دخول' : (step === 4 ? 'بدء الاستخدام واكتساب النقاط' : 'التالي'))} <ChevronLeft size={18} />
+                 {isSubmitting ? 'جاري التنفيذ...' : (mode === 'login' ? (step === 1 ? 'إرسال رمز التحقق' : 'تحقق ودخول') : (step === 4 ? 'بدء الاستخدام واكتساب النقاط' : 'التالي'))} <ChevronLeft size={18} />
                </button>
                {mode === 'login' ? (
                   <button onClick={() => {setMode('register'); setStep(1);}} className="text-xs font-bold text-gray-400 text-center uppercase">ليس لديك حساب؟ سجل الآن</button>
@@ -474,7 +549,7 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({ onLogin, onRegister }) =
               onClick={() => {
                 void handleRegister();
               }}
-              disabled={isSubmitting || !customer.name.trim() || customer.password.length < 6}
+              disabled={isSubmitting || !customer.name.trim() || !otpVerificationToken || (customer.password.length > 0 && customer.password.length < 6)}
               className="w-full bg-primary text-white py-5 rounded-[2rem] font-black italic shadow-2xl shadow-primary/30 text-xl disabled:opacity-50"
             >
               {isSubmitting ? 'جاري إنشاء الحساب...' : 'ابدأ طلبك الأول'}

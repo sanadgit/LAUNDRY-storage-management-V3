@@ -4,7 +4,7 @@ import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import cors from 'cors';
 import Database from 'better-sqlite3';
-import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'crypto';
+import { randomBytes, randomInt, randomUUID, scryptSync, timingSafeEqual } from 'crypto';
 import { fileURLToPath } from 'url';
 import {
   AppUserRole,
@@ -99,6 +99,28 @@ type CustomerSessionRecord = {
   token: string;
   user_id: string;
   expires_at: number;
+};
+
+type CustomerOtpPurpose = 'register' | 'login';
+
+type CustomerOtpChallengeRecord = {
+  id: string;
+  phone_normalized: string;
+  phone_e164: string;
+  purpose: CustomerOtpPurpose;
+  provider: 'twilio' | 'aipsoft' | 'mock';
+  code_hash: string | null;
+  expires_at: number;
+  attempts: number;
+  cooldown_until: number;
+};
+
+type CustomerOtpVerificationRecord = {
+  token: string;
+  phone_normalized: string;
+  purpose: CustomerOtpPurpose;
+  expires_at: number;
+  consumed: boolean;
 };
 
 type DriverSessionRecord = {
@@ -381,9 +403,37 @@ const CUSTOMER_SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
 const customerSessionStore = new Map<string, CustomerSessionRecord>();
 const DRIVER_SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
 const driverSessionStore = new Map<string, DriverSessionRecord>();
+const CUSTOMER_OTP_CODE_TTL_MS = 1000 * 60 * 5; // 5 minutes
+const CUSTOMER_OTP_SEND_COOLDOWN_MS = 1000 * 45; // 45 seconds
+const CUSTOMER_OTP_MAX_VERIFY_ATTEMPTS = 5;
+const CUSTOMER_OTP_VERIFICATION_TTL_MS = 1000 * 60 * 10; // 10 minutes
+const customerOtpChallengeStore = new Map<string, CustomerOtpChallengeRecord>();
+const customerOtpChallengeByPhonePurpose = new Map<string, string>();
+const customerOtpVerificationStore = new Map<string, CustomerOtpVerificationRecord>();
+
+const RAW_CUSTOMER_SMS_PROVIDER = String(process.env.CUSTOMER_SMS_PROVIDER ?? process.env.SMS_PROVIDER ?? 'mock')
+  .trim()
+  .toLowerCase();
+const CUSTOMER_SMS_PROVIDER = RAW_CUSTOMER_SMS_PROVIDER === 'textconnect' ? 'aipsoft' : RAW_CUSTOMER_SMS_PROVIDER;
+const TWILIO_ACCOUNT_SID = String(process.env.TWILIO_ACCOUNT_SID ?? '').trim();
+const TWILIO_AUTH_TOKEN = String(process.env.TWILIO_AUTH_TOKEN ?? '').trim();
+const TWILIO_VERIFY_SERVICE_SID = String(process.env.TWILIO_VERIFY_SERVICE_SID ?? '').trim();
+const AIPSOFT_SMS_URL = String(process.env.AIPSOFT_SMS_URL ?? 'https://textconnect.aipsoft.com/api/send/otp').trim();
+const AIPSOFT_VERIFY_URL = String(process.env.AIPSOFT_VERIFY_URL ?? 'https://textconnect.aipsoft.com/api/get/otp').trim();
+const AIPSOFT_SMS_SECRET = String(process.env.AIPSOFT_SMS_SECRET ?? '').trim();
+const AIPSOFT_SMS_TYPE = String(process.env.AIPSOFT_SMS_TYPE ?? 'sms').trim() || 'sms';
+const AIPSOFT_SMS_TEMPLATE = String(
+  process.env.AIPSOFT_SMS_TEMPLATE ?? 'Your OTP is {{otp}}. It expires in 5 minutes.'
+).trim();
+const AIPSOFT_SMS_EXPIRE_SECONDS = Math.max(60, Number(process.env.AIPSOFT_SMS_EXPIRE_SECONDS ?? 300) || 300);
+const AIPSOFT_SMS_PHONE_MODE = String(process.env.AIPSOFT_SMS_PHONE_MODE ?? 'normalized').trim().toLowerCase();
 
 const normalizeCustomerPhone = (value: unknown) => {
-  const digits = String(value ?? '').replace(/\D/g, '');
+  let digits = String(value ?? '').replace(/\D/g, '');
+  if (!digits) return null;
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (digits.startsWith('971') && digits.length >= 12) digits = `0${digits.slice(3)}`;
+  if (digits.length === 9 && digits.startsWith('5')) digits = `0${digits}`;
   return digits.length > 0 ? digits : null;
 };
 
@@ -394,6 +444,190 @@ const normalizeCustomerEmail = (value: unknown) => {
 
 const normalizeDriverPhone = (value: unknown) => {
   return String(value ?? '').replace(/\D/g, '');
+};
+
+const toCustomerPhoneE164 = (normalizedPhone: string) => {
+  const normalized = normalizeCustomerPhone(normalizedPhone);
+  if (!normalized) return null;
+  if (normalized.startsWith('0') && normalized.length === 10) return `+971${normalized.slice(1)}`;
+  if (normalized.startsWith('971')) return `+${normalized}`;
+  if (normalized.startsWith('5') && normalized.length === 9) return `+971${normalized}`;
+  return `+${normalized}`;
+};
+
+const parseCustomerOtpPurpose = (value: unknown): CustomerOtpPurpose | null => {
+  const purpose = String(value ?? '').trim().toLowerCase();
+  if (purpose === 'register' || purpose === 'login') return purpose;
+  return null;
+};
+
+const getOtpPhonePurposeKey = (phoneNormalized: string, purpose: CustomerOtpPurpose) =>
+  `${phoneNormalized}:${purpose}`;
+
+const pruneCustomerOtpStores = () => {
+  const now = Date.now();
+  for (const [challengeId, challenge] of customerOtpChallengeStore.entries()) {
+    if (challenge.expires_at <= now) {
+      customerOtpChallengeStore.delete(challengeId);
+      const key = getOtpPhonePurposeKey(challenge.phone_normalized, challenge.purpose);
+      if (customerOtpChallengeByPhonePurpose.get(key) === challengeId) {
+        customerOtpChallengeByPhonePurpose.delete(key);
+      }
+    }
+  }
+
+  for (const [token, verification] of customerOtpVerificationStore.entries()) {
+    if (verification.expires_at <= now || verification.consumed) {
+      customerOtpVerificationStore.delete(token);
+    }
+  }
+};
+
+const isTwilioVerifyEnabled = () =>
+  CUSTOMER_SMS_PROVIDER === 'twilio' &&
+  TWILIO_ACCOUNT_SID.length > 0 &&
+  TWILIO_AUTH_TOKEN.length > 0 &&
+  TWILIO_VERIFY_SERVICE_SID.length > 0;
+
+const isAipsoftSmsEnabled = () =>
+  CUSTOMER_SMS_PROVIDER === 'aipsoft' &&
+  AIPSOFT_SMS_SECRET.length > 0 &&
+  AIPSOFT_SMS_URL.length > 0 &&
+  AIPSOFT_VERIFY_URL.length > 0;
+
+const sendOtpViaTwilioVerify = async (phoneE164: string) => {
+  const endpoint = `https://verify.twilio.com/v2/Services/${encodeURIComponent(TWILIO_VERIFY_SERVICE_SID)}/Verifications`;
+  const auth = Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64');
+  const payload = new URLSearchParams({
+    To: phoneE164,
+    Channel: 'sms',
+  });
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${auth}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: payload.toString(),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(text || `Twilio send failed (${response.status})`);
+  }
+};
+
+const verifyOtpViaTwilioVerify = async (phoneE164: string, code: string) => {
+  const endpoint = `https://verify.twilio.com/v2/Services/${encodeURIComponent(TWILIO_VERIFY_SERVICE_SID)}/VerificationCheck`;
+  const auth = Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64');
+  const payload = new URLSearchParams({
+    To: phoneE164,
+    Code: code,
+  });
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${auth}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: payload.toString(),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(text || `Twilio verify failed (${response.status})`);
+  }
+
+  const body = (await response.json().catch(() => ({}))) as { status?: string; valid?: boolean };
+  return body.valid === true || String(body.status ?? '').toLowerCase() === 'approved';
+};
+
+const formatAipsoftPhone = (phoneNormalized: string, phoneE164: string) => {
+  if (AIPSOFT_SMS_PHONE_MODE === 'e164') return phoneE164;
+  if (AIPSOFT_SMS_PHONE_MODE === 'e164_no_plus') return phoneE164.replace(/^\+/, '');
+  return phoneNormalized;
+};
+
+const sendOtpViaAipsoft = async (phoneNormalized: string, phoneE164: string, code: string) => {
+  const phone = formatAipsoftPhone(phoneNormalized, phoneE164);
+  const message = AIPSOFT_SMS_TEMPLATE.replace(/\{\{\s*otp\s*\}\}/gi, code);
+  const form = new FormData();
+  form.append('secret', AIPSOFT_SMS_SECRET);
+  form.append('type', AIPSOFT_SMS_TYPE);
+  form.append('message', message);
+  form.append('phone', phone);
+  form.append('expire', String(AIPSOFT_SMS_EXPIRE_SECONDS));
+
+  const response = await fetch(AIPSOFT_SMS_URL, {
+    method: 'POST',
+    body: form,
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(text || `AIPSoft send failed (${response.status})`);
+  }
+
+  const responseBody = await response.text().catch(() => '');
+  if (responseBody && /error|failed|invalid/i.test(responseBody)) {
+    throw new Error(responseBody);
+  }
+};
+
+const verifyOtpViaAipsoft = async (code: string) => {
+  const query = new URLSearchParams({
+    secret: AIPSOFT_SMS_SECRET,
+    otp: code,
+  });
+  const endpoint = `${AIPSOFT_VERIFY_URL}${AIPSOFT_VERIFY_URL.includes('?') ? '&' : '?'}${query.toString()}`;
+  const response = await fetch(endpoint, { method: 'GET' });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(text || `AIPSoft verify failed (${response.status})`);
+  }
+
+  // Accept multiple possible response shapes from provider.
+  const body = (await response.json().catch(() => ({}))) as {
+    status?: number | string;
+    message?: string;
+    data?: boolean | string | number | null;
+  };
+
+  const message = String(body.message ?? '').toLowerCase();
+  const statusCode = Number(body.status ?? 0);
+
+  if (message.includes('verified')) return true;
+  if (typeof body.data === 'boolean') return body.data;
+  if (typeof body.data === 'number') return body.data === 1;
+  if (typeof body.data === 'string') {
+    const dataValue = body.data.trim().toLowerCase();
+    if (dataValue === 'true' || dataValue === '1' || dataValue === 'verified' || dataValue === 'ok') return true;
+    if (dataValue === 'false' || dataValue === '0') return false;
+  }
+  return statusCode === 200 && !message.includes('invalid') && !message.includes('expired') && !message.includes('wrong');
+};
+
+const consumeCustomerOtpVerificationToken = (
+  token: string,
+  phoneNormalized: string,
+  purpose: CustomerOtpPurpose
+) => {
+  pruneCustomerOtpStores();
+  const record = customerOtpVerificationStore.get(token);
+  if (!record) return false;
+  if (record.consumed || record.expires_at <= Date.now()) {
+    customerOtpVerificationStore.delete(token);
+    return false;
+  }
+  if (record.phone_normalized !== phoneNormalized || record.purpose !== purpose) {
+    return false;
+  }
+  record.consumed = true;
+  customerOtpVerificationStore.set(token, record);
+  return true;
 };
 
 const DEFAULT_DRIVER_ACCOUNTS = [
@@ -446,6 +680,24 @@ const normalizeCustomerUser = (user: CustomerUserRecord) => ({
   created_at: user.created_at,
   last_login_at: user.last_login_at,
 });
+
+const findCustomerByPhoneNormalized = (phoneNormalized: string) => {
+  const direct = db
+    .prepare('SELECT * FROM customer_users WHERE phone_normalized = ?')
+    .get(phoneNormalized) as CustomerUserRecord | undefined;
+  if (direct) return direct;
+
+  const e164NoPlus = phoneNormalized.startsWith('0') && phoneNormalized.length === 10
+    ? `971${phoneNormalized.slice(1)}`
+    : null;
+  if (e164NoPlus) {
+    return db
+      .prepare('SELECT * FROM customer_users WHERE phone_normalized = ?')
+      .get(e164NoPlus) as CustomerUserRecord | undefined;
+  }
+
+  return undefined;
+};
 
 const deleteCustomerSession = (token: string) => {
   customerSessionStore.delete(token);
@@ -1406,7 +1658,8 @@ const getSupabaseUsers = async (username?: string) => {
 
 async function startServer() {
   const app = express();
-  const PORT = 3001;
+  const envPort = Number(process.env.PORT);
+  const PORT = Number.isFinite(envPort) && envPort > 0 ? envPort : 3001;
 
   app.set('trust proxy', true);
   app.use(cors());
@@ -2361,23 +2614,204 @@ async function startServer() {
   // ------------------------------
   // Customer-site public API
   // ------------------------------
+  app.post('/api/customer/auth/otp/send', async (req, res) => {
+    try {
+      pruneCustomerOtpStores();
+
+      const purpose = parseCustomerOtpPurpose(req.body?.purpose);
+      const phoneNormalized = normalizeCustomerPhone(req.body?.phone);
+      if (!purpose) {
+        return res.status(400).json({ error: 'OTP purpose is required (register or login).' });
+      }
+      if (!phoneNormalized) {
+        return res.status(400).json({ error: 'Valid phone number is required.' });
+      }
+
+      const existingAccount = findCustomerByPhoneNormalized(phoneNormalized);
+      if (purpose === 'register' && existingAccount) {
+        return res.status(409).json({ error: 'Account already exists for this phone.' });
+      }
+      if (purpose === 'login') {
+        if (!existingAccount) return res.status(404).json({ error: 'No account found for this phone.' });
+        if (Number(existingAccount.is_active ?? 1) === 0) {
+          return res.status(403).json({ error: 'This account is inactive.' });
+        }
+      }
+
+      const phoneE164 = toCustomerPhoneE164(phoneNormalized);
+      if (!phoneE164) {
+        return res.status(400).json({ error: 'Unable to normalize phone number.' });
+      }
+
+      const now = Date.now();
+      const key = getOtpPhonePurposeKey(phoneNormalized, purpose);
+      const existingChallengeId = customerOtpChallengeByPhonePurpose.get(key);
+      if (existingChallengeId) {
+        const existingChallenge = customerOtpChallengeStore.get(existingChallengeId);
+        if (existingChallenge && existingChallenge.cooldown_until > now) {
+          return res.status(429).json({
+            error: 'Please wait before requesting another code.',
+            retry_after_ms: existingChallenge.cooldown_until - now,
+          });
+        }
+      }
+
+      const challengeId = randomUUID();
+      let provider: CustomerOtpChallengeRecord['provider'] = 'mock';
+      let devCode: string | undefined;
+      let codeHash: string | null = null;
+
+      if (CUSTOMER_SMS_PROVIDER === 'twilio') {
+        if (!isTwilioVerifyEnabled()) {
+          return res.status(500).json({ error: 'Twilio SMS is not configured. Set TWILIO_* env vars.' });
+        }
+        await sendOtpViaTwilioVerify(phoneE164);
+        provider = 'twilio';
+      } else if (CUSTOMER_SMS_PROVIDER === 'aipsoft') {
+        if (!isAipsoftSmsEnabled()) {
+          return res.status(500).json({ error: 'AIPSoft SMS is not configured. Set AIPSOFT_SMS_SECRET and AIPSOFT_SMS_URL.' });
+        }
+        devCode = String(randomInt(0, 1_000_000)).padStart(6, '0');
+        codeHash = hashCustomerPassword(devCode);
+        await sendOtpViaAipsoft(phoneNormalized, phoneE164, devCode);
+        provider = 'aipsoft';
+      } else {
+        devCode = String(randomInt(0, 1_000_000)).padStart(6, '0');
+        codeHash = hashCustomerPassword(devCode);
+        console.log(`[OTP:DEV] ${purpose} phone=${phoneNormalized} code=${devCode}`);
+        provider = 'mock';
+      }
+
+      const challenge: CustomerOtpChallengeRecord = {
+        id: challengeId,
+        phone_normalized: phoneNormalized,
+        phone_e164: phoneE164,
+        purpose,
+        provider,
+        code_hash: codeHash,
+        expires_at: now + CUSTOMER_OTP_CODE_TTL_MS,
+        attempts: 0,
+        cooldown_until: now + CUSTOMER_OTP_SEND_COOLDOWN_MS,
+      };
+
+      customerOtpChallengeStore.set(challengeId, challenge);
+      customerOtpChallengeByPhonePurpose.set(key, challengeId);
+
+      res.json({
+        challengeId,
+        expires_at: challenge.expires_at,
+        cooldown_until: challenge.cooldown_until,
+        provider: challenge.provider,
+        ...(process.env.NODE_ENV !== 'production' && challenge.provider === 'mock' && devCode ? { dev_code: devCode } : {}),
+      });
+    } catch (error: any) {
+      console.error('Failed to send customer OTP:', error);
+      res.status(500).json({ error: error?.message || 'Failed to send verification code' });
+    }
+  });
+
+  app.post('/api/customer/auth/otp/verify', async (req, res) => {
+    try {
+      pruneCustomerOtpStores();
+
+      const challengeId = String(req.body?.challengeId ?? '').trim();
+      const code = String(req.body?.code ?? '').replace(/\D/g, '');
+      if (!challengeId || code.length < 4) {
+        return res.status(400).json({ error: 'challengeId and code are required.' });
+      }
+
+      const challenge = customerOtpChallengeStore.get(challengeId);
+      if (!challenge) {
+        return res.status(400).json({ error: 'Verification challenge expired or invalid.' });
+      }
+
+      if (challenge.expires_at <= Date.now()) {
+        customerOtpChallengeStore.delete(challengeId);
+        const key = getOtpPhonePurposeKey(challenge.phone_normalized, challenge.purpose);
+        if (customerOtpChallengeByPhonePurpose.get(key) === challengeId) {
+          customerOtpChallengeByPhonePurpose.delete(key);
+        }
+        return res.status(400).json({ error: 'Verification code has expired.' });
+      }
+
+      if (challenge.attempts >= CUSTOMER_OTP_MAX_VERIFY_ATTEMPTS) {
+        return res.status(429).json({ error: 'Too many invalid attempts. Request a new code.' });
+      }
+
+      let verified = false;
+      if (challenge.provider === 'twilio') {
+        verified = await verifyOtpViaTwilioVerify(challenge.phone_e164, code);
+      } else if (challenge.provider === 'aipsoft') {
+        verified = await verifyOtpViaAipsoft(code);
+      } else if (challenge.code_hash) {
+        verified = verifyCustomerPassword(code, challenge.code_hash);
+      }
+
+      if (!verified) {
+        challenge.attempts += 1;
+        customerOtpChallengeStore.set(challengeId, challenge);
+        return res.status(400).json({ error: 'Invalid verification code.' });
+      }
+
+      customerOtpChallengeStore.delete(challengeId);
+      const key = getOtpPhonePurposeKey(challenge.phone_normalized, challenge.purpose);
+      if (customerOtpChallengeByPhonePurpose.get(key) === challengeId) {
+        customerOtpChallengeByPhonePurpose.delete(key);
+      }
+
+      const verificationToken = randomUUID();
+      const verification: CustomerOtpVerificationRecord = {
+        token: verificationToken,
+        phone_normalized: challenge.phone_normalized,
+        purpose: challenge.purpose,
+        expires_at: Date.now() + CUSTOMER_OTP_VERIFICATION_TTL_MS,
+        consumed: false,
+      };
+      customerOtpVerificationStore.set(verificationToken, verification);
+
+      res.json({
+        verified: true,
+        verificationToken,
+        expires_at: verification.expires_at,
+      });
+    } catch (error: any) {
+      console.error('Failed to verify customer OTP:', error);
+      res.status(500).json({ error: error?.message || 'Failed to verify code' });
+    }
+  });
+
   app.post('/api/customer/auth/register', (req, res) => {
     try {
       const name = String(req.body?.name ?? '').trim();
       const rawPhone = String(req.body?.phone ?? '').trim();
       const rawEmail = String(req.body?.email ?? '').trim();
       const password = String(req.body?.password ?? '');
+      const verificationToken = String(req.body?.verificationToken ?? '').trim();
       const customerType = String(req.body?.type ?? 'individual').trim() || 'individual';
       const area = String(req.body?.area ?? '').trim();
       const notifType = String(req.body?.notifType ?? 'whatsapp').trim() || 'whatsapp';
       const prefService = Math.max(1, Number(req.body?.prefService ?? 1) || 1);
+      const registerWithOtp = verificationToken.length > 0;
 
       if (!name) return res.status(400).json({ error: 'Name is required.' });
-      if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+      if (registerWithOtp && password.length > 0 && password.length < 6) {
+        return res.status(400).json({ error: 'Password must be at least 6 characters when provided.' });
+      }
+      if (!registerWithOtp && password.length < 6) {
+        return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+      }
 
       const phoneNormalized = normalizeCustomerPhone(rawPhone);
       const emailNormalized = normalizeCustomerEmail(rawEmail);
-      if (!phoneNormalized && !emailNormalized) {
+      if (registerWithOtp) {
+        if (!phoneNormalized) {
+          return res.status(400).json({ error: 'Phone is required for OTP registration.' });
+        }
+        const otpOk = consumeCustomerOtpVerificationToken(verificationToken, phoneNormalized, 'register');
+        if (!otpOk) {
+          return res.status(401).json({ error: 'Verification token is invalid or expired.' });
+        }
+      } else if (!phoneNormalized && !emailNormalized) {
         return res.status(400).json({ error: 'Phone or email is required.' });
       }
 
@@ -2397,7 +2831,7 @@ async function startServer() {
 
       const userId = randomUUID();
       const now = new Date().toISOString();
-      const passwordHash = hashCustomerPassword(password);
+      const passwordHash = hashCustomerPassword(password.length >= 6 ? password : randomUUID());
 
       db.prepare(
         `INSERT INTO customer_users (
@@ -2488,6 +2922,44 @@ async function startServer() {
     } catch (error: any) {
       console.error('Failed to login customer:', error);
       res.status(500).json({ error: error?.message || 'Failed to login customer' });
+    }
+  });
+
+  app.post('/api/customer/auth/login-otp', (req, res) => {
+    try {
+      pruneCustomerOtpStores();
+
+      const phoneNormalized = normalizeCustomerPhone(req.body?.phone);
+      const verificationToken = String(req.body?.verificationToken ?? '').trim();
+      if (!phoneNormalized || !verificationToken) {
+        return res.status(400).json({ error: 'Phone and verification token are required.' });
+      }
+
+      const otpOk = consumeCustomerOtpVerificationToken(verificationToken, phoneNormalized, 'login');
+      if (!otpOk) {
+        return res.status(401).json({ error: 'Verification token is invalid or expired.' });
+      }
+
+      const user = findCustomerByPhoneNormalized(phoneNormalized);
+      if (!user) return res.status(404).json({ error: 'No account found for this phone.' });
+      if (Number(user.is_active ?? 1) === 0) {
+        return res.status(403).json({ error: 'This account is inactive.' });
+      }
+
+      const now = new Date().toISOString();
+      db.prepare('UPDATE customer_users SET last_login_at = ?, updated_at = ? WHERE id = ?').run(now, now, user.id);
+      const refreshedUser = db.prepare('SELECT * FROM customer_users WHERE id = ?').get(user.id) as CustomerUserRecord | undefined;
+      if (!refreshedUser) return res.status(500).json({ error: 'Failed to load account.' });
+
+      const session = issueCustomerSession(refreshedUser.id);
+      res.json({
+        user: normalizeCustomerUser(refreshedUser),
+        token: session.token,
+        expires_at: session.expires_at,
+      });
+    } catch (error: any) {
+      console.error('Failed to login customer with OTP:', error);
+      res.status(500).json({ error: error?.message || 'Failed to login with OTP' });
     }
   });
 

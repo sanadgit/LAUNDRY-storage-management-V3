@@ -1,4 +1,12 @@
-import { CustomerAuthResponse, CustomerUser, Order, OrderStatus, SiteConfig } from '../types';
+import {
+  CustomerAuthResponse,
+  CustomerOtpSendResponse,
+  CustomerOtpVerifyResponse,
+  CustomerUser,
+  Order,
+  OrderStatus,
+  SiteConfig,
+} from '../types';
 
 let authToken: string | null = null;
 
@@ -35,7 +43,8 @@ export const customerApi = {
     name: string;
     phone?: string;
     email?: string;
-    password: string;
+    password?: string;
+    verificationToken?: string;
     type?: string;
     area?: string;
     prefService?: number;
@@ -47,6 +56,21 @@ export const customerApi = {
     }),
   login: (payload: { identifier: string; password: string }) =>
     requestJson<CustomerAuthResponse>('/api/customer/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  sendOtp: (payload: { phone: string; purpose: 'register' | 'login' }) =>
+    requestJson<CustomerOtpSendResponse>('/api/customer/auth/otp/send', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  verifyOtp: (payload: { challengeId: string; code: string }) =>
+    requestJson<CustomerOtpVerifyResponse>('/api/customer/auth/otp/verify', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  loginWithOtp: (payload: { phone: string; verificationToken: string }) =>
+    requestJson<CustomerAuthResponse>('/api/customer/auth/login-otp', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),

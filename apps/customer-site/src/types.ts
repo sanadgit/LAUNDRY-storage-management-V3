@@ -169,6 +169,20 @@ export interface CustomerAuthResponse {
   expires_at: number;
 }
 
+export interface CustomerOtpSendResponse {
+  challengeId: string;
+  expires_at: number;
+  cooldown_until: number;
+  provider: 'twilio' | 'aipsoft' | 'mock';
+  dev_code?: string;
+}
+
+export interface CustomerOtpVerifyResponse {
+  verified: boolean;
+  verificationToken: string;
+  expires_at: number;
+}
+
 export interface AdminUser {
   id: number;
   username: string;
