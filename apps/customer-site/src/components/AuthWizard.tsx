@@ -3,11 +3,16 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ChevronRight, ChevronLeft, Sparkles } from 'lucide-react';
 
 interface AuthWizardProps {
-  onSendOtp: (payload: { phone: string; purpose: 'register' | 'login' }) => Promise<{
+  onSendOtp: (payload: {
+    phone: string;
+    purpose: 'register' | 'login';
+    channel: 'sms' | 'whatsapp';
+  }) => Promise<{
     challengeId: string;
     expires_at: number;
     cooldown_until: number;
     provider: 'twilio' | 'aipsoft' | 'mock';
+    channel: 'sms' | 'whatsapp';
     dev_code?: string;
   }>;
   onVerifyOtp: (payload: { challengeId: string; code: string }) => Promise<{
@@ -43,6 +48,7 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
   const [otpChallengeId, setOtpChallengeId] = useState('');
   const [otpVerificationToken, setOtpVerificationToken] = useState('');
   const [otpTargetPhone, setOtpTargetPhone] = useState('');
+  const [otpChannel, setOtpChannel] = useState<'sms' | 'whatsapp'>('sms');
   const [customer, setCustomer] = useState({
     name: '',
     email: '',
@@ -73,6 +79,7 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
     setOtpChallengeId('');
     setOtpVerificationToken('');
     setOtpTargetPhone('');
+    setOtpChannel('sms');
     setTimer(59);
   }, [mode]);
 
@@ -86,6 +93,7 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
     if (normalized.toLowerCase().includes('no account found')) return 'لا يوجد حساب مرتبط بهذا الرقم.';
     if (normalized.toLowerCase().includes('verification')) return 'رمز التحقق غير صحيح أو منتهي.';
     if (normalized.toLowerCase().includes('wait before requesting')) return 'انتظر قليلاً قبل طلب رمز جديد.';
+    if (normalized.toLowerCase().includes('channel is not supported')) return 'قناة التحقق المختارة غير مدعومة حالياً.';
     if (normalized.toLowerCase().includes('password')) return 'كلمة المرور غير مطابقة للشروط.';
     return normalized || 'تعذر إكمال العملية حالياً.';
   };
@@ -116,11 +124,12 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
     setIsSubmitting(true);
     try {
       const purpose = mode === 'login' ? 'login' : 'register';
-      const response = await onSendOtp({ phone: targetPhone, purpose });
+      const response = await onSendOtp({ phone: targetPhone, purpose, channel: otpChannel });
       setOtpChallengeId(response.challengeId);
       setOtpVerificationToken('');
       setOtp(['', '', '', '', '', '']);
       setOtpTargetPhone(targetPhone);
+      setOtpChannel(response.channel ?? otpChannel);
       const remainingMs = Math.max(0, response.cooldown_until - Date.now());
       setTimer(Math.ceil(remainingMs / 1000));
       setStep(2);
@@ -319,10 +328,27 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                   <div className="space-y-2">
                     <div className="w-14 h-14 bg-primary/10 text-primary rounded-2xl flex items-center justify-center text-2xl shadow-inner">🔑</div>
                     <h2 className="text-2xl font-black italic tracking-tight text-gray-900">مرحباً بك <span className="text-primary italic">من جديد</span></h2>
-                    <p className="text-gray-500 font-medium text-xs leading-relaxed">أدخل رقم الجوال وسنرسل لك رمز تحقق عبر SMS.</p>
+                    <p className="text-gray-500 font-medium text-xs leading-relaxed">أدخل رقم الجوال واختر قناة التحقق المناسبة.</p>
                   </div>
 
                   <div className="space-y-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">قناة التحقق</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => setOtpChannel('sms')}
+                          className={`p-3 rounded-xl border-2 text-xs font-black transition-all ${otpChannel === 'sms' ? 'bg-primary/10 border-primary text-primary' : 'bg-white border-gray-200 text-gray-500'}`}
+                        >
+                          SMS
+                        </button>
+                        <button
+                          onClick={() => setOtpChannel('whatsapp')}
+                          className={`p-3 rounded-xl border-2 text-xs font-black transition-all ${otpChannel === 'whatsapp' ? 'bg-primary/10 border-primary text-primary' : 'bg-white border-gray-200 text-gray-500'}`}
+                        >
+                          WhatsApp
+                        </button>
+                      </div>
+                    </div>
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">رقم الجوال</label>
                       <input 
@@ -346,10 +372,27 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                   <div className="space-y-2">
                     <div className="w-14 h-14 bg-primary/10 text-primary rounded-2xl flex items-center justify-center text-2xl shadow-inner">📱</div>
                     <h2 className="text-2xl font-black italic tracking-tight text-gray-900">أدخل رقم <span className="text-primary italic">جوالك</span></h2>
-                    <p className="text-gray-500 font-medium text-xs leading-relaxed">سنرسل لك رمز تحقق للتأكد من هويتك وتأمين حسابك.</p>
+                    <p className="text-gray-500 font-medium text-xs leading-relaxed">اختر قناة التحقق وسنرسل لك رمز التأكيد.</p>
                   </div>
 
                   <div className="space-y-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">قناة التحقق</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => setOtpChannel('sms')}
+                          className={`p-3 rounded-xl border-2 text-xs font-black transition-all ${otpChannel === 'sms' ? 'bg-primary/10 border-primary text-primary' : 'bg-white border-gray-200 text-gray-500'}`}
+                        >
+                          SMS
+                        </button>
+                        <button
+                          onClick={() => setOtpChannel('whatsapp')}
+                          className={`p-3 rounded-xl border-2 text-xs font-black transition-all ${otpChannel === 'whatsapp' ? 'bg-primary/10 border-primary text-primary' : 'bg-white border-gray-200 text-gray-500'}`}
+                        >
+                          WhatsApp
+                        </button>
+                      </div>
+                    </div>
                     <div className="flex gap-4">
                       <select className="bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm appearance-none">
                         <option>🇦🇪 +971</option>
@@ -376,7 +419,10 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                   <div className="space-y-2 text-right">
                     <div className="w-14 h-14 bg-primary/10 text-primary rounded-2xl flex items-center justify-center text-2xl shadow-inner mx-auto mb-4">🔐</div>
                     <h2 className="text-2xl font-black italic tracking-tight text-gray-900 text-center">أدخل رمز <span className="text-primary italic">التحقق</span></h2>
-                    <p className="text-gray-500 font-medium text-xs leading-relaxed text-center">أرسلنا رمزاً من ٦ أرقام للهاتف <span className="dir-ltr text-gray-900 font-bold">{otpTargetPhone || (mode === 'login' ? loginPhone : phone)}</span></p>
+                    <p className="text-gray-500 font-medium text-xs leading-relaxed text-center">
+                      أرسلنا رمزاً من ٦ أرقام عبر {otpChannel === 'whatsapp' ? 'WhatsApp' : 'SMS'} للهاتف{' '}
+                      <span className="dir-ltr text-gray-900 font-bold">{otpTargetPhone || (mode === 'login' ? loginPhone : phone)}</span>
+                    </p>
                   </div>
 
                   <div className="flex justify-between gap-2 max-w-[300px] mx-auto">

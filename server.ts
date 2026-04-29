@@ -16,6 +16,7 @@ import {
   updateAuthLoginStamp,
   upsertPublicUser,
 } from './src/server/supabaseAdmin';
+import { detectSortingItemCategory } from './src/utils/sortingItemCategory';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -102,12 +103,14 @@ type CustomerSessionRecord = {
 };
 
 type CustomerOtpPurpose = 'register' | 'login';
+type CustomerOtpChannel = 'sms' | 'whatsapp';
 
 type CustomerOtpChallengeRecord = {
   id: string;
   phone_normalized: string;
   phone_e164: string;
   purpose: CustomerOtpPurpose;
+  channel: CustomerOtpChannel;
   provider: 'twilio' | 'aipsoft' | 'mock';
   code_hash: string | null;
   expires_at: number;
@@ -129,6 +132,144 @@ type DriverSessionRecord = {
   driver_name: string;
   driver_phone: string;
   expires_at: number;
+};
+
+type PosOrderPreview = {
+  orders_id: string;
+  order_no: string;
+  created_at: string;
+  invoice_no: string;
+  invoice_date: string;
+  delivery_type: string;
+  customer_phone: string;
+  customer_name: string;
+  notes: string;
+  total: number;
+  paid: number;
+  balance: number;
+  branch: string;
+  cust_head_id: string;
+  invoice_id: string;
+  status_flags: string[];
+};
+
+type PosOrderDetailLineItem = {
+  line_key: string;
+  sale_entry_id: string;
+  product_id: string;
+  name: string;
+  service: string;
+  qty: number;
+  unit_price: number;
+  sub_total: number;
+  tax_amount: number;
+  total_with_tax: number;
+  barcode: string;
+  unit: string;
+};
+
+type PosOrderDetailsResult = {
+  general: {
+    order_id: string;
+    order_no: string;
+    searched_order_id: string;
+    searched_invoice_id: string;
+    customer_name: string;
+    customer_mobile: string;
+    customer_address: string;
+    delivery_type: string;
+    delivery_date: string;
+    delivery_time: string;
+    billing_date: string;
+    total_amount: number;
+    tax_amount: number;
+    grand_total: number;
+    received_amount: number;
+    balance: number;
+    status: string;
+    branch_id: string;
+    salesman_id: string;
+    driver_id: string;
+    invoice_remark1: string;
+    invoice_remark2: string;
+  };
+  line_items: PosOrderDetailLineItem[];
+  dynamic_fields: any[];
+  person_count_details: any[];
+  product_assigned_tax: any;
+  invoice_history: any[];
+  raw_counts: {
+    rows: number;
+    line_items: number;
+  };
+};
+
+type SortingOrderStatus =
+  | 'sorting_pending'
+  | 'sorting_partial'
+  | 'sorted_complete'
+  | 'packing_in_progress'
+  | 'packed_complete';
+
+type SortingCellStatus = 'empty' | 'pending' | 'partial' | 'complete';
+
+type SortingTableRecord = {
+  id: number;
+  name: string;
+  rows: number;
+  cols: number;
+  sort_order: number;
+  is_active: number;
+  created_at: string;
+  updated_at: string;
+};
+
+type SortingCellRecord = {
+  id: number;
+  table_id: number;
+  row_no: number;
+  col_no: number;
+  active_order_no: string | null;
+  status: SortingCellStatus;
+  updated_at: string;
+};
+
+type SortingOrderRecord = {
+  order_no: string;
+  customer_name: string;
+  total_required: number;
+  total_sorted: number;
+  total_ironed: number;
+  status: SortingOrderStatus;
+  table_id: number | null;
+  row_no: number | null;
+  col_no: number | null;
+  source_orders_id: string | null;
+  source_invoice_id: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+};
+
+type SortingItemRecord = {
+  id: number;
+  order_no: string;
+  item_name: string;
+  qty_required: number;
+  qty_sorted: number;
+  qty_ironed: number;
+  qty_packed: number;
+  status: 'missing' | 'partial' | 'complete';
+};
+
+type SortingIroningEventRecord = {
+  id: number;
+  order_no: string;
+  item_name: string | null;
+  qty: number;
+  user: string;
+  request_id: string | null;
+  timestamp: string;
 };
 
 db.exec(`
@@ -227,11 +368,105 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS app_sessions (
+    token TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    username TEXT NOT NULL,
+    role TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE TABLE IF NOT EXISTS customer_driver_sessions (
     token TEXT PRIMARY KEY,
     payload TEXT NOT NULL,
     expires_at INTEGER NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS sorting_tables (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    rows INTEGER NOT NULL DEFAULT 2,
+    cols INTEGER NOT NULL DEFAULT 6,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS sorting_cells (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    table_id INTEGER NOT NULL,
+    row_no INTEGER NOT NULL,
+    col_no INTEGER NOT NULL,
+    active_order_no TEXT,
+    status TEXT NOT NULL DEFAULT 'empty',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(table_id, row_no, col_no)
+  );
+
+  CREATE TABLE IF NOT EXISTS sorting_orders (
+    order_no TEXT PRIMARY KEY,
+    customer_name TEXT NOT NULL DEFAULT '',
+    total_required INTEGER NOT NULL DEFAULT 0,
+    total_sorted INTEGER NOT NULL DEFAULT 0,
+    total_ironed INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'sorting_pending',
+    table_id INTEGER,
+    row_no INTEGER,
+    col_no INTEGER,
+    source_orders_id TEXT,
+    source_invoice_id TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME
+  );
+
+  CREATE TABLE IF NOT EXISTS sorting_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_no TEXT NOT NULL,
+    item_name TEXT NOT NULL,
+    qty_required INTEGER NOT NULL DEFAULT 0,
+    qty_sorted INTEGER NOT NULL DEFAULT 0,
+    qty_ironed INTEGER NOT NULL DEFAULT 0,
+    qty_packed INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'missing',
+    UNIQUE(order_no, item_name)
+  );
+
+  CREATE TABLE IF NOT EXISTS sorting_ironing_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_no TEXT NOT NULL,
+    item_name TEXT,
+    qty INTEGER NOT NULL DEFAULT 1,
+    user TEXT DEFAULT 'system',
+    request_id TEXT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS sorting_blanket_packing_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_no TEXT NOT NULL,
+    item_name TEXT,
+    qty INTEGER NOT NULL DEFAULT 1,
+    user TEXT DEFAULT 'system',
+    request_id TEXT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS sorting_scans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_no TEXT NOT NULL,
+    scanned_code TEXT NOT NULL,
+    table_id INTEGER,
+    row_no INTEGER,
+    col_no INTEGER,
+    item_name TEXT,
+    qty INTEGER NOT NULL DEFAULT 1,
+    user TEXT DEFAULT 'system',
+    request_id TEXT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
   CREATE INDEX IF NOT EXISTS idx_blankets_store ON blankets(store);
@@ -245,7 +480,16 @@ db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_users_email_norm ON customer_users(email_normalized);
   CREATE INDEX IF NOT EXISTS idx_customer_sessions_user_id ON customer_sessions(user_id);
   CREATE INDEX IF NOT EXISTS idx_customer_sessions_expires_at ON customer_sessions(expires_at);
+  CREATE INDEX IF NOT EXISTS idx_app_sessions_user_id ON app_sessions(user_id);
+  CREATE INDEX IF NOT EXISTS idx_app_sessions_expires_at ON app_sessions(expires_at);
   CREATE INDEX IF NOT EXISTS idx_customer_driver_sessions_expires_at ON customer_driver_sessions(expires_at);
+  CREATE INDEX IF NOT EXISTS idx_sorting_cells_table ON sorting_cells(table_id, row_no, col_no);
+  CREATE INDEX IF NOT EXISTS idx_sorting_orders_status ON sorting_orders(status, updated_at);
+  CREATE INDEX IF NOT EXISTS idx_sorting_scans_order_no ON sorting_scans(order_no, timestamp);
+  CREATE INDEX IF NOT EXISTS idx_sorting_ironing_events_order_no ON sorting_ironing_events(order_no, timestamp);
+  CREATE INDEX IF NOT EXISTS idx_sorting_ironing_events_user ON sorting_ironing_events(user, timestamp);
+  CREATE INDEX IF NOT EXISTS idx_sorting_blanket_events_order_no ON sorting_blanket_packing_events(order_no, timestamp);
+  CREATE INDEX IF NOT EXISTS idx_sorting_blanket_events_user ON sorting_blanket_packing_events(user, timestamp);
 `);
 
 const ensureColumn = (table: string, column: string, sqlType: string) => {
@@ -339,6 +583,113 @@ ensureColumn('customer_driver_sessions', 'payload', "TEXT DEFAULT '{}'");
 ensureColumn('customer_driver_sessions', 'expires_at', 'INTEGER DEFAULT 0');
 ensureColumn('customer_driver_sessions', 'created_at', 'DATETIME');
 
+ensureColumn('sorting_tables', 'name', "TEXT DEFAULT ''");
+ensureColumn('sorting_tables', 'rows', 'INTEGER DEFAULT 2');
+ensureColumn('sorting_tables', 'cols', 'INTEGER DEFAULT 6');
+ensureColumn('sorting_tables', 'sort_order', 'INTEGER DEFAULT 0');
+ensureColumn('sorting_tables', 'is_active', 'INTEGER DEFAULT 1');
+ensureColumn('sorting_tables', 'created_at', 'DATETIME');
+ensureColumn('sorting_tables', 'updated_at', 'DATETIME');
+
+ensureColumn('sorting_cells', 'table_id', 'INTEGER DEFAULT 0');
+ensureColumn('sorting_cells', 'row_no', 'INTEGER DEFAULT 1');
+ensureColumn('sorting_cells', 'col_no', 'INTEGER DEFAULT 1');
+ensureColumn('sorting_cells', 'active_order_no', 'TEXT');
+ensureColumn('sorting_cells', 'status', "TEXT DEFAULT 'empty'");
+ensureColumn('sorting_cells', 'updated_at', 'DATETIME');
+
+ensureColumn('sorting_orders', 'order_no', "TEXT DEFAULT ''");
+ensureColumn('sorting_orders', 'customer_name', "TEXT DEFAULT ''");
+ensureColumn('sorting_orders', 'total_required', 'INTEGER DEFAULT 0');
+ensureColumn('sorting_orders', 'total_sorted', 'INTEGER DEFAULT 0');
+ensureColumn('sorting_orders', 'total_ironed', 'INTEGER DEFAULT 0');
+ensureColumn('sorting_orders', 'status', "TEXT DEFAULT 'sorting_pending'");
+ensureColumn('sorting_orders', 'table_id', 'INTEGER');
+ensureColumn('sorting_orders', 'row_no', 'INTEGER');
+ensureColumn('sorting_orders', 'col_no', 'INTEGER');
+ensureColumn('sorting_orders', 'source_orders_id', 'TEXT');
+ensureColumn('sorting_orders', 'source_invoice_id', 'TEXT');
+ensureColumn('sorting_orders', 'created_at', 'DATETIME');
+ensureColumn('sorting_orders', 'updated_at', 'DATETIME');
+ensureColumn('sorting_orders', 'completed_at', 'DATETIME');
+
+ensureColumn('sorting_items', 'order_no', "TEXT DEFAULT ''");
+ensureColumn('sorting_items', 'item_name', "TEXT DEFAULT ''");
+ensureColumn('sorting_items', 'qty_required', 'INTEGER DEFAULT 0');
+ensureColumn('sorting_items', 'qty_sorted', 'INTEGER DEFAULT 0');
+ensureColumn('sorting_items', 'qty_ironed', 'INTEGER DEFAULT 0');
+ensureColumn('sorting_items', 'qty_packed', 'INTEGER DEFAULT 0');
+ensureColumn('sorting_items', 'status', "TEXT DEFAULT 'missing'");
+
+ensureColumn('sorting_ironing_events', 'order_no', "TEXT DEFAULT ''");
+ensureColumn('sorting_ironing_events', 'item_name', 'TEXT');
+ensureColumn('sorting_ironing_events', 'qty', 'INTEGER DEFAULT 1');
+ensureColumn('sorting_ironing_events', 'user', "TEXT DEFAULT 'system'");
+ensureColumn('sorting_ironing_events', 'request_id', 'TEXT');
+ensureColumn('sorting_ironing_events', 'timestamp', 'DATETIME');
+
+ensureColumn('sorting_scans', 'order_no', "TEXT DEFAULT ''");
+ensureColumn('sorting_scans', 'scanned_code', "TEXT DEFAULT ''");
+ensureColumn('sorting_scans', 'table_id', 'INTEGER');
+ensureColumn('sorting_scans', 'row_no', 'INTEGER');
+ensureColumn('sorting_scans', 'col_no', 'INTEGER');
+ensureColumn('sorting_scans', 'item_name', 'TEXT');
+ensureColumn('sorting_scans', 'qty', 'INTEGER DEFAULT 1');
+ensureColumn('sorting_scans', 'user', "TEXT DEFAULT 'system'");
+ensureColumn('sorting_scans', 'request_id', 'TEXT');
+ensureColumn('sorting_scans', 'timestamp', 'DATETIME');
+
+ensureColumn('sorting_blanket_packing_events', 'order_no', "TEXT DEFAULT ''");
+ensureColumn('sorting_blanket_packing_events', 'item_name', 'TEXT');
+ensureColumn('sorting_blanket_packing_events', 'qty', 'INTEGER DEFAULT 1');
+ensureColumn('sorting_blanket_packing_events', 'user', "TEXT DEFAULT 'system'");
+ensureColumn('sorting_blanket_packing_events', 'request_id', 'TEXT');
+ensureColumn('sorting_blanket_packing_events', 'timestamp', 'DATETIME');
+
+const ensureSortingCellsForTable = (tableId: number, rows: number, cols: number) => {
+  const normalizedRows = Math.max(1, Number(rows) || 1);
+  const normalizedCols = Math.max(1, Number(cols) || 1);
+  const existing = db
+    .prepare('SELECT row_no, col_no FROM sorting_cells WHERE table_id = ?')
+    .all(tableId) as Array<{ row_no: number; col_no: number }>;
+  const existingKeys = new Set(existing.map((cell) => `${cell.row_no}:${cell.col_no}`));
+
+  const insertCell = db.prepare(
+    `INSERT INTO sorting_cells (table_id, row_no, col_no, active_order_no, status, updated_at)
+     VALUES (?, ?, ?, NULL, 'empty', CURRENT_TIMESTAMP)`
+  );
+
+  for (let rowNo = 1; rowNo <= normalizedRows; rowNo += 1) {
+    for (let colNo = 1; colNo <= normalizedCols; colNo += 1) {
+      const key = `${rowNo}:${colNo}`;
+      if (existingKeys.has(key)) continue;
+      insertCell.run(tableId, rowNo, colNo);
+    }
+  }
+
+  db.prepare(
+    `DELETE FROM sorting_cells
+     WHERE table_id = ?
+       AND (row_no > ? OR col_no > ?)
+       AND active_order_no IS NULL`
+  ).run(tableId, normalizedRows, normalizedCols);
+};
+
+const sortingTablesCount = db.prepare('SELECT COUNT(*) AS count FROM sorting_tables').get() as { count: number };
+if (!sortingTablesCount.count) {
+  db.prepare(
+    `INSERT INTO sorting_tables (name, rows, cols, sort_order, is_active, created_at, updated_at)
+     VALUES ('Table 1', 2, 6, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+  ).run();
+}
+
+const allSortingTables = db
+  .prepare('SELECT id, rows, cols FROM sorting_tables ORDER BY sort_order ASC, id ASC')
+  .all() as Array<{ id: number; rows: number; cols: number }>;
+for (const table of allSortingTables) {
+  ensureSortingCellsForTable(table.id, table.rows, table.cols);
+}
+
 db.prepare(
   `UPDATE customer_users
    SET phone_normalized = REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', '')
@@ -352,6 +703,7 @@ db.prepare(
 ).run();
 
 db.prepare('DELETE FROM customer_sessions WHERE expires_at <= ?').run(Date.now());
+db.prepare('DELETE FROM app_sessions WHERE expires_at <= ?').run(Date.now());
 db.prepare('DELETE FROM customer_driver_sessions WHERE expires_at <= ?').run(Date.now());
 
 const chunk = <T,>(arr: T[], size: number) => {
@@ -426,7 +778,50 @@ const AIPSOFT_SMS_TEMPLATE = String(
   process.env.AIPSOFT_SMS_TEMPLATE ?? 'Your OTP is {{otp}}. It expires in 5 minutes.'
 ).trim();
 const AIPSOFT_SMS_EXPIRE_SECONDS = Math.max(60, Number(process.env.AIPSOFT_SMS_EXPIRE_SECONDS ?? 300) || 300);
-const AIPSOFT_SMS_PHONE_MODE = String(process.env.AIPSOFT_SMS_PHONE_MODE ?? 'normalized').trim().toLowerCase();
+const AIPSOFT_SMS_PHONE_MODE = String(process.env.AIPSOFT_SMS_PHONE_MODE ?? 'auto').trim().toLowerCase();
+const AIPSOFT_SMS_MODE = String(process.env.AIPSOFT_SMS_MODE ?? '').trim().toLowerCase(); // devices | credits
+const AIPSOFT_SMS_DEVICE = String(process.env.AIPSOFT_SMS_DEVICE ?? '').trim();
+const AIPSOFT_SMS_GATEWAY = String(process.env.AIPSOFT_SMS_GATEWAY ?? '').trim();
+const AIPSOFT_SMS_SIM = String(process.env.AIPSOFT_SMS_SIM ?? '').trim(); // 1 | 2
+const AIPSOFT_WHATSAPP_TYPE = String(process.env.AIPSOFT_WHATSAPP_TYPE ?? 'whatsapp').trim() || 'whatsapp';
+const AIPSOFT_WHATSAPP_ACCOUNT = String(process.env.AIPSOFT_WHATSAPP_ACCOUNT ?? '').trim();
+const AIPSOFT_WHATSAPP_TEMPLATE = String(
+  process.env.AIPSOFT_WHATSAPP_TEMPLATE ?? process.env.AIPSOFT_SMS_TEMPLATE ?? 'Your OTP is {{otp}}'
+).trim();
+const POS_BASE_URL = String(process.env.POS_BASE_URL ?? 'https://magnus.aipsoft.com/inout/sales').trim();
+const POS_FIND_ORDERS_PATH = String(process.env.POS_FIND_ORDERS_PATH ?? '/findLaundryOrders').trim();
+const POS_FIND_ORDER_DETAILS_PATH = String(process.env.POS_FIND_ORDER_DETAILS_PATH ?? '/findOrderDetails').trim();
+const POS_GET_PRODUCTS_PATH = String(process.env.POS_GET_PRODUCTS_PATH ?? '/getProducts').trim();
+const POS_REFERER = String(process.env.POS_REFERER ?? POS_BASE_URL).trim();
+const POS_ORIGIN = String(process.env.POS_ORIGIN ?? '').trim();
+const POS_COOKIE = String(process.env.POS_COOKIE ?? process.env.POS_SESSION_COOKIE ?? '').trim();
+const POS_AUTO_REFRESH_ENABLED = /^(1|true|yes)$/i.test(String(process.env.POS_AUTO_REFRESH_ENABLED ?? '').trim());
+const POS_LOGIN_USERNAME = String(process.env.POS_LOGIN_USERNAME ?? '').trim();
+const POS_LOGIN_PASSWORD = String(process.env.POS_LOGIN_PASSWORD ?? '').trim();
+const POS_LOGIN_CLIENT_IDENTIFIER = String(process.env.POS_LOGIN_CLIENT_IDENTIFIER ?? 'inout').trim() || 'inout';
+const POS_LOGIN_ENDPOINT = String(
+  process.env.POS_LOGIN_ENDPOINT ?? `https://magnus.aipsoft.com/${POS_LOGIN_CLIENT_IDENTIFIER}/login/check`
+).trim();
+const POS_LOGIN_REFERER = String(
+  process.env.POS_LOGIN_REFERER ?? `https://magnus.aipsoft.com/${POS_LOGIN_CLIENT_IDENTIFIER}/`
+).trim();
+const POS_BRANCH_ID = String(process.env.POS_BRANCH_ID ?? '0').trim();
+const POS_PAID_STATUS = String(process.env.POS_PAID_STATUS ?? '0').trim();
+const POS_JOB_STATUS = String(process.env.POS_JOB_STATUS ?? '0').trim();
+const POS_CUSTOMER_TYPE = String(process.env.POS_CUSTOMER_TYPE ?? '0').trim();
+const POS_DELIVERY_TYPE = String(process.env.POS_DELIVERY_TYPE ?? '0').trim();
+const POS_PAY_TYPE = String(process.env.POS_PAY_TYPE ?? '0').trim();
+const POS_PREVENT_DEPOT_SELECTION = String(process.env.POS_PREVENT_DEPOT_SELECTION ?? '0').trim();
+const POS_JOB_PROCESS_COMMISION_OPTION = String(process.env.POS_JOB_PROCESS_COMMISION_OPTION ?? '0').trim();
+const POS_INCLUDE_DATATABLE_COLUMNS = /^(1|true|yes)$/i.test(String(process.env.POS_INCLUDE_DATATABLE_COLUMNS ?? '').trim());
+const POS_TABLE_COLUMN_COUNT = Math.max(
+  1,
+  Math.min(40, Number(process.env.POS_TABLE_COLUMN_COUNT ?? 17) || 17)
+);
+const POS_REQUEST_TIMEOUT_MS = Math.max(3000, Math.min(30000, Number(process.env.POS_REQUEST_TIMEOUT_MS ?? 15000) || 15000));
+let posCookieJar = POS_COOKIE;
+let posRefreshInFlight: Promise<boolean> | null = null;
+let posLastRefreshReason = '';
 
 const normalizeCustomerPhone = (value: unknown) => {
   let digits = String(value ?? '').replace(/\D/g, '');
@@ -459,6 +854,1748 @@ const parseCustomerOtpPurpose = (value: unknown): CustomerOtpPurpose | null => {
   const purpose = String(value ?? '').trim().toLowerCase();
   if (purpose === 'register' || purpose === 'login') return purpose;
   return null;
+};
+
+const parseCustomerOtpChannel = (value: unknown): CustomerOtpChannel => {
+  const raw = String(value ?? 'sms').trim().toLowerCase();
+  if (raw === 'wa' || raw === 'whatsapp') return 'whatsapp';
+  return 'sms';
+};
+
+const stripHtml = (value: unknown) => String(value ?? '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+
+const parseMoney = (value: unknown) => {
+  const normalized = String(value ?? '').replace(/,/g, '').replace(/[^0-9.-]/g, '');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const extractHtmlAttribute = (html: unknown, attribute: string) => {
+  const pattern = new RegExp(`${attribute}="([^"]*)"`, 'i');
+  const match = String(html ?? '').match(pattern);
+  return match ? String(match[1]).trim() : '';
+};
+
+const rowCellContainsAttr = (cell: unknown, attribute: string) => {
+  const haystack = String(cell ?? '').toLowerCase();
+  return haystack.includes(`${attribute.toLowerCase()}=`);
+};
+
+const toPosRowArray = (row: unknown): any[] => {
+  if (Array.isArray(row)) return row;
+  if (!row || typeof row !== 'object') return [];
+
+  const entries = Object.entries(row as Record<string, unknown>);
+  if (entries.length === 0) return [];
+
+  const numericEntries = entries
+    .filter(([key]) => /^\d+$/.test(key))
+    .sort((a, b) => Number(a[0]) - Number(b[0]))
+    .map(([, value]) => value);
+
+  if (numericEntries.length > 0) return numericEntries;
+  return entries.map(([, value]) => value);
+};
+
+const parseCookieHeader = (cookieHeader: string) => {
+  const map = new Map<string, string>();
+  for (const part of String(cookieHeader ?? '').split(';')) {
+    const segment = part.trim();
+    if (!segment) continue;
+    const eqIndex = segment.indexOf('=');
+    if (eqIndex <= 0) continue;
+    const key = segment.slice(0, eqIndex).trim();
+    const value = segment.slice(eqIndex + 1).trim();
+    if (!key) continue;
+    map.set(key, value);
+  }
+  return map;
+};
+
+const mergeCookieHeaders = (baseCookieHeader: string, setCookies: string[]) => {
+  const merged = parseCookieHeader(baseCookieHeader);
+  for (const setCookie of setCookies) {
+    const cookiePart = String(setCookie ?? '').split(';')[0]?.trim();
+    if (!cookiePart) continue;
+    const eqIndex = cookiePart.indexOf('=');
+    if (eqIndex <= 0) continue;
+    const key = cookiePart.slice(0, eqIndex).trim();
+    const value = cookiePart.slice(eqIndex + 1).trim();
+    if (!key) continue;
+    merged.set(key, value);
+  }
+  return Array.from(merged.entries())
+    .map(([key, value]) => `${key}=${value}`)
+    .join('; ');
+};
+
+const updatePosCookieJarFromResponse = (baseCookieHeader: string, response: Response) => {
+  const getSetCookie = (response.headers as any)?.getSetCookie;
+  if (typeof getSetCookie === 'function') {
+    const setCookies = getSetCookie.call(response.headers) as string[];
+    if (Array.isArray(setCookies) && setCookies.length > 0) {
+      posCookieJar = mergeCookieHeaders(baseCookieHeader, setCookies);
+      return;
+    }
+  }
+  const singleSetCookie = response.headers.get('set-cookie');
+  if (singleSetCookie) {
+    posCookieJar = mergeCookieHeaders(baseCookieHeader, [singleSetCookie]);
+  }
+};
+
+const hasMinimalPosCookie = (cookieHeader: string) => /ci_session_/i.test(cookieHeader) && /\binout=/i.test(cookieHeader);
+
+const isLikelyPosLoginHtml = (text: string) => {
+  const lower = String(text ?? '').toLowerCase();
+  return (
+    lower.includes('<!doctype') ||
+    lower.includes('<html') ||
+    lower.includes(':: login') ||
+    lower.includes('login/check') ||
+    lower.includes('assets/dashboard/css/login.css')
+  );
+};
+
+const canAutoRefreshPosSession = () =>
+  POS_AUTO_REFRESH_ENABLED &&
+  POS_LOGIN_USERNAME.length > 0 &&
+  POS_LOGIN_PASSWORD.length > 0 &&
+  /^https?:\/\//i.test(POS_LOGIN_ENDPOINT);
+
+const refreshPosSession = async (reason: string): Promise<boolean> => {
+  if (!canAutoRefreshPosSession()) return false;
+  if (posRefreshInFlight) return posRefreshInFlight;
+
+  posRefreshInFlight = (async () => {
+    let cookieHeader = String(posCookieJar || POS_COOKIE).trim();
+    const withTimeout = async (request: (signal: AbortSignal) => Promise<Response>) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), POS_REQUEST_TIMEOUT_MS);
+      try {
+        return await request(controller.signal);
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
+    try {
+      const usernameRaw = String(POS_LOGIN_USERNAME ?? '').trim();
+      const usernameBeforeAt = usernameRaw.includes('@') ? usernameRaw.split('@')[0].trim() : usernameRaw;
+      const usernameWithClient = usernameBeforeAt ? `${usernameBeforeAt}@${POS_LOGIN_CLIENT_IDENTIFIER}` : '';
+      const usernameVariants = Array.from(new Set([usernameRaw, usernameBeforeAt, usernameWithClient].filter(Boolean)));
+
+      let authed = false;
+      for (const username of usernameVariants) {
+        const payload = new URLSearchParams();
+        payload.set('username', username);
+        payload.set('password', POS_LOGIN_PASSWORD);
+        payload.set('client_identifier', POS_LOGIN_CLIENT_IDENTIFIER);
+        payload.set('auto_login', 'null');
+        payload.set('connection_path', 'null');
+
+        const loginResponse = await withTimeout((signal) =>
+          fetch(POS_LOGIN_ENDPOINT, {
+            method: 'POST',
+            headers: {
+              Accept: 'application/json, text/javascript, */*; q=0.01',
+              'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ar;q=0.7',
+              'Cache-Control': 'no-cache',
+              Pragma: 'no-cache',
+              Origin: resolvePosOrigin(),
+              Referer: POS_LOGIN_REFERER,
+              'X-Requested-With': 'XMLHttpRequest',
+              'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+              ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+            },
+            body: payload.toString(),
+            signal,
+          })
+        );
+        updatePosCookieJarFromResponse(cookieHeader, loginResponse);
+        cookieHeader = String(posCookieJar || cookieHeader).trim();
+        const loginText = await loginResponse.text().catch(() => '');
+        const lower = String(loginText ?? '').toLowerCase();
+        const loginLooksSuccess =
+          lower.includes('login_success') ||
+          lower.includes('password_ok') ||
+          (loginResponse.ok && !isLikelyPosLoginHtml(loginText));
+        if (loginLooksSuccess && hasMinimalPosCookie(cookieHeader)) {
+          authed = true;
+          break;
+        }
+      }
+
+      if (!authed) {
+        posLastRefreshReason = `auto_refresh_failed(${reason})`;
+        return false;
+      }
+
+      // Validate that /sales is accessible and not redirected to login page.
+      const verifyResponse = await withTimeout((signal) =>
+        fetch(POS_BASE_URL, {
+          method: 'GET',
+          headers: {
+            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Cache-Control': 'no-cache',
+            Pragma: 'no-cache',
+            Referer: POS_LOGIN_REFERER,
+            ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+          },
+          signal,
+        })
+      );
+      updatePosCookieJarFromResponse(cookieHeader, verifyResponse);
+      cookieHeader = String(posCookieJar || cookieHeader).trim();
+      const verifyText = await verifyResponse.text().catch(() => '');
+      if (!verifyResponse.ok || isLikelyPosLoginHtml(verifyText) || !hasMinimalPosCookie(cookieHeader)) {
+        posLastRefreshReason = `auto_refresh_not_authorized(${reason})`;
+        return false;
+      }
+
+      posCookieJar = cookieHeader;
+      posLastRefreshReason = '';
+      return true;
+    } catch {
+      posLastRefreshReason = `auto_refresh_network_error(${reason})`;
+      return false;
+    }
+  })();
+
+  try {
+    return await posRefreshInFlight;
+  } finally {
+    posRefreshInFlight = null;
+  }
+};
+
+const resolvePosEndpoint = () => {
+  if (!POS_BASE_URL) return '';
+  if (/^https?:\/\//i.test(POS_FIND_ORDERS_PATH)) return POS_FIND_ORDERS_PATH;
+  const base = POS_BASE_URL.endsWith('/') ? POS_BASE_URL : `${POS_BASE_URL}/`;
+  const relative = POS_FIND_ORDERS_PATH.startsWith('/') ? POS_FIND_ORDERS_PATH.slice(1) : POS_FIND_ORDERS_PATH;
+  return new URL(relative, base).toString();
+};
+
+const resolvePosEndpointFromPath = (endpointPath: string) => {
+  if (!POS_BASE_URL) return '';
+  if (/^https?:\/\//i.test(endpointPath)) return endpointPath;
+  const base = POS_BASE_URL.endsWith('/') ? POS_BASE_URL : `${POS_BASE_URL}/`;
+  const relative = endpointPath.startsWith('/') ? endpointPath.slice(1) : endpointPath;
+  return new URL(relative, base).toString();
+};
+
+const resolvePosOrigin = () => {
+  const fallback = () => {
+    try {
+      return new URL(POS_BASE_URL).origin;
+    } catch {
+      return 'https://magnus.aipsoft.com';
+    }
+  };
+
+  if (!POS_ORIGIN) return fallback();
+  try {
+    return new URL(POS_ORIGIN).origin;
+  } catch {
+    return fallback();
+  }
+};
+
+const parsePosOrderPreview = (row: any[]): PosOrderPreview => {
+  const rowCell = row.find((cell) => rowCellContainsAttr(cell, 'data-order_no')) ?? row?.[0];
+  const printCell = row.find((cell) => rowCellContainsAttr(cell, 'data-orders_id') && String(cell).includes('print-btn')) ?? row?.[15];
+  const retrieveCell = row.find((cell) => rowCellContainsAttr(cell, 'data-orders_id') && String(cell).includes('retrive-btn')) ?? row?.[16];
+  const statusCell = `${String(rowCell ?? '')} ${String(printCell ?? '')}`.toLowerCase();
+  const statusFlags = Array.from(
+    new Set(
+      ['held', 'not_paid_fully', 'full_paid', 'fully_packed', 'partially_packed', 'delivered']
+        .filter((token) => statusCell.includes(token))
+    )
+  );
+
+  return {
+    orders_id:
+      extractHtmlAttribute(printCell, 'data-orders_id') ||
+      extractHtmlAttribute(retrieveCell, 'data-orders_id') ||
+      extractHtmlAttribute(rowCell, 'data-order_no'),
+    order_no:
+      stripHtml(row?.[2]) ||
+      extractHtmlAttribute(retrieveCell, 'data-order_no') ||
+      extractHtmlAttribute(rowCell, 'data-order_no'),
+    created_at: stripHtml(row?.[3]),
+    invoice_no: stripHtml(row?.[4]),
+    invoice_date: stripHtml(row?.[5]),
+    delivery_type: stripHtml(row?.[6]),
+    customer_phone: stripHtml(row?.[7]),
+    customer_name: stripHtml(row?.[8]),
+    notes: stripHtml(row?.[10]),
+    total: parseMoney(row?.[11]),
+    paid: parseMoney(row?.[12]),
+    balance: parseMoney(row?.[13]),
+    branch: stripHtml(row?.[14]),
+    cust_head_id: extractHtmlAttribute(printCell, 'data-cust_head_id'),
+    invoice_id: extractHtmlAttribute(printCell, 'data-invoice_id') || extractHtmlAttribute(retrieveCell, 'data-invoice_id'),
+    status_flags: statusFlags,
+  };
+};
+
+const normalizePosNumberish = (value: unknown, fallback = 0) => {
+  const parsed = parseMoney(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const firstNonEmptyString = (row: Record<string, any> | undefined, keys: string[]) => {
+  if (!row) return '';
+  for (const key of keys) {
+    const value = String(row[key] ?? '').trim();
+    if (value) return value;
+  }
+  return '';
+};
+
+const POS_DETAIL_ROW_HINT_KEYS = [
+  'each_sale_entry_id',
+  'sale_prdt_id',
+  'sale_qty',
+  'qty',
+  'quantity',
+  'primary_sale_prdt_name',
+  'product_name',
+  'item_name',
+  'sale_sub_total',
+];
+
+const toRecordLike = (value: unknown): Record<string, any> => {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, any>;
+  }
+  if (Array.isArray(value)) {
+    const mapped: Record<string, any> = {};
+    for (let i = 0; i < value.length; i += 1) mapped[String(i)] = value[i];
+    return mapped;
+  }
+  return {};
+};
+
+const scorePosDetailRowsArray = (arr: unknown[]): number => {
+  if (!Array.isArray(arr) || arr.length === 0) return 0;
+  let score = 0;
+  const sample = arr.slice(0, 25);
+  for (const row of sample) {
+    const rec = toRecordLike(row);
+    const keys = Object.keys(rec);
+    if (keys.length === 0) continue;
+    score += 1;
+    for (const hint of POS_DETAIL_ROW_HINT_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(rec, hint)) score += 3;
+    }
+  }
+  return score;
+};
+
+const pickLikelyPosDetailsRows = (payload: any): unknown[] => {
+  if (Array.isArray(payload)) {
+    // Legacy shape: [rows, dynamicFields, personCountDetails, ...]
+    if (Array.isArray(payload[0])) return payload[0];
+    // Sometimes payload is already rows array.
+    const directScore = scorePosDetailRowsArray(payload);
+    if (directScore > 0) return payload;
+    return [];
+  }
+
+  if (!payload || typeof payload !== 'object') return [];
+
+  const root = payload as Record<string, any>;
+  const candidates: unknown[][] = [];
+  const directKeys = [
+    'rows',
+    'data',
+    'order_details',
+    'details',
+    'line_items',
+    'items',
+    'sale_items',
+    'products',
+    'result',
+  ];
+
+  for (const key of directKeys) {
+    const value = root[key];
+    if (Array.isArray(value)) candidates.push(value);
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      for (const nested of directKeys) {
+        const nestedValue = (value as Record<string, any>)[nested];
+        if (Array.isArray(nestedValue)) candidates.push(nestedValue);
+      }
+    }
+  }
+
+  for (const value of Object.values(root)) {
+    if (Array.isArray(value)) candidates.push(value);
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      for (const nestedValue of Object.values(value as Record<string, any>)) {
+        if (Array.isArray(nestedValue)) candidates.push(nestedValue);
+      }
+    }
+  }
+
+  let best: unknown[] = [];
+  let bestScore = 0;
+  for (const candidate of candidates) {
+    let normalized = candidate;
+    if (candidate.length === 1 && Array.isArray(candidate[0])) {
+      normalized = candidate[0] as unknown[];
+    }
+    const score = scorePosDetailRowsArray(normalized);
+    if (score > bestScore) {
+      bestScore = score;
+      best = normalized;
+    }
+  }
+
+  return bestScore > 0 ? best : [];
+};
+
+const buildPosOrderSearchPayload = (
+  query: string,
+  overrides?: {
+    paid_status?: string;
+    job_status?: string;
+    cust_type?: string;
+    del_type?: string;
+    pay_type?: string;
+    branch_id?: string;
+    prevent_depot_selection?: string;
+  }
+) => {
+  const params = new URLSearchParams();
+
+  // Keep this lightweight by default; this endpoint accepts custom filters directly.
+  params.set('draw', '1');
+  params.set('start', '0');
+  params.set('length', '25');
+  params.set('order[0][column]', '1');
+  params.set('order[0][dir]', 'desc');
+  if (POS_INCLUDE_DATATABLE_COLUMNS) {
+    for (let i = 0; i < POS_TABLE_COLUMN_COUNT; i += 1) {
+      params.set(`columns[${i}][data]`, '');
+      params.set(`columns[${i}][name]`, '');
+      params.set(`columns[${i}][searchable]`, 'true');
+      params.set(`columns[${i}][orderable]`, 'true');
+      params.set(`columns[${i}][search][value]`, '');
+      params.set(`columns[${i}][search][regex]`, 'false');
+    }
+  }
+  params.set('search[value]', query);
+  params.set('search[regex]', 'false');
+  params.set('filterTxt', query);
+
+  // POS custom filters used by Magnus sales/findLaundryOrders.
+  // Mirrors the request shape generated by assets/pos/js/pos_laundry.js.
+  params.set('job_search_txt', query);
+  params.set('date', '');
+  params.set('waiter', '');
+  params.set('from_date', '');
+  params.set('from_time', '');
+  params.set('to_data', '');
+  params.set('to_time', '');
+  params.set('paid_status', overrides?.paid_status ?? POS_PAID_STATUS);
+  params.set('job_status', overrides?.job_status ?? POS_JOB_STATUS);
+  params.set('cust_type', overrides?.cust_type ?? POS_CUSTOMER_TYPE);
+  params.set('del_type', overrides?.del_type ?? POS_DELIVERY_TYPE);
+  params.set('pay_type', overrides?.pay_type ?? POS_PAY_TYPE);
+  params.set('branch_id', overrides?.branch_id ?? POS_BRANCH_ID);
+  params.set('prevent_depot_selection', overrides?.prevent_depot_selection ?? POS_PREVENT_DEPOT_SELECTION);
+
+  params.set('_', String(Date.now()));
+  return params;
+};
+
+const fetchPosOrderSearch = async (query: string) => {
+  const endpoint = resolvePosEndpoint();
+  if (!endpoint) {
+    throw new Error('POS endpoint is not configured.');
+  }
+  let cookieHeader = String(posCookieJar || POS_COOKIE).trim();
+  if ((!cookieHeader || !hasMinimalPosCookie(cookieHeader)) && canAutoRefreshPosSession()) {
+    await refreshPosSession('search_prepare');
+    cookieHeader = String(posCookieJar || POS_COOKIE).trim();
+  }
+  if (!cookieHeader) {
+    throw new Error(
+      canAutoRefreshPosSession()
+        ? `POS session is not available and auto-refresh failed. ${posLastRefreshReason || 'Check POS login credentials in .env.'}`.trim()
+        : 'POS cookie is not configured. Set POS_COOKIE (or POS_SESSION_COOKIE) in server .env.'
+    );
+  }
+  if (cookieHeader.includes('...')) {
+    throw new Error('POS_COOKIE contains placeholder dots (...). Paste the full real Cookie header from browser Network.');
+  }
+  if (!hasMinimalPosCookie(cookieHeader)) {
+    throw new Error(
+      canAutoRefreshPosSession()
+        ? `POS cookie is incomplete and auto-refresh could not fix it. ${posLastRefreshReason || ''}`.trim()
+        : 'POS_COOKIE is incomplete. It must include at least ci_session_* and inout cookies from POS request.'
+    );
+  }
+
+  const buildHeaders = (cookie: string): Record<string, string> => ({
+    Accept: 'application/json, text/javascript, */*; q=0.01',
+    'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ar;q=0.7',
+    'Cache-Control': 'no-cache',
+    Pragma: 'no-cache',
+    Cookie: cookie,
+    Origin: resolvePosOrigin(),
+    Referer: POS_REFERER || POS_BASE_URL,
+    'X-Requested-With': 'XMLHttpRequest',
+  });
+
+  const withTimeout = async (request: (signal: AbortSignal) => Promise<Response>) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), POS_REQUEST_TIMEOUT_MS);
+    try {
+      return await request(controller.signal);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const parseResponseBody = async (response: Response) => {
+    updatePosCookieJarFromResponse(cookieHeader, response);
+    cookieHeader = String(posCookieJar || cookieHeader).trim();
+
+    const text = await response.text().catch(() => '');
+    let parsed: any = null;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      parsed = null;
+    }
+    return { text, parsed };
+  };
+
+  const requestWithPayload = async (payload: URLSearchParams) => {
+    const postResponse = await withTimeout((signal) =>
+      fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          ...buildHeaders(cookieHeader),
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        },
+        body: payload.toString(),
+        signal,
+      })
+    );
+
+    let parsedBody = await parseResponseBody(postResponse);
+    if (!parsedBody.parsed || !Array.isArray(parsedBody.parsed?.data)) {
+      const getUrl = `${endpoint}${endpoint.includes('?') ? '&' : '?'}${payload.toString()}`;
+      const getResponse = await withTimeout((signal) =>
+        fetch(getUrl, {
+          method: 'GET',
+          headers: buildHeaders(cookieHeader),
+          signal,
+        })
+      );
+      parsedBody = await parseResponseBody(getResponse);
+    }
+    return parsedBody;
+  };
+
+  let { text, parsed } = await requestWithPayload(buildPosOrderSearchPayload(query));
+
+  const needsRetry =
+    parsed &&
+    Array.isArray(parsed?.data) &&
+    parsed.data.length === 0 &&
+    Number(parsed?.recordsFiltered ?? 0) > 0;
+
+  if (needsRetry) {
+    const retryVariants = [
+      { job_status: '0', branch_id: '0', prevent_depot_selection: '0' },
+      { job_status: '0', branch_id: '0', prevent_depot_selection: '1' },
+      { job_status: '0', branch_id: POS_BRANCH_ID || '0', prevent_depot_selection: '0' },
+    ];
+    for (const variant of retryVariants) {
+      const retry = await requestWithPayload(buildPosOrderSearchPayload(query, variant));
+      if (retry.parsed && Array.isArray(retry.parsed?.data) && retry.parsed.data.length > 0) {
+        text = retry.text;
+        parsed = retry.parsed;
+        break;
+      }
+    }
+  }
+
+  if (!parsed || !Array.isArray(parsed?.data)) {
+    if (/<!doctype|<html/i.test(text)) {
+      if (canAutoRefreshPosSession() && (await refreshPosSession('search_html_response'))) {
+        cookieHeader = String(posCookieJar || POS_COOKIE).trim();
+        const retry = await requestWithPayload(buildPosOrderSearchPayload(query));
+        text = retry.text;
+        parsed = retry.parsed;
+      } else {
+        throw new Error(
+          canAutoRefreshPosSession()
+            ? `POS returned HTML and auto-refresh failed. ${posLastRefreshReason || 'Check POS credentials/session.'}`.trim()
+            : 'POS returned HTML (likely login/session page). Refresh POS_COOKIE from browser Network and try again.'
+        );
+      }
+    } else {
+      throw new Error(`POS response is not valid JSON data. ${text.slice(0, 240)}`);
+    }
+  }
+
+  if (!parsed || !Array.isArray(parsed?.data)) {
+    throw new Error(`POS response is not valid JSON data after retry. ${String(text).slice(0, 240)}`);
+  }
+
+  const rawRows = parsed.data as any[];
+  const rows = rawRows.map((row) => toPosRowArray(row)).filter((row) => row.length > 0);
+  const orders = rows
+    .map((row) => parsePosOrderPreview(row))
+    .filter((order) => order.order_no || order.orders_id);
+
+  if (rawRows.length > 0 && orders.length === 0) {
+    const sample = rawRows[0];
+    const sampleShape =
+      Array.isArray(sample) ? `array(${sample.length})` : sample && typeof sample === 'object' ? `object keys: ${Object.keys(sample).join(',').slice(0, 120)}` : typeof sample;
+    console.warn('POS parsing warning: rows received but no orders parsed.', { rows: rawRows.length, sampleShape });
+  }
+
+  return {
+    recordsTotal: Number(parsed?.recordsTotal ?? orders.length) || orders.length,
+    recordsFiltered: Number(parsed?.recordsFiltered ?? orders.length) || orders.length,
+    orders,
+  };
+};
+
+const postPosForm = async (
+  endpointPath: string,
+  payload: URLSearchParams,
+  options?: { fallbackToGet?: boolean }
+) => {
+  const endpoint = resolvePosEndpointFromPath(endpointPath);
+  if (!endpoint) throw new Error('POS endpoint is not configured.');
+
+  let cookieHeader = String(posCookieJar || POS_COOKIE).trim();
+  if ((!cookieHeader || !hasMinimalPosCookie(cookieHeader)) && canAutoRefreshPosSession()) {
+    await refreshPosSession('post_prepare');
+    cookieHeader = String(posCookieJar || POS_COOKIE).trim();
+  }
+  if (!cookieHeader) {
+    throw new Error(
+      canAutoRefreshPosSession()
+        ? `POS session is not available and auto-refresh failed. ${posLastRefreshReason || 'Check POS login credentials in .env.'}`.trim()
+        : 'POS cookie is not configured. Set POS_COOKIE (or POS_SESSION_COOKIE) in server .env.'
+    );
+  }
+  if (cookieHeader.includes('...')) {
+    throw new Error('POS_COOKIE contains placeholder dots (...). Paste the full real Cookie header from browser Network.');
+  }
+  if (!hasMinimalPosCookie(cookieHeader)) {
+    throw new Error(
+      canAutoRefreshPosSession()
+        ? `POS cookie is incomplete and auto-refresh could not fix it. ${posLastRefreshReason || ''}`.trim()
+        : 'POS_COOKIE is incomplete. It must include at least ci_session_* and inout cookies from POS request.'
+    );
+  }
+
+  const buildHeaders = (cookie: string): Record<string, string> => ({
+    Accept: 'application/json, text/javascript, */*; q=0.01',
+    'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ar;q=0.7',
+    'Cache-Control': 'no-cache',
+    Pragma: 'no-cache',
+    Cookie: cookie,
+    Origin: resolvePosOrigin(),
+    Referer: POS_REFERER || POS_BASE_URL,
+    'X-Requested-With': 'XMLHttpRequest',
+  });
+
+  const withTimeout = async (request: (signal: AbortSignal) => Promise<Response>) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), POS_REQUEST_TIMEOUT_MS);
+    try {
+      return await request(controller.signal);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const parseResponse = async (response: Response) => {
+    updatePosCookieJarFromResponse(cookieHeader, response);
+    cookieHeader = String(posCookieJar || cookieHeader).trim();
+
+    const text = await response.text().catch(() => '');
+    let parsed: any = null;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      parsed = null;
+    }
+    return { text, parsed };
+  };
+
+  const postResponse = await withTimeout((signal) =>
+    fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        ...buildHeaders(cookieHeader),
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      },
+      body: payload.toString(),
+      signal,
+    })
+  );
+
+  let responseBody = await parseResponse(postResponse);
+  if ((!responseBody.parsed || typeof responseBody.parsed !== 'object') && options?.fallbackToGet) {
+    const getUrl = `${endpoint}${endpoint.includes('?') ? '&' : '?'}${payload.toString()}`;
+    const getResponse = await withTimeout((signal) =>
+      fetch(getUrl, {
+        method: 'GET',
+        headers: buildHeaders(cookieHeader),
+        signal,
+      })
+    );
+    responseBody = await parseResponse(getResponse);
+  }
+
+  if (isLikelyPosLoginHtml(String(responseBody.text ?? '')) && canAutoRefreshPosSession()) {
+    const refreshed = await refreshPosSession('post_html_response');
+    if (refreshed) {
+      cookieHeader = String(posCookieJar || POS_COOKIE).trim();
+      const retryResponse = await withTimeout((signal) =>
+        fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            ...buildHeaders(cookieHeader),
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          },
+          body: payload.toString(),
+          signal,
+        })
+      );
+      responseBody = await parseResponse(retryResponse);
+      if ((!responseBody.parsed || typeof responseBody.parsed !== 'object') && options?.fallbackToGet) {
+        const getUrl = `${endpoint}${endpoint.includes('?') ? '&' : '?'}${payload.toString()}`;
+        const retryGetResponse = await withTimeout((signal) =>
+          fetch(getUrl, {
+            method: 'GET',
+            headers: buildHeaders(cookieHeader),
+            signal,
+          })
+        );
+        responseBody = await parseResponse(retryGetResponse);
+      }
+    }
+  }
+
+  return responseBody;
+};
+
+const parsePosOrderDetails = (payload: any): PosOrderDetailsResult => {
+  if ((!Array.isArray(payload) && (!payload || typeof payload !== 'object')) || (Array.isArray(payload) && payload.length === 0)) {
+    throw new Error('POS order details response is empty.');
+  }
+
+  const rows = pickLikelyPosDetailsRows(payload).map((row) => toRecordLike(row));
+  const dynamicFields = Array.isArray(payload?.[1])
+    ? payload[1]
+    : Array.isArray(payload?.dynamic_fields)
+      ? payload.dynamic_fields
+      : Array.isArray(payload?.dynamicFields)
+        ? payload.dynamicFields
+        : [];
+  const personCountDetails = Array.isArray(payload?.[2])
+    ? payload[2]
+    : Array.isArray(payload?.person_count_details)
+      ? payload.person_count_details
+      : Array.isArray(payload?.personCountDetails)
+        ? payload.personCountDetails
+        : [];
+  const productAssignedTax =
+    payload?.[3] ??
+    payload?.product_assigned_tax ??
+    payload?.productAssignedTax ??
+    {};
+  const invoiceHistory = Array.isArray(payload?.[4])
+    ? payload[4]
+    : Array.isArray(payload?.invoice_history)
+      ? payload.invoice_history
+      : Array.isArray(payload?.invoiceHistory)
+        ? payload.invoiceHistory
+        : [];
+  if (!rows.length) {
+    const keys =
+      payload && typeof payload === 'object' && !Array.isArray(payload)
+        ? Object.keys(payload as Record<string, unknown>).slice(0, 20).join(', ')
+        : '';
+    throw new Error(`POS order details parsed with no rows.${keys ? ` Payload keys: ${keys}` : ''}`);
+  }
+  const firstRow = (rows[0] ?? {}) as Record<string, any>;
+
+  const lineByKey = new Map<string, PosOrderDetailLineItem>();
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = (rows[index] ?? {}) as Record<string, any>;
+    const saleEntryId = String(row.each_sale_entry_id ?? '').trim();
+    const refId = String(row.ref_id ?? '').trim();
+    const fallbackKey = `${saleEntryId || 'entry'}:${refId || index}`;
+
+    const productName = firstNonEmptyString(row, [
+      'primary_sale_prdt_name',
+      'sale_prdt_product_name',
+      'product_name',
+      'item_name',
+      'sale_prdt_name',
+      'srv_prdt_product_name',
+    ]);
+    const secondaryName = firstNonEmptyString(row, ['secondary_sale_prdt_name']);
+    const service = firstNonEmptyString(row, ['unitname_short', 'service_name']);
+    const title = [productName, secondaryName].filter(Boolean).join(' - ') || service || `Item ${index + 1}`;
+
+    const qty = normalizePosNumberish(row.sale_qty ?? row.qty ?? row.quantity ?? row.each_person_qty, 1);
+    const unitPrice = normalizePosNumberish(
+      row.sale_unit_price ?? row.sale_unit_actual_price ?? row.sale_price ?? row.customer_specific_price ?? row.retail_price_with_vat,
+      0
+    );
+    const subTotal = normalizePosNumberish(row.sale_sub_total, qty * unitPrice);
+    const taxAmount = normalizePosNumberish(row.sale_tax_amount, 0);
+    const totalWithTax = subTotal + taxAmount;
+
+    if (!lineByKey.has(fallbackKey)) {
+      lineByKey.set(fallbackKey, {
+        line_key: fallbackKey,
+        sale_entry_id: saleEntryId,
+        product_id: String(row.sale_prdt_id ?? row.product_id ?? '').trim(),
+        name: title,
+        service,
+        qty,
+        unit_price: unitPrice,
+        sub_total: subTotal,
+        tax_amount: taxAmount,
+        total_with_tax: totalWithTax,
+        barcode: String(row.barcode ?? '').trim(),
+        unit: String(row.unitname_short ?? '').trim(),
+      });
+    }
+  }
+
+  return {
+    general: {
+      order_id: String(firstRow.id ?? '').trim(),
+      order_no: String(firstRow.order_no ?? '').trim(),
+      searched_order_id: String(firstRow.searched_ord_no ?? '').trim(),
+      searched_invoice_id: String(firstRow.searched_inv_no ?? '').trim(),
+      customer_name: firstNonEmptyString(firstRow, ['cust_ord_name', 'customer_name']),
+      customer_mobile: firstNonEmptyString(firstRow, ['cust_ord_mobile', 'mobile', 'customer_mobile']),
+      customer_address: firstNonEmptyString(firstRow, ['cust_ord_address', 'address1', 'customer_address']),
+      delivery_type: String(firstRow.delivery_type ?? '').trim(),
+      delivery_date: String(firstRow.delivery_date ?? '').trim(),
+      delivery_time: String(firstRow.delivery_time ?? '').trim(),
+      billing_date: String(firstRow.billing_date ?? '').trim(),
+      total_amount: normalizePosNumberish(firstRow.total_amount, 0),
+      tax_amount: normalizePosNumberish(firstRow.tax_amount, 0),
+      grand_total: normalizePosNumberish(firstRow.grand_total, 0),
+      received_amount: normalizePosNumberish(firstRow.received_amount, 0),
+      balance: normalizePosNumberish(firstRow.balance, 0),
+      status: firstNonEmptyString(firstRow, ['order_status', 'paid_status']),
+      branch_id: String(firstRow.branch_id ?? '').trim(),
+      salesman_id: String(firstRow.assign_to_salesman ?? '').trim(),
+      driver_id: String(firstRow.driver_id ?? '').trim(),
+      invoice_remark1: String(firstRow.invoice_remark1 ?? '').trim(),
+      invoice_remark2: String(firstRow.invoice_remark2 ?? '').trim(),
+    },
+    line_items: Array.from(lineByKey.values()),
+    dynamic_fields: dynamicFields,
+    person_count_details: personCountDetails,
+    product_assigned_tax: productAssignedTax,
+    invoice_history: invoiceHistory,
+    raw_counts: {
+      rows: rows.length,
+      line_items: lineByKey.size,
+    },
+  };
+};
+
+const fetchPosOrderDetails = async (params: {
+  order_id: string;
+  s_order_id: string;
+  mode?: string;
+  open_type?: string;
+  job_process_commision_option?: string;
+}) => {
+  const payload = new URLSearchParams();
+  payload.set('order_id', params.order_id || '0');
+  payload.set('s_order_id', params.s_order_id || '0');
+  payload.set('mode', params.mode || '0');
+  payload.set('open_type', params.open_type || 'preview');
+  payload.set('job_process_commision_option', params.job_process_commision_option ?? POS_JOB_PROCESS_COMMISION_OPTION);
+
+  const { text, parsed } = await postPosForm(POS_FIND_ORDER_DETAILS_PATH, payload, { fallbackToGet: false });
+  if (parsed === 0 || parsed === '0') {
+    throw new Error('Order details not found in POS.');
+  }
+  if (!Array.isArray(parsed)) {
+    if (/<!doctype|<html/i.test(text)) {
+      throw new Error('POS returned HTML while loading order details (session/login page). Refresh POS_COOKIE and retry.');
+    }
+    throw new Error(`POS order details response is not valid JSON array. ${text.slice(0, 240)}`);
+  }
+
+  return parsePosOrderDetails(parsed);
+};
+
+const fetchPosProducts = async (params: {
+  unit_id?: string;
+  laundry_cat?: string;
+  cust_type?: string;
+  cur_page?: string;
+  customer_id?: string;
+}) => {
+  const payload = new URLSearchParams();
+  payload.set('unit_id', params.unit_id ?? '1');
+  payload.set('laundry_cat', params.laundry_cat ?? '0');
+  payload.set('cust_type', params.cust_type ?? '76');
+  payload.set('cur_page', params.cur_page ?? '1');
+  payload.set('customer_id', params.customer_id ?? '0');
+
+  const { text, parsed } = await postPosForm(POS_GET_PRODUCTS_PATH, payload, { fallbackToGet: false });
+  if (!parsed || typeof parsed !== 'object') {
+    if (/<!doctype|<html/i.test(text)) {
+      throw new Error('POS returned HTML while loading products (session/login page). Refresh POS_COOKIE and retry.');
+    }
+    throw new Error(`POS products response is not valid JSON. ${text.slice(0, 240)}`);
+  }
+
+  const products = Array.isArray((parsed as any).products) ? (parsed as any).products : [];
+  const currencyShort = String((parsed as any).currency_short ?? '').trim();
+
+  const normalizedProducts = products.map((item: any) => ({
+    id: String(item?.id ?? '').trim(),
+    name:
+      String(item?.primary_sale_prdt_name ?? '').trim() ||
+      String(item?.product_name ?? '').trim() ||
+      String(item?.name ?? '').trim() ||
+      String(item?.secondary_sale_prdt_name ?? '').trim(),
+    barcode: String(item?.barcode ?? '').trim(),
+    unit_price: normalizePosNumberish(item?.customer_specific_price ?? item?.retail_price_with_vat ?? item?.sale_unit_price ?? item?.sale_price, 0),
+    raw: item,
+  }));
+
+  return {
+    currency_short: currencyShort,
+    total_products: normalizedProducts.length,
+    products: normalizedProducts,
+  };
+};
+
+const normalizeSortingOrderNo = (value: unknown) => String(value ?? '').trim().toUpperCase();
+
+const toSortingCellStatus = (totalSorted: number, totalRequired: number): SortingCellStatus => {
+  if (totalRequired <= 0) return 'pending';
+  if (totalSorted <= 0) return 'pending';
+  if (totalSorted >= totalRequired) return 'complete';
+  return 'partial';
+};
+
+const toSortingOrderStatus = (totalSorted: number, totalRequired: number): SortingOrderStatus => {
+  if (totalRequired <= 0) return 'sorting_pending';
+  if (totalSorted <= 0) return 'sorting_pending';
+  if (totalSorted >= totalRequired) return 'sorted_complete';
+  return 'sorting_partial';
+};
+
+const toSortingItemStatus = (sorted: number, required: number): SortingItemRecord['status'] => {
+  if (required <= 0) return 'complete';
+  if (sorted <= 0) return 'missing';
+  if (sorted >= required) return 'complete';
+  return 'partial';
+};
+
+const coercePositiveInt = (value: unknown, fallback = 1) => {
+  const parsed = Math.floor(Number(value ?? fallback));
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+};
+
+const getSortingOrderBundle = (orderNo: string) => {
+  const order = db
+    .prepare('SELECT * FROM sorting_orders WHERE order_no = ?')
+    .get(orderNo) as SortingOrderRecord | undefined;
+  if (!order) return null;
+  const items = db
+    .prepare('SELECT * FROM sorting_items WHERE order_no = ? ORDER BY id ASC')
+    .all(orderNo) as SortingItemRecord[];
+  const table = order.table_id
+    ? (db.prepare('SELECT id, name FROM sorting_tables WHERE id = ?').get(order.table_id) as { id: number; name: string } | undefined)
+    : undefined;
+  return {
+    order,
+    items,
+    placement: order.table_id && order.row_no && order.col_no
+      ? {
+          table_id: order.table_id,
+          table_name: table?.name ?? '',
+          row_no: order.row_no,
+          col_no: order.col_no,
+          label: `${table?.name ?? `Table ${order.table_id}`} • R${order.row_no}:C${order.col_no}`,
+        }
+      : null,
+  };
+};
+
+const syncSortingOrderProgress = (orderNo: string) => {
+  const bundle = getSortingOrderBundle(orderNo);
+  if (!bundle) return null;
+
+  // Workflow status is driven by Clothes only:
+  // - when clothes are complete => order moves to ironing/packing stage
+  // - home items and blanket items are handled in later dedicated stages
+  const clothesItems = bundle.items.filter((item) => detectSortingItemCategory(item.item_name) === 'clothes');
+  const totalRequiredFromClothes = clothesItems.reduce((sum, item) => sum + Math.max(0, Number(item.qty_required) || 0), 0);
+  const totalSortedFromClothes = clothesItems.reduce((sum, item) => sum + Math.max(0, Number(item.qty_sorted) || 0), 0);
+  const totalIronedFromClothes = clothesItems.reduce((sum, item) => sum + Math.max(0, Number(item.qty_ironed) || 0), 0);
+  const totalRequired = totalRequiredFromClothes;
+  const totalSorted = Math.min(totalSortedFromClothes, totalRequiredFromClothes);
+  const totalIroned = Math.min(totalIronedFromClothes, totalRequiredFromClothes);
+  const orderStatus: SortingOrderStatus =
+    bundle.order.status === 'packed_complete'
+      ? 'packed_complete'
+      : totalIroned > 0
+        ? 'packing_in_progress'
+        : toSortingOrderStatus(totalSorted, totalRequired);
+
+  for (const item of bundle.items) {
+    const itemStatus = toSortingItemStatus(item.qty_sorted, item.qty_required);
+    if (item.status !== itemStatus) {
+      db.prepare('UPDATE sorting_items SET status = ? WHERE id = ?').run(itemStatus, item.id);
+    }
+  }
+
+  db.prepare(
+    `UPDATE sorting_orders
+     SET total_required = ?,
+         total_sorted = ?,
+         total_ironed = ?,
+         status = ?,
+         completed_at = CASE WHEN ? = 'sorted_complete' AND completed_at IS NULL THEN CURRENT_TIMESTAMP ELSE completed_at END,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE order_no = ?`
+  ).run(totalRequired, totalSorted, totalIroned, orderStatus, orderStatus, orderNo);
+
+  const refreshed = db
+    .prepare('SELECT * FROM sorting_orders WHERE order_no = ?')
+    .get(orderNo) as SortingOrderRecord | undefined;
+
+  if (refreshed?.table_id && refreshed.row_no && refreshed.col_no) {
+    const cellStatus = toSortingCellStatus(totalSorted, totalRequired);
+    db.prepare(
+      `UPDATE sorting_cells
+       SET active_order_no = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE table_id = ? AND row_no = ? AND col_no = ?`
+    ).run(orderNo, cellStatus, refreshed.table_id, refreshed.row_no, refreshed.col_no);
+  }
+
+  return getSortingOrderBundle(orderNo);
+};
+
+const assignSortingCellForOrder = (orderNo: string) => {
+  const order = db
+    .prepare('SELECT * FROM sorting_orders WHERE order_no = ?')
+    .get(orderNo) as SortingOrderRecord | undefined;
+  if (!order) {
+    throw new Error('Sorting order not found.');
+  }
+
+  const claimCellTx = db.transaction(() => {
+    if (order.table_id && order.row_no && order.col_no) {
+      const existingCell = db
+        .prepare('SELECT * FROM sorting_cells WHERE table_id = ? AND row_no = ? AND col_no = ?')
+        .get(order.table_id, order.row_no, order.col_no) as SortingCellRecord | undefined;
+
+      if (existingCell && (!existingCell.active_order_no || existingCell.active_order_no === orderNo)) {
+        db.prepare(
+          `UPDATE sorting_cells
+           SET active_order_no = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE table_id = ? AND row_no = ? AND col_no = ?`
+        ).run(orderNo, order.table_id, order.row_no, order.col_no);
+        return {
+          table_id: order.table_id,
+          row_no: order.row_no,
+          col_no: order.col_no,
+        };
+      }
+    }
+
+    const freeCell = db
+      .prepare(
+        `SELECT c.table_id, c.row_no, c.col_no
+         FROM sorting_cells c
+         INNER JOIN sorting_tables t ON t.id = c.table_id
+         WHERE t.is_active = 1 AND c.active_order_no IS NULL
+         ORDER BY t.sort_order ASC, t.id ASC, c.row_no ASC, c.col_no ASC
+         LIMIT 1`
+      )
+      .get() as { table_id: number; row_no: number; col_no: number } | undefined;
+
+    if (!freeCell) {
+      throw new Error('No available sorting cell. Add table/cells or free completed cells.');
+    }
+
+    db.prepare(
+      `UPDATE sorting_cells
+       SET active_order_no = ?, status = 'pending', updated_at = CURRENT_TIMESTAMP
+       WHERE table_id = ? AND row_no = ? AND col_no = ?`
+    ).run(orderNo, freeCell.table_id, freeCell.row_no, freeCell.col_no);
+
+    db.prepare(
+      `UPDATE sorting_orders
+       SET table_id = ?, row_no = ?, col_no = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE order_no = ?`
+    ).run(freeCell.table_id, freeCell.row_no, freeCell.col_no, orderNo);
+
+    return freeCell;
+  });
+
+  const placement = claimCellTx();
+  const table = db
+    .prepare('SELECT id, name FROM sorting_tables WHERE id = ?')
+    .get(placement.table_id) as { id: number; name: string } | undefined;
+  return {
+    table_id: placement.table_id,
+    table_name: table?.name ?? '',
+    row_no: placement.row_no,
+    col_no: placement.col_no,
+    label: `${table?.name ?? `Table ${placement.table_id}`} • R${placement.row_no}:C${placement.col_no}`,
+  };
+};
+
+const ensureSortingOrderInitialized = async (params: {
+  order_no: string;
+  source_orders_id?: string;
+  source_invoice_id?: string;
+  customer_name?: string;
+  total_required?: number;
+  items?: Array<{ item_name: string; qty_required: number }>;
+  allow_unsorted_fallback?: boolean;
+}) => {
+  const normalizedOrderNo = normalizeSortingOrderNo(params.order_no);
+  if (!normalizedOrderNo) throw new Error('Order number is required.');
+
+  const existing = db
+    .prepare('SELECT * FROM sorting_orders WHERE order_no = ?')
+    .get(normalizedOrderNo) as SortingOrderRecord | undefined;
+  const existingItems = existing
+    ? (db.prepare('SELECT * FROM sorting_items WHERE order_no = ? ORDER BY id ASC').all(normalizedOrderNo) as SortingItemRecord[])
+    : [];
+  const canRefreshExistingUnsorted =
+    Boolean(existing) &&
+    existingItems.length === 1 &&
+    /^unsorted item$/i.test(String(existingItems[0]?.item_name ?? '').trim()) &&
+    Number(existingItems[0]?.qty_sorted ?? 0) <= 0 &&
+    Number(existingItems[0]?.qty_ironed ?? 0) <= 0 &&
+    Number((existingItems[0] as any)?.qty_packed ?? 0) <= 0;
+  if (existing && !canRefreshExistingUnsorted) return existing;
+
+  let sourceOrdersId = String(params.source_orders_id ?? existing?.source_orders_id ?? '').trim();
+  let sourceInvoiceId = String(params.source_invoice_id ?? existing?.source_invoice_id ?? '').trim();
+  let customerName = String(params.customer_name ?? existing?.customer_name ?? '').trim();
+  let totalRequired = coercePositiveInt(params.total_required ?? existing?.total_required ?? 0, 0);
+  const allowUnsortedFallback = Boolean(params.allow_unsorted_fallback);
+  let posSearchError: string | null = null;
+  let posDetailsError: string | null = null;
+  let items: Array<{ item_name: string; qty_required: number }> = Array.isArray(params.items)
+    ? params.items
+        .map((item) => ({
+          item_name: String(item?.item_name ?? '').trim(),
+          qty_required: coercePositiveInt(item?.qty_required ?? 0, 0),
+        }))
+        .filter((item) => item.item_name.length > 0 && item.qty_required > 0)
+    : [];
+  const hasManualInput = items.length > 0 || totalRequired > 0;
+
+  if (!sourceOrdersId && !sourceInvoiceId) {
+    try {
+      const search = await fetchPosOrderSearch(normalizedOrderNo);
+      const exact =
+        search.orders.find((order) => normalizeSortingOrderNo(order.order_no) === normalizedOrderNo) ??
+        search.orders[0];
+      if (exact) {
+        sourceOrdersId = String(exact.orders_id ?? '').trim();
+        sourceInvoiceId = String(exact.invoice_id ?? '').trim();
+        if (!customerName) customerName = String(exact.customer_name ?? '').trim();
+      }
+    } catch (error: any) {
+      posSearchError = String(error?.message || 'POS order search failed');
+    }
+  }
+
+  if (!sourceOrdersId && !sourceInvoiceId) {
+    const directCandidates: Array<{ order_id: string; s_order_id: string; tag: 'orders' | 'invoice' }> = [];
+    const compact = normalizedOrderNo.replace(/[^0-9A-Z]/gi, '');
+    const numericOnly = compact.replace(/\D+/g, '');
+    const alnumCandidates = Array.from(
+      new Set(
+        [normalizedOrderNo, compact, numericOnly]
+          .map((value) => String(value ?? '').trim())
+          .filter((value) => value.length > 0)
+      )
+    );
+
+    for (const candidate of alnumCandidates) {
+      directCandidates.push({ order_id: '0', s_order_id: candidate, tag: 'orders' });
+      directCandidates.push({ order_id: candidate, s_order_id: '0', tag: 'invoice' });
+    }
+
+    for (const candidate of directCandidates) {
+      try {
+        const directDetails = await fetchPosOrderDetails({
+          order_id: candidate.order_id,
+          s_order_id: candidate.s_order_id,
+          mode: '0',
+          open_type: 'preview',
+        });
+        if ((directDetails.line_items ?? []).length > 0) {
+          if (candidate.tag === 'orders') {
+            sourceOrdersId = candidate.s_order_id;
+          } else {
+            sourceInvoiceId = candidate.order_id;
+          }
+          if (!customerName) {
+            customerName = String(directDetails.general.customer_name ?? '').trim();
+          }
+          break;
+        }
+      } catch {
+        // Keep trying other numeric/alphanumeric shapes.
+      }
+    }
+  }
+
+  if (sourceOrdersId || sourceInvoiceId) {
+    try {
+      const details = await fetchPosOrderDetails({
+        order_id: sourceInvoiceId || '0',
+        s_order_id: sourceOrdersId || '0',
+        mode: '0',
+        open_type: 'preview',
+      });
+
+      if (!customerName) {
+        customerName = String(details.general.customer_name ?? '').trim();
+      }
+
+      const aggregate = new Map<string, number>();
+      for (const line of details.line_items) {
+        const name = String(line.name ?? '').trim() || 'Unsorted item';
+        const qty = coercePositiveInt(line.qty, 1);
+        aggregate.set(name, (aggregate.get(name) ?? 0) + qty);
+      }
+
+      if (aggregate.size > 0) {
+        items = Array.from(aggregate.entries()).map(([item_name, qty_required]) => ({ item_name, qty_required }));
+      }
+
+      const qtySum = items.reduce((sum, item) => sum + item.qty_required, 0);
+      totalRequired = Math.max(totalRequired, qtySum, 1);
+    } catch (error: any) {
+      // Keep the message for better diagnosis if we end up with no parsed items.
+      posDetailsError = String(error?.message || 'unknown POS details error');
+    }
+  }
+
+  if (items.length === 0) {
+    if (!allowUnsortedFallback && !hasManualInput) {
+      const reasons = [posSearchError, posDetailsError].filter((value) => Boolean(value)).join(' | ');
+      throw new Error(
+        `Could not load order items from POS for ${normalizedOrderNo}.${reasons ? ` ${reasons}` : ''}`
+      );
+    }
+    if ((sourceOrdersId || sourceInvoiceId) && posDetailsError) {
+      throw new Error(`Could not parse POS line items for order ${normalizedOrderNo}: ${posDetailsError}`);
+    }
+    const fallbackRequired = Math.max(totalRequired, 1);
+    totalRequired = fallbackRequired;
+    items = [{ item_name: 'Unsorted item', qty_required: fallbackRequired }];
+  } else {
+    totalRequired = Math.max(totalRequired, items.reduce((sum, item) => sum + item.qty_required, 0), 1);
+  }
+
+  const createOrderTx = db.transaction(() => {
+    const exists = db
+      .prepare('SELECT order_no FROM sorting_orders WHERE order_no = ?')
+      .get(normalizedOrderNo) as { order_no: string } | undefined;
+
+    if (!exists) {
+      db.prepare(
+        `INSERT INTO sorting_orders (
+          order_no, customer_name, total_required, total_sorted, total_ironed, status, source_orders_id, source_invoice_id, created_at, updated_at
+        )
+        VALUES (?, ?, ?, 0, 0, 'sorting_pending', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+      ).run(
+        normalizedOrderNo,
+        customerName,
+        totalRequired,
+        sourceOrdersId || null,
+        sourceInvoiceId || null
+      );
+    } else {
+      db.prepare(
+        `UPDATE sorting_orders
+         SET customer_name = ?,
+             total_required = ?,
+             source_orders_id = ?,
+             source_invoice_id = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE order_no = ?`
+      ).run(customerName, totalRequired, sourceOrdersId || null, sourceInvoiceId || null, normalizedOrderNo);
+
+      db.prepare('DELETE FROM sorting_items WHERE order_no = ?').run(normalizedOrderNo);
+    }
+
+    const insertItem = db.prepare(
+      `INSERT OR IGNORE INTO sorting_items (order_no, item_name, qty_required, qty_sorted, qty_ironed, qty_packed, status)
+       VALUES (?, ?, ?, 0, 0, 0, 'missing')`
+    );
+    for (const item of items) {
+      insertItem.run(normalizedOrderNo, item.item_name, item.qty_required);
+    }
+  });
+
+  createOrderTx();
+  const created = db
+    .prepare('SELECT * FROM sorting_orders WHERE order_no = ?')
+    .get(normalizedOrderNo) as SortingOrderRecord | undefined;
+  if (!created) {
+    throw new Error('Failed to initialize sorting order.');
+  }
+  return created;
+};
+
+const applySortingScan = (params: {
+  order_no: string;
+  item_name?: string;
+  qty?: number;
+  user?: string;
+  request_id?: string;
+}) => {
+  const normalizedOrderNo = normalizeSortingOrderNo(params.order_no);
+  const scanQty = coercePositiveInt(params.qty, 1);
+  const preferredItemName = String(params.item_name ?? '').trim().toLowerCase();
+  const scanUser = String(params.user ?? 'system').trim() || 'system';
+  const requestId = String(params.request_id ?? '').trim() || null;
+
+  const order = db
+    .prepare('SELECT * FROM sorting_orders WHERE order_no = ?')
+    .get(normalizedOrderNo) as SortingOrderRecord | undefined;
+  if (!order) {
+    throw new Error('Sorting order was not initialized.');
+  }
+
+  const items = db
+    .prepare('SELECT * FROM sorting_items WHERE order_no = ? ORDER BY id ASC')
+    .all(normalizedOrderNo) as SortingItemRecord[];
+  if (items.length === 0) {
+    throw new Error('No order items found for this sorting order.');
+  }
+
+  let remaining = scanQty;
+  const increments = new Map<number, number>();
+
+  const applyToItem = (item: SortingItemRecord) => {
+    if (remaining <= 0) return;
+    const available = Math.max(0, item.qty_required - item.qty_sorted - (increments.get(item.id) ?? 0));
+    if (available <= 0) return;
+    const used = Math.min(remaining, available);
+    if (used <= 0) return;
+    increments.set(item.id, (increments.get(item.id) ?? 0) + used);
+    remaining -= used;
+  };
+
+  if (preferredItemName) {
+    const targetItem =
+      items.find((item) => item.item_name.trim().toLowerCase() === preferredItemName) ??
+      items.find((item) => item.item_name.trim().toLowerCase().includes(preferredItemName));
+    if (targetItem) applyToItem(targetItem);
+  }
+
+  const categoryRank = (item: SortingItemRecord) => {
+    const category = detectSortingItemCategory(item.item_name);
+    if (category === 'clothes') return 0;
+    if (category === 'home_phase2') return 1;
+    return 2;
+  };
+  const prioritizedItems = [...items].sort((a, b) => categoryRank(a) - categoryRank(b) || a.id - b.id);
+
+  for (const item of prioritizedItems) {
+    applyToItem(item);
+    if (remaining <= 0) break;
+  }
+
+  const consumed = scanQty - remaining;
+  const commitTx = db.transaction(() => {
+    for (const item of items) {
+      const delta = increments.get(item.id) ?? 0;
+      if (delta <= 0) continue;
+      const nextSorted = Math.min(item.qty_required, item.qty_sorted + delta);
+      const nextStatus = toSortingItemStatus(nextSorted, item.qty_required);
+      db.prepare(
+        `UPDATE sorting_items
+         SET qty_sorted = ?, status = ?
+         WHERE id = ?`
+      ).run(nextSorted, nextStatus, item.id);
+    }
+
+    const orderAfterCell = db
+      .prepare('SELECT table_id, row_no, col_no FROM sorting_orders WHERE order_no = ?')
+      .get(normalizedOrderNo) as { table_id: number | null; row_no: number | null; col_no: number | null } | undefined;
+
+    db.prepare(
+      `INSERT INTO sorting_scans (order_no, scanned_code, table_id, row_no, col_no, item_name, qty, user, request_id, timestamp)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+    ).run(
+      normalizedOrderNo,
+      normalizedOrderNo,
+      orderAfterCell?.table_id ?? null,
+      orderAfterCell?.row_no ?? null,
+      orderAfterCell?.col_no ?? null,
+      params.item_name ? String(params.item_name).trim() : null,
+      Math.max(consumed, 0),
+      scanUser,
+      requestId
+    );
+  });
+
+  commitTx();
+  const synced = syncSortingOrderProgress(normalizedOrderNo);
+  return {
+    consumed,
+    overflow: remaining,
+    ...(synced ?? {}),
+  };
+};
+
+const applySortingIroningStart = (params: {
+  order_no: string;
+  qty?: number;
+  user?: string;
+  request_id?: string;
+}) => {
+  const normalizedOrderNo = normalizeSortingOrderNo(params.order_no);
+  const inputQty = coercePositiveInt(params.qty, 1);
+  const ironingUser = String(params.user ?? 'system').trim() || 'system';
+  const requestId = String(params.request_id ?? '').trim() || null;
+
+  const order = db
+    .prepare('SELECT * FROM sorting_orders WHERE order_no = ?')
+    .get(normalizedOrderNo) as SortingOrderRecord | undefined;
+  if (!order) {
+    throw new Error('Sorting order was not initialized.');
+  }
+  if (order.status === 'packed_complete') {
+    throw new Error('Order is already packed complete.');
+  }
+
+  const items = db
+    .prepare('SELECT * FROM sorting_items WHERE order_no = ? ORDER BY id ASC')
+    .all(normalizedOrderNo) as SortingItemRecord[];
+  const clothesItems = items.filter((item) => detectSortingItemCategory(item.item_name) === 'clothes');
+  if (clothesItems.length === 0) {
+    throw new Error('No clothes items found in this order.');
+  }
+
+  const totalSortedAvailable = clothesItems.reduce((sum, item) => {
+    const sortedAvailable = Math.min(item.qty_sorted, item.qty_required);
+    return sum + Math.max(0, sortedAvailable - item.qty_ironed);
+  }, 0);
+
+  let remaining = inputQty;
+  const increments = new Map<number, number>();
+  for (const item of clothesItems) {
+    if (remaining <= 0) break;
+    const sortedAvailable = Math.min(item.qty_sorted, item.qty_required);
+    const available = Math.max(0, sortedAvailable - item.qty_ironed - (increments.get(item.id) ?? 0));
+    if (available <= 0) continue;
+    const used = Math.min(remaining, available);
+    increments.set(item.id, (increments.get(item.id) ?? 0) + used);
+    remaining -= used;
+  }
+
+  const consumed = inputQty - remaining;
+  if (consumed <= 0) {
+    if (totalSortedAvailable <= 0) {
+      throw new Error('No sorted clothes are available for ironing yet.');
+    }
+    throw new Error('All sorted clothes pieces for this order are already ironed.');
+  }
+
+  const firstItemWithDelta = clothesItems.find((item) => (increments.get(item.id) ?? 0) > 0);
+
+  const commitTx = db.transaction(() => {
+    for (const item of clothesItems) {
+      const delta = increments.get(item.id) ?? 0;
+      if (delta <= 0) continue;
+      const nextIroned = Math.min(item.qty_required, item.qty_ironed + delta);
+      db.prepare(
+        `UPDATE sorting_items
+         SET qty_ironed = ?
+         WHERE id = ?`
+      ).run(nextIroned, item.id);
+    }
+
+    if (order.status !== 'packing_in_progress' && order.status !== 'packed_complete') {
+      db.prepare(
+        `UPDATE sorting_orders
+         SET status = 'packing_in_progress', updated_at = CURRENT_TIMESTAMP
+         WHERE order_no = ?`
+      ).run(normalizedOrderNo);
+    }
+
+    db.prepare(
+      `INSERT INTO sorting_ironing_events (order_no, item_name, qty, user, request_id, timestamp)
+       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+    ).run(
+      normalizedOrderNo,
+      firstItemWithDelta?.item_name ?? null,
+      consumed,
+      ironingUser,
+      requestId
+    );
+  });
+
+  commitTx();
+
+  const synced = syncSortingOrderProgress(normalizedOrderNo);
+  const clothesAfter = (synced?.items ?? items).filter((item) => detectSortingItemCategory(item.item_name) === 'clothes');
+  const required = clothesAfter.reduce((sum, item) => sum + Math.max(0, Number(item.qty_required) || 0), 0);
+  const ironed = clothesAfter.reduce((sum, item) => sum + Math.max(0, Number(item.qty_ironed) || 0), 0);
+  return {
+    consumed,
+    overflow: remaining,
+    ironing_progress: {
+      ironed,
+      required,
+      complete: required > 0 && ironed >= required,
+    },
+    ...(synced ?? {}),
+  };
+};
+
+const getBlanketPackingBundle = (orderNo: string) => {
+  const normalizedOrderNo = normalizeSortingOrderNo(orderNo);
+  const order = db
+    .prepare('SELECT * FROM sorting_orders WHERE order_no = ?')
+    .get(normalizedOrderNo) as SortingOrderRecord | undefined;
+  if (!order) return null;
+  const items = db
+    .prepare('SELECT * FROM sorting_items WHERE order_no = ? ORDER BY id ASC')
+    .all(normalizedOrderNo) as SortingItemRecord[];
+  const blanketItems = items.filter((item) => detectSortingItemCategory(item.item_name) === 'blanket_phase3');
+  const totals = blanketItems.reduce(
+    (acc, item) => {
+      acc.required += Math.max(0, Number(item.qty_required) || 0);
+      acc.packed += Math.max(0, Math.min(Number(item.qty_required) || 0, Number(item.qty_packed) || 0));
+      return acc;
+    },
+    { required: 0, packed: 0 }
+  );
+  return {
+    order,
+    items: blanketItems,
+    totals: {
+      required: totals.required,
+      packed: totals.packed,
+      remaining: Math.max(0, totals.required - totals.packed),
+      complete: totals.required > 0 && totals.packed >= totals.required,
+    },
+  };
+};
+
+const applyBlanketPackingScan = (params: {
+  order_no: string;
+  item_name?: string;
+  qty?: number;
+  user?: string;
+  request_id?: string;
+}) => {
+  const normalizedOrderNo = normalizeSortingOrderNo(params.order_no);
+  const scanQty = coercePositiveInt(params.qty, 1);
+  const requestedItemName = String(params.item_name ?? '').trim().toLowerCase();
+  const packedByUser = String(params.user ?? 'system').trim() || 'system';
+  const requestId = String(params.request_id ?? '').trim() || null;
+
+  const order = db
+    .prepare('SELECT * FROM sorting_orders WHERE order_no = ?')
+    .get(normalizedOrderNo) as SortingOrderRecord | undefined;
+  if (!order) {
+    throw new Error('Sorting order was not initialized.');
+  }
+
+  const allItems = db
+    .prepare('SELECT * FROM sorting_items WHERE order_no = ? ORDER BY id ASC')
+    .all(normalizedOrderNo) as SortingItemRecord[];
+  const blanketItems = allItems.filter((item) => detectSortingItemCategory(item.item_name) === 'blanket_phase3');
+  if (blanketItems.length === 0) {
+    throw new Error('No blanket or pillow items found in this order.');
+  }
+
+  let remaining = scanQty;
+  const increments = new Map<number, number>();
+  const applyToItem = (item: SortingItemRecord) => {
+    if (remaining <= 0) return;
+    const required = Math.max(0, Number(item.qty_required) || 0);
+    const packed = Math.max(0, Number(item.qty_packed) || 0);
+    const staged = increments.get(item.id) ?? 0;
+    const available = Math.max(0, required - packed - staged);
+    if (available <= 0) return;
+    const used = Math.min(remaining, available);
+    if (used <= 0) return;
+    increments.set(item.id, staged + used);
+    remaining -= used;
+  };
+
+  if (requestedItemName) {
+    const targetItem =
+      blanketItems.find((item) => item.item_name.trim().toLowerCase() === requestedItemName) ??
+      blanketItems.find((item) => item.item_name.trim().toLowerCase().includes(requestedItemName));
+    if (targetItem) {
+      applyToItem(targetItem);
+    }
+  }
+
+  // Fill remaining qty over all blanket items in stable order.
+  for (const item of blanketItems) {
+    applyToItem(item);
+    if (remaining <= 0) break;
+  }
+
+  const consumed = scanQty - remaining;
+  if (consumed <= 0) {
+    throw new Error('Blanket/pillow quantities are already fully packed for this order.');
+  }
+
+  const firstTouched = blanketItems.find((item) => (increments.get(item.id) ?? 0) > 0);
+  const commitTx = db.transaction(() => {
+    for (const item of blanketItems) {
+      const delta = increments.get(item.id) ?? 0;
+      if (delta <= 0) continue;
+      const required = Math.max(0, Number(item.qty_required) || 0);
+      const nextPacked = Math.min(required, Math.max(0, Number(item.qty_packed) || 0) + delta);
+      db.prepare(
+        `UPDATE sorting_items
+         SET qty_packed = ?
+         WHERE id = ?`
+      ).run(nextPacked, item.id);
+    }
+
+    db.prepare(
+      `INSERT INTO sorting_blanket_packing_events (order_no, item_name, qty, user, request_id, timestamp)
+       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+    ).run(normalizedOrderNo, firstTouched?.item_name ?? null, consumed, packedByUser, requestId);
+
+    // Record in global logs as requested.
+    db.prepare(
+      `INSERT INTO logs (blanket_number, action, user, store, row, column, status, request_id, device, ip, notes, timestamp)
+       VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, NULL, NULL, ?, CURRENT_TIMESTAMP)`
+    ).run(
+      normalizedOrderNo,
+      'packed',
+      packedByUser,
+      'blanket_packing',
+      'packed',
+      requestId,
+      `Blanket packing scan${firstTouched?.item_name ? ` • ${firstTouched.item_name}` : ''} • qty ${consumed}`
+    );
+  });
+
+  commitTx();
+  const bundle = getBlanketPackingBundle(normalizedOrderNo);
+  if (!bundle) {
+    throw new Error('Failed to refresh blanket packing order.');
+  }
+
+  return {
+    consumed,
+    overflow: remaining,
+    ...bundle,
+  };
+};
+
+const buildSortingState = () => {
+  const tables = db
+    .prepare('SELECT * FROM sorting_tables ORDER BY sort_order ASC, id ASC')
+    .all() as SortingTableRecord[];
+
+  const tablePayload = tables.map((table) => {
+    const cells = db
+      .prepare(
+        `SELECT c.id, c.table_id, c.row_no, c.col_no, c.active_order_no, c.status, c.updated_at,
+                o.customer_name, o.total_required, o.total_sorted, o.status AS order_status
+         FROM sorting_cells c
+         LEFT JOIN sorting_orders o ON o.order_no = c.active_order_no
+         WHERE c.table_id = ?
+           AND c.row_no BETWEEN 1 AND ?
+           AND c.col_no BETWEEN 1 AND ?
+         ORDER BY c.row_no ASC, c.col_no ASC`
+      )
+      .all(table.id, table.rows, table.cols) as Array<
+      SortingCellRecord & {
+        customer_name: string | null;
+        total_required: number | null;
+        total_sorted: number | null;
+        order_status: SortingOrderStatus | null;
+      }
+    >;
+
+    const summary = {
+      empty: cells.filter((cell) => !cell.active_order_no).length,
+      pending: cells.filter((cell) => cell.status === 'pending').length,
+      partial: cells.filter((cell) => cell.status === 'partial').length,
+      complete: cells.filter((cell) => cell.status === 'complete').length,
+    };
+
+    return {
+      ...table,
+      cells: cells.map((cell) => ({
+        ...cell,
+        progress: {
+          sorted: Number(cell.total_sorted ?? 0),
+          required: Number(cell.total_required ?? 0),
+        },
+      })),
+      summary,
+    };
+  });
+
+  const orders = db
+    .prepare('SELECT * FROM sorting_orders ORDER BY updated_at DESC, created_at DESC')
+    .all() as SortingOrderRecord[];
+  const itemsByOrder = new Map<string, SortingItemRecord[]>();
+  const items = db
+    .prepare('SELECT * FROM sorting_items ORDER BY order_no ASC, id ASC')
+    .all() as SortingItemRecord[];
+  for (const item of items) {
+    if (!itemsByOrder.has(item.order_no)) itemsByOrder.set(item.order_no, []);
+    itemsByOrder.get(item.order_no)!.push(item);
+  }
+
+  const ordersPayload = orders.map((order) => ({
+    ...order,
+    items: itemsByOrder.get(order.order_no) ?? [],
+    progress_percent:
+      order.total_required > 0 ? Math.min(100, Math.round((order.total_sorted / order.total_required) * 100)) : 0,
+  }));
+
+  return {
+    tables: tablePayload,
+    orders: {
+      all: ordersPayload,
+      sorting: ordersPayload.filter((order) => order.status === 'sorting_pending' || order.status === 'sorting_partial'),
+      ready_for_packing: ordersPayload.filter((order) => order.status === 'sorted_complete' || order.status === 'packing_in_progress'),
+      packed: ordersPayload.filter((order) => order.status === 'packed_complete'),
+    },
+  };
 };
 
 const getOtpPhonePurposeKey = (phoneNormalized: string, purpose: CustomerOtpPurpose) =>
@@ -544,35 +2681,150 @@ const verifyOtpViaTwilioVerify = async (phoneE164: string, code: string) => {
   return body.valid === true || String(body.status ?? '').toLowerCase() === 'approved';
 };
 
+class OtpProviderError extends Error {
+  status: number;
+  code: string;
+  details?: string;
+
+  constructor(status: number, code: string, message: string, details?: string) {
+    super(message);
+    this.name = 'OtpProviderError';
+    this.status = status;
+    this.code = code;
+    this.details = details;
+  }
+}
+
+const tryParseJson = (text: string) => {
+  try {
+    return text ? (JSON.parse(text) as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+};
+
 const formatAipsoftPhone = (phoneNormalized: string, phoneE164: string) => {
   if (AIPSOFT_SMS_PHONE_MODE === 'e164') return phoneE164;
   if (AIPSOFT_SMS_PHONE_MODE === 'e164_no_plus') return phoneE164.replace(/^\+/, '');
   return phoneNormalized;
 };
 
-const sendOtpViaAipsoft = async (phoneNormalized: string, phoneE164: string, code: string) => {
-  const phone = formatAipsoftPhone(phoneNormalized, phoneE164);
-  const message = AIPSOFT_SMS_TEMPLATE.replace(/\{\{\s*otp\s*\}\}/gi, code);
-  const form = new FormData();
-  form.append('secret', AIPSOFT_SMS_SECRET);
-  form.append('type', AIPSOFT_SMS_TYPE);
-  form.append('message', message);
-  form.append('phone', phone);
-  form.append('expire', String(AIPSOFT_SMS_EXPIRE_SECONDS));
+const getAipsoftPhoneCandidates = (phoneNormalized: string, phoneE164: string) => {
+  const e164NoPlus = phoneE164.replace(/^\+/, '');
+  if (AIPSOFT_SMS_PHONE_MODE === 'auto') {
+    return Array.from(new Set([phoneNormalized, e164NoPlus, phoneE164]));
+  }
+  return [formatAipsoftPhone(phoneNormalized, phoneE164)];
+};
 
-  const response = await fetch(AIPSOFT_SMS_URL, {
-    method: 'POST',
-    body: form,
-  });
+const sendOtpViaAipsoft = async (
+  phoneNormalized: string,
+  phoneE164: string,
+  channel: CustomerOtpChannel
+) => {
+  // AIPSoft OTP endpoint expects a template that contains {{otp}}.
+  const sourceTemplate = channel === 'whatsapp' ? AIPSOFT_WHATSAPP_TEMPLATE : AIPSOFT_SMS_TEMPLATE;
+  const templateHasOtp = /\{\{\s*otp\s*\}\}/i.test(sourceTemplate);
+  const message = templateHasOtp ? sourceTemplate : `${sourceTemplate} {{otp}}`;
+  const aipsoftType = channel === 'whatsapp' ? AIPSOFT_WHATSAPP_TYPE : AIPSOFT_SMS_TYPE;
+  const phoneCandidates = getAipsoftPhoneCandidates(phoneNormalized, phoneE164);
+  const encodings: Array<'multipart' | 'urlencoded'> = ['multipart', 'urlencoded'];
+  let lastError: Error | null = null;
+  let lastResponseBody = '';
+  let lastAttempt = '';
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => '');
-    throw new Error(text || `AIPSoft send failed (${response.status})`);
+  const getBasePayload = (phone: string) => {
+    const payload: Array<[string, string]> = [
+      ['secret', AIPSOFT_SMS_SECRET],
+      ['type', aipsoftType],
+      ['message', message],
+      ['phone', phone],
+      ['expire', String(AIPSOFT_SMS_EXPIRE_SECONDS)],
+    ];
+
+    if (channel === 'whatsapp') {
+      // Optional WhatsApp account routing field documented by AIPSoft.
+      if (AIPSOFT_WHATSAPP_ACCOUNT) {
+        payload.push(['account', AIPSOFT_WHATSAPP_ACCOUNT]);
+      }
+      return payload;
+    }
+
+    // Optional SMS routing fields documented by AIPSoft.
+    if (AIPSOFT_SMS_MODE === 'devices' || AIPSOFT_SMS_MODE === 'credits') {
+      payload.push(['mode', AIPSOFT_SMS_MODE]);
+    }
+    if (AIPSOFT_SMS_DEVICE) payload.push(['device', AIPSOFT_SMS_DEVICE]);
+    if (AIPSOFT_SMS_GATEWAY) payload.push(['gateway', AIPSOFT_SMS_GATEWAY]);
+    if (AIPSOFT_SMS_SIM) payload.push(['sim', AIPSOFT_SMS_SIM]);
+    return payload;
+  };
+
+  const sendRequest = async (payload: Array<[string, string]>, encoding: 'multipart' | 'urlencoded') => {
+    if (encoding === 'urlencoded') {
+      const form = new URLSearchParams();
+      for (const [key, value] of payload) form.append(key, value);
+      return fetch(AIPSOFT_SMS_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: form.toString(),
+      });
+    }
+
+    const form = new FormData();
+    for (const [key, value] of payload) form.append(key, value);
+    return fetch(AIPSOFT_SMS_URL, {
+      method: 'POST',
+      body: form,
+    });
+  };
+
+  for (const phone of phoneCandidates) {
+    const payload = getBasePayload(phone);
+    for (const encoding of encodings) {
+      lastAttempt = `phone=${phone}, encoding=${encoding}, mode=${AIPSOFT_SMS_MODE || 'default'}`;
+      const response = await sendRequest(payload, encoding);
+
+      const responseBody = await response.text().catch(() => '');
+      lastResponseBody = responseBody;
+      const parsed = tryParseJson(responseBody) as { status?: number | string; message?: string; data?: unknown };
+
+      const providerStatus = Number(parsed.status ?? (response.ok ? 200 : response.status));
+      const providerMessage = String(parsed.message ?? responseBody ?? '').toLowerCase();
+      const looksInvalidParam = providerMessage.includes('invalid parameter');
+
+      if (response.ok && providerStatus === 200) {
+        return;
+      }
+
+      lastError = new Error(responseBody || `AIPSoft send failed (${response.status})`);
+      // When parameters are rejected, try the next attempt strategy.
+      if (looksInvalidParam) {
+        continue;
+      }
+      throw lastError;
+    }
   }
 
-  const responseBody = await response.text().catch(() => '');
-  if (responseBody && /error|failed|invalid/i.test(responseBody)) {
-    throw new Error(responseBody);
+  if (lastError) {
+    const parsed = tryParseJson(lastResponseBody) as { status?: number | string; message?: string; data?: unknown };
+    const providerMessage = String(parsed.message ?? lastResponseBody ?? '').toLowerCase();
+    if (providerMessage.includes('invalid parameter')) {
+      throw new OtpProviderError(
+        502,
+        'AIPSOFT_INVALID_PARAMETERS',
+        `${channel === 'whatsapp' ? 'WhatsApp' : 'SMS'} provider rejected OTP request parameters. Verify AIPSoft OTP permission and channel configuration.`,
+        `${lastAttempt} | ${lastResponseBody} | channel=${channel}`
+      );
+    }
+    throw new OtpProviderError(
+      502,
+      'AIPSOFT_SEND_FAILED',
+      `Failed to send OTP via ${channel === 'whatsapp' ? 'WhatsApp' : 'SMS'} provider.`,
+      `${lastAttempt} | ${lastResponseBody || lastError.message} | channel=${channel}`
+    );
   }
 };
 
@@ -584,18 +2836,23 @@ const verifyOtpViaAipsoft = async (code: string) => {
   const endpoint = `${AIPSOFT_VERIFY_URL}${AIPSOFT_VERIFY_URL.includes('?') ? '&' : '?'}${query.toString()}`;
   const response = await fetch(endpoint, { method: 'GET' });
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => '');
-    throw new Error(text || `AIPSoft verify failed (${response.status})`);
-  }
-
-  // Accept multiple possible response shapes from provider.
-  const body = (await response.json().catch(() => ({}))) as {
+  const rawBody = await response.text().catch(() => '');
+  const body = tryParseJson(rawBody) as {
     status?: number | string;
     message?: string;
     data?: boolean | string | number | null;
   };
 
+  if (!response.ok) {
+    throw new OtpProviderError(
+      502,
+      'AIPSOFT_VERIFY_FAILED',
+      'Failed to verify OTP with SMS provider.',
+      rawBody || `status=${response.status}`
+    );
+  }
+
+  // Accept multiple possible response shapes from provider.
   const message = String(body.message ?? '').toLowerCase();
   const statusCode = Number(body.status ?? 0);
 
@@ -849,26 +3106,56 @@ const isAdminUsername = async (username: unknown) => {
   if (typeof username !== 'string' || username.trim().length === 0) return false;
   const row = db.prepare('SELECT role FROM users WHERE username = ?').get(username.trim()) as { role?: string } | undefined;
   const role = String(row?.role ?? '').toLowerCase();
-  return role === 'admin' || role === 'super-admin';
+  return role === 'admin' || role === 'super-admin' || role === 'manager';
 };
 
-const SESSION_TTL_MS = 1000 * 60 * 60 * 12; // 12 hours
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
 const sessionStore = new Map<string, SessionRecord>();
 
-const isAdminRole = (role: unknown) => {
-  const normalized = String(role ?? '').toLowerCase();
-  return normalized === 'admin' || normalized === 'super-admin';
+const SYSTEM_ADMIN_ROLES = new Set(['super-admin', 'admin', 'manager']);
+const OPERATIONS_MANAGER_ROLES = new Set(['super-admin', 'admin', 'manager', 'branch-manager']);
+const PICKER_ROLES = new Set(['super-admin', 'admin', 'manager', 'branch-manager', 'cashier']);
+const SORTING_ROLES = new Set(['super-admin', 'admin', 'manager', 'branch-manager', 'sorter', 'packer']);
+
+const hasRole = (role: unknown, allowedRoles: Set<string>) => {
+  const normalized = String(role ?? '').toLowerCase().trim();
+  return allowedRoles.has(normalized);
 };
+
+const isAdminRole = (role: unknown) => hasRole(role, SYSTEM_ADMIN_ROLES);
+const isOperationsManagerRole = (role: unknown) => hasRole(role, OPERATIONS_MANAGER_ROLES);
+const isPickerRole = (role: unknown) => hasRole(role, PICKER_ROLES);
+const isSortingRole = (role: unknown) => hasRole(role, SORTING_ROLES);
 
 const getSessionFromRequest = (req: any): SessionRecord | null => {
   const token = extractBearerToken(req);
   if (!token) return null;
-  const session = sessionStore.get(token);
-  if (!session) return null;
-  if (session.expires_at <= Date.now()) {
-    sessionStore.delete(token);
+  const fromMemory = sessionStore.get(token);
+  if (fromMemory) {
+    if (fromMemory.expires_at <= Date.now()) {
+      sessionStore.delete(token);
+      db.prepare('DELETE FROM app_sessions WHERE token = ?').run(token);
+      return null;
+    }
+    return fromMemory;
+  }
+
+  const row = db
+    .prepare('SELECT token, user_id, username, role, expires_at FROM app_sessions WHERE token = ?')
+    .get(token) as SessionRecord | undefined;
+  if (!row) return null;
+  if (Number(row.expires_at) <= Date.now()) {
+    db.prepare('DELETE FROM app_sessions WHERE token = ?').run(token);
     return null;
   }
+  const session: SessionRecord = {
+    token: row.token,
+    user_id: Number(row.user_id),
+    username: row.username,
+    role: row.role,
+    expires_at: Number(row.expires_at),
+  };
+  sessionStore.set(token, session);
   return session;
 };
 
@@ -882,6 +3169,11 @@ const issueSession = (user: Pick<SQLiteUserRecord, 'id' | 'username' | 'role'>) 
     expires_at: Date.now() + SESSION_TTL_MS,
   };
   sessionStore.set(token, session);
+  db.prepare('DELETE FROM app_sessions WHERE token = ?').run(token);
+  db.prepare(
+    `INSERT INTO app_sessions (token, user_id, username, role, expires_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(token, session.user_id, session.username, session.role, session.expires_at, new Date().toISOString());
   return session;
 };
 
@@ -900,7 +3192,43 @@ const requireAdmin = (req: any, res: any, next: any) => {
     return res.status(401).json({ error: 'Authentication required.' });
   }
   if (!isAdminRole(session.role)) {
-    return res.status(403).json({ error: 'Admin only.' });
+    return res.status(403).json({ error: 'Admin or manager only.' });
+  }
+  req.auth = session;
+  next();
+};
+
+const requireOperationsManager = (req: any, res: any, next: any) => {
+  const session = getSessionFromRequest(req);
+  if (!session) {
+    return res.status(401).json({ error: 'Authentication required.' });
+  }
+  if (!isOperationsManagerRole(session.role)) {
+    return res.status(403).json({ error: 'Manager access required.' });
+  }
+  req.auth = session;
+  next();
+};
+
+const requirePicker = (req: any, res: any, next: any) => {
+  const session = getSessionFromRequest(req);
+  if (!session) {
+    return res.status(401).json({ error: 'Authentication required.' });
+  }
+  if (!isPickerRole(session.role)) {
+    return res.status(403).json({ error: 'Picker access required.' });
+  }
+  req.auth = session;
+  next();
+};
+
+const requireSorting = (req: any, res: any, next: any) => {
+  const session = getSessionFromRequest(req);
+  if (!session) {
+    return res.status(401).json({ error: 'Authentication required.' });
+  }
+  if (!isSortingRole(session.role)) {
+    return res.status(403).json({ error: 'Sorting access required.' });
   }
   req.auth = session;
   next();
@@ -1033,7 +3361,7 @@ const restoreSqliteFromSnapshot = (snapshot: { stores: any[]; blankets: any[]; l
 
 const storeCount = db.prepare('SELECT COUNT(*) as count FROM stores').get() as { count: number };
 
-const requiredUsers = [
+const coreRequiredUsers = [
   { username: 'sanad', full_name: 'Sanad', role: 'super-admin' as AppUserRole, password: '05687' },
   { username: 'anglica', full_name: 'Anglica', role: 'admin' as AppUserRole, password: '0123' },
   { username: 'cris', full_name: 'Cris', role: 'cashier' as AppUserRole, password: '123' },
@@ -1044,6 +3372,75 @@ const requiredUsers = [
   { username: 'maaz', full_name: 'Maaz', role: 'admin' as AppUserRole, password: '0123' },
   { username: 'muhanad', full_name: 'Muhanad', role: 'admin' as AppUserRole, password: '0123' },
 ];
+
+const bulkStaffFullNames = [
+  'MANAR HAKIM',
+  'MOHAMED OSMAN SAEED AHMED',
+  'SURENDERA BARSATI RAM',
+  'AMBAREESH SATHEESAN AMBILI SATHEESAN GOPALAN',
+  'RAJARAM VIKRAMA PAL',
+  'SHYAM CHAND JAUTAM',
+  'SAHARUL ISLAM BORLASKAR HARI MIA BORLASKAR',
+  'VINOD KUMAR KANAUJIA BANKELAL KANAUJIA',
+  'ANIL KUMAR LALLAN DHOBI',
+  'MUHAMMAD RIAZ MUHAMMAD ISHAQ',
+  'MUJAHID RAMAZAN RAMAZAN',
+  'SAID AMIN MOEEN GUL',
+  'NOOR UL ISLAM SHAMS UL ISLAM',
+  'EMAAN FAYYAZ ABBASI',
+  'ANGELICA GANNABAN CABRERA',
+  'CHRIS MARIE RUFULE CALAMBA',
+  'MAAZ ABDALLA HUSSIEN MOHAMED',
+  'MOHANAD MOHAMMED ALI',
+  'ANKIT RAKESH',
+  'HARIOM CHAUDHARI MEWALAL',
+  'PRADEEP KUMAR VIJAI KUMAR',
+  'MUHAMMAD SOHAIL MUHAMMAD ISHAQ',
+  'MUHAMMAD ADNAN KHAN MUHAMMAD UBAID ULLAH JAN',
+  'ALI RAZA TARIQ MAHMOOD',
+  'MUHAMMAD SOHAIL MUHAMMAD ASHFAQ',
+  'FIDA HUSSAIN ABBASI FAYYAZ AHMED ABBASI',
+  'GUL NAWAZ KHAN ABEED ULLAH KHAN',
+  'MUHAMMAD MUHAMMAD AFZAL BUTT',
+  'MUHAMMAD SULEMAN SANA ULLAH',
+];
+
+const normalizeUsernameToken = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+const buildUsernameFromFullName = (fullName: string) => {
+  const parts = fullName
+    .trim()
+    .split(/\s+/)
+    .map(normalizeUsernameToken)
+    .filter(Boolean);
+  const base = parts.slice(0, 2).join('_');
+  return base || 'user';
+};
+
+const usedUsernames = new Set(coreRequiredUsers.map((entry) => entry.username));
+const buildUniqueUsername = (baseName: string) => {
+  let candidate = baseName;
+  let suffix = 2;
+  while (usedUsernames.has(candidate)) {
+    candidate = `${baseName}${suffix}`;
+    suffix += 1;
+  }
+  usedUsernames.add(candidate);
+  return candidate;
+};
+
+const bulkStaffUsers = bulkStaffFullNames.map((fullName) => {
+  const normalizedFullName = fullName.replace(/\s+/g, ' ').trim();
+  const baseUsername = buildUsernameFromFullName(normalizedFullName);
+  return {
+    username: buildUniqueUsername(baseUsername),
+    full_name: normalizedFullName,
+    role: 'cashier' as AppUserRole,
+    password: '0123@1',
+  };
+});
+
+const requiredUsers = [...coreRequiredUsers, ...bulkStaffUsers];
 
 const seedUserStatement = db.prepare(`
   INSERT OR IGNORE INTO users (username, full_name, email, role, password, is_active)
@@ -1749,7 +4146,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/supabase/stores', requireAdmin, async (req, res) => {
+  app.post('/api/supabase/stores', requireOperationsManager, async (req, res) => {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
     const payload = req.body ?? {};
     const visualPayload = {
@@ -1780,7 +4177,7 @@ async function startServer() {
     return res.json({ success: true });
   });
 
-  app.put('/api/supabase/stores/:name', requireAdmin, async (req, res) => {
+  app.put('/api/supabase/stores/:name', requireOperationsManager, async (req, res) => {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
     const name = req.params.name;
     const payload = req.body ?? {};
@@ -1812,7 +4209,7 @@ async function startServer() {
     return res.json({ success: true });
   });
 
-  app.delete('/api/supabase/stores/:name', requireAdmin, async (req, res) => {
+  app.delete('/api/supabase/stores/:name', requireOperationsManager, async (req, res) => {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
     const name = req.params.name;
     const { count, error: countError } = await supabaseAdmin
@@ -1840,7 +4237,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/supabase/blankets', requireAdmin, async (req, res) => {
+  app.post('/api/supabase/blankets', requireOperationsManager, async (req, res) => {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
     const { blanket_number, store, row, column, status, user } = req.body ?? {};
     const action = status || 'stored';
@@ -1883,7 +4280,7 @@ async function startServer() {
     return res.json({ success: true, blanket: insertedBlanket });
   });
 
-  app.put('/api/supabase/blankets/:id', requireAdmin, async (req, res) => {
+  app.put('/api/supabase/blankets/:id', requireOperationsManager, async (req, res) => {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
     const id = Number(req.params.id);
     const { user, request_id, device, ip, notes, ...payload } = req.body ?? {};
@@ -1932,7 +4329,79 @@ async function startServer() {
     return res.json({ success: true });
   });
 
-  app.delete('/api/supabase/blankets/:id', requireAdmin, async (req, res) => {
+  app.post('/api/supabase/blankets/:id/pick', requirePicker, async (req: any, res) => {
+    if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid blanket id.' });
+    const user = req.body?.user || req.auth?.username || 'system';
+    const meta = getLogMeta(req);
+
+    const { data: blanket, error: fetchBlanketError } = await supabaseAdmin
+      .from('blankets')
+      .select('id, blanket_number, store, row, column, status')
+      .eq('id', id)
+      .single();
+    if (fetchBlanketError) return res.status(500).json({ error: fetchBlanketError.message, code: (fetchBlanketError as any).code });
+    if (!blanket) return res.status(404).json({ error: 'Blanket not found' });
+
+    const { data: store, error: storeError } = await supabaseAdmin
+      .from('stores')
+      .select('store_name, rows, columns, auto_settle, store_type, slot_capacity')
+      .eq('store_name', blanket.store)
+      .single();
+    if (storeError) return res.status(500).json({ error: storeError.message, code: (storeError as any).code });
+    if (!store) return res.status(400).json({ error: `Store not found: ${blanket.store}` });
+
+    const canAutoSettle =
+      Boolean((store as any).auto_settle) &&
+      String((store as any).store_type ?? 'grid') !== 'hanger' &&
+      Math.max(1, Number((store as any).slot_capacity ?? 1)) <= 1;
+
+    if (String(blanket.status) === 'stored' && canAutoSettle) {
+      const { data: columnItems, error: columnItemsError } = await supabaseAdmin
+        .from('blankets')
+        .select('id, row')
+        .eq('store', blanket.store)
+        .eq('column', blanket.column)
+        .eq('status', 'stored')
+        .neq('id', id)
+        .order('row', { ascending: true });
+      if (columnItemsError) return res.status(500).json({ error: columnItemsError.message, code: (columnItemsError as any).code });
+
+      const items = Array.isArray(columnItems) ? columnItems : [];
+      const maxRows = Math.max(1, Number((store as any).rows ?? 1));
+      const startRow = maxRows - items.length + 1;
+      for (let index = 0; index < items.length; index += 1) {
+        const entry = items[index] as { id: number; row: number };
+        const targetRow = startRow + index;
+        if (Number(entry.row) === targetRow) continue;
+        const { error: moveError } = await supabaseAdmin.from('blankets').update({ row: targetRow }).eq('id', entry.id);
+        if (moveError) return res.status(500).json({ error: moveError.message, code: (moveError as any).code });
+      }
+    }
+
+    const { error: pickError } = await supabaseAdmin.from('blankets').update({ status: 'picked' }).eq('id', id);
+    if (pickError) return res.status(500).json({ error: pickError.message, code: (pickError as any).code });
+
+    const { error: logError } = await insertSupabaseLog({
+      blanket_number: blanket.blanket_number,
+      action: 'picked',
+      user,
+      store: blanket.store,
+      row: blanket.row,
+      column: blanket.column,
+      status: 'picked',
+      request_id: meta.request_id,
+      device: meta.device,
+      ip: meta.ip,
+      notes: meta.notes,
+    });
+    if (logError) return res.status(500).json({ error: logError.message, code: (logError as any).code });
+
+    return res.json({ success: true });
+  });
+
+  app.delete('/api/supabase/blankets/:id', requireOperationsManager, async (req, res) => {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
     const id = Number(req.params.id);
     const user = req.body?.user ?? 'system';
@@ -1986,7 +4455,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/supabase/logs', requireAdmin, async (req, res) => {
+  app.post('/api/supabase/logs', requireOperationsManager, async (req, res) => {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
     const meta = getLogMeta(req);
     const payload = { ...(req.body ?? {}) } as Record<string, unknown>;
@@ -2126,7 +4595,9 @@ async function startServer() {
   app.get('/api/users', requireAdmin, async (req, res) => {
     try {
       const username = typeof req.query.username === 'string' ? req.query.username : undefined;
-      const users = isSupabaseAdminEnabled ? await getSupabaseUsers(username) : getSQLiteUsers(username);
+      // Use SQLite as the source of truth for app users so seeded/local users
+      // are always visible in User Management, even when Supabase is enabled.
+      const users = getSQLiteUsers(username);
 
       if (username) {
         const user = users[0];
@@ -2158,10 +4629,12 @@ async function startServer() {
       const sqliteUser = upsertSQLiteUser(payload);
 
       if (isSupabaseAdminEnabled && supabaseAdmin) {
-        const authUserId = await ensureAuthUser(payload);
-        await upsertPublicUser(payload, authUserId);
-        const createdUser = (await getSupabaseUsers(payload.username))[0];
-        return res.status(201).json(createdUser);
+        try {
+          const authUserId = await ensureAuthUser(payload);
+          await upsertPublicUser(payload, authUserId);
+        } catch (syncError) {
+          console.warn('Supabase user sync skipped during create:', syncError);
+        }
       }
 
       res.status(201).json(normalizeSQLiteUser(sqliteUser));
@@ -2192,28 +4665,20 @@ async function startServer() {
       upsertSQLiteUser(payload, userId);
 
       if (isSupabaseAdminEnabled && supabaseAdmin) {
-        const { data: publicUser, error } = await supabaseAdmin
-          .from('users')
-          .select('id, username, role, auth_user_id')
-          .eq('id', userId)
-          .single();
+        try {
+          const { data: publicUser, error } = await supabaseAdmin
+            .from('users')
+            .select('auth_user_id')
+            .eq('username', sqliteExisting.username)
+            .maybeSingle();
 
-        if (error) throw error;
+          if (error) throw error;
 
-        const authUserId = await ensureAuthUser(payload, publicUser.auth_user_id);
-        const { error: updateError } = await supabaseAdmin
-          .from('users')
-          .update({
-            username: payload.username,
-            role: payload.role,
-            auth_user_id: authUserId,
-          })
-          .eq('id', userId);
-
-        if (updateError) throw updateError;
-
-        const updatedUser = (await getSupabaseUsers(payload.username))[0];
-        return res.json(updatedUser);
+          const authUserId = await ensureAuthUser(payload, publicUser?.auth_user_id ?? undefined);
+          await upsertPublicUser(payload, authUserId);
+        } catch (syncError) {
+          console.warn('Supabase user sync skipped during update:', syncError);
+        }
       }
 
       const updatedUser = db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as SQLiteUserRecord;
@@ -2235,20 +4700,24 @@ async function startServer() {
       db.prepare('DELETE FROM users WHERE id = ?').run(userId);
 
       if (isSupabaseAdminEnabled && supabaseAdmin) {
-        const { data: publicUser, error } = await supabaseAdmin
-          .from('users')
-          .select('id, auth_user_id')
-          .eq('id', userId)
-          .single();
+        try {
+          const { data: publicUser, error } = await supabaseAdmin
+            .from('users')
+            .select('auth_user_id')
+            .eq('username', sqliteExisting.username)
+            .maybeSingle();
 
-        if (error) throw error;
+          if (error) throw error;
 
-        const { error: deletePublicError } = await supabaseAdmin.from('users').delete().eq('id', userId);
-        if (deletePublicError) throw deletePublicError;
+          const { error: deletePublicError } = await supabaseAdmin.from('users').delete().eq('username', sqliteExisting.username);
+          if (deletePublicError) throw deletePublicError;
 
-        if (publicUser.auth_user_id) {
-          const { error: deleteAuthError } = await supabaseAdmin.auth.admin.deleteUser(publicUser.auth_user_id);
-          if (deleteAuthError) throw deleteAuthError;
+          if (publicUser?.auth_user_id) {
+            const { error: deleteAuthError } = await supabaseAdmin.auth.admin.deleteUser(publicUser.auth_user_id);
+            if (deleteAuthError) throw deleteAuthError;
+          }
+        } catch (syncError) {
+          console.warn('Supabase user sync skipped during delete:', syncError);
         }
       }
 
@@ -2271,15 +4740,22 @@ async function startServer() {
       touchSQLiteLastLogin(userId, timestamp);
 
       if (isSupabaseAdminEnabled && supabaseAdmin) {
-        const { data: publicUser, error } = await supabaseAdmin
-          .from('users')
-          .select('auth_user_id')
-          .eq('id', userId)
-          .single();
+        try {
+          const sqliteUser = db.prepare('SELECT username FROM users WHERE id = ?').get(userId) as { username?: string } | undefined;
+          if (sqliteUser?.username) {
+            const { data: publicUser, error } = await supabaseAdmin
+              .from('users')
+              .select('auth_user_id')
+              .eq('username', sqliteUser.username)
+              .maybeSingle();
 
-        if (error) throw error;
-        if (publicUser.auth_user_id) {
-          await updateAuthLoginStamp(publicUser.auth_user_id, timestamp);
+            if (error) throw error;
+            if (publicUser?.auth_user_id) {
+              await updateAuthLoginStamp(publicUser.auth_user_id, timestamp);
+            }
+          }
+        } catch (syncError) {
+          console.warn('Supabase user sync skipped during touch-login:', syncError);
         }
       }
 
@@ -2316,6 +4792,7 @@ async function startServer() {
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(auth.user_id) as SQLiteUserRecord | undefined;
     if (!user || user.is_active === 0) {
       sessionStore.delete(auth.token);
+      db.prepare('DELETE FROM app_sessions WHERE token = ?').run(auth.token);
       return res.status(401).json({ error: 'Session expired.' });
     }
     res.json(normalizeSQLiteUser(user));
@@ -2323,7 +4800,10 @@ async function startServer() {
 
   app.post('/api/logout', requireAuth, (req: any, res) => {
     const auth = req.auth as SessionRecord | undefined;
-    if (auth) sessionStore.delete(auth.token);
+    if (auth) {
+      sessionStore.delete(auth.token);
+      db.prepare('DELETE FROM app_sessions WHERE token = ?').run(auth.token);
+    }
     res.json({ success: true });
   });
 
@@ -2338,7 +4818,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/stores', requireAdmin, (req, res) => {
+  app.post('/api/stores', requireOperationsManager, (req, res) => {
     const { store_name, rows, columns, auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, width, depth, height, store_color, store_opacity, cell_width, cell_depth, cell_height } = req.body;
 
     const normalizedRows = store_type === 'hanger' ? 1 : Math.max(1, Number(rows ?? 10) || 1);
@@ -2398,7 +4878,7 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.put('/api/stores/:name', requireAdmin, (req, res) => {
+  app.put('/api/stores/:name', requireOperationsManager, (req, res) => {
     const { name } = req.params;
     const { position_x, position_y, position_z, width, depth, height, rows, columns, rotation_y, auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_opacity, cell_width, cell_depth, cell_height } = req.body;
 
@@ -2448,7 +4928,7 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.delete('/api/stores/:name', requireAdmin, (req, res) => {
+  app.delete('/api/stores/:name', requireOperationsManager, (req, res) => {
     const { name } = req.params;
 
     const blanketCount = db.prepare('SELECT COUNT(*) as count FROM blankets WHERE store = ?').get(name) as { count: number };
@@ -2471,7 +4951,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/blankets', requireAdmin, (req, res) => {
+  app.post('/api/blankets', requireOperationsManager, (req, res) => {
     const { blanket_number, store, row, column, status, user, notes } = req.body;
     const action = status || 'stored';
     const meta = getLogMeta(req);
@@ -2506,7 +4986,7 @@ async function startServer() {
     res.json({ id: result.lastInsertRowid });
   });
 
-  app.put('/api/blankets/:id', requireAdmin, (req, res) => {
+  app.put('/api/blankets/:id', requireOperationsManager, (req, res) => {
     const { id } = req.params;
     const { blanket_number, store, row, column, status, user, notes } = req.body;
     const meta = getLogMeta(req);
@@ -2547,7 +5027,67 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.delete('/api/blankets/:id', requireAdmin, (req, res) => {
+  app.post('/api/blankets/:id/pick', requirePicker, (req: any, res) => {
+    const { id } = req.params;
+    const blanketId = Number(id);
+    if (!Number.isFinite(blanketId) || blanketId <= 0) {
+      return res.status(400).json({ error: 'Invalid blanket id.' });
+    }
+
+    const meta = getLogMeta(req);
+    const blanket = db.prepare('SELECT id, blanket_number, store, row, column, status FROM blankets WHERE id = ?').get(blanketId) as
+      | { id: number; blanket_number: string; store: string; row: number; column: number; status: string }
+      | undefined;
+    if (!blanket) return res.status(404).json({ error: 'Blanket not found.' });
+
+    const store = db.prepare('SELECT rows, auto_settle, store_type, slot_capacity FROM stores WHERE store_name = ?').get(blanket.store) as
+      | { rows: number; auto_settle: number; store_type: string; slot_capacity: number }
+      | undefined;
+    if (!store) return res.status(400).json({ error: `Store not found: ${blanket.store}` });
+
+    const canAutoSettle =
+      Number(store.auto_settle ?? 1) !== 0 &&
+      String(store.store_type ?? 'grid') !== 'hanger' &&
+      Math.max(1, Number(store.slot_capacity ?? 1)) <= 1;
+
+    if (String(blanket.status) === 'stored' && canAutoSettle) {
+      const storedInColumn = db
+        .prepare(
+          'SELECT id, row FROM blankets WHERE store = ? AND column = ? AND status = ? AND id <> ? ORDER BY row ASC'
+        )
+        .all(blanket.store, blanket.column, 'stored', blanket.id) as Array<{ id: number; row: number }>;
+      const maxRows = Math.max(1, Number(store.rows ?? 1));
+      const startRow = maxRows - storedInColumn.length + 1;
+      for (let index = 0; index < storedInColumn.length; index += 1) {
+        const currentBlanket = storedInColumn[index];
+        const targetRow = startRow + index;
+        if (currentBlanket.row === targetRow) continue;
+        db.prepare('UPDATE blankets SET row = ? WHERE id = ?').run(targetRow, currentBlanket.id);
+      }
+    }
+
+    db.prepare('UPDATE blankets SET status = ? WHERE id = ?').run('picked', blanket.id);
+
+    db.prepare(
+      'INSERT INTO logs (blanket_number, action, user, store, row, column, status, request_id, device, ip, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(
+      blanket.blanket_number,
+      'picked',
+      req.body?.user || req.auth?.username || 'system',
+      blanket.store,
+      blanket.row,
+      blanket.column,
+      'picked',
+      meta.request_id,
+      meta.device,
+      meta.ip,
+      meta.notes
+    );
+
+    res.json({ success: true });
+  });
+
+  app.delete('/api/blankets/:id', requireOperationsManager, (req, res) => {
     const { id } = req.params;
     const meta = getLogMeta(req);
     const blanket = db.prepare('SELECT blanket_number, store, row, column, status FROM blankets WHERE id = ?').get(id) as
@@ -2590,7 +5130,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/logs', requireAdmin, (req, res) => {
+  app.post('/api/logs', requireOperationsManager, (req, res) => {
     const { blanket_number, action, user, store, row, column, status, notes } = req.body;
     const meta = getLogMeta(req);
     db.prepare(
@@ -2611,6 +5151,482 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  app.get('/api/pos/find-laundry-orders', requireAuth, async (req, res) => {
+    try {
+      const query = String(req.query.q ?? '').trim();
+      if (query.length < 2) {
+        return res.status(400).json({ error: 'Search query must be at least 2 characters.' });
+      }
+
+      const result = await fetchPosOrderSearch(query);
+      res.json(result);
+    } catch (error: any) {
+      console.error('POS order search failed:', error);
+      res.status(502).json({ error: error?.message || 'Failed to fetch orders from POS system.' });
+    }
+  });
+
+  app.get('/api/pos/order-details', requireAuth, async (req, res) => {
+    try {
+      const orderId = String(req.query.order_id ?? req.query.invoice_id ?? '').trim();
+      const sOrderId = String(req.query.s_order_id ?? req.query.orders_id ?? '').trim();
+      if (!orderId && !sOrderId) {
+        return res.status(400).json({
+          error: 'order_id (or invoice_id) or s_order_id (or orders_id) is required.',
+        });
+      }
+
+      const mode = String(req.query.mode ?? '').trim();
+      const openType = String(req.query.open_type ?? '').trim();
+      const jobProcessCommisionOption = String(req.query.job_process_commision_option ?? '').trim();
+
+      const details = await fetchPosOrderDetails({
+        order_id: orderId || '0',
+        s_order_id: sOrderId || '0',
+        ...(mode ? { mode } : {}),
+        ...(openType ? { open_type: openType } : {}),
+        ...(jobProcessCommisionOption ? { job_process_commision_option: jobProcessCommisionOption } : {}),
+      });
+
+      res.json(details);
+    } catch (error: any) {
+      console.error('POS order details failed:', error);
+      res.status(502).json({ error: error?.message || 'Failed to fetch order details from POS system.' });
+    }
+  });
+
+  app.get('/api/pos/get-products', requireAuth, async (req, res) => {
+    try {
+      const unitId = String(req.query.unit_id ?? '').trim();
+      const laundryCat = String(req.query.laundry_cat ?? '').trim();
+      const custType = String(req.query.cust_type ?? '').trim();
+      const curPage = String(req.query.cur_page ?? '').trim();
+      const customerId = String(req.query.customer_id ?? '').trim();
+
+      const products = await fetchPosProducts({
+        ...(unitId ? { unit_id: unitId } : {}),
+        ...(laundryCat ? { laundry_cat: laundryCat } : {}),
+        ...(custType ? { cust_type: custType } : {}),
+        ...(curPage ? { cur_page: curPage } : {}),
+        ...(customerId ? { customer_id: customerId } : {}),
+      });
+
+      res.json(products);
+    } catch (error: any) {
+      console.error('POS products failed:', error);
+      res.status(502).json({ error: error?.message || 'Failed to fetch products from POS system.' });
+    }
+  });
+
+  app.get('/api/sorting/state', requireSorting, (_req, res) => {
+    try {
+      res.json(buildSortingState());
+    } catch (error: any) {
+      console.error('Failed to build sorting state:', error);
+      res.status(500).json({ error: error?.message || 'Failed to load sorting state.' });
+    }
+  });
+
+  app.get('/api/sorting/order/:orderNo', requireSorting, (req, res) => {
+    try {
+      const orderNo = normalizeSortingOrderNo(req.params.orderNo);
+      if (!orderNo) return res.status(400).json({ error: 'Order number is required.' });
+      const bundle = getSortingOrderBundle(orderNo);
+      if (!bundle) return res.status(404).json({ error: 'Sorting order not found.' });
+      return res.json(bundle);
+    } catch (error: any) {
+      console.error('Failed to load sorting order:', error);
+      return res.status(500).json({ error: error?.message || 'Failed to load sorting order.' });
+    }
+  });
+
+  app.get('/api/sorting/blanket/order/:orderNo', requireSorting, async (req, res) => {
+    try {
+      const orderNo = normalizeSortingOrderNo(req.params.orderNo);
+      if (!orderNo) return res.status(400).json({ error: 'Order number is required.' });
+
+      // Ensure order is initialized from POS (same behavior as sorting prepare, but without table assignment).
+      await ensureSortingOrderInitialized({
+        order_no: orderNo,
+        allow_unsorted_fallback: false,
+      });
+
+      const bundle = getBlanketPackingBundle(orderNo);
+      if (!bundle) return res.status(404).json({ error: 'Order not found.' });
+      if ((bundle.items ?? []).length === 0) {
+        return res.status(409).json({ error: 'No blanket or pillow items found in this order.' });
+      }
+      return res.json(bundle);
+    } catch (error: any) {
+      console.error('Failed to load blanket packing order:', error);
+      return res.status(500).json({ error: error?.message || 'Failed to load blanket packing order.' });
+    }
+  });
+
+  app.post('/api/sorting/orders/prepare', requireSorting, async (req, res) => {
+    try {
+      const orderNo = normalizeSortingOrderNo(req.body?.order_no ?? req.body?.orderNo);
+      if (!orderNo) return res.status(400).json({ error: 'Order number is required.' });
+
+      await ensureSortingOrderInitialized({
+        order_no: orderNo,
+        source_orders_id: req.body?.source_orders_id,
+        source_invoice_id: req.body?.source_invoice_id,
+        customer_name: req.body?.customer_name,
+        total_required: req.body?.total_required,
+        items: Array.isArray(req.body?.items) ? req.body.items : undefined,
+        allow_unsorted_fallback: req.body?.allow_unsorted_fallback === true,
+      });
+
+      const placement = assignSortingCellForOrder(orderNo);
+      const bundle = syncSortingOrderProgress(orderNo) ?? getSortingOrderBundle(orderNo);
+      if (!bundle) return res.status(404).json({ error: 'Sorting order not found after prepare.' });
+
+      res.json({
+        order: bundle.order,
+        items: bundle.items,
+        placement,
+      });
+    } catch (error: any) {
+      console.error('Failed to prepare sorting order:', error);
+      res.status(500).json({ error: error?.message || 'Failed to prepare sorting order.' });
+    }
+  });
+
+  app.get('/api/sorting/tables', requireSorting, (_req, res) => {
+    try {
+      const tables = db
+        .prepare('SELECT * FROM sorting_tables ORDER BY sort_order ASC, id ASC')
+        .all() as SortingTableRecord[];
+      res.json(tables);
+    } catch (error: any) {
+      console.error('Failed to load sorting tables:', error);
+      res.status(500).json({ error: error?.message || 'Failed to load sorting tables.' });
+    }
+  });
+
+  app.post('/api/sorting/tables', requireOperationsManager, (req, res) => {
+    try {
+      const name = String(req.body?.name ?? '').trim();
+      const rows = coercePositiveInt(req.body?.rows, 2);
+      const cols = coercePositiveInt(req.body?.cols, 6);
+      const isActive = req.body?.is_active === false || req.body?.is_active === 0 ? 0 : 1;
+
+      if (!name) return res.status(400).json({ error: 'Table name is required.' });
+
+      const maxSort = db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS max_sort FROM sorting_tables').get() as { max_sort: number };
+      const result = db
+        .prepare(
+          `INSERT INTO sorting_tables (name, rows, cols, sort_order, is_active, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+        )
+        .run(name, rows, cols, Number(maxSort.max_sort || 0) + 1, isActive);
+
+      const tableId = Number(result.lastInsertRowid);
+      ensureSortingCellsForTable(tableId, rows, cols);
+
+      const created = db.prepare('SELECT * FROM sorting_tables WHERE id = ?').get(tableId) as SortingTableRecord | undefined;
+      res.status(201).json(created ?? { success: true, id: tableId });
+    } catch (error: any) {
+      console.error('Failed to create sorting table:', error);
+      res.status(500).json({ error: error?.message || 'Failed to create sorting table.' });
+    }
+  });
+
+  app.put('/api/sorting/tables/:id', requireOperationsManager, (req, res) => {
+    try {
+      const tableId = Number(req.params.id);
+      if (!Number.isFinite(tableId) || tableId <= 0) {
+        return res.status(400).json({ error: 'Invalid table id.' });
+      }
+      const current = db.prepare('SELECT * FROM sorting_tables WHERE id = ?').get(tableId) as SortingTableRecord | undefined;
+      if (!current) return res.status(404).json({ error: 'Sorting table not found.' });
+
+      const name = String(req.body?.name ?? current.name).trim();
+      const rows = coercePositiveInt(req.body?.rows ?? current.rows, current.rows);
+      const cols = coercePositiveInt(req.body?.cols ?? current.cols, current.cols);
+      const sortOrder = Number.isFinite(Number(req.body?.sort_order)) ? Number(req.body.sort_order) : current.sort_order;
+      const isActive =
+        req.body?.is_active === undefined
+          ? current.is_active
+          : req.body?.is_active === false || req.body?.is_active === 0
+            ? 0
+            : 1;
+
+      if (!name) return res.status(400).json({ error: 'Table name is required.' });
+
+      db.prepare(
+        `UPDATE sorting_tables
+         SET name = ?, rows = ?, cols = ?, sort_order = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`
+      ).run(name, rows, cols, sortOrder, isActive, tableId);
+
+      ensureSortingCellsForTable(tableId, rows, cols);
+      const updated = db.prepare('SELECT * FROM sorting_tables WHERE id = ?').get(tableId) as SortingTableRecord | undefined;
+      res.json(updated ?? { success: true });
+    } catch (error: any) {
+      console.error('Failed to update sorting table:', error);
+      res.status(500).json({ error: error?.message || 'Failed to update sorting table.' });
+    }
+  });
+
+  app.post('/api/sorting/scan', requireSorting, async (req: any, res) => {
+    try {
+      const orderNo = normalizeSortingOrderNo(req.body?.order_no ?? req.body?.orderNo ?? req.body?.scanned_code);
+      if (!orderNo) return res.status(400).json({ error: 'Order number is required.' });
+
+      await ensureSortingOrderInitialized({
+        order_no: orderNo,
+        source_orders_id: req.body?.source_orders_id,
+        source_invoice_id: req.body?.source_invoice_id,
+        customer_name: req.body?.customer_name,
+        total_required: req.body?.total_required,
+        items: Array.isArray(req.body?.items) ? req.body.items : undefined,
+      });
+
+      const orderBefore = db
+        .prepare('SELECT status FROM sorting_orders WHERE order_no = ?')
+        .get(orderNo) as { status: SortingOrderStatus } | undefined;
+      if (orderBefore?.status === 'packed_complete') {
+        return res.status(409).json({ error: 'Order already packed and closed.' });
+      }
+
+      const placement = assignSortingCellForOrder(orderNo);
+      const meta = getLogMeta(req);
+      const scan = applySortingScan({
+        order_no: orderNo,
+        item_name: req.body?.item_name,
+        qty: req.body?.qty,
+        user: req.body?.user || req.auth?.username || 'system',
+        request_id: meta.request_id,
+      });
+
+      const bundle = getSortingOrderBundle(orderNo);
+      res.json({
+        success: true,
+        placement,
+        scan: {
+          consumed: scan.consumed,
+          overflow: scan.overflow,
+        },
+        order: bundle?.order ?? null,
+        items: bundle?.items ?? [],
+        state: buildSortingState(),
+      });
+    } catch (error: any) {
+      console.error('Failed to process sorting scan:', error);
+      res.status(500).json({ error: error?.message || 'Failed to process sorting scan.' });
+    }
+  });
+
+  app.post('/api/sorting/ironing/start', requireSorting, (req: any, res) => {
+    try {
+      const orderNo = normalizeSortingOrderNo(req.body?.order_no ?? req.body?.orderNo ?? req.body?.scanned_code);
+      if (!orderNo) return res.status(400).json({ error: 'Order number is required.' });
+
+      const meta = getLogMeta(req);
+      const event = applySortingIroningStart({
+        order_no: orderNo,
+        qty: req.body?.qty,
+        user: req.body?.user || req.auth?.username || 'system',
+        request_id: meta.request_id,
+      });
+
+      const bundle = getSortingOrderBundle(orderNo);
+      res.json({
+        success: true,
+        event: {
+          consumed: event.consumed,
+          overflow: event.overflow,
+          ironing_progress: event.ironing_progress,
+        },
+        order: bundle?.order ?? null,
+        items: bundle?.items ?? [],
+        state: buildSortingState(),
+      });
+    } catch (error: any) {
+      console.error('Failed to record ironing start:', error);
+      const message = String(error?.message || 'Failed to record ironing start.');
+      if (
+        /must be sorted completely|already ironed|not initialized|no clothes items|no sorted clothes|already packed complete/i.test(message)
+      ) {
+        return res.status(409).json({ error: message });
+      }
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.post('/api/sorting/blanket/scan', requireSorting, async (req: any, res) => {
+    try {
+      const orderNo = normalizeSortingOrderNo(req.body?.order_no ?? req.body?.orderNo ?? req.body?.scanned_code);
+      if (!orderNo) return res.status(400).json({ error: 'Order number is required.' });
+
+      await ensureSortingOrderInitialized({
+        order_no: orderNo,
+        allow_unsorted_fallback: false,
+      });
+
+      const meta = getLogMeta(req);
+      const result = applyBlanketPackingScan({
+        order_no: orderNo,
+        item_name: req.body?.item_name,
+        qty: req.body?.qty,
+        user: req.body?.user || req.auth?.username || 'system',
+        request_id: meta.request_id,
+      });
+
+      return res.json({
+        success: true,
+        event: {
+          consumed: result.consumed,
+          overflow: result.overflow,
+        },
+        order: result.order,
+        items: result.items,
+        totals: result.totals,
+      });
+    } catch (error: any) {
+      console.error('Failed to process blanket packing scan:', error);
+      return res.status(500).json({ error: error?.message || 'Failed to process blanket packing scan.' });
+    }
+  });
+
+  app.post('/api/sorting/orders/:orderNo/packing', requireSorting, (req: any, res) => {
+    try {
+      const orderNo = normalizeSortingOrderNo(req.params.orderNo);
+      const action = String(req.body?.action ?? '').trim().toLowerCase();
+      if (!orderNo) return res.status(400).json({ error: 'Order number is required.' });
+      if (action !== 'start' && action !== 'complete') {
+        return res.status(400).json({ error: 'Action must be start or complete.' });
+      }
+
+      const order = db
+        .prepare('SELECT * FROM sorting_orders WHERE order_no = ?')
+        .get(orderNo) as SortingOrderRecord | undefined;
+      if (!order) return res.status(404).json({ error: 'Sorting order not found.' });
+
+      if (action === 'start') {
+        if (order.status === 'packed_complete') {
+          return res.status(409).json({ error: 'Order is already packed complete.' });
+        }
+        const sortedCount = Math.max(0, Number(order.total_sorted) || 0);
+        const ironedCount = Math.max(0, Number(order.total_ironed) || 0);
+        if (sortedCount <= ironedCount) {
+          return res.status(409).json({ error: 'No sorted clothes are available for packing yet.' });
+        }
+        db.prepare(
+          `UPDATE sorting_orders
+           SET status = 'packing_in_progress', updated_at = CURRENT_TIMESTAMP
+           WHERE order_no = ?`
+        ).run(orderNo);
+      } else {
+        if (order.status !== 'packing_in_progress' && order.status !== 'sorted_complete') {
+          return res.status(409).json({ error: 'Order is not in packing stage.' });
+        }
+        const completeTx = db.transaction(() => {
+          db.prepare(
+            `UPDATE sorting_orders
+             SET status = 'packed_complete',
+                 table_id = NULL,
+                 row_no = NULL,
+                 col_no = NULL,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE order_no = ?`
+          ).run(orderNo);
+
+          if (order.table_id && order.row_no && order.col_no) {
+            db.prepare(
+              `UPDATE sorting_cells
+               SET active_order_no = NULL, status = 'empty', updated_at = CURRENT_TIMESTAMP
+               WHERE table_id = ? AND row_no = ? AND col_no = ?`
+            ).run(order.table_id, order.row_no, order.col_no);
+          }
+        });
+        completeTx();
+      }
+
+      const bundle = getSortingOrderBundle(orderNo);
+      res.json({
+        success: true,
+        order: bundle?.order ?? null,
+        items: bundle?.items ?? [],
+        state: buildSortingState(),
+      });
+    } catch (error: any) {
+      console.error('Failed to update packing status:', error);
+      res.status(500).json({ error: error?.message || 'Failed to update packing status.' });
+    }
+  });
+
+  app.get('/api/achievements/ironing', requireSorting, (req: any, res) => {
+    try {
+      const auth = req.auth as SessionRecord | undefined;
+      const scope = String(req.query.scope ?? 'me').trim().toLowerCase();
+      const period = String(req.query.period ?? 'today').trim().toLowerCase();
+      const requestedUser = String(req.query.user ?? '').trim();
+      const canViewAll = Boolean(auth?.role && (isOperationsManagerRole(auth.role) || isAdminRole(auth.role)));
+      const effectiveScope = scope === 'all' && canViewAll ? 'all' : 'me';
+
+      let sinceExpr = "datetime('now', 'localtime', 'start of day')";
+      if (period === 'week') sinceExpr = "datetime('now', 'localtime', '-6 days', 'start of day')";
+      if (period === 'month') sinceExpr = "datetime('now', 'localtime', '-29 days', 'start of day')";
+
+      const targetUser = effectiveScope === 'all' ? (requestedUser || '') : String(auth?.username ?? '').trim();
+      const whereUser = targetUser ? 'AND user = ?' : '';
+      const params = targetUser ? [targetUser] : [];
+
+      const summary = db
+        .prepare(
+          `SELECT
+             COALESCE(SUM(qty), 0) AS total_pieces,
+             COUNT(*) AS total_starts,
+             COUNT(DISTINCT order_no) AS unique_orders
+           FROM sorting_ironing_events
+           WHERE datetime(timestamp) >= ${sinceExpr}
+           ${whereUser}`
+        )
+        .get(...params) as { total_pieces: number; total_starts: number; unique_orders: number };
+
+      const byUser = db
+        .prepare(
+          `SELECT user, COALESCE(SUM(qty), 0) AS total_pieces, COUNT(*) AS total_starts, COUNT(DISTINCT order_no) AS unique_orders
+           FROM sorting_ironing_events
+           WHERE datetime(timestamp) >= ${sinceExpr}
+           ${whereUser}
+           GROUP BY user
+           ORDER BY total_pieces DESC, total_starts DESC, user ASC`
+        )
+        .all(...params) as Array<{ user: string; total_pieces: number; total_starts: number; unique_orders: number }>;
+
+      const recent = db
+        .prepare(
+          `SELECT id, order_no, item_name, qty, user, request_id, timestamp
+           FROM sorting_ironing_events
+           WHERE datetime(timestamp) >= ${sinceExpr}
+           ${whereUser}
+           ORDER BY datetime(timestamp) DESC, id DESC
+           LIMIT 80`
+        )
+        .all(...params) as SortingIroningEventRecord[];
+
+      res.json({
+        scope: effectiveScope,
+        period,
+        viewer: auth?.username ?? null,
+        summary: {
+          total_pieces: Number(summary?.total_pieces ?? 0),
+          total_starts: Number(summary?.total_starts ?? 0),
+          unique_orders: Number(summary?.unique_orders ?? 0),
+        },
+        by_user: byUser,
+        recent,
+      });
+    } catch (error: any) {
+      console.error('Failed to load ironing achievements:', error);
+      res.status(500).json({ error: error?.message || 'Failed to load ironing achievements.' });
+    }
+  });
+
   // ------------------------------
   // Customer-site public API
   // ------------------------------
@@ -2619,6 +5635,7 @@ async function startServer() {
       pruneCustomerOtpStores();
 
       const purpose = parseCustomerOtpPurpose(req.body?.purpose);
+      const channel = parseCustomerOtpChannel(req.body?.channel);
       const phoneNormalized = normalizeCustomerPhone(req.body?.phone);
       if (!purpose) {
         return res.status(400).json({ error: 'OTP purpose is required (register or login).' });
@@ -2662,6 +5679,9 @@ async function startServer() {
       let codeHash: string | null = null;
 
       if (CUSTOMER_SMS_PROVIDER === 'twilio') {
+        if (channel !== 'sms') {
+          return res.status(400).json({ error: 'Selected OTP channel is not supported by current provider.' });
+        }
         if (!isTwilioVerifyEnabled()) {
           return res.status(500).json({ error: 'Twilio SMS is not configured. Set TWILIO_* env vars.' });
         }
@@ -2671,14 +5691,12 @@ async function startServer() {
         if (!isAipsoftSmsEnabled()) {
           return res.status(500).json({ error: 'AIPSoft SMS is not configured. Set AIPSOFT_SMS_SECRET and AIPSOFT_SMS_URL.' });
         }
-        devCode = String(randomInt(0, 1_000_000)).padStart(6, '0');
-        codeHash = hashCustomerPassword(devCode);
-        await sendOtpViaAipsoft(phoneNormalized, phoneE164, devCode);
+        await sendOtpViaAipsoft(phoneNormalized, phoneE164, channel);
         provider = 'aipsoft';
       } else {
         devCode = String(randomInt(0, 1_000_000)).padStart(6, '0');
         codeHash = hashCustomerPassword(devCode);
-        console.log(`[OTP:DEV] ${purpose} phone=${phoneNormalized} code=${devCode}`);
+        console.log(`[OTP:DEV] ${purpose} channel=${channel} phone=${phoneNormalized} code=${devCode}`);
         provider = 'mock';
       }
 
@@ -2687,6 +5705,7 @@ async function startServer() {
         phone_normalized: phoneNormalized,
         phone_e164: phoneE164,
         purpose,
+        channel,
         provider,
         code_hash: codeHash,
         expires_at: now + CUSTOMER_OTP_CODE_TTL_MS,
@@ -2702,10 +5721,17 @@ async function startServer() {
         expires_at: challenge.expires_at,
         cooldown_until: challenge.cooldown_until,
         provider: challenge.provider,
+        channel: challenge.channel,
         ...(process.env.NODE_ENV !== 'production' && challenge.provider === 'mock' && devCode ? { dev_code: devCode } : {}),
       });
     } catch (error: any) {
       console.error('Failed to send customer OTP:', error);
+      if (error instanceof OtpProviderError) {
+        return res.status(error.status).json({
+          error: error.message,
+          code: error.code,
+        });
+      }
       res.status(500).json({ error: error?.message || 'Failed to send verification code' });
     }
   });
@@ -2776,6 +5802,12 @@ async function startServer() {
       });
     } catch (error: any) {
       console.error('Failed to verify customer OTP:', error);
+      if (error instanceof OtpProviderError) {
+        return res.status(error.status).json({
+          error: error.message,
+          code: error.code,
+        });
+      }
       res.status(500).json({ error: error?.message || 'Failed to verify code' });
     }
   });
@@ -3186,7 +6218,7 @@ async function startServer() {
     }
   });
 
-  app.put('/api/customer/orders/:id', requireAdmin, (req, res) => {
+  app.put('/api/customer/orders/:id', requireOperationsManager, (req, res) => {
     try {
       const id = String(req.params.id ?? '').trim();
       if (!id) return res.status(400).json({ error: 'Order id is required.' });
@@ -3210,7 +6242,7 @@ async function startServer() {
     }
   });
 
-  app.put('/api/customer/orders/:id/status', requireAdmin, (req, res) => {
+  app.put('/api/customer/orders/:id/status', requireOperationsManager, (req, res) => {
     try {
       const id = String(req.params.id ?? '').trim();
       const requestedStatus = normalizeCustomerOrderStatus(req.body?.status);
@@ -3249,7 +6281,7 @@ async function startServer() {
     }
   });
 
-  app.put('/api/customer/site-config', requireAdmin, (req, res) => {
+  app.put('/api/customer/site-config', requireOperationsManager, (req, res) => {
     try {
       const payload = req.body;
       if (!payload || typeof payload !== 'object') {

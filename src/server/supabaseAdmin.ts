@@ -2,7 +2,14 @@ import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
 import { toSupabaseUserEmail } from '../lib/userEmail';
 
-export type AppUserRole = 'super-admin' | 'admin' | 'cashier';
+export type AppUserRole =
+  | 'super-admin'
+  | 'admin'
+  | 'manager'
+  | 'branch-manager'
+  | 'cashier'
+  | 'sorter'
+  | 'packer';
 
 export interface ManagedUserPayload {
   username: string;

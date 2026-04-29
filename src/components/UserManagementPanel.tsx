@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { ImagePlus, KeyRound, Mail, Pencil, Phone, Power, Shield, Trash2, UserPlus } from 'lucide-react';
 import { useStore, type User, type UserPayload } from '../store/useStore';
+import { canManageUsers as hasUsersPermission } from '../lib/roleAccess';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -19,7 +20,15 @@ const emptyUserForm: UserPayload & { password: string } = {
   password: '',
 };
 
-const roleOptions: Array<User['role']> = ['cashier', 'admin', 'super-admin'];
+const roleOptions: Array<User['role']> = [
+  'cashier',
+  'sorter',
+  'packer',
+  'branch-manager',
+  'manager',
+  'admin',
+  'super-admin',
+];
 
 const readFileAsDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
@@ -42,7 +51,7 @@ const formatTimestamp = (value: string | null) =>
 
 export default function UserManagementPanel() {
   const { users, currentUser, addUser, updateUser, deleteUser } = useStore();
-  const isAdmin = ['admin', 'super-admin'].includes(currentUser?.role || '');
+  const isAdmin = hasUsersPermission(currentUser?.role);
   const isSuperAdmin = currentUser?.role === 'super-admin';
   const [userForm, setUserForm] = useState<UserPayload & { password: string }>(emptyUserForm);
   const [editingUserId, setEditingUserId] = useState<number | null>(null);

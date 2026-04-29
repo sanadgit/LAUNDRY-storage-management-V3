@@ -6,6 +6,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import UserManagementPanel from '../components/UserManagementPanel';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { canEditWarehouse, canManageUsers, canUseBackupTools } from '../lib/roleAccess';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -41,7 +42,10 @@ export default function Management() {
     setLastUsedStore,
     currentUser,
   } = useStore();
-  const isAdmin = ['admin', 'super-admin'].includes(currentUser?.role || '');
+  const role = currentUser?.role;
+  const canEditOps = canEditWarehouse(role);
+  const canOpenUsersTab = canManageUsers(role);
+  const canOpenBackupTab = canUseBackupTools(role);
   
   const [activeTab, setActiveTab] = useState<'orders' | 'stores' | 'users' | 'activity' | 'backup' | 'labels'>('orders');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -213,10 +217,20 @@ export default function Management() {
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    if (params.get('quickadd') === '1' && isAdmin) {
+    if (params.get('quickadd') === '1' && canEditOps) {
       setIsQuickAddOpen(true);
     }
-  }, [location.search, isAdmin]);
+  }, [location.search, canEditOps]);
+
+  useEffect(() => {
+    if (activeTab === 'users' && !canOpenUsersTab) {
+      setActiveTab('orders');
+      return;
+    }
+    if (activeTab === 'backup' && !canOpenBackupTab) {
+      setActiveTab('orders');
+    }
+  }, [activeTab, canOpenUsersTab, canOpenBackupTab]);
 
   const downloadBackupSnapshot = async () => {
     setBackupBusy(true);
@@ -298,8 +312,8 @@ export default function Management() {
       setRestoreError('Select a user first.');
       return;
     }
-    if (!isAdmin) {
-      setRestoreError('Admin only.');
+    if (!canOpenBackupTab) {
+      setRestoreError('Permission denied.');
       return;
     }
     if (restoreConfirm !== 'RESTORE') {
@@ -738,10 +752,10 @@ export default function Management() {
 
   return (
     <div className="p-3 sm:p-6 lg:p-8 space-y-5 sm:space-y-8 max-w-7xl mx-auto">
-      {!isAdmin && (
+      {!canOpenUsersTab && (
         <div className="rounded-3xl border border-amber-300/40 bg-amber-50/70 p-6 text-amber-900">
-          <p className="font-semibold">Read-only access</p>
-          <p className="mt-2 text-sm text-amber-700">You are signed in as a cashier. Management actions are restricted to admin users only.</p>
+          <p className="font-semibold">Branch manager mode</p>
+          <p className="mt-2 text-sm text-amber-700">Users and Backup tabs are restricted for this role.</p>
         </div>
       )}
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -752,10 +766,10 @@ export default function Management() {
         <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 w-full md:w-auto">
           <button 
             onClick={openQuickAdd}
-            disabled={!isAdmin}
+            disabled={!canEditOps}
             className={cn(
               "w-full sm:w-auto justify-center px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95",
-              isAdmin
+              canEditOps
                 ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20"
                 : "bg-slate-700 text-slate-400 cursor-not-allowed shadow-none"
             )}
@@ -765,10 +779,10 @@ export default function Management() {
           </button>
           <button 
             onClick={() => openModal()}
-            disabled={!isAdmin}
+            disabled={!canEditOps}
             className={cn(
               "w-full sm:w-auto justify-center px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95",
-              isAdmin
+              canEditOps
                 ? "bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/20"
                 : "bg-slate-700 text-slate-400 cursor-not-allowed shadow-none"
             )}
@@ -801,16 +815,18 @@ export default function Management() {
           >
             Stores
           </button>
-          <button
-            onClick={() => setActiveTab('users')}
-            className={cn(
-              "px-8 py-3 rounded-xl font-bold transition-all flex items-center gap-2",
-              activeTab === 'users' ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
-            )}
-          >
-            <Users size={16} />
-            Users
-          </button>
+          {canOpenUsersTab && (
+            <button
+              onClick={() => setActiveTab('users')}
+              className={cn(
+                "px-8 py-3 rounded-xl font-bold transition-all flex items-center gap-2",
+                activeTab === 'users' ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              )}
+            >
+              <Users size={16} />
+              Users
+            </button>
+          )}
           <button 
             onClick={() => setActiveTab('activity')}
             className={cn(
@@ -821,16 +837,18 @@ export default function Management() {
             <Filter size={16} />
             Activity
           </button>
-          <button
-            onClick={() => setActiveTab('backup')}
-            className={cn(
-              "px-8 py-3 rounded-xl font-bold transition-all flex items-center gap-2",
-              activeTab === 'backup' ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
-            )}
-          >
-            <Download size={16} />
-            Backup
-          </button>
+          {canOpenBackupTab && (
+            <button
+              onClick={() => setActiveTab('backup')}
+              className={cn(
+                "px-8 py-3 rounded-xl font-bold transition-all flex items-center gap-2",
+                activeTab === 'backup' ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              )}
+            >
+              <Download size={16} />
+              Backup
+            </button>
+          )}
           <button
             onClick={() => setActiveTab('labels')}
             className={cn(
@@ -848,10 +866,10 @@ export default function Management() {
           <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3">
             <button 
               onClick={() => openStoreModal()}
-              disabled={!isAdmin}
+              disabled={!canEditOps}
               className={cn(
                 "w-full sm:w-auto justify-center px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95",
-                isAdmin
+                canEditOps
                   ? "bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/20"
                   : "bg-slate-700 text-slate-400 cursor-not-allowed shadow-none"
               )}
@@ -861,10 +879,10 @@ export default function Management() {
             </button>
             <button 
               onClick={() => openStoreModal(undefined, 'hanger')}
-              disabled={!isAdmin}
+              disabled={!canEditOps}
               className={cn(
                 "w-full sm:w-auto justify-center px-6 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95",
-                isAdmin
+                canEditOps
                   ? "bg-sky-600 hover:bg-sky-700 text-white shadow-sky-600/20"
                   : "bg-slate-700 text-slate-400 cursor-not-allowed shadow-none"
               )}
@@ -1034,10 +1052,10 @@ export default function Management() {
                           </button>
                           <button 
                             onClick={() => openModal(blanket)}
-                            disabled={!isAdmin}
+                            disabled={!canEditOps}
                             className={cn(
                               "p-2 rounded-lg transition-all",
-                              isAdmin
+                              canEditOps
                                 ? "text-slate-400 hover:text-blue-600 hover:bg-blue-50"
                                 : "text-slate-400 bg-slate-100 cursor-not-allowed"
                             )}
@@ -1046,10 +1064,10 @@ export default function Management() {
                           </button>
                           <button 
                             onClick={() => deleteBlanket(blanket.id)}
-                            disabled={!isAdmin}
+                            disabled={!canEditOps}
                             className={cn(
                               "p-2 rounded-lg transition-all",
-                              isAdmin
+                              canEditOps
                                 ? "text-slate-400 hover:text-red-600 hover:bg-red-50"
                                 : "text-slate-400 bg-slate-100 cursor-not-allowed"
                             )}
@@ -1090,10 +1108,10 @@ export default function Management() {
                 </div>
                 <button 
                   onClick={() => openStoreModal(store)}
-                  disabled={!isAdmin}
+                  disabled={!canEditOps}
                   className={cn(
                     "p-3 rounded-xl transition-all opacity-0 group-hover:opacity-100",
-                    isAdmin
+                    canEditOps
                       ? "text-slate-400 hover:text-blue-600 hover:bg-blue-50"
                       : "text-slate-400 bg-slate-100 cursor-not-allowed"
                   )}
@@ -1102,10 +1120,10 @@ export default function Management() {
                 </button>
                 <button 
                   onClick={() => deleteStore(store.store_name)}
-                  disabled={!isAdmin}
+                  disabled={!canEditOps}
                   className={cn(
                     "p-3 rounded-xl transition-all opacity-0 group-hover:opacity-100",
-                    isAdmin
+                    canEditOps
                       ? "text-slate-400 hover:text-red-600 hover:bg-red-50"
                       : "text-slate-400 bg-slate-100 cursor-not-allowed"
                   )}
@@ -1165,9 +1183,9 @@ export default function Management() {
             </div>
           ))}
         </div>
-      ) : activeTab === 'users' ? (
+      ) : activeTab === 'users' && canOpenUsersTab ? (
         <UserManagementPanel />
-      ) : activeTab === 'backup' ? (
+      ) : activeTab === 'backup' && canOpenBackupTab ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 sm:p-8 space-y-5">
             <div className="flex items-center justify-between">
@@ -1202,10 +1220,10 @@ export default function Management() {
             <button
               type="button"
               onClick={downloadBackupSnapshot}
-              disabled={!isAdmin || backupBusy}
+              disabled={!canOpenBackupTab || backupBusy}
               className={cn(
                 "w-full rounded-2xl py-4 font-black uppercase tracking-widest transition-all active:scale-95",
-                !isAdmin
+                !canOpenBackupTab
                   ? "bg-slate-100 text-slate-400 cursor-not-allowed"
                   : backupBusy
                     ? "bg-slate-200 text-slate-500 cursor-wait"
@@ -1308,10 +1326,10 @@ export default function Management() {
             <button
               type="button"
               onClick={runRestore}
-              disabled={!isAdmin || restoreBusy || !restoreSnapshot}
+              disabled={!canOpenBackupTab || restoreBusy || !restoreSnapshot}
               className={cn(
                 "w-full rounded-2xl py-4 font-black uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2",
-                !isAdmin || !restoreSnapshot
+                !canOpenBackupTab || !restoreSnapshot
                   ? "bg-slate-100 text-slate-400 cursor-not-allowed"
                   : restoreBusy
                     ? "bg-slate-200 text-slate-500 cursor-wait"
@@ -1366,10 +1384,10 @@ export default function Management() {
               <button
                 type="button"
                 onClick={printLabels}
-                disabled={!isAdmin || labelNumbers.length === 0}
+                disabled={!canEditOps || labelNumbers.length === 0}
                 className={cn(
                   "rounded-2xl px-6 py-4 font-black uppercase tracking-widest transition-all active:scale-95 flex items-center gap-2",
-                  !isAdmin || labelNumbers.length === 0
+                  !canEditOps || labelNumbers.length === 0
                     ? "bg-slate-100 text-slate-400 cursor-not-allowed"
                     : "bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/20"
                 )}

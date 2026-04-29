@@ -5,6 +5,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { extractTicketNumberFromScan } from '../utils/barcode';
 import { getScannerSupportMessage, startCameraBarcodeScanner } from '../utils/cameraScanner';
+import { canEditWarehouse } from '../lib/roleAccess';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -32,8 +33,9 @@ export default function Grid2D() {
   const [error, setError] = useState<string | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
+  const [scannerPreview, setScannerPreview] = useState<{ raw: string; extracted: string } | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const canModify = ['admin', 'super-admin'].includes(currentUser?.role || '');
+  const canModify = canEditWarehouse(currentUser?.role);
 
   const store = useMemo(
     () => stores.find((s) => s.store_name === selectedStore) || stores[0],
@@ -104,6 +106,7 @@ export default function Grid2D() {
     setError(null);
     setScannerOpen(false);
     setScannerError(null);
+    setScannerPreview(null);
   }, [store?.store_name]);
 
   useEffect(() => {
@@ -119,6 +122,7 @@ export default function Grid2D() {
     let consumed = false;
     let stopSession: (() => void) | null = null;
     setScannerError(null);
+    setScannerPreview(null);
 
     const start = async () => {
       try {
@@ -129,7 +133,12 @@ export default function Grid2D() {
           videoElement: video,
           onDetected: (rawValue) => {
             if (cancelled || consumed) return;
-            const extracted = extractTicketNumberFromScan(String(rawValue));
+            const rawText = String(rawValue ?? '').trim();
+            const extracted = extractTicketNumberFromScan(rawText);
+            setScannerPreview((prev) => {
+              if (prev && prev.raw === rawText && prev.extracted === extracted) return prev;
+              return { raw: rawText, extracted };
+            });
             if (!extracted) return;
             consumed = true;
             stopSession?.();
@@ -571,6 +580,18 @@ export default function Grid2D() {
             ) : (
               <div className="max-w-lg w-full rounded-3xl border border-slate-800 bg-slate-900/60 px-5 py-4 text-slate-200 text-sm font-bold">
                 Scanning... it will fill invoice number automatically.
+              </div>
+            )}
+
+            {scannerPreview && (
+              <div className="max-w-lg w-full rounded-3xl border border-slate-700 bg-slate-900/80 px-5 py-4 space-y-2">
+                <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Scan Preview</div>
+                <div className="text-xs font-semibold text-slate-300 break-all">
+                  Raw: <span className="text-slate-200">{scannerPreview.raw || '-'}</span>
+                </div>
+                <div className="text-xs font-semibold text-emerald-300 break-all">
+                  Extracted: {scannerPreview.extracted || 'No valid number yet'}
+                </div>
               </div>
             )}
           </div>

@@ -174,6 +174,7 @@ export interface CustomerOtpSendResponse {
   expires_at: number;
   cooldown_until: number;
   provider: 'twilio' | 'aipsoft' | 'mock';
+  channel: 'sms' | 'whatsapp';
   dev_code?: string;
 }
 

@@ -446,7 +446,11 @@ export default function App() {
     setRoute('/dashboard');
   };
 
-  const handleCustomerSendOtp = async (payload: { phone: string; purpose: 'register' | 'login' }) => {
+  const handleCustomerSendOtp = async (payload: {
+    phone: string;
+    purpose: 'register' | 'login';
+    channel: 'sms' | 'whatsapp';
+  }) => {
     return customerApi.sendOtp(payload);
   };
 

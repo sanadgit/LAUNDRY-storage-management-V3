@@ -39,6 +39,7 @@ import {
 } from '../constants/storeGeometry';
 import { extractTicketNumberFromScan } from '../utils/barcode';
 import { getScannerSupportMessage, startCameraBarcodeScanner } from '../utils/cameraScanner';
+import { canEditWarehouse } from '../lib/roleAccess';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -1480,8 +1481,9 @@ function StoreQuickPopup() {
   const [error, setError] = useState<string | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
+  const [scannerPreview, setScannerPreview] = useState<{ raw: string; extracted: string } | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const canModify = ['admin', 'super-admin'].includes(currentUser?.role || '');
+  const canModify = canEditWarehouse(currentUser?.role);
   const isConveyerStore = useMemo(
     () => Boolean(selected && /convey/i.test(selected.store_name.trim())),
     [selected?.store_name]
@@ -1493,6 +1495,7 @@ function StoreQuickPopup() {
     setError(null);
     setScannerOpen(false);
     setScannerError(null);
+    setScannerPreview(null);
   }, [selected?.store_name]);
 
   const slotCapacity = useMemo(() => {
@@ -1555,6 +1558,7 @@ function StoreQuickPopup() {
     let consumed = false;
     let stopSession: (() => void) | null = null;
     setScannerError(null);
+    setScannerPreview(null);
 
     const start = async () => {
       try {
@@ -1565,7 +1569,12 @@ function StoreQuickPopup() {
           videoElement: video,
           onDetected: (rawValue) => {
             if (cancelled || consumed) return;
-            const extracted = extractTicketNumberFromScan(String(rawValue));
+            const rawText = String(rawValue ?? '').trim();
+            const extracted = extractTicketNumberFromScan(rawText);
+            setScannerPreview((prev) => {
+              if (prev && prev.raw === rawText && prev.extracted === extracted) return prev;
+              return { raw: rawText, extracted };
+            });
             if (!extracted) return;
             consumed = true;
             stopSession?.();
@@ -1991,6 +2000,18 @@ function StoreQuickPopup() {
                 Scanning... it will fill invoice number automatically.
               </div>
             )}
+
+            {scannerPreview && (
+              <div className="max-w-lg w-full rounded-3xl border border-slate-700 bg-slate-900/80 px-5 py-4 space-y-2">
+                <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Scan Preview</div>
+                <div className="text-xs font-semibold text-slate-300 break-all">
+                  Raw: <span className="text-slate-200">{scannerPreview.raw || '-'}</span>
+                </div>
+                <div className="text-xs font-semibold text-emerald-300 break-all">
+                  Extracted: {scannerPreview.extracted || 'No valid number yet'}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1998,10 +2019,49 @@ function StoreQuickPopup() {
   );
 }
 
-function Warehouse3DInner() {
+function Warehouse3DInner({ active = true }: { active?: boolean }) {
   const { stores = [] } = useStore();
-  const { settings } = useViewer3D();
+  const { settings, patchSettings } = useViewer3D();
   const [mode, setMode] = useState<'translate' | 'rotate' | 'scale'>('translate');
+  const [canvasKey, setCanvasKey] = useState(0);
+  const [webglContextLost, setWebglContextLost] = useState(false);
+  const canvasHostRef = useRef<HTMLDivElement | null>(null);
+  const canvasElementRef = useRef<HTMLCanvasElement | null>(null);
+  const isLowPowerDevice = useMemo(() => {
+    if (typeof navigator === 'undefined') return false;
+    const ua = navigator.userAgent || '';
+    const isMobileUa = /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+    const navAny = navigator as Navigator & { deviceMemory?: number };
+    const lowMemory = typeof navAny.deviceMemory === 'number' && navAny.deviceMemory <= 4;
+    const lowCpu = typeof navigator.hardwareConcurrency === 'number' && navigator.hardwareConcurrency <= 4;
+    return isMobileUa || lowMemory || lowCpu;
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasElementRef.current;
+    if (!canvas) return;
+
+    const handleContextLost = (event: Event) => {
+      event.preventDefault();
+      setWebglContextLost(true);
+      patchSettings({
+        shadowsEnabled: false,
+        showShopModel: false,
+      });
+    };
+
+    const handleContextRestored = () => {
+      setWebglContextLost(false);
+    };
+
+    canvas.addEventListener('webglcontextlost', handleContextLost as EventListener, false);
+    canvas.addEventListener('webglcontextrestored', handleContextRestored as EventListener, false);
+
+    return () => {
+      canvas.removeEventListener('webglcontextlost', handleContextLost as EventListener, false);
+      canvas.removeEventListener('webglcontextrestored', handleContextRestored as EventListener, false);
+    };
+  }, [canvasKey, patchSettings]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -2014,14 +2074,49 @@ function Warehouse3DInner() {
   }, []);
 
   return (
-    <div className="h-full w-full relative group bg-slate-950">
+    <div ref={canvasHostRef} className="h-full w-full relative group bg-slate-950">
       <Canvas 
-        shadows={settings.shadowsEnabled}
-        dpr={[1, 2]}
+        key={`warehouse-canvas-${canvasKey}`}
+        shadows={settings.shadowsEnabled && !isLowPowerDevice}
+        dpr={[1, isLowPowerDevice ? 1.25 : 2]}
+        frameloop={active ? 'always' : 'never'}
+        gl={{
+          antialias: !isLowPowerDevice,
+          alpha: false,
+          stencil: false,
+          depth: true,
+          preserveDrawingBuffer: false,
+          powerPreference: isLowPowerDevice ? 'low-power' : 'high-performance',
+          precision: isLowPowerDevice ? 'mediump' : 'highp',
+        }}
+        onCreated={({ gl }) => {
+          canvasElementRef.current = gl.domElement;
+        }}
         style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: getCanvasBackground(settings.lightMode) }}
       >
         <Scene mode={mode} />
       </Canvas>
+
+      {webglContextLost && (
+        <div className="absolute inset-0 z-40 bg-slate-950/92 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="max-w-md w-full rounded-3xl border border-slate-700 bg-slate-900/95 p-6 text-center space-y-4">
+            <div className="text-sm font-black uppercase tracking-[0.2em] text-amber-300">3D Recovery Mode</div>
+            <div className="text-sm font-semibold text-slate-200">
+              WebGL context was lost. We switched to a lighter 3D mode automatically.
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setWebglContextLost(false);
+                setCanvasKey((k) => k + 1);
+              }}
+              className="w-full rounded-2xl bg-blue-600 hover:bg-blue-500 text-white py-3 font-black uppercase tracking-widest text-xs"
+            >
+              Reload 3D
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="hidden lg:block">
         <Viewer3DControlPanel />
@@ -2104,8 +2199,8 @@ function Warehouse3DInner() {
   );
 }
 
-export default function Warehouse3D() {
-  return <Warehouse3DInner />;
+export default function Warehouse3D({ active = true }: { active?: boolean }) {
+  return <Warehouse3DInner active={active} />;
 }
 
 useGLTF.preload(SHOP_MODEL_URL);

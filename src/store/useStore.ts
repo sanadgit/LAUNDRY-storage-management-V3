@@ -6,6 +6,7 @@ import {
   STORE_LOCAL_FOOTPRINT_WIDTH,
 } from '../constants/storeGeometry';
 import { isSupabaseEnabled } from '../lib/supabaseClient';
+import { AppRole, canEditWarehouse, canManageUsers, canMarkPicked } from '../lib/roleAccess';
 
 const supabaseProxyBase = '/api/supabase';
 const AUTH_TOKEN_KEY = 'authToken';
@@ -63,9 +64,6 @@ const tryVibrate = (pattern: number | number[]) => {
     // ignore vibration errors
   }
 };
-
-const isAdminRole = (role: User['role'] | null | undefined) =>
-  role === 'admin' || role === 'super-admin';
 
 const readAuthToken = () =>
   typeof localStorage === 'undefined' ? null : localStorage.getItem(AUTH_TOKEN_KEY);
@@ -133,7 +131,7 @@ export interface User {
   email: string;
   phone: string;
   avatar_url: string;
-  role: 'super-admin' | 'admin' | 'cashier';
+  role: AppRole;
   is_active: boolean;
   created_at: string | null;
   updated_at: string | null;
@@ -186,6 +184,7 @@ interface AppState {
   searchImmersive: boolean;
   users: User[];
   currentUser: User | null;
+  sessionNotice: string | null;
 
   fetchUsers: () => Promise<void>;
   loginUser: (username: string, password: string) => Promise<void>;
@@ -214,6 +213,7 @@ interface AppState {
   setGridFace: (face: GridFace) => void;
   setSelectedGridCell: (cell: { store: string; row: number; column: number } | null) => void;
   setSearchImmersive: (value: boolean) => void;
+  clearSessionNotice: () => void;
 }
 
 const defaultStoreSlots = [
@@ -346,10 +346,22 @@ const deriveBlanketAction = (
 };
 
 export const useStore = create<AppState>((set, get) => {
-  const ensureAdminAccess = () => {
+  const ensureWarehouseEditAccess = () => {
     const user = get().currentUser;
     if (!user) throw new Error('Please sign in first.');
-    if (!isAdminRole(user.role)) throw new Error('Admin only.');
+    if (!canEditWarehouse(user.role)) throw new Error('Permission denied.');
+  };
+
+  const ensureUserManagementAccess = () => {
+    const user = get().currentUser;
+    if (!user) throw new Error('Please sign in first.');
+    if (!canManageUsers(user.role)) throw new Error('Permission denied.');
+  };
+
+  const ensurePickAccess = () => {
+    const user = get().currentUser;
+    if (!user) throw new Error('Please sign in first.');
+    if (!canMarkPicked(user.role)) throw new Error('Permission denied.');
   };
 
   return ({
@@ -368,6 +380,7 @@ export const useStore = create<AppState>((set, get) => {
   searchImmersive: false,
   users: [],
   currentUser: null,
+  sessionNotice: null,
 
   fetchUsers: async () => {
     const token = readAuthToken();
@@ -407,11 +420,11 @@ export const useStore = create<AppState>((set, get) => {
       if (!currentUser?.is_active) {
         localStorage.removeItem(AUTH_TOKEN_KEY);
         applyAuthToken(null);
-        set({ users: [], currentUser: null });
+        set({ users: [], currentUser: null, sessionNotice: 'Session expired. Please sign in again.' });
         return;
       }
 
-      if (!isAdminRole(currentUser.role)) {
+      if (!canManageUsers(currentUser.role)) {
         set({ users: [], currentUser });
         return;
       }
@@ -424,11 +437,28 @@ export const useStore = create<AppState>((set, get) => {
           : [];
       set({ users, currentUser });
     } catch (error) {
-      console.error('fetchUsers failed:', error);
-      localStorage.removeItem(AUTH_TOKEN_KEY);
-      localStorage.removeItem(LEGACY_USERNAME_KEY);
-      applyAuthToken(null);
-      set({ users: [], currentUser: null });
+      const status = (error as any)?.response?.status;
+      // Expired/invalid token is expected occasionally; clear session without noisy console spam.
+      if (status !== 401) {
+        console.error('fetchUsers failed:', error);
+      }
+      const shouldForceLogout = status === 401 || status === 403;
+      if (shouldForceLogout) {
+        localStorage.removeItem(AUTH_TOKEN_KEY);
+        localStorage.removeItem(LEGACY_USERNAME_KEY);
+        applyAuthToken(null);
+        set({
+          users: [],
+          currentUser: null,
+          sessionNotice: 'Session expired. Please sign in again.',
+        });
+        return;
+      }
+
+      // Keep current session during transient backend/network failures.
+      set({
+        sessionNotice: 'Connection issue. Session is still kept; retry in a moment.',
+      });
     }
   },
 
@@ -459,8 +489,8 @@ export const useStore = create<AppState>((set, get) => {
       applyAuthToken(null);
     }
 
-    set({ currentUser: user });
-    if (token || isAdminRole(user.role)) {
+    set({ currentUser: user, sessionNotice: null });
+    if (token || canManageUsers(user.role)) {
       await get().fetchUsers();
     }
   },
@@ -474,23 +504,23 @@ export const useStore = create<AppState>((set, get) => {
     localStorage.removeItem(AUTH_TOKEN_KEY);
     localStorage.removeItem(LEGACY_USERNAME_KEY);
     applyAuthToken(null);
-    set({ currentUser: null, users: [], stores: [], blankets: [], logs: [], searchImmersive: false });
+    set({ currentUser: null, users: [], stores: [], blankets: [], logs: [], searchImmersive: false, sessionNotice: null });
   },
 
   addUser: async (user) => {
-    ensureAdminAccess();
+    ensureUserManagementAccess();
     await axios.post('/api/users', user);
     await get().fetchUsers();
   },
 
   updateUser: async (id, data) => {
-    ensureAdminAccess();
+    ensureUserManagementAccess();
     await axios.put(`/api/users/${id}`, data);
     await get().fetchUsers();
   },
 
   deleteUser: async (id) => {
-    ensureAdminAccess();
+    ensureUserManagementAccess();
     await axios.delete(`/api/users/${id}`);
     const state = get();
     if (state.currentUser?.id === id) {
@@ -527,7 +557,7 @@ export const useStore = create<AppState>((set, get) => {
   },
 
   addStore: async (storeData) => {
-    ensureAdminAccess();
+    ensureWarehouseEditAccess();
     if (isSupabaseEnabled) {
       const position = getNextStorePosition(get().stores);
       const payload = normalizeStore({
@@ -550,7 +580,7 @@ export const useStore = create<AppState>((set, get) => {
   },
 
   updateStore: async (name, data) => {
-    ensureAdminAccess();
+    ensureWarehouseEditAccess();
     const store = get().stores.find((item) => item.store_name === name);
     if (!store) return;
 
@@ -572,7 +602,7 @@ export const useStore = create<AppState>((set, get) => {
   },
 
   deleteStore: async (name) => {
-    ensureAdminAccess();
+    ensureWarehouseEditAccess();
     try {
       if (isSupabaseEnabled) {
         await requireSupabaseProxy(() => axios.delete(`${supabaseProxyBase}/stores/${encodeURIComponent(name)}`));
@@ -611,7 +641,7 @@ export const useStore = create<AppState>((set, get) => {
   },
 
   addBlanket: async (blanket) => {
-    ensureAdminAccess();
+    ensureWarehouseEditAccess();
     if (isSupabaseEnabled) {
       const meta = createRequestMeta(blanket.notes);
       await requireSupabaseProxy(async () => {
@@ -655,7 +685,7 @@ export const useStore = create<AppState>((set, get) => {
   },
 
   updateBlanket: async (id, data) => {
-    ensureAdminAccess();
+    ensureWarehouseEditAccess();
     if (isSupabaseEnabled) {
       await requireSupabaseProxy(async () => {
         const meta = createRequestMeta((data as any).notes);
@@ -683,7 +713,7 @@ export const useStore = create<AppState>((set, get) => {
   },
 
   deleteBlanket: async (id) => {
-    ensureAdminAccess();
+    ensureWarehouseEditAccess();
     if (isSupabaseEnabled) {
       await requireSupabaseProxy(async () => {
         const meta = createRequestMeta();
@@ -732,61 +762,11 @@ export const useStore = create<AppState>((set, get) => {
   setViewMode: (mode) => set({ viewMode: mode }),
 
   markAsPicked: async (blanket) => {
-    ensureAdminAccess();
-    const state = get();
-    const store = state.stores.find((item) => item.store_name === blanket.store);
-    const maxRows = store?.rows || 0;
-    const autoSettle = store?.auto_settle !== false;
-    const slotCapacity = Number(store?.slot_capacity ?? 1);
-    // Auto-settle is only safe/meaningful when each (row,column) holds a single item.
-    // For folding shelves (slot_capacity > 1), shifting rows can cause out-of-bounds/capacity conflicts.
-    const canAutoSettle = autoSettle && slotCapacity <= 1 && store?.store_type !== 'hanger';
-
-    if (canAutoSettle) {
-      const storedInColumn = state.blankets
-        .filter(
-          (item) =>
-            item.store === blanket.store &&
-            item.column === blanket.column &&
-            item.status === 'stored' &&
-            item.id !== blanket.id
-        )
-        .sort((a, b) => a.row - b.row);
-
-      if (maxRows > 0 && storedInColumn.length > 0) {
-        const startRow = maxRows - storedInColumn.length + 1;
-        for (let index = 0; index < storedInColumn.length; index += 1) {
-          const currentBlanket = storedInColumn[index];
-          const targetRow = startRow + index;
-          if (currentBlanket.row !== targetRow) {
-            if (isSupabaseEnabled) {
-              const meta = createRequestMeta();
-              await requireSupabaseProxy(() =>
-                axios.put(`${supabaseProxyBase}/blankets/${currentBlanket.id}`, {
-                  row: targetRow,
-                  user: get().currentUser?.username || 'system',
-                  ...meta,
-                })
-              );
-            } else {
-              const meta = createRequestMeta();
-              await axios.put(`/api/blankets/${currentBlanket.id}`, {
-                ...currentBlanket,
-                row: targetRow,
-                user: get().currentUser?.username || 'system',
-                ...meta,
-              });
-            }
-          }
-        }
-      }
-    }
-
+    ensurePickAccess();
     if (isSupabaseEnabled) {
       const meta = createRequestMeta();
       await requireSupabaseProxy(() =>
-        axios.put(`${supabaseProxyBase}/blankets/${blanket.id}`, {
-          status: 'picked',
+        axios.post(`${supabaseProxyBase}/blankets/${blanket.id}/pick`, {
           user: get().currentUser?.username || 'system',
           ...meta,
         })
@@ -798,9 +778,7 @@ export const useStore = create<AppState>((set, get) => {
       return;
     }
 
-    await axios.put(`/api/blankets/${blanket.id}`, {
-      ...blanket,
-      status: 'picked',
+    await axios.post(`/api/blankets/${blanket.id}/pick`, {
       user: get().currentUser?.username || 'system',
       ...createRequestMeta(),
     });
@@ -818,5 +796,6 @@ export const useStore = create<AppState>((set, get) => {
   setGridFace: (face) => set({ gridFace: face }),
   setSelectedGridCell: (cell) => set({ selectedGridCell: cell }),
   setSearchImmersive: (value) => set({ searchImmersive: value }),
+  clearSessionNotice: () => set({ sessionNotice: null }),
   });
 });

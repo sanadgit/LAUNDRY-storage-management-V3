@@ -19,10 +19,30 @@ export const extractTicketNumberFromScan = (raw: string) => {
     // raw barcode text, continue with normalization
   }
 
-  // Many CODE39 stickers include '*' wrappers and extra symbols around the invoice.
-  const code39Stripped = value.replace(/^\*+|\*+$/g, '').trim();
-  const edgeTrimmed = code39Stripped.replace(/^[^0-9A-Za-z]+|[^0-9A-Za-z]+$/g, '');
-  const compact = edgeTrimmed.replace(/\s+/g, '');
+  // OCR / text payload variants like:
+  //   "Order:M35427", "JOB ORDER M35427", "Invoice #M35427"
+  const labeledMatch = value.match(
+    /(?:order|invoice|ticket|job\s*order)\s*[:#\-]?\s*([A-Za-z]{0,3}\d{3,})/i
+  );
+  if (labeledMatch?.[1]) return labeledMatch[1].trim();
+
+  // Normalize common CODE39 wrappers and punctuation noise.
+  // Example real sticker payload can look like: "* I $ M35427 *"
+  const normalized = value.replace(/\*/g, ' ').replace(/\s+/g, ' ').trim();
+
+  // Prefer mixed tokens with letters+digits (e.g. M35427).
+  // This avoids returning noisy prefixes like "IM35427".
+  const strongMixedTokens = normalized.match(/\b[A-Za-z]{1,3}\d{3,}\b/g);
+  if (strongMixedTokens?.length) {
+    return strongMixedTokens[0].trim();
+  }
+
+  // Fallback: split by non-alphanumeric and pick best candidate token.
+  const splitTokens = normalized.split(/[^0-9A-Za-z]+/).filter(Boolean);
+  const splitMixed = splitTokens.find((token) => /^[A-Za-z]{1,3}\d{3,}$/.test(token));
+  if (splitMixed) return splitMixed.trim();
+
+  const compact = normalized.replace(/^[^0-9A-Za-z]+|[^0-9A-Za-z]+$/g, '').replace(/\s+/g, '');
   if (!compact) return '';
 
   // If the code is primarily numeric, prefer clean digits.

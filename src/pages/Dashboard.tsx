@@ -1,5 +1,5 @@
 import { useStore } from '../store/useStore';
-import { Package, CheckCircle, Clock, LayoutGrid, History, Search as SearchIcon, Plus, Settings } from 'lucide-react';
+import { Package, CheckCircle, Clock, LayoutGrid, History, Search as SearchIcon, Plus, Settings, ArrowUpDown } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 
@@ -99,6 +99,13 @@ export default function Dashboard() {
               >
                 <SearchIcon size={20} />
                 Start Search
+              </button>
+              <button
+                onClick={() => navigate('/sorting')}
+                className="w-full bg-white/10 hover:bg-white/20 p-4 rounded-2xl text-left font-semibold backdrop-blur-sm transition-all border border-white/10 flex items-center gap-3"
+              >
+                <ArrowUpDown size={20} />
+                فرز الملابس
               </button>
               <button 
                 onClick={() => navigate('/management')}

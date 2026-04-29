@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   Package,
   Search,
+  Trophy,
   Menu,
   X,
 } from 'lucide-react';
@@ -11,8 +12,18 @@ import { useStore } from './store/useStore';
 import Dashboard from './pages/Dashboard';
 import Management from './pages/Management';
 import SearchPage from './pages/Search';
+import SortingPage from './pages/Sorting';
+import AchievementsPage from './pages/Achievements';
 import { isSupabaseEnabled } from './lib/supabaseClient';
 import { Viewer3DSettingsProvider } from './context/Viewer3DSettings';
+import {
+  canAccessDashboard,
+  canAccessManagement,
+  canAccessSearch,
+  canAccessSorting,
+  canAccessAchievements,
+  defaultRouteForRole,
+} from './lib/roleAccess';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -33,6 +44,8 @@ function MobileTopBar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   const title = useMemo(() => {
     if (location.pathname === '/management') return 'Warehouse Management';
     if (location.pathname === '/search') return 'Search & Retrieval';
+    if (location.pathname === '/sorting') return 'فرز الملابس';
+    if (location.pathname === '/achievements') return 'Achievements';
     return 'Warehouse Dashboard';
   }, [location.pathname]);
 
@@ -90,7 +103,7 @@ function MobileTopBar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
 }
 
 function LoginScreen() {
-  const { loginUser } = useStore();
+  const { loginUser, sessionNotice, clearSessionNotice } = useStore();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -120,11 +133,23 @@ function LoginScreen() {
           <div className="text-[11px] font-black uppercase tracking-[0.25em] text-slate-500">Secure Access</div>
           <h1 className="text-3xl sm:text-4xl font-black tracking-tight">Smart Storage Hub</h1>
           <p className="text-sm text-slate-400 font-semibold">
-            Sign in to open the application. Edit actions are restricted to admin users.
+            Sign in to open the application. Access is controlled by role-based permissions.
           </p>
         </div>
 
         <div className="space-y-3">
+          {sessionNotice && (
+            <div className="rounded-2xl border border-amber-300/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 font-semibold flex items-start justify-between gap-3">
+              <span>{sessionNotice}</span>
+              <button
+                type="button"
+                onClick={clearSessionNotice}
+                className="shrink-0 text-amber-200 hover:text-white text-xs uppercase tracking-wider font-black"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
           <input
             type="text"
             placeholder="Username"
@@ -184,12 +209,19 @@ function Sidebar({
     logoutUser,
   } = useStore();
 
-  const isAdmin = ['admin', 'super-admin'].includes(currentUser?.role || '');
+  const role = currentUser?.role;
+  const showDashboard = canAccessDashboard(role);
+  const showManagement = canAccessManagement(role);
+  const showSearch = canAccessSearch(role);
+  const showSorting = canAccessSorting(role);
+  const showAchievements = canAccessAchievements(role);
 
   const navItems = [
-    { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-    ...(isAdmin ? [{ name: 'Management', path: '/management', icon: Package }] : []),
-    { name: 'Search & Retrieval', path: '/search', icon: Search },
+    ...(showDashboard ? [{ name: 'Dashboard', path: '/', icon: LayoutDashboard }] : []),
+    ...(showManagement ? [{ name: 'Management', path: '/management', icon: Package }] : []),
+    ...(showSearch ? [{ name: 'Search & Retrieval', path: '/search', icon: Search }] : []),
+    ...(showSorting ? [{ name: 'فرز الملابس', path: '/sorting', icon: Package }] : []),
+    ...(showAchievements ? [{ name: 'Achievements', path: '/achievements', icon: Trophy }] : []),
   ];
 
   const activeLoginUsers = useMemo(
@@ -394,7 +426,14 @@ function AppLayout() {
   const location = useLocation();
   const { fetchStores, fetchBlankets, fetchLogs, fetchUsers, currentUser, searchImmersive } = useStore();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const isAdmin = ['admin', 'super-admin'].includes(currentUser?.role || '');
+  const role = currentUser?.role;
+  const isManager = canAccessManagement(role);
+  const canOpenDashboard = canAccessDashboard(role);
+  const canOpenManagement = canAccessManagement(role);
+  const canOpenSearch = canAccessSearch(role);
+  const canOpenSorting = canAccessSorting(role);
+  const canOpenAchievements = canAccessAchievements(role);
+  const defaultPath = defaultRouteForRole(role);
   const hideMobileTopBar = location.pathname === '/search' && searchImmersive;
 
   useEffect(() => {
@@ -406,8 +445,8 @@ function AppLayout() {
     void fetchStores();
     void fetchBlankets();
     void fetchLogs();
-    if (isAdmin) void fetchUsers();
-  }, [currentUser, isAdmin]);
+    if (isManager) void fetchUsers();
+  }, [currentUser, isManager]);
 
   if (!currentUser) {
     return <LoginScreen />;
@@ -420,10 +459,18 @@ function AppLayout() {
         {!hideMobileTopBar && <MobileTopBar onOpenSidebar={() => setMobileSidebarOpen(true)} />}
         <main className="flex-1 overflow-y-auto overflow-x-hidden">
           <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/management" element={isAdmin ? <Management /> : <Navigate to="/search" replace />} />
-            <Route path="/search" element={<SearchPage />} />
-            <Route path="*" element={<Navigate to="/search" replace />} />
+            <Route path="/" element={canOpenDashboard ? <Dashboard /> : <Navigate to={defaultPath} replace />} />
+            <Route
+              path="/management"
+              element={canOpenManagement ? <Management /> : <Navigate to={defaultPath} replace />}
+            />
+            <Route path="/search" element={canOpenSearch ? <SearchPage /> : <Navigate to={defaultPath} replace />} />
+            <Route path="/sorting" element={canOpenSorting ? <SortingPage /> : <Navigate to={defaultPath} replace />} />
+            <Route
+              path="/achievements"
+              element={canOpenAchievements ? <AchievementsPage /> : <Navigate to={defaultPath} replace />}
+            />
+            <Route path="*" element={<Navigate to={defaultPath} replace />} />
           </Routes>
         </main>
       </div>

@@ -28,8 +28,28 @@ const requestJson = async <T>(url: string, options?: RequestInit): Promise<T> =>
   });
 
   if (!response.ok) {
-    const message = await response.text().catch(() => '');
-    throw new Error(message || `HTTP ${response.status}`);
+    const contentType = response.headers.get('content-type') || '';
+    let message = '';
+
+    if (contentType.includes('application/json')) {
+      const body = await response.json().catch(() => null as any);
+      if (body && typeof body === 'object') {
+        message = String(body.error ?? body.message ?? '').trim();
+        // Some backends return a JSON string inside "error".
+        if (message.startsWith('{') && message.endsWith('}')) {
+          try {
+            const nested = JSON.parse(message);
+            message = String(nested?.error ?? nested?.message ?? message).trim();
+          } catch {
+            // Keep original text.
+          }
+        }
+      }
+    } else {
+      message = (await response.text().catch(() => '')).trim();
+    }
+
+    throw new Error(message ? `HTTP ${response.status} · ${message}` : `HTTP ${response.status}`);
   }
 
   return response.json();
@@ -59,7 +79,7 @@ export const customerApi = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  sendOtp: (payload: { phone: string; purpose: 'register' | 'login' }) =>
+  sendOtp: (payload: { phone: string; purpose: 'register' | 'login'; channel: 'sms' | 'whatsapp' }) =>
     requestJson<CustomerOtpSendResponse>('/api/customer/auth/otp/send', {
       method: 'POST',
       body: JSON.stringify(payload),

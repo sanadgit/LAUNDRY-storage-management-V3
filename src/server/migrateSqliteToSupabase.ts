@@ -7,7 +7,7 @@ interface SQLiteUser {
   email: string | null;
   phone: string | null;
   avatar_url: string | null;
-  role: 'super-admin' | 'admin' | 'cashier';
+  role: 'super-admin' | 'admin' | 'manager' | 'branch-manager' | 'cashier' | 'sorter' | 'packer';
   is_active: number;
   last_login_at: string | null;
   password: string;

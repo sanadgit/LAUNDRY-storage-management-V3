@@ -7,6 +7,7 @@ import { useViewer3D } from '../context/Viewer3DSettings';
 import { getVirtualGridCellWorldPoint } from '../utils/virtualGridWorldPoint';
 import { extractTicketNumberFromScan } from '../utils/barcode';
 import { getScannerSupportMessage, startCameraBarcodeScanner } from '../utils/cameraScanner';
+import { canMarkPicked } from '../lib/roleAccess';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -54,8 +55,10 @@ export default function SearchPage() {
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerMode, setScannerMode] = useState<ScannerMode>('search');
   const [scannerError, setScannerError] = useState<string | null>(null);
+  const [scannerPreview, setScannerPreview] = useState<{ raw: string; extracted: string } | null>(null);
+  const [hasOpened3D, setHasOpened3D] = useState(viewMode === '3D');
   const [pendingPickScanBlanket, setPendingPickScanBlanket] = useState<Blanket | null>(null);
-  const canModify = ['admin', 'super-admin'].includes(currentUser?.role || '');
+  const canPick = canMarkPicked(currentUser?.role);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerModeRef = useRef<ScannerMode>('search');
   const pendingPickScanBlanketRef = useRef<Blanket | null>(null);
@@ -97,6 +100,7 @@ export default function SearchPage() {
     let consumed = false;
     let stopSession: (() => void) | null = null;
     setScannerError(null);
+    setScannerPreview(null);
 
     const start = async () => {
       try {
@@ -107,7 +111,12 @@ export default function SearchPage() {
           videoElement: video,
           onDetected: async (rawValue) => {
             if (cancelled || consumed) return;
-            const extracted = extractTicketNumberFromScan(String(rawValue));
+            const rawText = String(rawValue ?? '').trim();
+            const extracted = extractTicketNumberFromScan(rawText);
+            setScannerPreview((prev) => {
+              if (prev && prev.raw === rawText && prev.extracted === extracted) return prev;
+              return { raw: rawText, extracted };
+            });
             if (!extracted) return;
 
             const mode = scannerModeRef.current;
@@ -203,6 +212,10 @@ export default function SearchPage() {
   useEffect(() => {
     return () => setSearchImmersive(false);
   }, [setSearchImmersive]);
+
+  useEffect(() => {
+    if (viewMode === '3D') setHasOpened3D(true);
+  }, [viewMode]);
 
   const latestLogBySlotKey = useMemo(() => {
     const map = new Map<string, Log>();
@@ -431,6 +444,7 @@ export default function SearchPage() {
 
   const openSearchScanner = () => {
     setScannerError(null);
+    setScannerPreview(null);
     setScannerMode('search');
     scannerModeRef.current = 'search';
     setPendingPickScanBlanket(null);
@@ -440,6 +454,7 @@ export default function SearchPage() {
 
   const closeScanner = () => {
     setScannerOpen(false);
+    setScannerPreview(null);
     setPendingPickScanBlanket(null);
     pendingPickScanBlanketRef.current = null;
     setScannerMode('search');
@@ -651,6 +666,18 @@ export default function SearchPage() {
                 {scannerFooterHint}
               </div>
             )}
+
+            {scannerPreview && (
+              <div className="max-w-lg w-full rounded-3xl border border-slate-700 bg-slate-900/80 px-5 py-4 space-y-2">
+                <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Scan Preview</div>
+                <div className="text-xs font-semibold text-slate-300 break-all">
+                  Raw: <span className="text-slate-200">{scannerPreview.raw || '-'}</span>
+                </div>
+                <div className="text-xs font-semibold text-emerald-300 break-all">
+                  Extracted: {scannerPreview.extracted || 'No valid number yet'}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -731,10 +758,10 @@ export default function SearchPage() {
                 )}
                 <button 
                   onClick={handleMarkAsPicked}
-                  disabled={!canModify}
+                  disabled={!canPick}
                   className={cn(
                     "w-full py-5 sm:py-6 rounded-3xl font-black text-xl sm:text-2xl shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3",
-                    canModify 
+                    canPick 
                       ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/20" 
                       : "bg-slate-700 text-slate-400 cursor-not-allowed shadow-none"
                   )}
@@ -853,10 +880,10 @@ export default function SearchPage() {
                 )}
                 <button 
                   onClick={handleMarkAsPicked}
-                  disabled={!canModify}
+                  disabled={!canPick}
                   className={cn(
                     "w-full py-5 sm:py-6 rounded-3xl font-black text-xl sm:text-2xl shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3",
-                    canModify 
+                    canPick 
                       ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/20" 
                       : "bg-slate-700 text-slate-400 cursor-not-allowed shadow-none"
                   )}
@@ -1004,11 +1031,12 @@ export default function SearchPage() {
 
         {/* Center: Viewport */}
         <div className="flex-1 min-w-0 relative bg-slate-950 overflow-hidden" style={mobileViewportBottomInsetStyle}>
-          {viewMode === '2D' ? (
+          <div className={cn('absolute inset-0', viewMode === '2D' ? 'block' : 'hidden')}>
             <Grid2D />
-          ) : (
-            <Warehouse3D />
-          )}
+          </div>
+          <div className={cn('absolute inset-0', viewMode === '3D' ? 'block' : 'hidden')}>
+            {hasOpened3D ? <Warehouse3D active={viewMode === '3D'} /> : null}
+          </div>
           
           {/* Store Selector Overlay */}
           <div
