@@ -36,3 +36,286 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* App theme system */
+html[data-app-theme='night'] {
+  color-scheme: dark;
+}
+
+html[data-app-theme='light'] {
+  color-scheme: light;
+}
+
+html[data-app-theme='light'] body {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+html[data-app-theme='light'] [class*='bg-slate-95'],
+html[data-app-theme='light'] [class*='bg-slate-900'],
+html[data-app-theme='light'] [class*='bg-slate-800'],
+html[data-app-theme='light'] [class*='bg-slate-700'] {
+  background-color: #ffffff !important;
+}
+
+html[data-app-theme='light'] [class*='border-slate-9'],
+html[data-app-theme='light'] [class*='border-slate-8'],
+html[data-app-theme='light'] [class*='border-slate-7'],
+html[data-app-theme='light'] [class*='border-slate-6'] {
+  border-color: #dbe5f0 !important;
+}
+
+html[data-app-theme='light'] .text-white,
+html[data-app-theme='light'] [class*='text-slate-100'],
+html[data-app-theme='light'] [class*='text-slate-200'],
+html[data-app-theme='light'] [class*='text-slate-300'],
+html[data-app-theme='light'] [class*='text-slate-400'] {
+  color: #1e293b !important;
+}
+
+html[data-app-theme='light'] [class*='text-slate-500'],
+html[data-app-theme='light'] [class*='text-slate-600'] {
+  color: #475569 !important;
+}
+
+html[data-app-theme='light'] .shadow-2xl,
+html[data-app-theme='light'] .shadow-xl,
+html[data-app-theme='light'] .shadow-lg {
+  box-shadow: 0 8px 30px rgba(15, 23, 42, 0.08) !important;
+}
+
+/* Warehouse futuristic panel theme (Search / Input modes) */
+.warehouse-search-ui {
+  --wh-bg-main: #06111f;
+  --wh-bg-header: #0d1b2e;
+  --wh-bg-card: #101d30;
+  --wh-bg-input: #17263a;
+  --wh-grid-empty: #0b172a;
+  --wh-grid-occupied: #35152a;
+  --wh-grid-occupied-border: #8b1e52;
+  --wh-active-blue: #2f7dff;
+  --wh-selected-green: #0ea36f;
+  --wh-selected-green-border: #3dffd0;
+  --wh-text-primary: #ffffff;
+  --wh-text-secondary: #8ea2bd;
+  --wh-border: #263b5b;
+  background: var(--wh-bg-main);
+  color: var(--wh-text-primary);
+}
+
+.warehouse-search-ui .warehouse-search-header {
+  background: var(--wh-bg-header) !important;
+  border-color: var(--wh-border) !important;
+  box-shadow: 0 1px 0 rgba(38, 59, 91, 0.65);
+}
+
+.warehouse-search-ui .warehouse-search-input {
+  background: var(--wh-bg-input) !important;
+  border-color: var(--wh-border) !important;
+  color: var(--wh-text-primary) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(47, 125, 255, 0.18),
+    0 0 0 0 rgba(47, 125, 255, 0);
+}
+
+.warehouse-search-ui .warehouse-search-input::placeholder {
+  color: var(--wh-text-secondary) !important;
+}
+
+.warehouse-search-ui .warehouse-search-input:focus {
+  box-shadow:
+    inset 0 0 0 1px rgba(47, 125, 255, 0.35),
+    0 0 0 4px rgba(47, 125, 255, 0.18) !important;
+}
+
+.warehouse-search-ui .warehouse-card,
+.warehouse-search-ui .warehouse-search-panel,
+.warehouse-search-ui .warehouse-bottom-dock > div,
+.warehouse-search-ui .warehouse-grid-map,
+.warehouse-search-ui .warehouse-input-dock,
+.warehouse-search-ui .warehouse-selected-slot {
+  background: var(--wh-bg-card) !important;
+  border-color: var(--wh-border) !important;
+}
+
+.warehouse-search-ui .warehouse-search-panel {
+  box-shadow: 12px 0 30px rgba(0, 0, 0, 0.32);
+}
+
+.warehouse-search-ui .warehouse-search-panel h2,
+.warehouse-search-ui .warehouse-search-panel h3,
+.warehouse-search-ui .warehouse-search-panel .text-white {
+  color: var(--wh-text-primary) !important;
+}
+
+.warehouse-search-ui .warehouse-search-panel .text-slate-400,
+.warehouse-search-ui .warehouse-search-panel .text-slate-500,
+.warehouse-search-ui .warehouse-search-panel .text-slate-600 {
+  color: var(--wh-text-secondary) !important;
+}
+
+.warehouse-search-ui .warehouse-neon-button,
+.warehouse-search-ui .warehouse-mode-toggle {
+  border-color: var(--wh-border) !important;
+  background: rgba(16, 29, 48, 0.92) !important;
+}
+
+.warehouse-search-ui .warehouse-neon-button {
+  box-shadow: 0 0 16px rgba(47, 125, 255, 0.2);
+}
+
+.warehouse-search-ui .warehouse-store-tabs {
+  border-color: var(--wh-border) !important;
+  background: rgba(16, 29, 48, 0.92) !important;
+  direction: ltr;
+  box-shadow:
+    0 0 0 1px rgba(38, 59, 91, 0.8),
+    0 0 22px rgba(47, 125, 255, 0.12);
+}
+
+.warehouse-search-ui .warehouse-store-tab {
+  color: var(--wh-text-secondary) !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+}
+
+.warehouse-search-ui .warehouse-store-tab--active {
+  background: var(--wh-active-blue) !important;
+  color: #fff !important;
+  border-color: #59a0ff !important;
+  box-shadow:
+    0 0 0 1px rgba(47, 125, 255, 0.5),
+    0 0 18px rgba(47, 125, 255, 0.55);
+}
+
+.warehouse-search-ui .warehouse-action-btn {
+  border: 1px solid var(--wh-border) !important;
+  background: var(--wh-bg-input) !important;
+  color: var(--wh-text-primary) !important;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.26);
+}
+
+.warehouse-search-ui .warehouse-action-btn--primary {
+  background: var(--wh-selected-green) !important;
+  border-color: var(--wh-selected-green-border) !important;
+  box-shadow:
+    0 0 0 1px rgba(61, 255, 208, 0.45),
+    0 0 22px rgba(14, 163, 111, 0.35);
+}
+
+.warehouse-search-ui .warehouse-viewport {
+  background: var(--wh-bg-main) !important;
+}
+
+.warehouse-search-ui .warehouse-card .divide-y > *,
+.warehouse-search-ui .warehouse-search-panel .divide-y > * {
+  border-color: var(--wh-border) !important;
+}
+
+.warehouse-grid-ui .warehouse-grid-map {
+  background: var(--wh-bg-card) !important;
+  border-color: var(--wh-border) !important;
+  box-shadow:
+    0 0 0 1px rgba(38, 59, 91, 0.7),
+    0 18px 35px rgba(0, 0, 0, 0.3);
+}
+
+.warehouse-grid-ui .warehouse-grid-cell {
+  border-color: var(--wh-border) !important;
+  color: var(--wh-text-secondary) !important;
+}
+
+.warehouse-grid-ui .warehouse-grid-cell--empty {
+  background: var(--wh-grid-empty) !important;
+}
+
+.warehouse-grid-ui .warehouse-grid-cell--occupied {
+  background: var(--wh-grid-occupied) !important;
+  border-color: var(--wh-grid-occupied-border) !important;
+  color: #ff8ebb !important;
+}
+
+.warehouse-grid-ui .warehouse-grid-cell--busy {
+  background: rgba(47, 125, 255, 0.18) !important;
+  border-color: rgba(47, 125, 255, 0.6) !important;
+  color: #a8ceff !important;
+}
+
+.warehouse-grid-ui .warehouse-grid-cell--selected,
+.warehouse-grid-ui .warehouse-grid-cell--target {
+  background: var(--wh-selected-green) !important;
+  border-color: var(--wh-selected-green-border) !important;
+  box-shadow:
+    0 0 0 1px rgba(61, 255, 208, 0.6),
+    0 0 18px rgba(14, 163, 111, 0.5) !important;
+}
+
+.warehouse-grid-ui .warehouse-input-dock {
+  background: rgba(13, 27, 46, 0.98) !important;
+  border-color: var(--wh-border) !important;
+  box-shadow: 0 -10px 24px rgba(0, 0, 0, 0.35);
+}
+
+.warehouse-grid-ui .warehouse-input-number {
+  background: var(--wh-bg-input) !important;
+  border-color: var(--wh-active-blue) !important;
+}
+
+.warehouse-grid-ui .warehouse-clear-btn {
+  background: rgba(139, 30, 82, 0.25) !important;
+  border-color: var(--wh-grid-occupied-border) !important;
+  color: #ffc5df !important;
+}
+
+.warehouse-grid-ui .warehouse-keypad > button {
+  border-color: var(--wh-border) !important;
+  background: var(--wh-bg-input) !important;
+  color: var(--wh-text-primary) !important;
+}
+
+.warehouse-grid-ui .warehouse-keypad > button:hover {
+  border-color: rgba(47, 125, 255, 0.8) !important;
+}
+
+.warehouse-grid-ui .warehouse-keypad > button:active {
+  transform: scale(0.98);
+}
+
+.warehouse-grid-ui .warehouse-save-btn {
+  background: var(--wh-selected-green) !important;
+  border-color: var(--wh-selected-green-border) !important;
+  color: #fff !important;
+  box-shadow: 0 0 16px rgba(14, 163, 111, 0.35);
+}
+
+.warehouse-grid-ui .warehouse-save-btn:disabled {
+  background: rgba(23, 38, 58, 0.92) !important;
+  border-color: var(--wh-border) !important;
+  color: var(--wh-text-secondary) !important;
+  box-shadow: none !important;
+}
+
+@media (max-width: 1024px) {
+  .warehouse-search-ui .warehouse-search-panel {
+    box-shadow: 0 -10px 32px rgba(0, 0, 0, 0.38);
+  }
+}
+
+@media (max-width: 639px) {
+  .warehouse-search-ui .warehouse-search-header {
+    border-bottom-width: 1px !important;
+  }
+
+  .warehouse-search-ui .warehouse-search-panel {
+    border-top-left-radius: 1.35rem;
+    border-top-right-radius: 1.35rem;
+  }
+
+  .warehouse-search-ui .warehouse-bottom-dock {
+    pointer-events: none;
+  }
+
+  .warehouse-search-ui .warehouse-bottom-dock > div {
+    pointer-events: auto;
+  }
+}

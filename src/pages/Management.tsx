@@ -41,6 +41,8 @@ export default function Management() {
     lastInsertedCell,
     setLastUsedStore,
     currentUser,
+    themeMode,
+    setThemeMode,
   } = useStore();
   const role = currentUser?.role;
   const canEditOps = canEditWarehouse(role);
@@ -181,6 +183,13 @@ export default function Management() {
     cell_depth: 0.5,
     cell_height: 0.11,
   });
+
+  const activeAppTheme = useMemo<'night' | 'light'>(() => {
+    if (themeMode === 'night') return 'night';
+    if (themeMode === 'light') return 'light';
+    const hour = new Date().getHours();
+    return hour >= 18 || hour < 6 ? 'night' : 'light';
+  }, [themeMode]);
 
   const openQuickAdd = () => {
     setIsQuickAddOpen(true);
@@ -792,6 +801,62 @@ export default function Management() {
           </button>
         </div>
       </header>
+
+      <section className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 flex items-center gap-2">
+              <Settings size={18} className="text-slate-600" />
+              Appearance
+            </h2>
+            <p className="text-sm text-slate-500 mt-1">
+              Night mode is the current design. Light mode is used in daytime.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setThemeMode('auto')}
+              className={cn(
+                "px-4 py-2 rounded-xl text-sm font-black border transition-colors",
+                themeMode === 'auto'
+                  ? "bg-blue-600 text-white border-blue-600"
+                  : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+              )}
+            >
+              Auto
+            </button>
+            <button
+              type="button"
+              onClick={() => setThemeMode('night')}
+              className={cn(
+                "px-4 py-2 rounded-xl text-sm font-black border transition-colors",
+                themeMode === 'night'
+                  ? "bg-blue-600 text-white border-blue-600"
+                  : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+              )}
+            >
+              Night
+            </button>
+            <button
+              type="button"
+              onClick={() => setThemeMode('light')}
+              className={cn(
+                "px-4 py-2 rounded-xl text-sm font-black border transition-colors",
+                themeMode === 'light'
+                  ? "bg-blue-600 text-white border-blue-600"
+                  : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+              )}
+            >
+              Light
+            </button>
+          </div>
+        </div>
+        <div className="mt-3 text-xs font-bold text-slate-600">
+          Current active theme: <span className="uppercase">{activeAppTheme}</span>
+          {themeMode === 'auto' ? ' (auto by time)' : ''}
+        </div>
+      </section>
 
       {/* Tabs */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">

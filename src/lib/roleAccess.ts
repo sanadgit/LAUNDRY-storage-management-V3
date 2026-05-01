@@ -48,6 +48,11 @@ export const canEditWarehouse = (role: unknown) => {
   return value === 'super-admin' || value === 'admin' || value === 'manager' || value === 'branch-manager';
 };
 
+export const canUseInputMode = (role: unknown) => {
+  const value = toRole(role);
+  return value === 'super-admin' || value === 'admin';
+};
+
 export const canAccessSearch = (role: unknown) => {
   const value = toRole(role);
   return (

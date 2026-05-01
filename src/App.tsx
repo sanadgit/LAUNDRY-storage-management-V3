@@ -8,7 +8,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { useStore } from './store/useStore';
+import { useStore, type AppThemeMode } from './store/useStore';
 import Dashboard from './pages/Dashboard';
 import Management from './pages/Management';
 import SearchPage from './pages/Search';
@@ -30,6 +30,13 @@ import { twMerge } from 'tailwind-merge';
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
+
+const resolveAppTheme = (mode: AppThemeMode, now = new Date()): 'night' | 'light' => {
+  if (mode === 'night') return 'night';
+  if (mode === 'light') return 'light';
+  const hour = now.getHours();
+  return hour >= 18 || hour < 6 ? 'night' : 'light';
+};
 
 const getInitials = (name?: string | null) =>
   (name || '??')
@@ -210,6 +217,7 @@ function Sidebar({
   } = useStore();
 
   const role = currentUser?.role;
+  const currentUserId = currentUser?.id ?? null;
   const showDashboard = canAccessDashboard(role);
   const showManagement = canAccessManagement(role);
   const showSearch = canAccessSearch(role);
@@ -424,9 +432,11 @@ function Sidebar({
 
 function AppLayout() {
   const location = useLocation();
-  const { fetchStores, fetchBlankets, fetchLogs, fetchUsers, currentUser, searchImmersive } = useStore();
+  const { fetchStores, fetchBlankets, fetchLogs, fetchUsers, currentUser, searchImmersive, themeMode } = useStore();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [clockTick, setClockTick] = useState(() => Date.now());
   const role = currentUser?.role;
+  const currentUserId = currentUser?.id ?? null;
   const isManager = canAccessManagement(role);
   const canOpenDashboard = canAccessDashboard(role);
   const canOpenManagement = canAccessManagement(role);
@@ -435,25 +445,45 @@ function AppLayout() {
   const canOpenAchievements = canAccessAchievements(role);
   const defaultPath = defaultRouteForRole(role);
   const hideMobileTopBar = location.pathname === '/search' && searchImmersive;
+  const resolvedTheme = useMemo(
+    () => resolveAppTheme(themeMode, new Date(clockTick)),
+    [themeMode, clockTick]
+  );
+
+  useEffect(() => {
+    if (themeMode !== 'auto') return;
+    const timer = window.setInterval(() => setClockTick(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, [themeMode]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.setAttribute('data-app-theme', resolvedTheme);
+    return () => {
+      root.removeAttribute('data-app-theme');
+    };
+  }, [resolvedTheme]);
 
   useEffect(() => {
     void fetchUsers();
   }, []);
 
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUserId) return;
     void fetchStores();
     void fetchBlankets();
     void fetchLogs();
-    if (isManager) void fetchUsers();
-  }, [currentUser, isManager]);
+  }, [currentUserId]);
 
   if (!currentUser) {
     return <LoginScreen />;
   }
 
   return (
-    <div className="flex w-full overflow-x-hidden bg-slate-50 min-h-screen font-sans text-slate-900">
+    <div className={cn(
+      "flex w-full overflow-x-hidden min-h-screen font-sans",
+      resolvedTheme === 'night' ? "bg-slate-900 text-slate-100" : "bg-slate-50 text-slate-900"
+    )}>
       <Sidebar mobileOpen={mobileSidebarOpen} onMobileClose={() => setMobileSidebarOpen(false)} />
       <div className="flex-1 min-w-0 flex flex-col h-screen">
         {!hideMobileTopBar && <MobileTopBar onOpenSidebar={() => setMobileSidebarOpen(true)} />}
@@ -479,8 +509,18 @@ function AppLayout() {
 }
 
 export default function App() {
+  const configuredBase = import.meta.env.BASE_URL || '/';
+  const normalizedConfiguredBase = configuredBase.endsWith('/')
+    ? configuredBase.slice(0, -1) || '/'
+    : configuredBase;
+  const runtimePath = typeof window !== 'undefined' ? window.location.pathname : '';
+  const routerBasename =
+    normalizedConfiguredBase !== '/' && runtimePath.startsWith(normalizedConfiguredBase)
+      ? normalizedConfiguredBase
+      : '/';
+
   return (
-    <Router basename={import.meta.env.BASE_URL}>
+    <Router basename={routerBasename}>
       <Viewer3DSettingsProvider>
         <AppLayout />
       </Viewer3DSettingsProvider>

@@ -127,22 +127,22 @@ BEGIN
     RAISE EXCEPTION 'Store not found: %', NEW.store USING ERRCODE = '23503';
   END IF;
 
-  IF NEW.row < 1 OR NEW.row > store_rows THEN
-    RAISE EXCEPTION 'Row out of bounds for store % (row %, allowed 1..%)', NEW.store, NEW.row, store_rows
-      USING ERRCODE = '22003';
-  END IF;
-
-  IF NEW."column" < 1 OR NEW."column" > store_cols THEN
-    RAISE EXCEPTION 'Column out of bounds for store % (column %, allowed 1..%)', NEW.store, NEW."column", store_cols
-      USING ERRCODE = '22003';
-  END IF;
-
   capacity := CASE
     WHEN store_store_type = 'hanger' THEN 1
     ELSE GREATEST(1, COALESCE(store_slot_capacity, 1))
   END;
 
   IF NEW.status = 'stored' THEN
+    IF NEW.row < 1 OR NEW.row > store_rows THEN
+      RAISE EXCEPTION 'Row out of bounds for store % (row %, allowed 1..%)', NEW.store, NEW.row, store_rows
+        USING ERRCODE = '22003';
+    END IF;
+
+    IF NEW."column" < 1 OR NEW."column" > store_cols THEN
+      RAISE EXCEPTION 'Column out of bounds for store % (column %, allowed 1..%)', NEW.store, NEW."column", store_cols
+        USING ERRCODE = '22003';
+    END IF;
+
     SELECT COUNT(*) INTO stored_count
     FROM blankets b
     WHERE b.store = NEW.store

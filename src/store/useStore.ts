@@ -11,6 +11,9 @@ import { AppRole, canEditWarehouse, canManageUsers, canMarkPicked } from '../lib
 const supabaseProxyBase = '/api/supabase';
 const AUTH_TOKEN_KEY = 'authToken';
 const LEGACY_USERNAME_KEY = 'currentUser';
+const APP_THEME_MODE_KEY = 'appThemeMode';
+
+export type AppThemeMode = 'auto' | 'night' | 'light';
 
 const describeAxiosError = (error: any) => {
   const status = error?.response?.status;
@@ -185,6 +188,7 @@ interface AppState {
   users: User[];
   currentUser: User | null;
   sessionNotice: string | null;
+  themeMode: AppThemeMode;
 
   fetchUsers: () => Promise<void>;
   loginUser: (username: string, password: string) => Promise<void>;
@@ -214,6 +218,7 @@ interface AppState {
   setSelectedGridCell: (cell: { store: string; row: number; column: number } | null) => void;
   setSearchImmersive: (value: boolean) => void;
   clearSessionNotice: () => void;
+  setThemeMode: (mode: AppThemeMode) => void;
 }
 
 const defaultStoreSlots = [
@@ -346,6 +351,13 @@ const deriveBlanketAction = (
 };
 
 export const useStore = create<AppState>((set, get) => {
+  const readInitialThemeMode = (): AppThemeMode => {
+    if (typeof localStorage === 'undefined') return 'auto';
+    const raw = String(localStorage.getItem(APP_THEME_MODE_KEY) ?? '').trim().toLowerCase();
+    if (raw === 'night' || raw === 'light' || raw === 'auto') return raw;
+    return 'auto';
+  };
+
   const ensureWarehouseEditAccess = () => {
     const user = get().currentUser;
     if (!user) throw new Error('Please sign in first.');
@@ -381,6 +393,7 @@ export const useStore = create<AppState>((set, get) => {
   users: [],
   currentUser: null,
   sessionNotice: null,
+  themeMode: readInitialThemeMode(),
 
   fetchUsers: async () => {
     const token = readAuthToken();
@@ -797,5 +810,11 @@ export const useStore = create<AppState>((set, get) => {
   setSelectedGridCell: (cell) => set({ selectedGridCell: cell }),
   setSearchImmersive: (value) => set({ searchImmersive: value }),
   clearSessionNotice: () => set({ sessionNotice: null }),
+  setThemeMode: (mode) => {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(APP_THEME_MODE_KEY, mode);
+    }
+    set({ themeMode: mode });
+  },
   });
 });

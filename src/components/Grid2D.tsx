@@ -5,16 +5,27 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { extractTicketNumberFromScan } from '../utils/barcode';
 import { getScannerSupportMessage, startCameraBarcodeScanner } from '../utils/cameraScanner';
-import { canEditWarehouse } from '../lib/roleAccess';
+import { canUseInputMode } from '../lib/roleAccess';
+import StoreControlBar from './StoreControlBar';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export default function Grid2D() {
+type GridInteractionMode = 'search' | 'input';
+type GridDensityMode = 'fit' | 'comfortable' | 'compact' | 'large';
+
+type Grid2DProps = {
+  interactionMode?: GridInteractionMode;
+  lockedStores?: Record<string, boolean>;
+  onOpenStoreManagement?: (storeName: string) => void;
+};
+
+export default function Grid2D({ interactionMode = 'search', lockedStores = {}, onOpenStoreManagement }: Grid2DProps) {
   const {
     stores,
     selectedStore,
+    setSelectedStore,
     blankets,
     searchQuery,
     selectedGridCell,
@@ -35,15 +46,39 @@ export default function Grid2D() {
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [scannerPreview, setScannerPreview] = useState<{ raw: string; extracted: string } | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const canModify = canEditWarehouse(currentUser?.role);
+  const canUseInput = canUseInputMode(currentUser?.role);
+  const isStoreLocked = Boolean(selectedStore && lockedStores[selectedStore]);
+  const canModify = canUseInput && interactionMode === 'input' && !isStoreLocked;
+  const isSearchMode = interactionMode === 'search';
+  const [isMobileViewport, setIsMobileViewport] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 639px)').matches : false
+  );
+  const [gridDensity, setGridDensity] = useState<GridDensityMode>(() => {
+    if (typeof localStorage === 'undefined') return 'fit';
+    const saved = localStorage.getItem('warehouse-grid-density');
+    if (saved === 'fit' || saved === 'comfortable' || saved === 'compact' || saved === 'large') return saved;
+    return 'fit';
+  });
 
   const store = useMemo(
     () => stores.find((s) => s.store_name === selectedStore) || stores[0],
     [stores, selectedStore]
   );
+  const fallbackStore = useMemo(
+    () =>
+      ({
+        store_name: selectedStore || 'Store',
+        rows: 1,
+        columns: 1,
+        store_type: 'grid',
+        auto_settle: true,
+      }) as any,
+    [selectedStore]
+  );
+  const activeStore = store ?? fallbackStore;
   const isConveyerStore = useMemo(
-    () => Boolean(store && /convey/i.test(store.store_name.trim())),
-    [store?.store_name]
+    () => Boolean(store && /convey/i.test(activeStore.store_name.trim())),
+    [store, activeStore.store_name]
   );
 
   const storeBlankets = useMemo(
@@ -84,7 +119,7 @@ export default function Grid2D() {
   const firstAvailableCell = useMemo(() => {
     if (!store) return null;
     for (let r = 1; r <= store.rows; r += 1) {
-      for (let c = store.columns; c >= 1; c -= 1) {
+      for (let c = 1; c <= store.columns; c += 1) {
         const count = cellItemsMap.get(`${r},${c}`)?.length ?? 0;
         if (count < slotCapacity) return { row: r, column: c };
       }
@@ -108,6 +143,24 @@ export default function Grid2D() {
     setScannerError(null);
     setScannerPreview(null);
   }, [store?.store_name]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const media = window.matchMedia('(max-width: 639px)');
+    const update = () => setIsMobileViewport(media.matches);
+    update();
+    if (typeof media.addEventListener === 'function') {
+      media.addEventListener('change', update);
+      return () => media.removeEventListener('change', update);
+    }
+    media.addListener(update);
+    return () => media.removeListener(update);
+  }, []);
+
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem('warehouse-grid-density', gridDensity);
+  }, [gridDensity]);
 
   useEffect(() => {
     if (!store || !isConveyerStore) return;
@@ -181,14 +234,12 @@ export default function Grid2D() {
     setSelectedGridCell({ store: store.store_name, row: fallback.row, column: fallback.column });
   }, [store, activeCell, firstAvailableCell, setSelectedGridCell]);
 
-  if (!store) return null;
-
   const parsedSlot = Number.parseInt(slotInput, 10);
   const hasValidConveyerSlot =
     isConveyerStore &&
     Number.isFinite(parsedSlot) &&
     parsedSlot >= 1 &&
-    parsedSlot <= store.columns;
+    parsedSlot <= activeStore.columns;
 
   const selectedCell =
     isConveyerStore && hasValidConveyerSlot
@@ -222,6 +273,10 @@ export default function Grid2D() {
 
   const handleStoreBlanket = async () => {
     if (!store) return;
+    if (!canModify) {
+      setError(isStoreLocked ? 'This store is locked. Unlock it from Store Control Bar.' : 'Input Mode is restricted to admin/super-admin.');
+      return;
+    }
     const value = newNumber.trim();
     if (!value) {
       setError(isConveyerStore ? 'Enter invoice number first.' : 'Enter blanket number first.');
@@ -292,46 +347,119 @@ export default function Grid2D() {
   };
 
   const grid = [];
-  for (let r = 1; r <= store.rows; r++) {
+  for (let r = 1; r <= activeStore.rows; r++) {
     const row = [];
-    for (let c = store.columns; c >= 1; c--) {
+    for (let c = 1; c <= activeStore.columns; c++) {
       const key = `${r},${c}`;
       const items = cellItemsMap.get(key) ?? [];
       const count = items.length;
       const latest = items[0]?.blanket_number;
+      const numbers = items.map((item) => item.blanket_number);
+      const previewText =
+        numbers.length <= 2 ? numbers.join(' / ') : `${numbers.slice(0, 2).join(' / ')} +${numbers.length - 2}`;
       const isTarget = targetBlankets.some((b) => b.row === r && b.column === c);
-      row.push({ r, c, key, count, latest, isTarget });
+      row.push({ r, c, key, count, latest, numbers, previewText, isTarget });
     }
     grid.push(row);
   }
 
-  const storeCapacity = Math.max(1, store.rows * store.columns * slotCapacity);
+  const storeCapacity = Math.max(1, activeStore.rows * activeStore.columns * slotCapacity);
+  const mobileEntryMode = canModify && isMobileViewport && !isConveyerStore;
+  const selectedSlotLabel = selectedCell
+    ? `${activeStore.store_name} • R${selectedCell.row} : C${selectedCell.column}`
+    : `${activeStore.store_name} • --`;
+
+  const appendDigit = (digit: string) => {
+    setNewNumber((prev) => `${prev}${digit}`.slice(0, 18));
+  };
+
+  const backspaceDigit = () => {
+    setNewNumber((prev) => prev.slice(0, -1));
+  };
+  const densityConfig = useMemo(() => {
+    const configs: Record<GridDensityMode, { width: string; minHeight: string; fontSize: string; gap: number; label: string }> = {
+      fit: {
+        width: 'clamp(54px, 7vw, 96px)',
+        minHeight: 'clamp(38px, 5vw, 64px)',
+        fontSize: 'clamp(10px, 1.1vw, 14px)',
+        gap: 6,
+        label: 'Fit to Screen',
+      },
+      comfortable: {
+        width: 'clamp(62px, 7.8vw, 108px)',
+        minHeight: 'clamp(42px, 5.5vw, 70px)',
+        fontSize: 'clamp(10px, 1.15vw, 14px)',
+        gap: 7,
+        label: 'Comfortable',
+      },
+      compact: {
+        width: 'clamp(54px, 6vw, 88px)',
+        minHeight: 'clamp(38px, 4.6vw, 60px)',
+        fontSize: 'clamp(10px, 1vw, 13px)',
+        gap: 5,
+        label: 'Compact',
+      },
+      large: {
+        width: 'clamp(72px, 8.8vw, 124px)',
+        minHeight: 'clamp(48px, 6vw, 78px)',
+        fontSize: 'clamp(11px, 1.2vw, 15px)',
+        gap: 8,
+        label: 'Large',
+      },
+    };
+    return configs[gridDensity];
+  }, [gridDensity]);
 
   return (
-    <div className="h-full w-full min-w-0 flex flex-col p-3 sm:p-6 lg:p-10 pb-20 sm:pb-28 overflow-y-auto overflow-x-hidden bg-slate-950">
+    <div className={cn(
+      "warehouse-grid-ui h-full w-full min-w-0 flex flex-col p-3 sm:p-5 lg:p-8 pb-20 sm:pb-28 overflow-y-auto overflow-x-hidden bg-slate-950",
+      canModify ? "warehouse-grid-ui--input" : "warehouse-grid-ui--search",
+      mobileEntryMode && "pb-[11.5rem]"
+    )}>
+      {!mobileEntryMode && (
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6">
-        <div className="flex flex-col gap-2">
-          <h2 className="text-xl sm:text-4xl lg:text-5xl font-black tracking-tighter text-white uppercase">{store.store_name}</h2>
-          <p className="text-slate-500 font-bold text-[11px] sm:text-base uppercase tracking-widest">
-            {store.rows} Rows × {store.columns} Columns • {storeBlankets.length} Items Stored • {Math.round((storeBlankets.length / storeCapacity) * 100)}% Capacity
+        <div className="flex flex-col gap-2 min-w-0">
+          <h2 className="text-[clamp(1.4rem,3.3vw,2.85rem)] font-black tracking-tighter text-white uppercase truncate">{activeStore.store_name}</h2>
+          <p className="text-slate-500 font-bold text-[10px] sm:text-[13px] lg:text-[15px] uppercase tracking-[0.16em]">
+            {activeStore.rows} Rows × {activeStore.columns} Columns • {storeBlankets.length} Items Stored • {Math.round((storeBlankets.length / storeCapacity) * 100)}% Capacity
           </p>
         </div>
 
-        <div className="flex items-start sm:items-center gap-2 sm:gap-3">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
           <span
             className={cn(
               'text-[10px] font-black uppercase tracking-widest px-2.5 sm:px-3 py-2 rounded-xl sm:rounded-2xl border self-start sm:self-center',
-              store.auto_settle !== false
+              activeStore.auto_settle !== false
                 ? 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40'
                 : 'bg-slate-700/40 text-slate-300 border-slate-600'
             )}
           >
-            Auto-settle: {store.auto_settle !== false ? 'Enabled' : 'Disabled'}
+            Auto-settle: {activeStore.auto_settle !== false ? 'Enabled' : 'Disabled'}
           </span>
+          <div className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900/70 p-1 overflow-x-auto no-scrollbar max-w-full">
+            {(['fit', 'comfortable', 'compact', 'large'] as GridDensityMode[]).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setGridDensity(mode)}
+                className={cn(
+                  'h-8 px-2.5 rounded-lg text-[10px] font-black uppercase tracking-wide whitespace-nowrap transition-all border',
+                  gridDensity === mode
+                    ? 'bg-blue-600 text-white border-blue-400 shadow-[0_0_12px_rgba(47,125,255,0.35)]'
+                    : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                )}
+                title={densityConfig.label}
+              >
+                {mode === 'fit' ? 'Fit to Screen' : mode === 'comfortable' ? 'Comfortable' : mode === 'compact' ? 'Compact' : 'Large'}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
+      )}
 
-      <div className="mb-4 sm:mb-6 rounded-2xl sm:rounded-3xl border border-slate-800 bg-slate-900/85 p-3 sm:p-4 shadow-2xl space-y-2.5 sm:space-y-3">
+      {canModify && !mobileEntryMode && (
+      <div className="mb-4 sm:mb-6 rounded-2xl sm:rounded-3xl border border-slate-800 bg-slate-900/85 p-3 sm:p-4 shadow-2xl space-y-2.5 sm:space-y-3 w-full max-w-[min(100%,64rem)]">
         <div className="flex items-center justify-between text-[11px] font-black text-white">
           <span>
             {isConveyerStore
@@ -348,7 +476,7 @@ export default function Grid2D() {
             <input
               type="number"
               min={1}
-              max={store.columns}
+              max={activeStore.columns}
               step={1}
               value={slotInput}
               onChange={(e) => setSlotInput(e.target.value)}
@@ -357,7 +485,7 @@ export default function Grid2D() {
                 e.preventDefault();
                 inputRef.current?.focus();
               }}
-              placeholder={`1 .. ${store.columns}`}
+              placeholder={`1 .. ${activeStore.columns}`}
               className="w-full h-10 sm:h-11 rounded-xl bg-slate-900 border border-slate-700 px-3 text-sm text-white font-bold outline-none focus:border-blue-500"
             />
           </div>
@@ -464,13 +592,22 @@ export default function Grid2D() {
           </div>
         )}
       </div>
+      )}
+
+      {mobileEntryMode && (
+        <div className="mb-2 px-1">
+          <div className="text-2xl font-black text-white">{activeStore.store_name} Grid</div>
+          <div className="text-[10px] text-slate-400 font-semibold">Numbers are written inside each slot clearly</div>
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 flex items-start sm:items-center justify-center">
-        <div className="w-full overflow-auto pb-2">
+        <div className="w-full h-full overflow-auto pb-2">
           <div
-            className="mx-auto w-max grid gap-1 sm:gap-2 p-3 sm:p-6 bg-slate-900 rounded-[26px] sm:rounded-[40px] border border-slate-800 shadow-2xl"
+            className="warehouse-grid-map mx-auto w-max grid p-2.5 sm:p-5 bg-slate-900 rounded-[22px] sm:rounded-[32px] border border-slate-800 shadow-2xl"
             style={{
-              gridTemplateColumns: `repeat(${store.columns}, minmax(0, 1fr))`,
+              gridTemplateColumns: `repeat(${activeStore.columns}, minmax(0, 1fr))`,
+              gap: `${densityConfig.gap}px`,
             }}
           >
             {grid.map((row, rIdx) =>
@@ -481,42 +618,71 @@ export default function Grid2D() {
                   <button
                     key={`${rIdx}-${cIdx}`}
                     type="button"
+                    disabled={!canModify}
                     onClick={() => {
-                      setSelectedGridCell({ store: store.store_name, row: cell.r, column: cell.c });
+                      if (!canModify) return;
+                      setSelectedGridCell({ store: activeStore.store_name, row: cell.r, column: cell.c });
                       if (isConveyerStore) {
                         setSlotInput(String(cell.c));
                       }
                       inputRef.current?.focus();
                     }}
                     className={cn(
-                      'w-[3.1rem] h-10 sm:w-[4.4rem] sm:h-[3.15rem] md:w-24 md:h-16 rounded-lg sm:rounded-xl flex items-center justify-center text-[11px] sm:text-xs font-black transition-all duration-300 cursor-pointer group relative border',
+                      'warehouse-grid-cell w-[var(--cell-width)] min-h-[var(--cell-min-height)] rounded-lg sm:rounded-xl flex items-start justify-center px-1.5 py-1 text-[var(--cell-font-size)] font-black leading-tight text-center transition-all duration-300 group relative border whitespace-normal break-words [overflow-wrap:anywhere]',
+                      canModify ? 'cursor-pointer' : 'cursor-default',
                       isSelected
-                        ? 'bg-emerald-500 text-white border-emerald-300 ring-2 ring-emerald-300/70'
+                        ? 'warehouse-grid-cell--selected bg-emerald-500 text-white border-emerald-300 ring-2 ring-emerald-300/70'
                         : cell.isTarget
-                        ? 'bg-emerald-500 text-white shadow-[0_0_20px_rgba(16,185,129,0.4)] scale-110 z-10 ring-4 ring-emerald-400/50 border-emerald-300'
+                        ? 'warehouse-grid-cell--target bg-emerald-500 text-white shadow-[0_0_20px_rgba(16,185,129,0.4)] scale-110 z-10 ring-4 ring-emerald-400/50 border-emerald-300'
                         : cell.count > 0
                         ? isFull
-                          ? 'bg-rose-900/40 text-rose-300 border-rose-800/80 hover:bg-rose-900/55'
-                          : 'bg-blue-900/35 text-blue-200 border-blue-800/70 hover:bg-blue-900/50'
-                        : 'bg-slate-900 text-slate-500 border-slate-800 hover:border-slate-600'
+                          ? 'warehouse-grid-cell--occupied bg-rose-900/40 text-rose-300 border-rose-800/80 hover:bg-rose-900/55'
+                          : 'warehouse-grid-cell--busy bg-blue-900/35 text-blue-200 border-blue-800/70 hover:bg-blue-900/50'
+                        : 'warehouse-grid-cell--empty bg-slate-900 text-slate-500 border-slate-800 hover:border-slate-600'
                     )}
-                    title={`Row ${cell.r}, Column ${cell.c}`}
+                    title={`Store ${activeStore.store_name} • Row ${cell.r}, Column ${cell.c}${cell.numbers.length ? ` • ${cell.numbers.join(' | ')}` : ''}`}
+                    style={
+                      {
+                        '--cell-width': densityConfig.width,
+                        '--cell-min-height': densityConfig.minHeight,
+                        '--cell-font-size': densityConfig.fontSize,
+                      } as { [key: string]: string }
+                    }
                   >
                     {cell.isTarget ? (
                       showBlanketNumberInCell ? (
-                        <span className="animate-bounce max-w-full px-1 truncate" title={cell.latest || ''}>
+                        <span
+                          className={cn(
+                            'animate-bounce w-full whitespace-normal break-words [overflow-wrap:anywhere]',
+                            (cell.latest?.length ?? 0) > 10 && 'text-[0.92em]'
+                          )}
+                          title={cell.latest || ''}
+                        >
                           {cell.latest || '-'}
                         </span>
                       ) : (
-                        <span className="animate-bounce tabular-nums">{cell.count || 1}x</span>
+                        <span className="animate-bounce w-full whitespace-normal break-words [overflow-wrap:anywhere]" title={cell.previewText}>
+                          {cell.previewText || `${cell.count || 1}x`}
+                        </span>
                       )
                     ) : cell.count > 0 ? (
                       showBlanketNumberInCell ? (
-                        <span className="opacity-70 group-hover:opacity-100 max-w-full px-1 truncate" title={cell.latest || ''}>
+                        <span
+                          className={cn(
+                            'opacity-90 group-hover:opacity-100 w-full whitespace-normal break-words [overflow-wrap:anywhere]',
+                            (cell.latest?.length ?? 0) > 10 && 'text-[0.92em]'
+                          )}
+                          title={cell.latest || ''}
+                        >
                           {cell.latest || '-'}
                         </span>
                       ) : (
-                        <span className="opacity-50 group-hover:opacity-100 tabular-nums">{cell.count}x</span>
+                        <span
+                          className="opacity-90 group-hover:opacity-100 w-full whitespace-normal break-words [overflow-wrap:anywhere]"
+                          title={cell.numbers.join(' | ')}
+                        >
+                          {cell.previewText || `${cell.count}x`}
+                        </span>
                       )
                     ) : (
                       <span className="opacity-0 group-hover:opacity-20">
@@ -524,7 +690,10 @@ export default function Grid2D() {
                       </span>
                     )}
 
-                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 px-4 py-2 bg-slate-800 text-white rounded-xl text-sm font-bold opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-20 border border-slate-700 shadow-2xl">
+                    <div className={cn(
+                      "absolute bottom-full left-1/2 -translate-x-1/2 mb-3 px-4 py-2 bg-slate-800 text-white rounded-xl text-sm font-bold transition-opacity pointer-events-none whitespace-nowrap z-20 border border-slate-700 shadow-2xl",
+                      isSearchMode ? "opacity-0" : "opacity-0 group-hover:opacity-100"
+                    )}>
                       Row {cell.r}, Column {cell.c}
                       {cell.count > 0 && (
                         <div className="text-blue-400">
@@ -539,6 +708,76 @@ export default function Grid2D() {
           </div>
         </div>
       </div>
+
+      {mobileEntryMode && (
+        <div className="warehouse-input-dock sm:hidden fixed left-0 right-0 bottom-0 z-20 border-t border-slate-700 bg-slate-900/98 backdrop-blur-md px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          <div className="mb-2 overflow-x-auto no-scrollbar rounded-2xl border border-slate-700 bg-slate-900/70 p-1.5">
+            <StoreControlBar
+              stores={stores}
+              selectedStore={selectedStore}
+              lockedStores={lockedStores}
+              onSelectStore={setSelectedStore}
+              onOpenManagement={(storeName) => onOpenStoreManagement?.(storeName)}
+              className="min-w-max"
+            />
+          </div>
+          <div className="warehouse-selected-slot mb-2 rounded-xl border border-slate-700 bg-slate-800/70 px-3 py-2 flex items-center justify-between gap-2">
+            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 truncate">
+              {selectedSlotLabel}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="warehouse-input-number min-w-[6.5rem] h-9 rounded-lg border border-blue-500 bg-slate-950 px-2 flex items-center justify-end text-base font-black text-white">
+                {newNumber || '--'}
+              </div>
+              <button
+                type="button"
+                onClick={() => setNewNumber('')}
+                className="warehouse-clear-btn h-9 px-2.5 rounded-lg border border-rose-700 bg-rose-950/40 text-rose-300 text-[10px] font-black uppercase tracking-widest"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+          {error && (
+            <div className="mb-2 rounded-lg border border-rose-900/60 bg-rose-900/20 px-2.5 py-2 text-[11px] font-bold text-rose-300">
+              {error}
+            </div>
+          )}
+          <div className="warehouse-keypad grid grid-cols-4 gap-2">
+            {['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0'].map((key) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => {
+                  if (key === '⌫') backspaceDigit();
+                  else appendDigit(key);
+                }}
+                className={cn(
+                  "h-9 rounded-xl border text-sm font-black",
+                  key === '⌫'
+                    ? "bg-purple-950/30 border-purple-800 text-purple-200"
+                    : "bg-slate-800 border-slate-700 text-slate-100"
+                )}
+              >
+                {key}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => void handleStoreBlanket()}
+              disabled={busy || !selectedCell || selectedCellFull || !newNumber.trim() || !canModify}
+              className={cn(
+                "warehouse-save-btn h-9 rounded-xl border text-xs font-black uppercase tracking-widest",
+                busy || !selectedCell || selectedCellFull || !newNumber.trim() || !canModify
+                  ? "bg-slate-800 border-slate-700 text-slate-400"
+                  : "bg-emerald-600 border-emerald-400 text-white"
+              )}
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      )}
 
       {scannerOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-sm flex flex-col">

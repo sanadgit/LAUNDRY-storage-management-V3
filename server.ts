@@ -3826,6 +3826,28 @@ const insertSupabaseLog = async (entry: Record<string, unknown>) => {
   return { error };
 };
 
+const insertSupabaseLogsBulk = async (entries: Record<string, unknown>[]) => {
+  if (!supabaseAdmin) {
+    return { error: { message: 'Supabase admin is not configured.' } as any };
+  }
+  if (!entries.length) return { error: null };
+
+  const { error } = await supabaseAdmin.from('logs').insert(entries);
+  if (!error) return { error: null };
+
+  const code = (error as any).code;
+  if (code === '42703' || code === 'PGRST204') {
+    const fallbackEntries = entries.map((entry) => {
+      const { request_id: _requestId, device: _device, ip: _ip, notes: _notes, ...fallback } = entry;
+      return fallback;
+    });
+    const retry = await supabaseAdmin.from('logs').insert(fallbackEntries);
+    return { error: retry.error ?? error };
+  }
+
+  return { error };
+};
+
 const assertSqliteBlanketSlot = (storeName: string, row: number, column: number, status: string, excludeBlanketId?: number) => {
   const store = db
     .prepare('SELECT store_name, rows, columns, store_type, slot_capacity FROM stores WHERE store_name = ?')
@@ -3842,6 +3864,8 @@ const assertSqliteBlanketSlot = (storeName: string, row: number, column: number,
   const maxRows = Number(store.rows ?? 0);
   const maxCols = Number(store.columns ?? 0);
 
+  if (status !== 'stored') return;
+
   if (row < 1 || row > maxRows) {
     const error = new Error(`Row out of bounds (1..${maxRows})`);
     (error as any).status = 400;
@@ -3853,8 +3877,6 @@ const assertSqliteBlanketSlot = (storeName: string, row: number, column: number,
     (error as any).status = 400;
     throw error;
   }
-
-  if (status !== 'stored') return;
 
   const capacity = store.store_type === 'hanger' ? 1 : Math.max(1, Number(store.slot_capacity ?? 1));
   const stmt =
@@ -3896,6 +3918,8 @@ const assertSupabaseBlanketSlot = async (
   const maxRows = Number((store as any).rows ?? 0);
   const maxCols = Number((store as any).columns ?? 0);
 
+  if (status !== 'stored') return;
+
   if (row < 1 || row > maxRows) {
     const error: any = new Error(`Row out of bounds (1..${maxRows})`);
     error.status = 400;
@@ -3906,8 +3930,6 @@ const assertSupabaseBlanketSlot = async (
     error.status = 400;
     throw error;
   }
-
-  if (status !== 'stored') return;
 
   const capacity =
     (store as any).store_type === 'hanger'
@@ -4280,6 +4302,374 @@ async function startServer() {
     return res.json({ success: true, blanket: insertedBlanket });
   });
 
+  app.post('/api/supabase/blankets/bulk-apply', requireOperationsManager, async (req: any, res) => {
+    if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
+    const payload = req.body ?? {};
+    const user = String(payload.user || req.auth?.username || 'system');
+    const fileName = String(payload.fileName || '').trim();
+    const storeChanges = Array.isArray(payload.storeChanges) ? payload.storeChanges : [];
+    const operations = Array.isArray(payload.operations) ? payload.operations : [];
+    const baseMeta = getLogMeta(req);
+    const touchedStores = new Set<string>();
+
+    try {
+      if (storeChanges.length > 0) {
+        const targetNames = Array.from(
+          new Set(
+            storeChanges
+              .map((item: any) => String(item?.store_name || '').trim())
+              .filter((name: string) => name.length > 0)
+          )
+        );
+
+        if (targetNames.length > 0) {
+          const { data: existingStores, error: storesError } = await supabaseAdmin
+            .from('stores')
+            .select('*')
+            .in('store_name', targetNames);
+          if (storesError) return res.status(500).json({ error: storesError.message, code: (storesError as any).code });
+
+          const existingMap = new Map<string, any>((Array.isArray(existingStores) ? existingStores : []).map((s: any) => [s.store_name, s]));
+
+          const createPayload: any[] = [];
+          const updatePayload: any[] = [];
+
+          for (const rawChange of storeChanges) {
+            const name = String(rawChange?.store_name || '').trim();
+            if (!name) continue;
+            const nextRows = Math.max(1, Number(rawChange?.rows ?? 1) || 1);
+            const nextCols = Math.max(1, Number(rawChange?.columns ?? 1) || 1);
+            const existing = existingMap.get(name);
+
+            if (!existing) {
+              createPayload.push({
+                store_name: name,
+                rows: nextRows,
+                columns: nextCols,
+                auto_settle: true,
+                store_type: 'grid',
+                hanger_slots: 0,
+                slot_capacity: 1,
+                require_pick_scan: false,
+                store_color: '#3b82f6',
+                store_opacity: 1,
+                cell_width: normalizeStoreCellDimension(0.5, deriveDefaultCellWidth(nextCols)),
+                cell_depth: normalizeStoreCellDimension(0.5, deriveDefaultCellDepth(nextRows)),
+                cell_height: normalizeStoreCellDimension(0.11, deriveDefaultCellHeight()),
+              });
+              touchedStores.add(name);
+              continue;
+            }
+
+            const oldRows = Math.max(1, Number(existing.rows ?? 1) || 1);
+            const oldCols = Math.max(1, Number(existing.columns ?? 1) || 1);
+            const mergedRows = Math.max(oldRows, nextRows);
+            const mergedCols = Math.max(oldCols, nextCols);
+            if (mergedRows !== oldRows || mergedCols !== oldCols) {
+              updatePayload.push({
+                store_name: name,
+                rows: mergedRows,
+                columns: mergedCols,
+              });
+              touchedStores.add(name);
+            }
+          }
+
+          if (createPayload.length) {
+            const { error } = await supabaseAdmin.from('stores').insert(createPayload);
+            if (error) {
+              for (const entry of createPayload) {
+                const single = await supabaseAdmin.from('stores').insert([entry]);
+                if (!single.error) continue;
+                const upsertFallback = await supabaseAdmin.from('stores').upsert([entry], { onConflict: 'store_name' });
+                if (upsertFallback.error) {
+                  return res.status(500).json({ error: upsertFallback.error.message, code: (upsertFallback.error as any).code });
+                }
+              }
+            }
+          }
+
+          for (const updateItem of updatePayload) {
+            const { error } = await supabaseAdmin
+              .from('stores')
+              .update({ rows: updateItem.rows, columns: updateItem.columns })
+              .eq('store_name', updateItem.store_name);
+            if (error) {
+              return res.status(500).json({ error: error.message, code: (error as any).code });
+            }
+          }
+        }
+      }
+
+      const updateOps = operations.filter((op: any) => String(op?.op) === 'update');
+      const insertOps = operations.filter((op: any) => String(op?.op) === 'insert');
+
+      const updateIds = Array.from(
+        new Set(
+          updateOps
+            .map((op: any) => Number(op?.id))
+            .filter((id: number) => Number.isFinite(id) && id > 0)
+        )
+      );
+
+      const previousMap = new Map<number, any>();
+      if (updateIds.length > 0) {
+        const { data: previousRows, error: previousError } = await supabaseAdmin
+          .from('blankets')
+          .select('id, blanket_number, store, row, column, status')
+          .in('id', updateIds);
+        if (previousError) return res.status(500).json({ error: previousError.message, code: (previousError as any).code });
+        for (const row of Array.isArray(previousRows) ? previousRows : []) {
+          previousMap.set(Number((row as any).id), row);
+        }
+      }
+
+      const updatePayload: any[] = [];
+      const logEntries: Record<string, unknown>[] = [];
+      const skipped: Array<{ op: 'update' | 'insert'; reason: string; id?: number; store?: string; row?: number; column?: number; number?: string }> = [];
+
+      for (const op of updateOps) {
+        const id = Number(op?.id);
+        if (!Number.isFinite(id) || id <= 0) continue;
+        const previous = previousMap.get(id);
+        if (!previous) continue;
+
+        const data = (op?.data ?? {}) as Record<string, unknown>;
+        const nextStore = String(data.store ?? previous.store);
+        const nextRow = Number(data.row ?? previous.row);
+        const nextColumn = Number(data.column ?? previous.column);
+        const nextStatus = String(data.status ?? previous.status ?? 'stored');
+        const nextBlanketNumber = String(data.blanket_number ?? previous.blanket_number);
+        const action = String(op?.forceAction || deriveBlanketAction(previous, {
+          store: nextStore,
+          row: nextRow,
+          column: nextColumn,
+          status: nextStatus,
+        }));
+
+        updatePayload.push({
+          id,
+          blanket_number: nextBlanketNumber,
+          store: nextStore,
+          row: nextRow,
+          column: nextColumn,
+          status: nextStatus,
+        });
+        touchedStores.add(String(previous.store));
+        touchedStores.add(nextStore);
+
+        logEntries.push({
+          blanket_number: nextBlanketNumber,
+          action,
+          user,
+          store: nextStore,
+          row: nextRow,
+          column: nextColumn,
+          status: nextStatus,
+          request_id: baseMeta.request_id,
+          device: baseMeta.device,
+          ip: baseMeta.ip,
+          notes: typeof op?.notes === 'string' && op.notes.trim() ? op.notes.trim() : baseMeta.notes,
+        });
+      }
+
+      if (updatePayload.length > 0) {
+        for (const batch of chunk(updatePayload, 500)) {
+          const { error } = await supabaseAdmin.from('blankets').upsert(batch, { onConflict: 'id' });
+          if (!error) continue;
+          for (const row of batch) {
+            const single = await supabaseAdmin.from('blankets').upsert([row], { onConflict: 'id' });
+            if (!single.error) continue;
+            skipped.push({
+              op: 'update',
+              id: Number(row.id),
+              store: String(row.store || ''),
+              row: Number(row.row),
+              column: Number(row.column),
+              number: String(row.blanket_number || ''),
+              reason: single.error.message,
+            });
+          }
+        }
+      }
+
+      const insertPayload: any[] = [];
+      for (const op of insertOps) {
+        const data = (op?.data ?? {}) as Record<string, unknown>;
+        const blanketNumber = String(data.blanket_number ?? '').trim();
+        const store = String(data.store ?? '').trim();
+        const row = Number(data.row);
+        const column = Number(data.column);
+        const status = String(data.status ?? 'stored');
+        if (!blanketNumber || !store || !Number.isFinite(row) || !Number.isFinite(column)) continue;
+        insertPayload.push({
+          blanket_number: blanketNumber,
+          store,
+          row,
+          column,
+          status,
+        });
+        touchedStores.add(store);
+
+        logEntries.push({
+          blanket_number: blanketNumber,
+          action: status || 'stored',
+          user,
+          store,
+          row,
+          column,
+          status,
+          request_id: baseMeta.request_id,
+          device: baseMeta.device,
+          ip: baseMeta.ip,
+          notes: typeof op?.notes === 'string' && op.notes.trim() ? op.notes.trim() : baseMeta.notes,
+        });
+      }
+
+      if (insertPayload.length > 0) {
+        for (const batch of chunk(insertPayload, 500)) {
+          const { error } = await supabaseAdmin.from('blankets').insert(batch);
+          if (!error) continue;
+          for (const row of batch) {
+            const single = await supabaseAdmin.from('blankets').insert([row]);
+            if (!single.error) continue;
+            skipped.push({
+              op: 'insert',
+              store: String(row.store || ''),
+              row: Number(row.row),
+              column: Number(row.column),
+              number: String(row.blanket_number || ''),
+              reason: single.error.message,
+            });
+          }
+        }
+      }
+
+      if (storeChanges.length > 0) {
+        for (const change of storeChanges) {
+          const name = String(change?.store_name || '').trim();
+          if (!name) continue;
+          logEntries.push({
+            blanket_number: '[STORE]',
+            action: 'store_update',
+            user,
+            store: name,
+            row: 0,
+            column: 0,
+            status: 'active',
+            request_id: baseMeta.request_id,
+            device: baseMeta.device,
+            ip: baseMeta.ip,
+            notes: `${String(change?.note || '').trim() || 'Bulk import store update'}${fileName ? ` | file=${fileName}` : ''}`,
+          });
+        }
+      }
+
+      if (logEntries.length > 0) {
+        for (const batch of chunk(logEntries, 400)) {
+          const { error } = await insertSupabaseLogsBulk(batch);
+          if (error) return res.status(500).json({ error: error.message, code: (error as any).code });
+        }
+      }
+
+      const touchedStoreList = Array.from(touchedStores);
+      const [storesRows, blanketsRows] = await Promise.all([
+        touchedStoreList.length
+          ? supabaseAdmin.from('stores').select('*').in('store_name', touchedStoreList)
+          : Promise.resolve({ data: [], error: null } as any),
+        touchedStoreList.length
+          ? supabaseAdmin.from('blankets').select('*').in('store', touchedStoreList)
+          : Promise.resolve({ data: [], error: null } as any),
+      ]);
+
+      if (storesRows.error) return res.status(500).json({ error: storesRows.error.message, code: (storesRows.error as any).code });
+      if (blanketsRows.error) return res.status(500).json({ error: blanketsRows.error.message, code: (blanketsRows.error as any).code });
+
+      return res.json({
+        success: true,
+        touchedStores: touchedStoreList,
+        stores: Array.isArray(storesRows.data) ? storesRows.data : [],
+        blankets: Array.isArray(blanketsRows.data) ? blanketsRows.data : [],
+        skipped,
+      });
+    } catch (error: any) {
+      console.error('supabase bulk apply failed', error);
+      return res.status(500).json({ error: error?.message || 'Bulk import apply failed.' });
+    }
+  });
+
+  app.post('/api/supabase/blankets/empty-store', requireOperationsManager, async (req: any, res) => {
+    if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
+    const storeName = String(req.body?.storeName || '').trim();
+    if (!storeName) return res.status(400).json({ error: 'storeName is required.' });
+    const reason = String(req.body?.reason || '').trim();
+    const user = String(req.body?.user || req.auth?.username || 'system');
+    const meta = getLogMeta(req);
+
+    const { data: affectedRows, error: fetchError } = await supabaseAdmin
+      .from('blankets')
+      .select('id, blanket_number, store, row, column, status')
+      .eq('store', storeName)
+      .eq('status', 'stored');
+    if (fetchError) return res.status(500).json({ error: fetchError.message, code: (fetchError as any).code });
+
+    const affected = Array.isArray(affectedRows) ? affectedRows : [];
+    const count = affected.length;
+    const archiveId = `store-archive-${storeName}-${Date.now()}`;
+    const archiveNote = `ARCHIVE ${archiveId} | reason=${reason || '-'} | count=${count}`;
+
+    const logEntries: Record<string, unknown>[] = [
+      {
+        blanket_number: '[STORE]',
+        action: 'store_archive',
+        user,
+        store: storeName,
+        row: 0,
+        column: 0,
+        status: 'active',
+        request_id: meta.request_id,
+        device: meta.device,
+        ip: meta.ip,
+        notes: archiveNote,
+      },
+      {
+        blanket_number: '[STORE]',
+        action: 'store_emptied',
+        user,
+        store: storeName,
+        row: 0,
+        column: 0,
+        status: 'active',
+        request_id: meta.request_id,
+        device: meta.device,
+        ip: meta.ip,
+        notes: `Cleared ${count} stored items`,
+      },
+    ];
+
+    if (count > 0) {
+      const ids = affected.map((item: any) => Number(item.id)).filter((id: number) => Number.isFinite(id) && id > 0);
+      for (const batchIds of chunk(ids, 500)) {
+        const { error } = await supabaseAdmin.from('blankets').update({ status: 'retrieved' }).in('id', batchIds);
+        if (error) return res.status(500).json({ error: error.message, code: (error as any).code });
+      }
+    }
+
+    const logResult = await insertSupabaseLogsBulk(logEntries);
+    if (logResult.error) return res.status(500).json({ error: logResult.error.message, code: (logResult.error as any).code });
+
+    const { data: storeBlankets, error: blanketsError } = await supabaseAdmin.from('blankets').select('*').eq('store', storeName);
+    if (blanketsError) return res.status(500).json({ error: blanketsError.message, code: (blanketsError as any).code });
+
+    return res.json({
+      success: true,
+      touchedStores: [storeName],
+      affectedCount: count,
+      blankets: Array.isArray(storeBlankets) ? storeBlankets : [],
+      archiveId,
+    });
+  });
+
   app.put('/api/supabase/blankets/:id', requireOperationsManager, async (req, res) => {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
     const id = Number(req.params.id);
@@ -4352,19 +4742,40 @@ async function startServer() {
     if (storeError) return res.status(500).json({ error: storeError.message, code: (storeError as any).code });
     if (!store) return res.status(400).json({ error: `Store not found: ${blanket.store}` });
 
+    const maxRows = Math.max(1, Number((store as any).rows ?? 1));
+    const maxCols = Math.max(1, Number((store as any).columns ?? 1));
+    const rowOutOfBounds = Number(blanket.row) < 1 || Number(blanket.row) > maxRows;
+    const columnOutOfBounds = Number(blanket.column) < 1 || Number(blanket.column) > maxCols;
+    const hasLegacyOutOfBoundsSlot = rowOutOfBounds || columnOutOfBounds;
+    const normalizedRow = Math.min(maxRows, Math.max(1, Number(blanket.row) || 1));
+    const normalizedColumn = Math.min(maxCols, Math.max(1, Number(blanket.column) || 1));
+    const wasStored = String(blanket.status) === 'stored';
     const canAutoSettle =
       Boolean((store as any).auto_settle) &&
       String((store as any).store_type ?? 'grid') !== 'hanger' &&
-      Math.max(1, Number((store as any).slot_capacity ?? 1)) <= 1;
+      Math.max(1, Number((store as any).slot_capacity ?? 1)) <= 1 &&
+      !hasLegacyOutOfBoundsSlot;
 
-    if (String(blanket.status) === 'stored' && canAutoSettle) {
+    // IMPORTANT:
+    // Pick first, then settle. If we move first while this blanket is still "stored",
+    // slot-capacity triggers may reject moves into this row/column as "slot is full".
+    const pickUpdate: Record<string, unknown> = { status: 'picked' };
+    if (hasLegacyOutOfBoundsSlot) {
+      // Keep "pick" working even if store dimensions were shrunk after this item was stored.
+      // We normalize row/column only for this state transition.
+      pickUpdate.row = normalizedRow;
+      pickUpdate.column = normalizedColumn;
+    }
+    const { error: pickError } = await supabaseAdmin.from('blankets').update(pickUpdate).eq('id', id);
+    if (pickError) return res.status(500).json({ error: pickError.message, code: (pickError as any).code });
+
+    if (wasStored && canAutoSettle) {
       const { data: columnItems, error: columnItemsError } = await supabaseAdmin
         .from('blankets')
         .select('id, row')
         .eq('store', blanket.store)
         .eq('column', blanket.column)
         .eq('status', 'stored')
-        .neq('id', id)
         .order('row', { ascending: true });
       if (columnItemsError) return res.status(500).json({ error: columnItemsError.message, code: (columnItemsError as any).code });
 
@@ -4379,9 +4790,6 @@ async function startServer() {
         if (moveError) return res.status(500).json({ error: moveError.message, code: (moveError as any).code });
       }
     }
-
-    const { error: pickError } = await supabaseAdmin.from('blankets').update({ status: 'picked' }).eq('id', id);
-    if (pickError) return res.status(500).json({ error: pickError.message, code: (pickError as any).code });
 
     const { error: logError } = await insertSupabaseLog({
       blanket_number: blanket.blanket_number,
@@ -4986,6 +5394,221 @@ async function startServer() {
     res.json({ id: result.lastInsertRowid });
   });
 
+  app.post('/api/blankets/bulk-apply', requireOperationsManager, (req: any, res) => {
+    const payload = req.body ?? {};
+    const user = String(payload.user || req.auth?.username || 'system');
+    const fileName = String(payload.fileName || '').trim();
+    const storeChanges = Array.isArray(payload.storeChanges) ? payload.storeChanges : [];
+    const operations = Array.isArray(payload.operations) ? payload.operations : [];
+    const meta = getLogMeta(req);
+    const touchedStores = new Set<string>();
+
+    const selectStoreStmt = db.prepare('SELECT * FROM stores WHERE store_name = ?');
+    const insertStoreStmt = db.prepare(`
+      INSERT INTO stores (
+        store_name, rows, columns, auto_settle, store_type, hanger_slots, slot_capacity,
+        require_pick_scan, store_color, store_opacity, cell_width, cell_depth, cell_height
+      ) VALUES (?, ?, ?, 1, 'grid', 0, 1, 0, '#3b82f6', 1, 0.5, 0.5, 0.11)
+    `);
+    const updateStoreStmt = db.prepare('UPDATE stores SET rows = ?, columns = ? WHERE store_name = ?');
+    const fetchBlanketStmt = db.prepare('SELECT id, blanket_number, store, row, column, status FROM blankets WHERE id = ?');
+    const updateBlanketStmt = db.prepare(`
+      UPDATE blankets
+      SET blanket_number = ?, store = ?, row = ?, column = ?, status = ?
+      WHERE id = ?
+    `);
+    const insertBlanketStmt = db.prepare(`
+      INSERT INTO blankets (blanket_number, store, row, column, status)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    const insertLogStmt = db.prepare(
+      'INSERT INTO logs (blanket_number, action, user, store, row, column, status, request_id, device, ip, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+
+    try {
+      const tx = db.transaction(() => {
+        for (const change of storeChanges) {
+          const name = String(change?.store_name || '').trim();
+          if (!name) continue;
+          const nextRows = Math.max(1, Number(change?.rows ?? 1) || 1);
+          const nextCols = Math.max(1, Number(change?.columns ?? 1) || 1);
+          const current = selectStoreStmt.get(name) as any;
+          if (!current) {
+            insertStoreStmt.run(name, nextRows, nextCols);
+            touchedStores.add(name);
+          } else {
+            const mergedRows = Math.max(1, Math.max(Number(current.rows ?? 1) || 1, nextRows));
+            const mergedCols = Math.max(1, Math.max(Number(current.columns ?? 1) || 1, nextCols));
+            if (mergedRows !== Number(current.rows ?? 1) || mergedCols !== Number(current.columns ?? 1)) {
+              updateStoreStmt.run(mergedRows, mergedCols, name);
+              touchedStores.add(name);
+            }
+          }
+          insertLogStmt.run(
+            '[STORE]',
+            'store_update',
+            user,
+            name,
+            0,
+            0,
+            'active',
+            meta.request_id,
+            meta.device,
+            meta.ip,
+            `${String(change?.note || '').trim() || 'Bulk import store update'}${fileName ? ` | file=${fileName}` : ''}`
+          );
+        }
+
+        for (const op of operations) {
+          const opType = String(op?.op || '').trim();
+          if (opType === 'update') {
+            const id = Number(op?.id);
+            if (!Number.isFinite(id) || id <= 0) continue;
+            const previous = fetchBlanketStmt.get(id) as
+              | { id: number; blanket_number: string; store: string; row: number; column: number; status: string }
+              | undefined;
+            if (!previous) continue;
+            const data = (op?.data ?? {}) as Record<string, unknown>;
+            const nextBlanketNumber = String(data.blanket_number ?? previous.blanket_number);
+            const nextStore = String(data.store ?? previous.store);
+            const nextRow = Number(data.row ?? previous.row);
+            const nextColumn = Number(data.column ?? previous.column);
+            const nextStatus = String(data.status ?? previous.status ?? 'stored');
+            assertSqliteBlanketSlot(nextStore, nextRow, nextColumn, nextStatus, id);
+            updateBlanketStmt.run(nextBlanketNumber, nextStore, nextRow, nextColumn, nextStatus, id);
+            touchedStores.add(previous.store);
+            touchedStores.add(nextStore);
+            const action = String(op?.forceAction || deriveBlanketAction(previous, {
+              store: nextStore,
+              row: nextRow,
+              column: nextColumn,
+              status: nextStatus,
+            }));
+            insertLogStmt.run(
+              nextBlanketNumber,
+              action,
+              user,
+              nextStore,
+              nextRow,
+              nextColumn,
+              nextStatus,
+              meta.request_id,
+              meta.device,
+              meta.ip,
+              typeof op?.notes === 'string' && op.notes.trim() ? op.notes.trim() : meta.notes
+            );
+            continue;
+          }
+
+          if (opType === 'insert') {
+            const data = (op?.data ?? {}) as Record<string, unknown>;
+            const blanketNumber = String(data.blanket_number ?? '').trim();
+            const store = String(data.store ?? '').trim();
+            const row = Number(data.row);
+            const column = Number(data.column);
+            const status = String(data.status ?? 'stored');
+            if (!blanketNumber || !store || !Number.isFinite(row) || !Number.isFinite(column)) continue;
+            assertSqliteBlanketSlot(store, row, column, status);
+            insertBlanketStmt.run(blanketNumber, store, row, column, status);
+            touchedStores.add(store);
+            insertLogStmt.run(
+              blanketNumber,
+              status || 'stored',
+              user,
+              store,
+              row,
+              column,
+              status,
+              meta.request_id,
+              meta.device,
+              meta.ip,
+              typeof op?.notes === 'string' && op.notes.trim() ? op.notes.trim() : meta.notes
+            );
+          }
+        }
+      });
+
+      tx();
+      const touchedStoreList = Array.from(touchedStores);
+      let storesRows: any[] = [];
+      let blanketsRows: any[] = [];
+      if (touchedStoreList.length > 0) {
+        const placeholders = touchedStoreList.map(() => '?').join(', ');
+        storesRows = db.prepare(`SELECT * FROM stores WHERE store_name IN (${placeholders})`).all(...touchedStoreList) as any[];
+        blanketsRows = db.prepare(`SELECT * FROM blankets WHERE store IN (${placeholders})`).all(...touchedStoreList) as any[];
+      }
+      return res.json({
+        success: true,
+        touchedStores: touchedStoreList,
+        stores: storesRows,
+        blankets: blanketsRows,
+      });
+    } catch (error: any) {
+      return res.status(500).json({ error: error?.message || 'Bulk apply failed.' });
+    }
+  });
+
+  app.post('/api/blankets/empty-store', requireOperationsManager, (req: any, res) => {
+    const storeName = String(req.body?.storeName || '').trim();
+    if (!storeName) return res.status(400).json({ error: 'storeName is required.' });
+    const reason = String(req.body?.reason || '').trim();
+    const user = String(req.body?.user || req.auth?.username || 'system');
+    const meta = getLogMeta(req);
+
+    const fetchAffectedStmt = db.prepare(
+      'SELECT id, blanket_number, store, row, column, status FROM blankets WHERE store = ? AND status = ?'
+    );
+    const updateStoreBlanketsStmt = db.prepare('UPDATE blankets SET status = ? WHERE store = ? AND status = ?');
+    const insertLogStmt = db.prepare(
+      'INSERT INTO logs (blanket_number, action, user, store, row, column, status, request_id, device, ip, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+
+    try {
+      const affected = fetchAffectedStmt.all(storeName, 'stored') as Array<{
+        id: number;
+        blanket_number: string;
+        store: string;
+        row: number;
+        column: number;
+        status: string;
+      }>;
+
+      const archiveId = `store-archive-${storeName}-${Date.now()}`;
+      const count = affected.length;
+      const archiveNote = `ARCHIVE ${archiveId} | reason=${reason || '-'} | count=${count}`;
+
+      const tx = db.transaction(() => {
+        insertLogStmt.run('[STORE]', 'store_archive', user, storeName, 0, 0, 'active', meta.request_id, meta.device, meta.ip, archiveNote);
+        updateStoreBlanketsStmt.run('retrieved', storeName, 'stored');
+        insertLogStmt.run(
+          '[STORE]',
+          'store_emptied',
+          user,
+          storeName,
+          0,
+          0,
+          'active',
+          meta.request_id,
+          meta.device,
+          meta.ip,
+          `Cleared ${count} stored items`
+        );
+      });
+
+      tx();
+      const blanketsRows = db.prepare('SELECT * FROM blankets WHERE store = ?').all(storeName);
+      return res.json({
+        success: true,
+        touchedStores: [storeName],
+        affectedCount: count,
+        archiveId,
+        blankets: Array.isArray(blanketsRows) ? blanketsRows : [],
+      });
+    } catch (error: any) {
+      return res.status(500).json({ error: error?.message || 'Empty store failed.' });
+    }
+  });
+
   app.put('/api/blankets/:id', requireOperationsManager, (req, res) => {
     const { id } = req.params;
     const { blanket_number, store, row, column, status, user, notes } = req.body;
@@ -5050,6 +5673,9 @@ async function startServer() {
       String(store.store_type ?? 'grid') !== 'hanger' &&
       Math.max(1, Number(store.slot_capacity ?? 1)) <= 1;
 
+    // Pick first, then settle. This avoids temporary capacity conflicts while still "stored".
+    db.prepare('UPDATE blankets SET status = ? WHERE id = ?').run('picked', blanket.id);
+
     if (String(blanket.status) === 'stored' && canAutoSettle) {
       const storedInColumn = db
         .prepare(
@@ -5065,8 +5691,6 @@ async function startServer() {
         db.prepare('UPDATE blankets SET row = ? WHERE id = ?').run(targetRow, currentBlanket.id);
       }
     }
-
-    db.prepare('UPDATE blankets SET status = ? WHERE id = ?').run('picked', blanket.id);
 
     db.prepare(
       'INSERT INTO logs (blanket_number, action, user, store, row, column, status, request_id, device, ip, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
@@ -6303,6 +6927,23 @@ async function startServer() {
     }
   });
 
+  // Legacy/local shortcuts: open hub routes without /smart-storage-hub prefix.
+  // Register for both development and production modes.
+  const hubLegacyRouteRedirects = new Map<string, string>([
+    ['/search', '/smart-storage-hub/search'],
+    ['/management', '/smart-storage-hub/management'],
+    ['/sorting', '/smart-storage-hub/sorting'],
+    ['/achievements', '/smart-storage-hub/achievements'],
+  ]);
+  for (const [fromPath, toPath] of hubLegacyRouteRedirects.entries()) {
+    app.get(fromPath, (_req, res) => {
+      res.redirect(302, toPath);
+    });
+    app.get(`${fromPath}/`, (_req, res) => {
+      res.redirect(302, toPath);
+    });
+  }
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -6360,7 +7001,11 @@ async function startServer() {
   });
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    const mode = process.env.NODE_ENV === 'production' ? 'production' : 'development';
+    console.log(`Server running on http://localhost:${PORT} (${mode})`);
+    if (mode !== 'production') {
+      console.log('DEV mode uses Vite middleware (many module requests are expected in Network tab).');
+    }
   });
 }
 

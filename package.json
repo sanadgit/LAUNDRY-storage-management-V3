@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "start": "NODE_ENV=production tsx server.ts",
+    "start": "cross-env NODE_ENV=production tsx server.ts",
+    "start:prod": "cross-env NODE_ENV=production tsx server.ts",
     "build": "npm run build:hub && npm run build:customer",
     "build:hub": "vite build --base /smart-storage-hub/ --outDir dist-smart-storage-hub",
     "build:customer": "npm --prefix apps/customer-site run build",
@@ -42,10 +43,12 @@
     "react-router-dom": "^7.14.0",
     "tailwind-merge": "^3.5.0",
     "three": "^0.170.0",
+    "xlsx": "^0.18.5",
     "vite": "^6.2.0",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "cross-env": "^7.0.3",
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
