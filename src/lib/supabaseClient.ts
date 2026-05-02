@@ -25,7 +25,4 @@ const supabaseExplicitEnabled = enabledRaw === 'true' ? true : enabledRaw === 'f
 // - This makes static deployments safer: you can provide runtime config in `public/runtime-config.js`
 //   without needing to rebuild the app just to flip an enable flag.
 export const isSupabaseEnabled = Boolean(supabaseUrl && supabaseAnonKey) && (supabaseExplicitEnabled ?? true);
-export const supabase = createClient(
-  supabaseUrl ?? '',
-  supabaseAnonKey ?? ''
-);
+export const supabase = isSupabaseEnabled ? createClient(supabaseUrl as string, supabaseAnonKey as string) : null;
