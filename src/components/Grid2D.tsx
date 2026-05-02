@@ -19,9 +19,15 @@ type Grid2DProps = {
   interactionMode?: GridInteractionMode;
   lockedStores?: Record<string, boolean>;
   onOpenStoreManagement?: (storeName: string) => void;
+  showDesktopInputPanel?: boolean;
 };
 
-export default function Grid2D({ interactionMode = 'search', lockedStores = {}, onOpenStoreManagement }: Grid2DProps) {
+export default function Grid2D({
+  interactionMode = 'search',
+  lockedStores = {},
+  onOpenStoreManagement,
+  showDesktopInputPanel = true,
+}: Grid2DProps) {
   const {
     stores,
     selectedStore,
@@ -37,11 +43,13 @@ export default function Grid2D({ interactionMode = 'search', lockedStores = {}, 
   } = useStore();
 
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const gridScrollRef = useRef<HTMLDivElement | null>(null);
   const [newNumber, setNewNumber] = useState('');
   const [slotInput, setSlotInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [pickingId, setPickingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hasManualCellSelection, setHasManualCellSelection] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [scannerPreview, setScannerPreview] = useState<{ raw: string; extracted: string } | null>(null);
@@ -139,10 +147,17 @@ export default function Grid2D({ interactionMode = 'search', lockedStores = {}, 
     setNewNumber('');
     setSlotInput('');
     setError(null);
+    setHasManualCellSelection(false);
     setScannerOpen(false);
     setScannerError(null);
     setScannerPreview(null);
   }, [store?.store_name]);
+
+  useEffect(() => {
+    if (interactionMode !== 'input') {
+      setHasManualCellSelection(false);
+    }
+  }, [interactionMode]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -365,6 +380,13 @@ export default function Grid2D({ interactionMode = 'search', lockedStores = {}, 
 
   const storeCapacity = Math.max(1, activeStore.rows * activeStore.columns * slotCapacity);
   const mobileEntryMode = canModify && isMobileViewport && !isConveyerStore;
+  const showDesktopKeypad =
+    canModify &&
+    !isMobileViewport &&
+    !isConveyerStore &&
+    interactionMode === 'input' &&
+    hasManualCellSelection &&
+    Boolean(selectedCell);
   const selectedSlotLabel = selectedCell
     ? `${activeStore.store_name} • R${selectedCell.row} : C${selectedCell.column}`
     : `${activeStore.store_name} • --`;
@@ -425,40 +447,11 @@ export default function Grid2D({ interactionMode = 'search', lockedStores = {}, 
           </p>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
-          <span
-            className={cn(
-              'text-[10px] font-black uppercase tracking-widest px-2.5 sm:px-3 py-2 rounded-xl sm:rounded-2xl border self-start sm:self-center',
-              activeStore.auto_settle !== false
-                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40'
-                : 'bg-slate-700/40 text-slate-300 border-slate-600'
-            )}
-          >
-            Auto-settle: {activeStore.auto_settle !== false ? 'Enabled' : 'Disabled'}
-          </span>
-          <div className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900/70 p-1 overflow-x-auto no-scrollbar max-w-full">
-            {(['fit', 'comfortable', 'compact', 'large'] as GridDensityMode[]).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => setGridDensity(mode)}
-                className={cn(
-                  'h-8 px-2.5 rounded-lg text-[10px] font-black uppercase tracking-wide whitespace-nowrap transition-all border',
-                  gridDensity === mode
-                    ? 'bg-blue-600 text-white border-blue-400 shadow-[0_0_12px_rgba(47,125,255,0.35)]'
-                    : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                )}
-                title={densityConfig.label}
-              >
-                {mode === 'fit' ? 'Fit to Screen' : mode === 'comfortable' ? 'Comfortable' : mode === 'compact' ? 'Compact' : 'Large'}
-              </button>
-            ))}
-          </div>
-        </div>
+        {/* Auto-settle + grid density strip intentionally hidden per UI request */}
       </div>
       )}
 
-      {canModify && !mobileEntryMode && (
+      {canModify && !mobileEntryMode && showDesktopInputPanel && (
       <div className="mb-4 sm:mb-6 rounded-2xl sm:rounded-3xl border border-slate-800 bg-slate-900/85 p-3 sm:p-4 shadow-2xl space-y-2.5 sm:space-y-3 w-full max-w-[min(100%,64rem)]">
         <div className="flex items-center justify-between text-[11px] font-black text-white">
           <span>
@@ -602,9 +595,28 @@ export default function Grid2D({ interactionMode = 'search', lockedStores = {}, 
       )}
 
       <div className="flex-1 min-h-0 flex items-start sm:items-center justify-center">
-        <div className="w-full h-full overflow-auto pb-2">
+        <div
+          ref={gridScrollRef}
+          onWheel={(event) => {
+            const el = gridScrollRef.current;
+            if (!el) return;
+            const canScrollX = el.scrollWidth > el.clientWidth + 1;
+            if (!canScrollX) return;
+
+            const delta = Math.abs(event.deltaX) > 0 ? event.deltaX : event.deltaY;
+            if (!delta) return;
+
+            const atStart = el.scrollLeft <= 0;
+            const atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 1;
+            if ((delta < 0 && atStart) || (delta > 0 && atEnd)) return;
+
+            event.preventDefault();
+            el.scrollLeft += delta;
+          }}
+          className="warehouse-grid-scroll w-full h-full overflow-auto pb-2"
+        >
           <div
-            className="warehouse-grid-map mx-auto w-max grid p-2.5 sm:p-5 bg-slate-900 rounded-[22px] sm:rounded-[32px] border border-slate-800 shadow-2xl"
+            className="warehouse-grid-map mx-auto w-max min-w-full sm:min-w-0 grid p-2.5 sm:p-5 bg-slate-900 rounded-[22px] sm:rounded-[32px] border border-slate-800 shadow-2xl"
             style={{
               gridTemplateColumns: `repeat(${activeStore.columns}, minmax(0, 1fr))`,
               gap: `${densityConfig.gap}px`,
@@ -614,6 +626,12 @@ export default function Grid2D({ interactionMode = 'search', lockedStores = {}, 
               row.map((cell, cIdx) => {
                 const isSelected = selectedCell?.row === cell.r && selectedCell?.column === cell.c;
                 const isFull = cell.count >= slotCapacity;
+                const isDraftTarget =
+                  canModify &&
+                  interactionMode === 'input' &&
+                  !isConveyerStore &&
+                  isSelected &&
+                  newNumber.trim().length > 0;
                 return (
                   <button
                     key={`${rIdx}-${cIdx}`}
@@ -621,6 +639,7 @@ export default function Grid2D({ interactionMode = 'search', lockedStores = {}, 
                     disabled={!canModify}
                     onClick={() => {
                       if (!canModify) return;
+                      setHasManualCellSelection(true);
                       setSelectedGridCell({ store: activeStore.store_name, row: cell.r, column: cell.c });
                       if (isConveyerStore) {
                         setSlotInput(String(cell.c));
@@ -649,7 +668,17 @@ export default function Grid2D({ interactionMode = 'search', lockedStores = {}, 
                       } as { [key: string]: string }
                     }
                   >
-                    {cell.isTarget ? (
+                    {isDraftTarget ? (
+                      <span
+                        className={cn(
+                          'opacity-100 w-full whitespace-normal break-words [overflow-wrap:anywhere]',
+                          newNumber.trim().length > 10 && 'text-[0.92em]'
+                        )}
+                        title={newNumber.trim()}
+                      >
+                        {newNumber.trim()}
+                      </span>
+                    ) : cell.isTarget ? (
                       showBlanketNumberInCell ? (
                         <span
                           className={cn(
@@ -771,6 +800,43 @@ export default function Grid2D({ interactionMode = 'search', lockedStores = {}, 
                 busy || !selectedCell || selectedCellFull || !newNumber.trim() || !canModify
                   ? "bg-slate-800 border-slate-700 text-slate-400"
                   : "bg-emerald-600 border-emerald-400 text-white"
+              )}
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showDesktopKeypad && (
+        <div className="warehouse-desktop-keypad fixed left-1/2 -translate-x-1/2 bottom-5 z-30 hidden sm:block rounded-2xl border border-slate-700 bg-slate-900/95 backdrop-blur-md p-2.5 shadow-2xl">
+          <div className="warehouse-keypad grid grid-cols-4 gap-2">
+            {['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'].map((key) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => appendDigit(key)}
+                className="h-10 min-w-[3rem] rounded-xl border text-base font-black"
+              >
+                {key}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setNewNumber('')}
+              className="warehouse-clear-btn h-10 min-w-[3.25rem] rounded-xl border text-[10px] font-black uppercase tracking-widest"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleStoreBlanket()}
+              disabled={busy || !selectedCell || selectedCellFull || !newNumber.trim() || !canModify}
+              className={cn(
+                "warehouse-save-btn h-10 min-w-[3.25rem] rounded-xl border text-[10px] font-black uppercase tracking-widest",
+                busy || !selectedCell || selectedCellFull || !newNumber.trim() || !canModify
+                  ? "bg-slate-800 border-slate-700 text-slate-400"
+                  : ""
               )}
             >
               Save

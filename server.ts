@@ -4,6 +4,7 @@ import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import cors from 'cors';
 import Database from 'better-sqlite3';
+import { Pool } from 'pg';
 import { randomBytes, randomInt, randomUUID, scryptSync, timingSafeEqual } from 'crypto';
 import { fileURLToPath } from 'url';
 import {
@@ -23,6 +24,15 @@ const __dirname = path.dirname(__filename);
 const STORE_LOCAL_FOOTPRINT = 5;
 
 const db = new Database('blanket_storage.db');
+const DB_PROVIDER = String(process.env.DB_PROVIDER ?? 'sqlite').trim().toLowerCase();
+const POSTGRES_URL = String(process.env.POSTGRES_URL ?? '').trim();
+const USE_POSTGRES_LOCAL = DB_PROVIDER === 'postgres' && POSTGRES_URL.length > 0;
+const pgPool: Pool | null = USE_POSTGRES_LOCAL
+  ? new Pool({
+      connectionString: POSTGRES_URL,
+      max: 10,
+    })
+  : null;
 
 type BackupSnapshot = {
   version: 1;
@@ -980,10 +990,46 @@ const refreshPosSession = async (reason: string): Promise<boolean> => {
     };
 
     try {
+      // Prime POS session cookie from login page first (some setups require this).
+      try {
+        const preflightResponse = await withTimeout((signal) =>
+          fetch(POS_LOGIN_REFERER, {
+            method: 'GET',
+            headers: {
+              Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+              'Cache-Control': 'no-cache',
+              Pragma: 'no-cache',
+              ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+            },
+            signal,
+          })
+        );
+        updatePosCookieJarFromResponse(cookieHeader, preflightResponse);
+        cookieHeader = String(posCookieJar || cookieHeader).trim();
+      } catch {
+        // Continue; login POST may still work without preflight.
+      }
+
       const usernameRaw = String(POS_LOGIN_USERNAME ?? '').trim();
       const usernameBeforeAt = usernameRaw.includes('@') ? usernameRaw.split('@')[0].trim() : usernameRaw;
+      const usernameLower = usernameRaw.toLowerCase();
+      const usernameBeforeAtLower = usernameBeforeAt.toLowerCase();
       const usernameWithClient = usernameBeforeAt ? `${usernameBeforeAt}@${POS_LOGIN_CLIENT_IDENTIFIER}` : '';
-      const usernameVariants = Array.from(new Set([usernameRaw, usernameBeforeAt, usernameWithClient].filter(Boolean)));
+      const usernameWithClientLower = usernameBeforeAtLower
+        ? `${usernameBeforeAtLower}@${POS_LOGIN_CLIENT_IDENTIFIER}`
+        : '';
+      const usernameVariants = Array.from(
+        new Set(
+          [
+            usernameRaw,
+            usernameLower,
+            usernameBeforeAt,
+            usernameBeforeAtLower,
+            usernameWithClient,
+            usernameWithClientLower,
+          ].filter(Boolean)
+        )
+      );
 
       let authed = false;
       for (const username of usernameVariants) {
@@ -3898,6 +3944,62 @@ const assertSqliteBlanketSlot = (storeName: string, row: number, column: number,
   }
 };
 
+const assertPostgresBlanketSlot = async (
+  storeName: string,
+  row: number,
+  column: number,
+  status: string,
+  excludeBlanketId?: number
+) => {
+  if (!pgPool) return;
+
+  const storeRes = await pgPool.query(
+    'SELECT store_name, rows, columns, store_type, slot_capacity FROM stores WHERE store_name = $1 LIMIT 1',
+    [storeName]
+  );
+  const store = storeRes.rows[0] as
+    | { store_name: string; rows: number; columns: number; store_type: string; slot_capacity: number }
+    | undefined;
+
+  if (!store) {
+    const error = new Error(`Store not found: ${storeName}`);
+    (error as any).status = 400;
+    throw error;
+  }
+
+  const maxRows = Number(store.rows ?? 0);
+  const maxCols = Number(store.columns ?? 0);
+
+  if (status !== 'stored') return;
+
+  if (row < 1 || row > maxRows) {
+    const error = new Error(`Row out of bounds (1..${maxRows})`);
+    (error as any).status = 400;
+    throw error;
+  }
+
+  if (column < 1 || column > maxCols) {
+    const error = new Error(`Column out of bounds (1..${maxCols})`);
+    (error as any).status = 400;
+    throw error;
+  }
+
+  const capacity = store.store_type === 'hanger' ? 1 : Math.max(1, Number(store.slot_capacity ?? 1));
+  let countSql = 'SELECT COUNT(*)::int AS c FROM blankets WHERE store = $1 AND row = $2 AND "column" = $3 AND status = $4';
+  const params: Array<string | number> = [storeName, row, column, 'stored'];
+  if (typeof excludeBlanketId === 'number') {
+    countSql += ' AND id <> $5';
+    params.push(excludeBlanketId);
+  }
+  const countRes = await pgPool.query(countSql, params);
+  const count = Number(countRes.rows?.[0]?.c ?? 0);
+  if (count >= capacity) {
+    const error = new Error(`Slot is full (capacity ${capacity})`);
+    (error as any).status = 400;
+    throw error;
+  }
+};
+
 const assertSupabaseBlanketSlot = async (
   storeName: string,
   row: number,
@@ -4234,12 +4336,19 @@ async function startServer() {
   app.delete('/api/supabase/stores/:name', requireOperationsManager, async (req, res) => {
     if (!supabaseAdmin) return res.status(503).json({ error: 'Supabase admin is not configured.' });
     const name = req.params.name;
+    const force = String(req.query.force ?? '').trim() === '1';
     const { count, error: countError } = await supabaseAdmin
       .from('blankets')
       .select('id', { count: 'exact', head: true })
       .eq('store', name);
     if (countError) return res.status(500).json({ error: countError.message, code: (countError as any).code });
-    if ((count ?? 0) > 0) return res.status(400).json({ error: 'Cannot delete store with blankets in it.' });
+    if ((count ?? 0) > 0 && !force) return res.status(400).json({ error: 'Cannot delete store with blankets in it.' });
+    if ((count ?? 0) > 0 && force) {
+      const { error: deleteBlanketsError } = await supabaseAdmin.from('blankets').delete().eq('store', name);
+      if (deleteBlanketsError) {
+        return res.status(500).json({ error: deleteBlanketsError.message, code: (deleteBlanketsError as any).code });
+      }
+    }
 
     const { error } = await supabaseAdmin.from('stores').delete().eq('store_name', name);
     if (error) return res.status(500).json({ error: error.message, code: (error as any).code });
@@ -5215,8 +5324,12 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.get('/api/stores', requireAuth, (_req, res) => {
+  app.get('/api/stores', requireAuth, async (_req, res) => {
     try {
+      if (USE_POSTGRES_LOCAL && pgPool) {
+        const result = await pgPool.query('SELECT * FROM stores ORDER BY store_name ASC');
+        return res.json(Array.isArray(result.rows) ? result.rows : []);
+      }
       const stores = db.prepare('SELECT * FROM stores').all();
       const storesArray = Array.isArray(stores) ? stores : [];
       res.json(storesArray);
@@ -5226,7 +5339,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/stores', requireOperationsManager, (req, res) => {
+  app.post('/api/stores', requireOperationsManager, async (req, res) => {
     const { store_name, rows, columns, auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, width, depth, height, store_color, store_opacity, cell_width, cell_depth, cell_height } = req.body;
 
     const normalizedRows = store_type === 'hanger' ? 1 : Math.max(1, Number(rows ?? 10) || 1);
@@ -5247,6 +5360,52 @@ async function startServer() {
       store_type === 'hanger'
         ? 1
         : Math.max(1, Number(slot_capacity ?? (/^folding\\b/i.test(String(store_name)) ? 20 : 1)));
+
+    if (USE_POSTGRES_LOCAL && pgPool) {
+      try {
+        const existingPositionsResult = await pgPool.query('SELECT position_x, position_z FROM stores');
+        const existingPositions = existingPositionsResult.rows as { position_x: number; position_z: number }[];
+        const availableSlot = defaultStoreSlots.find(
+          (slot) => !existingPositions.some((pos) => Number(pos.position_x) === slot.x && Number(pos.position_z) === slot.z)
+        );
+
+        const position_x = availableSlot ? availableSlot.x : (existingPositions.length ? Number(existingPositions[existingPositions.length - 1].position_x) + 15 : 0);
+        const position_z = availableSlot ? availableSlot.z : 0;
+
+        await pgPool.query(
+          `
+          INSERT INTO stores (
+            store_name, position_x, position_z, width, depth, height, rows, columns,
+            auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_opacity, cell_width, cell_depth, cell_height
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+          `,
+          [
+            store_name,
+            position_x,
+            position_z,
+            normalizedWidth,
+            normalizedDepth,
+            normalizedHeight,
+            normalizedRows,
+            normalizedColumns,
+            auto_settle === false ? 0 : 1,
+            store_type || 'grid',
+            normalizedHangerSlots,
+            normalizedSlotCapacity,
+            normalizedRequirePickScan ? 1 : 0,
+            normalizedStoreColor,
+            normalizedStoreOpacity,
+            normalizedCellWidth,
+            normalizedCellDepth,
+            normalizedCellHeight,
+          ]
+        );
+        return res.json({ success: true });
+      } catch (error: any) {
+        return res.status(500).json({ error: error?.message || 'Failed to create store' });
+      }
+    }
 
     const existingPositions = db.prepare('SELECT position_x, position_z FROM stores').all() as { position_x: number; position_z: number }[];
     const availableSlot = defaultStoreSlots.find(
@@ -5286,7 +5445,7 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.put('/api/stores/:name', requireOperationsManager, (req, res) => {
+  app.put('/api/stores/:name', requireOperationsManager, async (req, res) => {
     const { name } = req.params;
     const { position_x, position_y, position_z, width, depth, height, rows, columns, rotation_y, auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_opacity, cell_width, cell_depth, cell_height } = req.body;
 
@@ -5305,6 +5464,43 @@ async function startServer() {
     const normalizedCellDepth = normalizeStoreCellDimension(cell_depth, deriveDefaultCellDepth(normalizedRows));
     const normalizedCellHeight = normalizeStoreCellDimension(cell_height, deriveDefaultCellHeight());
     const normalizedSlotCapacity = store_type === 'hanger' ? 1 : Math.max(1, Number(slot_capacity ?? 1));
+
+    if (USE_POSTGRES_LOCAL && pgPool) {
+      try {
+        await pgPool.query(
+          `
+          UPDATE stores
+          SET position_x = $1, position_y = $2, position_z = $3, width = $4, depth = $5, height = $6, rows = $7, columns = $8, rotation_y = $9, auto_settle = $10, store_type = $11, hanger_slots = $12, slot_capacity = $13, require_pick_scan = $14, store_color = $15, store_opacity = $16, cell_width = $17, cell_depth = $18, cell_height = $19
+          WHERE store_name = $20
+          `,
+          [
+            position_x,
+            position_y,
+            position_z,
+            normalizedWidth,
+            normalizedDepth,
+            normalizedHeight,
+            normalizedRows,
+            normalizedColumns,
+            rotation_y,
+            auto_settle === false ? 0 : 1,
+            store_type || 'grid',
+            normalizedHangerSlots,
+            normalizedSlotCapacity,
+            normalizedRequirePickScan ? 1 : 0,
+            normalizedStoreColor,
+            normalizedStoreOpacity,
+            normalizedCellWidth,
+            normalizedCellDepth,
+            normalizedCellHeight,
+            name,
+          ]
+        );
+        return res.json({ success: true });
+      } catch (error: any) {
+        return res.status(500).json({ error: error?.message || 'Failed to update store' });
+      }
+    }
 
     db.prepare(`
       UPDATE stores
@@ -5336,20 +5532,45 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.delete('/api/stores/:name', requireOperationsManager, (req, res) => {
+  app.delete('/api/stores/:name', requireOperationsManager, async (req, res) => {
     const { name } = req.params;
+    const force = String(req.query.force ?? '').trim() === '1';
+
+    if (USE_POSTGRES_LOCAL && pgPool) {
+      try {
+        const countRes = await pgPool.query('SELECT COUNT(*)::int as count FROM blankets WHERE store = $1', [name]);
+        const blanketCount = Number(countRes.rows?.[0]?.count ?? 0);
+        if (blanketCount > 0 && !force) {
+          return res.status(400).json({ error: 'Cannot delete store with blankets in it.' });
+        }
+        if (blanketCount > 0 && force) {
+          await pgPool.query('DELETE FROM blankets WHERE store = $1', [name]);
+        }
+        await pgPool.query('DELETE FROM stores WHERE store_name = $1', [name]);
+        return res.json({ success: true });
+      } catch (error: any) {
+        return res.status(500).json({ error: error?.message || 'Failed to delete store' });
+      }
+    }
 
     const blanketCount = db.prepare('SELECT COUNT(*) as count FROM blankets WHERE store = ?').get(name) as { count: number };
-    if (blanketCount.count > 0) {
+    if (blanketCount.count > 0 && !force) {
       return res.status(400).json({ error: 'Cannot delete store with blankets in it.' });
+    }
+    if (blanketCount.count > 0 && force) {
+      db.prepare('DELETE FROM blankets WHERE store = ?').run(name);
     }
 
     db.prepare('DELETE FROM stores WHERE store_name = ?').run(name);
     res.json({ success: true });
   });
 
-  app.get('/api/blankets', requireAuth, (_req, res) => {
+  app.get('/api/blankets', requireAuth, async (_req, res) => {
     try {
+      if (USE_POSTGRES_LOCAL && pgPool) {
+        const result = await pgPool.query('SELECT * FROM blankets ORDER BY created_at DESC');
+        return res.json(Array.isArray(result.rows) ? result.rows : []);
+      }
       const blankets = db.prepare('SELECT * FROM blankets ORDER BY created_at DESC').all();
       const blanketsArray = Array.isArray(blankets) ? blankets : [];
       res.json(blanketsArray);
@@ -5359,10 +5580,52 @@ async function startServer() {
     }
   });
 
-  app.post('/api/blankets', requireOperationsManager, (req, res) => {
+  app.post('/api/blankets', requireOperationsManager, async (req, res) => {
     const { blanket_number, store, row, column, status, user, notes } = req.body;
     const action = status || 'stored';
     const meta = getLogMeta(req);
+
+    if (USE_POSTGRES_LOCAL && pgPool) {
+      try {
+        await assertPostgresBlanketSlot(String(store), Number(row), Number(column), String(status || 'stored'));
+      } catch (error: any) {
+        return res.status(error.status || 400).json({ error: error.message || 'Invalid slot' });
+      }
+
+      try {
+        const insertRes = await pgPool.query(
+          `
+          INSERT INTO blankets (blanket_number, store, row, "column", status)
+          VALUES ($1, $2, $3, $4, $5)
+          RETURNING id
+          `,
+          [blanket_number, store, row, column, status || 'stored']
+        );
+
+        await pgPool.query(
+          `
+          INSERT INTO logs (blanket_number, action, "user", store, row, "column", status, request_id, device, ip, notes)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          `,
+          [
+            blanket_number,
+            action,
+            user || 'system',
+            store,
+            row,
+            column,
+            status || 'stored',
+            meta.request_id,
+            meta.device,
+            meta.ip,
+            typeof notes === 'string' && notes.trim().length > 0 ? notes.trim() : meta.notes,
+          ]
+        );
+        return res.json({ id: insertRes.rows?.[0]?.id });
+      } catch (error: any) {
+        return res.status(500).json({ error: error?.message || 'Failed to create blanket' });
+      }
+    }
 
     try {
       assertSqliteBlanketSlot(String(store), Number(row), Number(column), String(status || 'stored'));
@@ -5402,6 +5665,182 @@ async function startServer() {
     const operations = Array.isArray(payload.operations) ? payload.operations : [];
     const meta = getLogMeta(req);
     const touchedStores = new Set<string>();
+
+    if (USE_POSTGRES_LOCAL && pgPool) {
+      (async () => {
+        const client = await pgPool.connect();
+        try {
+          await client.query('BEGIN');
+          for (const change of storeChanges) {
+            const name = String(change?.store_name || '').trim();
+            if (!name) continue;
+            const nextRows = Math.max(1, Number(change?.rows ?? 1) || 1);
+            const nextCols = Math.max(1, Number(change?.columns ?? 1) || 1);
+            const currentRes = await client.query('SELECT rows, columns FROM stores WHERE store_name = $1 LIMIT 1', [name]);
+            const current = currentRes.rows?.[0] as { rows: number; columns: number } | undefined;
+            if (!current) {
+              await client.query(
+                `INSERT INTO stores (
+                  store_name, rows, columns, auto_settle, store_type, hanger_slots, slot_capacity,
+                  require_pick_scan, store_color, store_opacity, cell_width, cell_depth, cell_height
+                ) VALUES ($1, $2, $3, 1, 'grid', 0, 1, 0, '#3b82f6', 1, 0.5, 0.5, 0.11)`,
+                [name, nextRows, nextCols]
+              );
+              touchedStores.add(name);
+            } else {
+              const mergedRows = Math.max(1, Math.max(Number(current.rows ?? 1) || 1, nextRows));
+              const mergedCols = Math.max(1, Math.max(Number(current.columns ?? 1) || 1, nextCols));
+              if (mergedRows !== Number(current.rows ?? 1) || mergedCols !== Number(current.columns ?? 1)) {
+                await client.query('UPDATE stores SET rows = $1, columns = $2 WHERE store_name = $3', [
+                  mergedRows,
+                  mergedCols,
+                  name,
+                ]);
+                touchedStores.add(name);
+              }
+            }
+            await client.query(
+              `INSERT INTO logs (blanket_number, action, "user", store, row, "column", status, request_id, device, ip, notes)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+              [
+                '[STORE]',
+                'store_update',
+                user,
+                name,
+                0,
+                0,
+                'active',
+                meta.request_id,
+                meta.device,
+                meta.ip,
+                `${String(change?.note || '').trim() || 'Bulk import store update'}${fileName ? ` | file=${fileName}` : ''}`,
+              ]
+            );
+          }
+
+          for (const op of operations) {
+            const opType = String(op?.op || '').trim();
+            if (opType === 'update') {
+              const id = Number(op?.id);
+              if (!Number.isFinite(id) || id <= 0) continue;
+              const previousRes = await client.query(
+                'SELECT id, blanket_number, store, row, "column", status FROM blankets WHERE id = $1 LIMIT 1',
+                [id]
+              );
+              const previousRow = previousRes.rows?.[0];
+              if (!previousRow) continue;
+              const previous = {
+                id: Number(previousRow.id),
+                blanket_number: String(previousRow.blanket_number),
+                store: String(previousRow.store),
+                row: Number(previousRow.row),
+                column: Number(previousRow.column),
+                status: String(previousRow.status),
+              };
+              const data = (op?.data ?? {}) as Record<string, unknown>;
+              const nextBlanketNumber = String(data.blanket_number ?? previous.blanket_number);
+              const nextStore = String(data.store ?? previous.store);
+              const nextRow = Number(data.row ?? previous.row);
+              const nextColumn = Number(data.column ?? previous.column);
+              const nextStatus = String(data.status ?? previous.status ?? 'stored');
+              await assertPostgresBlanketSlot(nextStore, nextRow, nextColumn, nextStatus, id);
+              await client.query(
+                'UPDATE blankets SET blanket_number = $1, store = $2, row = $3, "column" = $4, status = $5 WHERE id = $6',
+                [nextBlanketNumber, nextStore, nextRow, nextColumn, nextStatus, id]
+              );
+              touchedStores.add(previous.store);
+              touchedStores.add(nextStore);
+              const action = String(op?.forceAction || deriveBlanketAction(previous, {
+                store: nextStore,
+                row: nextRow,
+                column: nextColumn,
+                status: nextStatus,
+              }));
+              await client.query(
+                `INSERT INTO logs (blanket_number, action, "user", store, row, "column", status, request_id, device, ip, notes)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+                [
+                  nextBlanketNumber,
+                  action,
+                  user,
+                  nextStore,
+                  nextRow,
+                  nextColumn,
+                  nextStatus,
+                  meta.request_id,
+                  meta.device,
+                  meta.ip,
+                  typeof op?.notes === 'string' && op.notes.trim() ? op.notes.trim() : meta.notes,
+                ]
+              );
+              continue;
+            }
+
+            if (opType === 'insert') {
+              const data = (op?.data ?? {}) as Record<string, unknown>;
+              const blanketNumber = String(data.blanket_number ?? '').trim();
+              const store = String(data.store ?? '').trim();
+              const row = Number(data.row);
+              const column = Number(data.column);
+              const status = String(data.status ?? 'stored');
+              if (!blanketNumber || !store || !Number.isFinite(row) || !Number.isFinite(column)) continue;
+              await assertPostgresBlanketSlot(store, row, column, status);
+              await client.query(
+                'INSERT INTO blankets (blanket_number, store, row, "column", status) VALUES ($1, $2, $3, $4, $5)',
+                [blanketNumber, store, row, column, status]
+              );
+              touchedStores.add(store);
+              await client.query(
+                `INSERT INTO logs (blanket_number, action, "user", store, row, "column", status, request_id, device, ip, notes)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+                [
+                  blanketNumber,
+                  status || 'stored',
+                  user,
+                  store,
+                  row,
+                  column,
+                  status,
+                  meta.request_id,
+                  meta.device,
+                  meta.ip,
+                  typeof op?.notes === 'string' && op.notes.trim() ? op.notes.trim() : meta.notes,
+                ]
+              );
+            }
+          }
+
+          await client.query('COMMIT');
+          const touchedStoreList = Array.from(touchedStores);
+          let storesRows: any[] = [];
+          let blanketsRows: any[] = [];
+          if (touchedStoreList.length > 0) {
+            const storesRes = await pgPool.query(
+              'SELECT * FROM stores WHERE store_name = ANY($1::text[])',
+              [touchedStoreList]
+            );
+            const blanketsRes = await pgPool.query(
+              'SELECT * FROM blankets WHERE store = ANY($1::text[])',
+              [touchedStoreList]
+            );
+            storesRows = storesRes.rows ?? [];
+            blanketsRows = blanketsRes.rows ?? [];
+          }
+          return res.json({
+            success: true,
+            touchedStores: touchedStoreList,
+            stores: storesRows,
+            blankets: blanketsRows,
+          });
+        } catch (error: any) {
+          await client.query('ROLLBACK');
+          return res.status(500).json({ error: error?.message || 'Bulk apply failed.' });
+        } finally {
+          client.release();
+        }
+      })();
+      return;
+    }
 
     const selectStoreStmt = db.prepare('SELECT * FROM stores WHERE store_name = ?');
     const insertStoreStmt = db.prepare(`
@@ -5555,6 +5994,71 @@ async function startServer() {
     const user = String(req.body?.user || req.auth?.username || 'system');
     const meta = getLogMeta(req);
 
+    if (USE_POSTGRES_LOCAL && pgPool) {
+      (async () => {
+        const client = await pgPool.connect();
+        try {
+          await client.query('BEGIN');
+          const affectedRes = await client.query(
+            'SELECT id, blanket_number, store, row, "column", status FROM blankets WHERE store = $1 AND status = $2',
+            [storeName, 'stored']
+          );
+          const affected = (affectedRes.rows ?? []).map((row: any) => ({
+            id: Number(row.id),
+            blanket_number: String(row.blanket_number),
+            store: String(row.store),
+            row: Number(row.row),
+            column: Number(row.column),
+            status: String(row.status),
+          }));
+          const archiveId = `store-archive-${storeName}-${Date.now()}`;
+          const count = affected.length;
+          const archiveNote = `ARCHIVE ${archiveId} | reason=${reason || '-'} | count=${count}`;
+
+          await client.query(
+            `INSERT INTO logs (blanket_number, action, "user", store, row, "column", status, request_id, device, ip, notes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+            ['[STORE]', 'store_archive', user, storeName, 0, 0, 'active', meta.request_id, meta.device, meta.ip, archiveNote]
+          );
+
+          await client.query('UPDATE blankets SET status = $1 WHERE store = $2 AND status = $3', ['retrieved', storeName, 'stored']);
+          await client.query(
+            `INSERT INTO logs (blanket_number, action, "user", store, row, "column", status, request_id, device, ip, notes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+            [
+              '[STORE]',
+              'store_emptied',
+              user,
+              storeName,
+              0,
+              0,
+              'active',
+              meta.request_id,
+              meta.device,
+              meta.ip,
+              `Cleared ${count} stored items`,
+            ]
+          );
+          await client.query('COMMIT');
+
+          const blanketsRes = await pgPool.query('SELECT * FROM blankets WHERE store = $1', [storeName]);
+          return res.json({
+            success: true,
+            touchedStores: [storeName],
+            affectedCount: count,
+            archiveId,
+            blankets: Array.isArray(blanketsRes.rows) ? blanketsRes.rows : [],
+          });
+        } catch (error: any) {
+          await client.query('ROLLBACK');
+          return res.status(500).json({ error: error?.message || 'Empty store failed.' });
+        } finally {
+          client.release();
+        }
+      })();
+      return;
+    }
+
     const fetchAffectedStmt = db.prepare(
       'SELECT id, blanket_number, store, row, column, status FROM blankets WHERE store = ? AND status = ?'
     );
@@ -5609,10 +6113,62 @@ async function startServer() {
     }
   });
 
-  app.put('/api/blankets/:id', requireOperationsManager, (req, res) => {
+  app.put('/api/blankets/:id', requireOperationsManager, async (req, res) => {
     const { id } = req.params;
     const { blanket_number, store, row, column, status, user, notes } = req.body;
     const meta = getLogMeta(req);
+    if (USE_POSTGRES_LOCAL && pgPool) {
+      try {
+        const previousRes = await pgPool.query(
+          'SELECT blanket_number, store, row, "column", status FROM blankets WHERE id = $1 LIMIT 1',
+          [Number(id)]
+        );
+        const previousRow = previousRes.rows?.[0];
+        const previous = previousRow
+          ? {
+              blanket_number: String(previousRow.blanket_number),
+              store: String(previousRow.store),
+              row: Number(previousRow.row),
+              column: Number(previousRow.column),
+              status: String(previousRow.status),
+            }
+          : undefined;
+
+        const action = deriveBlanketAction(previous as any, { store, row, column, status });
+
+        try {
+          await assertPostgresBlanketSlot(String(store), Number(row), Number(column), String(status), Number(id));
+        } catch (error: any) {
+          return res.status(error.status || 400).json({ error: error.message || 'Invalid slot' });
+        }
+
+        await pgPool.query(
+          `UPDATE blankets SET blanket_number = $1, store = $2, row = $3, "column" = $4, status = $5 WHERE id = $6`,
+          [blanket_number, store, row, column, status, Number(id)]
+        );
+        await pgPool.query(
+          `INSERT INTO logs (blanket_number, action, "user", store, row, "column", status, request_id, device, ip, notes)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+          [
+            blanket_number,
+            action,
+            user || 'system',
+            store,
+            row,
+            column,
+            status,
+            meta.request_id,
+            meta.device,
+            meta.ip,
+            typeof notes === 'string' && notes.trim().length > 0 ? notes.trim() : meta.notes,
+          ]
+        );
+        return res.json({ success: true });
+      } catch (error: any) {
+        return res.status(500).json({ error: error?.message || 'Failed to update blanket' });
+      }
+    }
+
     const previous = db.prepare('SELECT blanket_number, store, row, column, status FROM blankets WHERE id = ?').get(id) as
       | { blanket_number: string; store: string; row: number; column: number; status: string }
       | undefined;
@@ -5650,7 +6206,7 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.post('/api/blankets/:id/pick', requirePicker, (req: any, res) => {
+  app.post('/api/blankets/:id/pick', requirePicker, async (req: any, res) => {
     const { id } = req.params;
     const blanketId = Number(id);
     if (!Number.isFinite(blanketId) || blanketId <= 0) {
@@ -5658,6 +6214,98 @@ async function startServer() {
     }
 
     const meta = getLogMeta(req);
+
+    if (USE_POSTGRES_LOCAL && pgPool) {
+      const client = await pgPool.connect();
+      try {
+        await client.query('BEGIN');
+        const blanketRes = await client.query(
+          'SELECT id, blanket_number, store, row, "column", status FROM blankets WHERE id = $1 LIMIT 1',
+          [blanketId]
+        );
+        const b = blanketRes.rows?.[0];
+        if (!b) {
+          await client.query('ROLLBACK');
+          return res.status(404).json({ error: 'Blanket not found.' });
+        }
+        const blanket = {
+          id: Number(b.id),
+          blanket_number: String(b.blanket_number),
+          store: String(b.store),
+          row: Number(b.row),
+          column: Number(b.column),
+          status: String(b.status),
+        };
+
+        const storeRes = await client.query(
+          'SELECT rows, auto_settle, store_type, slot_capacity FROM stores WHERE store_name = $1 LIMIT 1',
+          [blanket.store]
+        );
+        const s = storeRes.rows?.[0];
+        if (!s) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: `Store not found: ${blanket.store}` });
+        }
+        const store = {
+          rows: Number(s.rows),
+          auto_settle: Number(s.auto_settle),
+          store_type: String(s.store_type),
+          slot_capacity: Number(s.slot_capacity),
+        };
+
+        const canAutoSettle =
+          Number(store.auto_settle ?? 1) !== 0 &&
+          String(store.store_type ?? 'grid') !== 'hanger' &&
+          Math.max(1, Number(store.slot_capacity ?? 1)) <= 1;
+
+        await client.query('UPDATE blankets SET status = $1 WHERE id = $2', ['picked', blanket.id]);
+
+        if (String(blanket.status) === 'stored' && canAutoSettle) {
+          const storedRes = await client.query(
+            'SELECT id, row FROM blankets WHERE store = $1 AND "column" = $2 AND status = $3 AND id <> $4 ORDER BY row ASC',
+            [blanket.store, blanket.column, 'stored', blanket.id]
+          );
+          const storedInColumn = (storedRes.rows ?? []).map((r: any) => ({
+            id: Number(r.id),
+            row: Number(r.row),
+          }));
+          const maxRows = Math.max(1, Number(store.rows ?? 1));
+          const startRow = maxRows - storedInColumn.length + 1;
+          for (let index = 0; index < storedInColumn.length; index += 1) {
+            const currentBlanket = storedInColumn[index];
+            const targetRow = startRow + index;
+            if (currentBlanket.row === targetRow) continue;
+            await client.query('UPDATE blankets SET row = $1 WHERE id = $2', [targetRow, currentBlanket.id]);
+          }
+        }
+
+        await client.query(
+          `INSERT INTO logs (blanket_number, action, "user", store, row, "column", status, request_id, device, ip, notes)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+          [
+            blanket.blanket_number,
+            'picked',
+            req.body?.user || req.auth?.username || 'system',
+            blanket.store,
+            blanket.row,
+            blanket.column,
+            'picked',
+            meta.request_id,
+            meta.device,
+            meta.ip,
+            meta.notes,
+          ]
+        );
+        await client.query('COMMIT');
+        return res.json({ success: true });
+      } catch (error: any) {
+        await client.query('ROLLBACK');
+        return res.status(500).json({ error: error?.message || 'Failed to pick blanket.' });
+      } finally {
+        client.release();
+      }
+    }
+
     const blanket = db.prepare('SELECT id, blanket_number, store, row, column, status FROM blankets WHERE id = ?').get(blanketId) as
       | { id: number; blanket_number: string; store: string; row: number; column: number; status: string }
       | undefined;
@@ -5711,9 +6359,42 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.delete('/api/blankets/:id', requireOperationsManager, (req, res) => {
+  app.delete('/api/blankets/:id', requireOperationsManager, async (req, res) => {
     const { id } = req.params;
     const meta = getLogMeta(req);
+    if (USE_POSTGRES_LOCAL && pgPool) {
+      try {
+        const blanketRes = await pgPool.query(
+          'SELECT blanket_number, store, row, "column", status FROM blankets WHERE id = $1 LIMIT 1',
+          [Number(id)]
+        );
+        const blanketRow = blanketRes.rows?.[0];
+        if (blanketRow) {
+          await pgPool.query('DELETE FROM blankets WHERE id = $1', [Number(id)]);
+          await pgPool.query(
+            `INSERT INTO logs (blanket_number, action, "user", store, row, "column", status, request_id, device, ip, notes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+            [
+              blanketRow.blanket_number,
+              'deleted',
+              req.body?.user || 'system',
+              blanketRow.store,
+              blanketRow.row,
+              blanketRow.column,
+              blanketRow.status,
+              meta.request_id,
+              meta.device,
+              meta.ip,
+              meta.notes,
+            ]
+          );
+        }
+        return res.json({ success: true });
+      } catch (error: any) {
+        return res.status(500).json({ error: error?.message || 'Failed to delete blanket' });
+      }
+    }
+
     const blanket = db.prepare('SELECT blanket_number, store, row, column, status FROM blankets WHERE id = ?').get(id) as
       | { blanket_number: string; store: string | null; row: number | null; column: number | null; status: string | null }
       | undefined;
@@ -5740,11 +6421,15 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.get('/api/logs', requireAuth, (req, res) => {
+  app.get('/api/logs', requireAuth, async (req, res) => {
     try {
       // Order by id as a tie-breaker so multiple events in the same second don't appear to "overwrite" each other.
       const rawLimit = Number(req.query.limit ?? 500);
       const limit = Number.isFinite(rawLimit) ? Math.min(1000, Math.max(1, rawLimit)) : 500;
+      if (USE_POSTGRES_LOCAL && pgPool) {
+        const result = await pgPool.query('SELECT * FROM logs ORDER BY "timestamp" DESC, id DESC LIMIT $1', [limit]);
+        return res.json(Array.isArray(result.rows) ? result.rows : []);
+      }
       const logs = db.prepare('SELECT * FROM logs ORDER BY timestamp DESC, id DESC LIMIT ?').all(limit);
       const logsArray = Array.isArray(logs) ? logs : [];
       res.json(logsArray);
@@ -5754,9 +6439,34 @@ async function startServer() {
     }
   });
 
-  app.post('/api/logs', requireOperationsManager, (req, res) => {
+  app.post('/api/logs', requireOperationsManager, async (req, res) => {
     const { blanket_number, action, user, store, row, column, status, notes } = req.body;
     const meta = getLogMeta(req);
+    if (USE_POSTGRES_LOCAL && pgPool) {
+      try {
+        await pgPool.query(
+          `INSERT INTO logs (blanket_number, action, "user", store, row, "column", status, request_id, device, ip, notes)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+          [
+            blanket_number,
+            action,
+            user || 'system',
+            store,
+            row ?? null,
+            column ?? null,
+            status,
+            meta.request_id,
+            meta.device,
+            meta.ip,
+            typeof notes === 'string' && notes.trim().length > 0 ? notes.trim() : meta.notes,
+          ]
+        );
+        return res.json({ success: true });
+      } catch (error: any) {
+        return res.status(500).json({ error: error?.message || 'Failed to create log' });
+      }
+    }
+
     db.prepare(
       'INSERT INTO logs (blanket_number, action, user, store, row, column, status, request_id, device, ip, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(

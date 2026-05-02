@@ -150,6 +150,7 @@ export default function Management() {
   const [quickAddNumber, setQuickAddNumber] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  const [storeActionError, setStoreActionError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState<{
@@ -759,8 +760,59 @@ export default function Management() {
     setEditingBlanket(null);
   };
 
+  const handleDeleteStore = async (storeName: string) => {
+    const confirmed = window.confirm(
+      `Delete store "${storeName}"?\n\nThis only works when the store has no blankets.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setStoreActionError(null);
+      await deleteStore(storeName);
+    } catch (deleteError: any) {
+      const message =
+        deleteError?.response?.data?.error ||
+        deleteError?.message ||
+        'Failed to delete store.';
+      if (/cannot delete store with blankets/i.test(String(message))) {
+        const forceConfirmed = window.confirm(
+          `Store "${storeName}" has blankets.\n\nForce delete will remove all blankets in this store, then delete the store.\n\nContinue?`
+        );
+        if (!forceConfirmed) {
+          setStoreActionError(message);
+          return;
+        }
+        try {
+          await deleteStore(storeName, { force: true });
+          setStoreActionError(null);
+          return;
+        } catch (forceError: any) {
+          const forceMessage =
+            forceError?.response?.data?.error ||
+            forceError?.message ||
+            'Force delete failed.';
+          setStoreActionError(forceMessage);
+          return;
+        }
+      }
+      setStoreActionError(message);
+    }
+  };
+
   return (
-    <div className="p-3 sm:p-6 lg:p-8 space-y-5 sm:space-y-8 max-w-7xl mx-auto">
+    <div className="management-mobile-shell p-3 sm:p-6 lg:p-8 space-y-5 sm:space-y-8 max-w-7xl mx-auto">
+      {storeActionError && (
+        <div className="rounded-2xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700 flex items-start justify-between gap-3">
+          <span>{storeActionError}</span>
+          <button
+            type="button"
+            onClick={() => setStoreActionError(null)}
+            className="text-rose-600 hover:text-rose-800 text-xs font-black uppercase tracking-wider"
+          >
+            Close
+          </button>
+        </div>
+      )}
       {!canOpenUsersTab && (
         <div className="rounded-3xl border border-amber-300/40 bg-amber-50/70 p-6 text-amber-900">
           <p className="font-semibold">Branch manager mode</p>
@@ -861,11 +913,11 @@ export default function Management() {
       {/* Tabs */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="w-full overflow-x-auto pb-1">
-          <div className="flex bg-slate-100 p-1 rounded-2xl w-max border border-slate-200 min-w-max">
+          <div className="flex bg-slate-100 p-1 rounded-2xl w-max border border-slate-200 min-w-max min-h-11">
           <button 
             onClick={() => setActiveTab('orders')}
             className={cn(
-              "px-8 py-3 rounded-xl font-bold transition-all",
+              "px-5 sm:px-8 min-h-11 py-2 rounded-xl font-bold transition-all whitespace-nowrap text-sm",
               activeTab === 'orders' ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
             )}
           >
@@ -874,7 +926,7 @@ export default function Management() {
           <button 
             onClick={() => setActiveTab('stores')}
             className={cn(
-              "px-8 py-3 rounded-xl font-bold transition-all",
+              "px-5 sm:px-8 min-h-11 py-2 rounded-xl font-bold transition-all whitespace-nowrap text-sm",
               activeTab === 'stores' ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
             )}
           >
@@ -884,7 +936,7 @@ export default function Management() {
             <button
               onClick={() => setActiveTab('users')}
               className={cn(
-                "px-8 py-3 rounded-xl font-bold transition-all flex items-center gap-2",
+                "px-5 sm:px-8 min-h-11 py-2 rounded-xl font-bold transition-all flex items-center gap-2 whitespace-nowrap text-sm",
                 activeTab === 'users' ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
@@ -895,7 +947,7 @@ export default function Management() {
           <button 
             onClick={() => setActiveTab('activity')}
             className={cn(
-              "px-8 py-3 rounded-xl font-bold transition-all flex items-center gap-2",
+              "px-5 sm:px-8 min-h-11 py-2 rounded-xl font-bold transition-all flex items-center gap-2 whitespace-nowrap text-sm",
               activeTab === 'activity' ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
             )}
           >
@@ -906,7 +958,7 @@ export default function Management() {
             <button
               onClick={() => setActiveTab('backup')}
               className={cn(
-                "px-8 py-3 rounded-xl font-bold transition-all flex items-center gap-2",
+                "px-5 sm:px-8 min-h-11 py-2 rounded-xl font-bold transition-all flex items-center gap-2 whitespace-nowrap text-sm",
                 activeTab === 'backup' ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
@@ -917,7 +969,7 @@ export default function Management() {
           <button
             onClick={() => setActiveTab('labels')}
             className={cn(
-              "px-8 py-3 rounded-xl font-bold transition-all flex items-center gap-2",
+              "px-5 sm:px-8 min-h-11 py-2 rounded-xl font-bold transition-all flex items-center gap-2 whitespace-nowrap text-sm",
               activeTab === 'labels' ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
             )}
           >
@@ -962,8 +1014,8 @@ export default function Management() {
        {activeTab === 'orders' ? (
          <>
            {/* Stats / Last Used */}
-           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-4">
+           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
+            <div className="bg-white p-4 sm:p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-4">
               <div className="bg-blue-100 p-3 rounded-2xl text-blue-600">
                 <LayoutGrid size={24} />
               </div>
@@ -972,7 +1024,7 @@ export default function Management() {
                 <span className="text-xl font-black text-slate-900">{lastUsedStore || 'None'}</span>
               </div>
             </div>
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-4">
+            <div className="bg-white p-4 sm:p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-4">
               <div className="bg-emerald-100 p-3 rounded-2xl text-emerald-600">
                 <Check size={24} />
               </div>
@@ -983,7 +1035,7 @@ export default function Management() {
                 </span>
               </div>
             </div>
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-4">
+            <div className="bg-white p-4 sm:p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-4">
               <div className="bg-indigo-100 p-3 rounded-2xl text-indigo-600">
                 <Package size={24} />
               </div>
@@ -1184,7 +1236,7 @@ export default function Management() {
                   <Settings size={20} />
                 </button>
                 <button 
-                  onClick={() => deleteStore(store.store_name)}
+                  onClick={() => void handleDeleteStore(store.store_name)}
                   disabled={!canEditOps}
                   className={cn(
                     "p-3 rounded-xl transition-all opacity-0 group-hover:opacity-100",

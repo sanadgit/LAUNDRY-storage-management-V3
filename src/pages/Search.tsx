@@ -1957,8 +1957,8 @@ export default function SearchPage() {
 
   const mobileOpenPanelClass =
     mobilePanelSnap === 'expanded'
-      ? 'h-[min(46dvh,26rem)]'
-      : 'h-[clamp(15rem,33dvh,20rem)]';
+      ? 'h-[min(58dvh,34rem)]'
+      : 'h-[clamp(18rem,42dvh,24rem)]';
 
   const useMobileFigmaSearchLayout = isMobileViewport && hasSearchInput;
   const mobileRetrievalDockVisible = useMobileFigmaSearchLayout && (retrievalMode || storedMatches.length === 1);
@@ -1981,8 +1981,7 @@ export default function SearchPage() {
   const inputModeActive = !hasSearchInput;
   const showInputStoreSelector =
     viewMode === '2D' &&
-    !isMobileViewport &&
-    inputModeActive;
+    (!isMobileViewport || inputModeActive);
   const mobileSafeAreaInsets = isMobileViewport
     ? {
         paddingLeft: 'max(0.5rem, env(safe-area-inset-left))',
@@ -1990,13 +1989,21 @@ export default function SearchPage() {
       }
     : undefined;
   const desktopSearchPanelWidthClass =
-    'sm:w-[22rem] md:w-[23rem] lg:w-[26rem] xl:w-[27.5rem] 2xl:w-[29rem]';
+    'sm:w-[22rem] md:w-[24rem] lg:w-[27rem] xl:w-[30rem] 2xl:w-[31rem]';
+  const mobileSearchPanelVisible = hasSearchInput && searchPanelOpen && !useMobileFigmaSearchLayout;
+  const searchPanelVisibilityClass = isMobileViewport
+    ? mobileSearchPanelVisible
+      ? `${mobileOpenPanelClass} pointer-events-auto left-0 right-0 bottom-0 rounded-t-3xl border-t border-slate-800 translate-y-0`
+      : 'pointer-events-none left-0 right-0 bottom-0 max-h-[80vh] rounded-t-3xl border-t border-slate-800 translate-y-full'
+    : hasSearchInput
+      ? `pointer-events-auto sm:inset-y-0 sm:left-0 sm:right-auto sm:bottom-auto sm:h-full sm:max-h-none sm:rounded-none sm:border-t-0 sm:border-r sm:shrink-0 sm:opacity-100 ${desktopSearchPanelWidthClass}`
+      : 'pointer-events-none sm:inset-y-0 sm:left-0 sm:right-auto sm:bottom-auto sm:h-full sm:max-h-none sm:rounded-none sm:border-t-0 sm:border-r-0 sm:w-0 sm:opacity-0 sm:shrink-0';
 
   return (
     <div className="warehouse-search-ui h-full w-full min-w-0 flex flex-col bg-slate-900 text-white overflow-hidden">
       {/* Header / Search Bar */}
       <div className={cn(
-        "warehouse-search-header relative z-40 px-3 py-3 sm:px-5 lg:px-6 sm:py-4 lg:py-5 bg-slate-900 border-b border-slate-800 flex flex-col md:flex-row gap-3 sm:gap-4 lg:gap-5",
+        "warehouse-search-header sticky top-0 relative z-[70] px-3 py-3 sm:px-5 lg:px-6 sm:py-4 lg:py-5 bg-slate-900 border-b border-slate-800 flex flex-col md:flex-row gap-3 sm:gap-4 lg:gap-5",
         shouldShowTopSuggestions ? "items-start" : "items-center"
       )}>
         <div className="relative flex-1 max-w-[min(64rem,100%)] w-full">
@@ -2038,7 +2045,6 @@ export default function SearchPage() {
               <ScanLine size={18} />
             </button>
           </div>
-
         </div>
         {!currentUser && (
           <div className="rounded-3xl border border-rose-600 bg-rose-950/60 px-4 py-3 text-sm text-rose-200">
@@ -2082,7 +2088,7 @@ export default function SearchPage() {
       </div>
 
       {shouldShowTopSuggestions && (
-        <div className="relative z-30 px-3 sm:px-5 lg:px-6 pb-3 sm:pb-4 bg-slate-900 border-b border-slate-800/70">
+        <div className="warehouse-suggestions-top relative z-[65] px-3 sm:px-5 lg:px-6 pb-3 sm:pb-4 bg-slate-900 border-b border-slate-800/70">
           <div className="warehouse-card w-full max-w-[min(64rem,100%)] rounded-3xl border border-slate-700 bg-slate-900/95 backdrop-blur-md shadow-2xl overflow-hidden">
             <div className="px-5 py-3 text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">
               Suggestions
@@ -2172,13 +2178,11 @@ export default function SearchPage() {
       )}
 
       {/* Main Content Area */}
-      <div className="flex-1 relative flex min-w-0 overflow-hidden">
+      <div className="warehouse-main-content flex-1 relative flex min-w-0 overflow-hidden">
         {/* Left Sidebar: Results & Guided Retrieval */}
         <div className={cn(
-          "warehouse-search-panel bg-slate-900/95 backdrop-blur-md sm:bg-slate-900 flex flex-col transition-all duration-500 z-20 absolute sm:relative overflow-y-auto overflow-x-hidden",
-          hasSearchInput && searchPanelOpen && !useMobileFigmaSearchLayout
-            ? `${mobileOpenPanelClass} pointer-events-auto left-0 right-0 bottom-0 rounded-t-3xl border-t border-slate-800 translate-y-0 sm:inset-y-0 sm:left-0 sm:right-auto sm:bottom-auto sm:h-full sm:max-h-none sm:rounded-none sm:border-t-0 sm:border-r sm:shrink-0 sm:opacity-100 ${desktopSearchPanelWidthClass}`
-            : "pointer-events-none left-0 right-0 bottom-0 max-h-[80vh] rounded-t-3xl border-t border-slate-800 translate-y-full sm:translate-y-0 sm:inset-y-0 sm:left-0 sm:right-auto sm:bottom-auto sm:max-h-none sm:rounded-none sm:border-t-0 sm:border-r-0 sm:w-0 sm:opacity-0 sm:pointer-events-none"
+          "warehouse-search-panel bg-slate-900/95 backdrop-blur-md sm:bg-slate-900 flex flex-col transition-all duration-500 z-20 absolute sm:relative overflow-hidden",
+          searchPanelVisibilityClass
         )}>
           {hasSearchInput && (
             <div
@@ -2198,20 +2202,22 @@ export default function SearchPage() {
                 <Target size={24} />
                 <h2 className="text-[clamp(1.15rem,1.9vw,1.7rem)] font-black uppercase tracking-tight">Search</h2>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setSearchPanelOpen(false);
-                  setMobilePanelSnap('peek');
-                }}
-                className="rounded-2xl bg-slate-800 border border-slate-700 px-3.5 sm:px-4 py-2.5 sm:py-3 text-[11px] font-black uppercase tracking-widest text-slate-200 hover:bg-slate-700"
-              >
-                Hide
-              </button>
+              {isMobileViewport && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchPanelOpen(false);
+                    setMobilePanelSnap('peek');
+                  }}
+                  className="rounded-2xl bg-slate-800 border border-slate-700 px-3.5 sm:px-4 py-2.5 sm:py-3 text-[11px] font-black uppercase tracking-widest text-slate-200 hover:bg-slate-700"
+                >
+                  Hide
+                </button>
+              )}
             </div>
           )}
           {retrievalMode && storedMatches.length > 0 ? (
-            <div className="p-4 sm:p-5 lg:p-6 flex flex-col h-full min-h-0 overflow-y-auto pb-[max(1rem,env(safe-area-inset-bottom))]">
+            <div className="warehouse-search-panel-scroll p-4 sm:p-5 lg:p-6 flex flex-col h-full min-h-0 overflow-y-auto pb-[max(1rem,env(safe-area-inset-bottom))]">
               <div className="bg-slate-800 rounded-3xl p-4 sm:p-5 lg:p-6 border border-slate-700 shadow-2xl mb-4 sm:mb-5 flex-none min-h-[10rem] lg:min-h-[12rem] flex flex-col justify-center items-center text-center space-y-3 sm:space-y-4">
                 <div className="w-[clamp(3.25rem,7.8vw,5.75rem)] h-[clamp(3.25rem,7.8vw,5.75rem)] bg-blue-600 rounded-full flex items-center justify-center text-[clamp(1.25rem,2.8vw,2.1rem)] font-black shadow-xl shadow-blue-900/40 animate-pulse">
                   {retrievalIndex + 1}
@@ -2239,7 +2245,7 @@ export default function SearchPage() {
                 </div>
               </div>
 
-              <div className="space-y-3 shrink-0">
+              <div className="warehouse-search-actions space-y-3 shrink-0">
                 {pickError && (
                   <div className="rounded-3xl border border-rose-600 bg-rose-950/60 px-5 py-4 text-sm font-bold text-rose-200">
                     {pickError}
@@ -2338,7 +2344,7 @@ export default function SearchPage() {
               )}
             </div>
           ) : storedMatches.length === 1 ? (
-            <div className="p-4 sm:p-5 lg:p-6 flex flex-col h-full min-h-0 overflow-y-auto pb-[max(1rem,env(safe-area-inset-bottom))]">
+            <div className="warehouse-search-panel-scroll p-4 sm:p-5 lg:p-6 flex flex-col h-full min-h-0 overflow-y-auto pb-[max(1rem,env(safe-area-inset-bottom))]">
               <div className="bg-slate-800 rounded-3xl p-4 sm:p-5 lg:p-6 border border-slate-700 shadow-2xl mb-4 sm:mb-5 flex-none min-h-[10rem] lg:min-h-[12rem] flex flex-col justify-center items-center text-center space-y-3 sm:space-y-4">
                 <div className="w-[clamp(3.25rem,7.8vw,5.75rem)] h-[clamp(3.25rem,7.8vw,5.75rem)] bg-emerald-600 rounded-full flex items-center justify-center text-[clamp(1.25rem,2.8vw,2.1rem)] font-black shadow-xl shadow-emerald-900/40">
                   <Package size={34} />
@@ -2366,7 +2372,7 @@ export default function SearchPage() {
                 </div>
               </div>
 
-              <div className="space-y-3 shrink-0">
+              <div className="warehouse-search-actions space-y-3 shrink-0">
                 {pickError && (
                   <div className="rounded-3xl border border-rose-600 bg-rose-950/60 px-5 py-4 text-sm font-bold text-rose-200">
                     {pickError}
@@ -2432,15 +2438,9 @@ export default function SearchPage() {
               )}
             </div>
           ) : (
-            <div className="p-4 sm:p-6 flex flex-col h-full min-h-0 overflow-y-auto pb-[max(1rem,env(safe-area-inset-bottom))]">
+            <div className="warehouse-search-panel-scroll p-4 sm:p-6 flex flex-col h-full min-h-0 overflow-y-auto pb-[max(1rem,env(safe-area-inset-bottom))]">
               {!hasSearchInput ? (
-                <div className="flex flex-col items-center justify-center h-full text-center space-y-6 opacity-40">
-                  <Search size={80} className="text-slate-700" />
-                  <div className="space-y-2">
-                    <h3 className="text-2xl font-bold">No Active Search</h3>
-                    <p className="text-slate-500">Enter a blanket number above to locate it in the warehouse.</p>
-                  </div>
-                </div>
+                <div className="h-full" />
               ) : exactMatches.length === 0 ? (
                 <div className="flex flex-col gap-6">
                   <div className="rounded-3xl border border-rose-800/70 bg-rose-950/30 p-6">
@@ -2540,7 +2540,7 @@ export default function SearchPage() {
           )}
         </div>
 
-        {hasSearchInput && !searchPanelOpen && (
+        {isMobileViewport && hasSearchInput && !searchPanelOpen && (
           <button
             type="button"
             onClick={() => {
@@ -2561,6 +2561,7 @@ export default function SearchPage() {
               interactionMode={inputModeActive ? 'input' : 'search'}
               lockedStores={lockedStores}
               onOpenStoreManagement={openStoreManagement}
+              showDesktopInputPanel={false}
             />
           </div>
           <div className={cn('absolute inset-0', viewMode === '3D' ? 'block' : 'hidden')}>

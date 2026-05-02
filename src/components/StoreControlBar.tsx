@@ -27,6 +27,7 @@ export default function StoreControlBar({
   className,
 }: StoreControlBarProps) {
   const longPressRef = useRef<number | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     return () => {
@@ -38,9 +39,23 @@ export default function StoreControlBar({
 
   return (
     <div
+      ref={containerRef}
       dir="ltr"
+      onWheel={(event) => {
+        const el = containerRef.current;
+        if (!el) return;
+        const delta = Math.abs(event.deltaX) > 0 ? event.deltaX : event.deltaY;
+        if (!delta) return;
+
+        const atStart = el.scrollLeft <= 0;
+        const atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 1;
+        if ((delta < 0 && atStart) || (delta > 0 && atEnd)) return;
+
+        event.preventDefault();
+        el.scrollLeft += delta;
+      }}
       className={cn(
-        'warehouse-store-tabs flex items-center justify-start gap-1.5 overflow-x-auto no-scrollbar [direction:ltr]',
+        'warehouse-store-tabs flex items-center justify-start gap-1.5 overflow-x-auto no-scrollbar [direction:ltr] min-h-11',
         className
       )}
     >
@@ -78,7 +93,7 @@ export default function StoreControlBar({
               }
             }}
             className={cn(
-              'warehouse-store-tab px-3 sm:px-4 lg:px-5 py-2 sm:py-2.5 lg:py-3 rounded-xl sm:rounded-2xl font-bold whitespace-nowrap transition-all text-[11px] sm:text-[13px] lg:text-[15px] flex items-center gap-2',
+              'warehouse-store-tab px-3 sm:px-4 lg:px-5 min-h-11 py-2 rounded-xl sm:rounded-2xl font-bold whitespace-nowrap transition-all text-[11px] sm:text-[13px] lg:text-[15px] inline-flex items-center gap-2 leading-none',
               active
                 ? 'warehouse-store-tab--active bg-[#2F7DFF] text-white shadow-[0_0_16px_rgba(47,125,255,0.45)] border border-blue-300/25'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800 border border-transparent'

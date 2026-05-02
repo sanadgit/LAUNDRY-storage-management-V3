@@ -199,7 +199,7 @@ interface AppState {
   fetchStores: () => Promise<void>;
   addStore: (store: Omit<Store, 'position_x' | 'position_y' | 'position_z' | 'width' | 'depth' | 'height' | 'rotation_y'>) => Promise<void>;
   updateStore: (name: string, data: Partial<Store>) => Promise<void>;
-  deleteStore: (name: string) => Promise<void>;
+  deleteStore: (name: string, options?: { force?: boolean }) => Promise<void>;
   fetchBlankets: () => Promise<void>;
   addBlanket: (blanket: BlanketWritePayload) => Promise<void>;
   updateBlanket: (id: number, data: (Partial<Blanket> & { notes?: string })) => Promise<void>;
@@ -614,18 +614,26 @@ export const useStore = create<AppState>((set, get) => {
     }));
   },
 
-  deleteStore: async (name) => {
+  deleteStore: async (name, options) => {
     ensureWarehouseEditAccess();
     try {
+      const force = options?.force === true;
+      const params = force ? '?force=1' : '';
       if (isSupabaseEnabled) {
-        await requireSupabaseProxy(() => axios.delete(`${supabaseProxyBase}/stores/${encodeURIComponent(name)}`));
+        await requireSupabaseProxy(() =>
+          axios.delete(`${supabaseProxyBase}/stores/${encodeURIComponent(name)}${params}`)
+        );
 
         await get().fetchStores();
+        await get().fetchBlankets();
+        await get().fetchLogs();
         return;
       }
 
-      await axios.delete(`/api/stores/${name}`);
+      await axios.delete(`/api/stores/${encodeURIComponent(name)}${params}`);
       await get().fetchStores();
+      await get().fetchBlankets();
+      await get().fetchLogs();
     } catch (error: any) {
       console.error('Failed to delete store:', error.response?.data?.error || error.message);
       throw error;
