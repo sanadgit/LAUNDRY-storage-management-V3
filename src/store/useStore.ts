@@ -101,6 +101,8 @@ export interface Store {
   slot_capacity: number;
   /** Solid color used for this store in the 3D scene. */
   store_color: string;
+  /** Whether store color tint is shown in 3D scene. */
+  store_color_visible: boolean;
   /** 3D material opacity for this store (0.1..1). */
   store_opacity: number;
   /** 3D overlay cell width (local model units). */
@@ -197,7 +199,7 @@ interface AppState {
   updateUser: (id: number, data: Partial<UserPayload>) => Promise<void>;
   deleteUser: (id: number) => Promise<void>;
   fetchStores: () => Promise<void>;
-  addStore: (store: Omit<Store, 'position_x' | 'position_y' | 'position_z' | 'width' | 'depth' | 'height' | 'rotation_y'>) => Promise<void>;
+  addStore: (store: Omit<Store, 'position_x' | 'position_y' | 'position_z' | 'width' | 'depth' | 'height' | 'rotation_y' | 'store_color_visible'> & { store_color_visible?: boolean }) => Promise<void>;
   updateStore: (name: string, data: Partial<Store>) => Promise<void>;
   deleteStore: (name: string, options?: { force?: boolean }) => Promise<void>;
   fetchBlankets: () => Promise<void>;
@@ -262,6 +264,13 @@ const normalizeStore = (store: Partial<Store> & Pick<Store, 'store_name'>): Stor
       : Math.max(1, Number(store.slot_capacity ?? defaultSlotCapacity));
   const rawColor = String((store as any).store_color ?? '#3b82f6').trim();
   const storeColor = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(rawColor) ? rawColor : '#3b82f6';
+  const rawStoreColorVisible = (store as any).store_color_visible;
+  const storeColorVisible =
+    rawStoreColorVisible === false ||
+    rawStoreColorVisible === 0 ||
+    rawStoreColorVisible === '0'
+      ? false
+      : true;
   const storeOpacity = Math.min(1, Math.max(0.1, Number((store as any).store_opacity ?? 1) || 1));
   const rawRequirePickScan = (store as any).require_pick_scan;
   const requirePickScan =
@@ -297,6 +306,7 @@ const normalizeStore = (store: Partial<Store> & Pick<Store, 'store_name'>): Stor
     hanger_slots: hangerSlots,
     slot_capacity: slotCapacity,
     store_color: storeColor,
+    store_color_visible: storeColorVisible,
     store_opacity: storeOpacity,
     require_pick_scan: requirePickScan,
     cell_width: cellWidth,

@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
+import { existsSync, statSync } from 'fs';
 import cors from 'cors';
 import Database from 'better-sqlite3';
 import { Pool } from 'pg';
@@ -214,6 +215,46 @@ type PosOrderDetailsResult = {
   };
 };
 
+type AlertMatchState = 'complete' | 'missing' | 'extra' | 'unknown';
+
+type CustomerAlertTemplateRecord = {
+  id: number;
+  name: string;
+  channel: string;
+  body: string;
+  is_active: number;
+  created_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+type CustomerAlertCandidate = {
+  order_number: string;
+  order_no: string;
+  customer_name: string;
+  phone: string;
+  quantity_in_order: number;
+  quantity_in_store: number;
+  qty_in_order: number;
+  qty_in_store: number;
+  matched: 'yes' | 'no';
+  match_state: AlertMatchState;
+  warnings: string[];
+  total_amount: number;
+  first_stored_at: string | null;
+  store_slots: Array<{
+    blanket_id: number;
+    store: string;
+    row: number;
+    column: number;
+    status: string;
+    created_at: string | null;
+  }>;
+  pos_error?: string;
+  last_alert_status: string | null;
+  last_alert_at: string | null;
+};
+
 type SortingOrderStatus =
   | 'sorting_pending'
   | 'sorting_partial'
@@ -307,6 +348,7 @@ db.exec(`
     slot_capacity INTEGER DEFAULT 1,
     require_pick_scan INTEGER DEFAULT 0,
     store_color TEXT DEFAULT '#3b82f6',
+    store_color_visible INTEGER DEFAULT 1,
     store_opacity REAL DEFAULT 1,
     cell_width REAL DEFAULT 0.5,
     cell_depth REAL DEFAULT 0.5,
@@ -351,6 +393,31 @@ db.exec(`
     id INTEGER PRIMARY KEY CHECK (id = 1),
     payload TEXT NOT NULL,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS customer_alert_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    channel TEXT NOT NULL DEFAULT 'whatsapp',
+    body TEXT NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_by TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS customer_alert_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_no TEXT NOT NULL,
+    customer_name TEXT,
+    phone TEXT,
+    message_body TEXT NOT NULL,
+    template_id INTEGER,
+    status TEXT NOT NULL DEFAULT 'sent',
+    provider_response TEXT,
+    error_message TEXT,
+    sent_by TEXT DEFAULT 'system',
+    sent_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
   CREATE TABLE IF NOT EXISTS customer_users (
@@ -486,6 +553,9 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_logs_request_id ON logs(request_id);
   CREATE INDEX IF NOT EXISTS idx_customer_orders_status ON customer_orders(status);
   CREATE INDEX IF NOT EXISTS idx_customer_orders_updated_at ON customer_orders(updated_at);
+  CREATE INDEX IF NOT EXISTS idx_customer_alert_templates_active ON customer_alert_templates(is_active, updated_at);
+  CREATE INDEX IF NOT EXISTS idx_customer_alert_logs_order_no ON customer_alert_logs(order_no, sent_at);
+  CREATE INDEX IF NOT EXISTS idx_customer_alert_logs_status ON customer_alert_logs(status, sent_at);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_users_phone_norm ON customer_users(phone_normalized);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_users_email_norm ON customer_users(email_normalized);
   CREATE INDEX IF NOT EXISTS idx_customer_sessions_user_id ON customer_sessions(user_id);
@@ -515,6 +585,7 @@ ensureColumn('stores', 'hanger_slots', 'INTEGER DEFAULT 0');
 ensureColumn('stores', 'slot_capacity', 'INTEGER DEFAULT 1');
 ensureColumn('stores', 'require_pick_scan', 'INTEGER');
 ensureColumn('stores', 'store_color', "TEXT DEFAULT '#3b82f6'");
+ensureColumn('stores', 'store_color_visible', 'INTEGER DEFAULT 1');
 ensureColumn('stores', 'store_opacity', 'REAL DEFAULT 1');
 ensureColumn('stores', 'cell_width', 'REAL DEFAULT 0.5');
 ensureColumn('stores', 'cell_depth', 'REAL DEFAULT 0.5');
@@ -532,6 +603,11 @@ db.prepare(
      ELSE 0
    END
    WHERE require_pick_scan IS NULL`
+).run();
+db.prepare(
+  `UPDATE stores
+   SET store_color_visible = 1
+   WHERE store_color_visible IS NULL`
 ).run();
 db.prepare(
   `UPDATE stores
@@ -583,6 +659,23 @@ ensureColumn('customer_users', 'is_active', 'INTEGER DEFAULT 1');
 ensureColumn('customer_users', 'created_at', 'DATETIME');
 ensureColumn('customer_users', 'updated_at', 'DATETIME');
 ensureColumn('customer_users', 'last_login_at', 'DATETIME');
+ensureColumn('customer_alert_templates', 'name', "TEXT DEFAULT 'Template'");
+ensureColumn('customer_alert_templates', 'channel', "TEXT DEFAULT 'whatsapp'");
+ensureColumn('customer_alert_templates', 'body', "TEXT DEFAULT ''");
+ensureColumn('customer_alert_templates', 'is_active', 'INTEGER DEFAULT 1');
+ensureColumn('customer_alert_templates', 'created_by', 'TEXT');
+ensureColumn('customer_alert_templates', 'created_at', 'DATETIME');
+ensureColumn('customer_alert_templates', 'updated_at', 'DATETIME');
+ensureColumn('customer_alert_logs', 'order_no', "TEXT DEFAULT ''");
+ensureColumn('customer_alert_logs', 'customer_name', 'TEXT');
+ensureColumn('customer_alert_logs', 'phone', 'TEXT');
+ensureColumn('customer_alert_logs', 'message_body', "TEXT DEFAULT ''");
+ensureColumn('customer_alert_logs', 'template_id', 'INTEGER');
+ensureColumn('customer_alert_logs', 'status', "TEXT DEFAULT 'sent'");
+ensureColumn('customer_alert_logs', 'provider_response', 'TEXT');
+ensureColumn('customer_alert_logs', 'error_message', 'TEXT');
+ensureColumn('customer_alert_logs', 'sent_by', "TEXT DEFAULT 'system'");
+ensureColumn('customer_alert_logs', 'sent_at', 'DATETIME');
 
 ensureColumn('customer_sessions', 'token', "TEXT DEFAULT ''");
 ensureColumn('customer_sessions', 'user_id', "TEXT DEFAULT ''");
@@ -712,6 +805,29 @@ db.prepare(
    WHERE email IS NOT NULL AND TRIM(COALESCE(email_normalized, '')) = ''`
 ).run();
 
+const customerAlertTemplatesCount = db
+  .prepare('SELECT COUNT(*) AS count FROM customer_alert_templates')
+  .get() as { count: number };
+
+if (!customerAlertTemplatesCount.count) {
+  const insertTemplate = db.prepare(
+    `INSERT INTO customer_alert_templates (name, channel, body, is_active, created_by, created_at, updated_at)
+     VALUES (?, 'whatsapp', ?, 1, 'system', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+  );
+  insertTemplate.run(
+    'تنبيه استلام الطلب',
+    'مرحبا {{name}}، نود تذكيرك باستلام طلبك رقم {{order_no}}. عدد القطع {{pieces}} والإجمالي {{total}}. شكرا لتعاونك.'
+  );
+  insertTemplate.run(
+    'عرض خصومات',
+    'مرحبا {{name}}، لدينا خصم مميز لفترة محدودة على خدمات المغسلة. يسعدنا خدمتك دائما.'
+  );
+  insertTemplate.run(
+    'متابعة نهائية',
+    'تنبيه أخير: طلبك رقم {{order_no}} جاهز للاستلام. يرجى الاستلام بأقرب وقت ممكن.'
+  );
+}
+
 db.prepare('DELETE FROM customer_sessions WHERE expires_at <= ?').run(Date.now());
 db.prepare('DELETE FROM app_sessions WHERE expires_at <= ?').run(Date.now());
 db.prepare('DELETE FROM customer_driver_sessions WHERE expires_at <= ?').run(Date.now());
@@ -798,6 +914,12 @@ const AIPSOFT_WHATSAPP_ACCOUNT = String(process.env.AIPSOFT_WHATSAPP_ACCOUNT ?? 
 const AIPSOFT_WHATSAPP_TEMPLATE = String(
   process.env.AIPSOFT_WHATSAPP_TEMPLATE ?? process.env.AIPSOFT_SMS_TEMPLATE ?? 'Your OTP is {{otp}}'
 ).trim();
+const CUSTOMER_ALERT_WHATSAPP_PROVIDER = String(process.env.CUSTOMER_ALERT_WHATSAPP_PROVIDER ?? 'mock').trim().toLowerCase();
+const AIPSOFT_WHATSAPP_SEND_URL = String(process.env.AIPSOFT_WHATSAPP_SEND_URL ?? '').trim();
+const CUSTOMER_ALERT_SEND_TIMEOUT_MS = Math.max(
+  3000,
+  Math.min(30000, Number(process.env.CUSTOMER_ALERT_SEND_TIMEOUT_MS ?? 15000) || 15000)
+);
 const POS_BASE_URL = String(process.env.POS_BASE_URL ?? 'https://magnus.aipsoft.com/inout/sales').trim();
 const POS_FIND_ORDERS_PATH = String(process.env.POS_FIND_ORDERS_PATH ?? '/findLaundryOrders').trim();
 const POS_FIND_ORDER_DETAILS_PATH = String(process.env.POS_FIND_ORDER_DETAILS_PATH ?? '/findOrderDetails').trim();
@@ -1836,6 +1958,432 @@ const fetchPosProducts = async (params: {
   };
 };
 
+const normalizeAlertOrderNo = (value: unknown) => String(value ?? '').trim().toUpperCase();
+
+const evaluateAlertMatch = (qtyInOrder: number, qtyInStore: number) => {
+  const safeOrderQty = Math.max(0, Number(qtyInOrder) || 0);
+  const safeStoreQty = Math.max(0, Number(qtyInStore) || 0);
+  let matchState: AlertMatchState = 'unknown';
+  if (safeOrderQty > 0) {
+    if (safeStoreQty === safeOrderQty) matchState = 'complete';
+    else if (safeStoreQty < safeOrderQty) matchState = 'missing';
+    else matchState = 'extra';
+  }
+  return {
+    matched: matchState === 'complete' ? 'yes' : 'no',
+    match_state: matchState,
+  } as const;
+};
+
+const toAlertWarnings = (params: {
+  match_state: AlertMatchState;
+  pos_error?: string;
+  qty_in_order: number;
+  qty_in_store: number;
+}) => {
+  const warnings: string[] = [];
+  if (params.pos_error) warnings.push(`POS: ${params.pos_error}`);
+  if (params.match_state === 'missing') {
+    warnings.push(`في قطعة ناقصة (${params.qty_in_store}/${params.qty_in_order})`);
+  } else if (params.match_state === 'extra') {
+    warnings.push(`في قطعة زائدة أو مكررة (${params.qty_in_store}/${params.qty_in_order})`);
+  } else if (params.match_state === 'unknown') {
+    warnings.push('تعذر تحديد حالة المطابقة من POS');
+  }
+  return warnings;
+};
+
+const renderAlertTemplate = (template: string, context: Record<string, string | number>) =>
+  String(template ?? '').replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, key) => {
+    const value = context[key];
+    if (value === undefined || value === null) return '';
+    return String(value);
+  });
+
+const loadStoredOrderSnapshots = async (limit: number) => {
+  const cappedLimit = Math.max(1, Math.min(500, Number(limit) || 120));
+  const snapshots = new Map<
+    string,
+    {
+      order_no: string;
+      qty_in_store: number;
+      first_stored_at: string | null;
+      store_slots: CustomerAlertCandidate['store_slots'];
+    }
+  >();
+
+  if (USE_POSTGRES_LOCAL && pgPool) {
+    const grouped = await pgPool.query(
+      `SELECT blanket_number AS order_no, MIN(created_at) AS first_stored_at, COUNT(*)::int AS qty_in_store
+       FROM blankets
+       WHERE status = 'stored' AND trim(COALESCE(blanket_number, '')) <> ''
+       GROUP BY blanket_number
+       ORDER BY MIN(created_at) ASC
+       LIMIT $1`,
+      [cappedLimit]
+    );
+
+    const orderNos = grouped.rows
+      .map((row: any) => normalizeAlertOrderNo(row?.order_no))
+      .filter((value: string) => value.length > 0);
+
+    if (orderNos.length > 0) {
+      const placeholders = orderNos.map((_, index) => `$${index + 1}`).join(', ');
+      const slotRows = await pgPool.query(
+        `SELECT id, blanket_number, store, row, "column", status, created_at
+         FROM blankets
+         WHERE status = 'stored' AND blanket_number IN (${placeholders})
+         ORDER BY created_at ASC, id ASC`,
+        orderNos
+      );
+
+      for (const row of grouped.rows as any[]) {
+        const orderNo = normalizeAlertOrderNo(row?.order_no);
+        if (!orderNo) continue;
+        snapshots.set(orderNo, {
+          order_no: orderNo,
+          qty_in_store: Math.max(0, Number(row?.qty_in_store ?? 0) || 0),
+          first_stored_at: row?.first_stored_at ? String(row.first_stored_at) : null,
+          store_slots: [],
+        });
+      }
+
+      for (const row of slotRows.rows as any[]) {
+        const orderNo = normalizeAlertOrderNo(row?.blanket_number);
+        const target = snapshots.get(orderNo);
+        if (!target) continue;
+        target.store_slots.push({
+          blanket_id: Number(row?.id ?? 0) || 0,
+          store: String(row?.store ?? ''),
+          row: Number(row?.row ?? 0) || 0,
+          column: Number(row?.column ?? 0) || 0,
+          status: String(row?.status ?? 'stored'),
+          created_at: row?.created_at ? String(row.created_at) : null,
+        });
+      }
+    }
+
+    return Array.from(snapshots.values());
+  }
+
+  const groupedRows = db
+    .prepare(
+      `SELECT blanket_number AS order_no, MIN(created_at) AS first_stored_at, COUNT(*) AS qty_in_store
+       FROM blankets
+       WHERE status = 'stored' AND TRIM(COALESCE(blanket_number, '')) <> ''
+       GROUP BY blanket_number
+       ORDER BY datetime(MIN(created_at)) ASC, MIN(id) ASC
+       LIMIT ?`
+    )
+    .all(cappedLimit) as Array<{
+    order_no: string;
+    first_stored_at: string | null;
+    qty_in_store: number;
+  }>;
+
+  const orderNos = groupedRows
+    .map((row) => normalizeAlertOrderNo(row?.order_no))
+    .filter((value) => value.length > 0);
+
+  for (const row of groupedRows) {
+    const orderNo = normalizeAlertOrderNo(row.order_no);
+    if (!orderNo) continue;
+    snapshots.set(orderNo, {
+      order_no: orderNo,
+      qty_in_store: Math.max(0, Number(row.qty_in_store ?? 0) || 0),
+      first_stored_at: row.first_stored_at ? String(row.first_stored_at) : null,
+      store_slots: [],
+    });
+  }
+
+  if (orderNos.length > 0) {
+    const placeholders = orderNos.map(() => '?').join(', ');
+    const slotRows = db
+      .prepare(
+        `SELECT id, blanket_number, store, row, "column", status, created_at
+         FROM blankets
+         WHERE status = 'stored' AND blanket_number IN (${placeholders})
+         ORDER BY datetime(created_at) ASC, id ASC`
+      )
+      .all(...orderNos) as Array<{
+      id: number;
+      blanket_number: string;
+      store: string;
+      row: number;
+      column: number;
+      status: string;
+      created_at: string | null;
+    }>;
+
+    for (const row of slotRows) {
+      const orderNo = normalizeAlertOrderNo(row.blanket_number);
+      const target = snapshots.get(orderNo);
+      if (!target) continue;
+      target.store_slots.push({
+        blanket_id: Number(row.id ?? 0) || 0,
+        store: String(row.store ?? ''),
+        row: Number(row.row ?? 0) || 0,
+        column: Number(row.column ?? 0) || 0,
+        status: String(row.status ?? 'stored'),
+        created_at: row.created_at ? String(row.created_at) : null,
+      });
+    }
+  }
+
+  return Array.from(snapshots.values());
+};
+
+const loadStoredOrderSnapshotByOrderNo = async (orderNoInput: string) => {
+  const orderNo = normalizeAlertOrderNo(orderNoInput);
+  if (!orderNo) return null;
+
+  if (USE_POSTGRES_LOCAL && pgPool) {
+    const grouped = await pgPool.query(
+      `SELECT blanket_number AS order_no, MIN(created_at) AS first_stored_at, COUNT(*)::int AS qty_in_store
+       FROM blankets
+       WHERE status = 'stored' AND blanket_number = $1
+       GROUP BY blanket_number
+       LIMIT 1`,
+      [orderNo]
+    );
+    const row = grouped.rows[0] as any;
+    if (!row) return null;
+    const slots = await pgPool.query(
+      `SELECT id, blanket_number, store, row, "column", status, created_at
+       FROM blankets
+       WHERE status = 'stored' AND blanket_number = $1
+       ORDER BY created_at ASC, id ASC`,
+      [orderNo]
+    );
+    return {
+      order_no: orderNo,
+      qty_in_store: Math.max(0, Number(row?.qty_in_store ?? 0) || 0),
+      first_stored_at: row?.first_stored_at ? String(row.first_stored_at) : null,
+      store_slots: (slots.rows as any[]).map((slot) => ({
+        blanket_id: Number(slot?.id ?? 0) || 0,
+        store: String(slot?.store ?? ''),
+        row: Number(slot?.row ?? 0) || 0,
+        column: Number(slot?.column ?? 0) || 0,
+        status: String(slot?.status ?? 'stored'),
+        created_at: slot?.created_at ? String(slot.created_at) : null,
+      })),
+    };
+  }
+
+  const grouped = db
+    .prepare(
+      `SELECT blanket_number AS order_no, MIN(created_at) AS first_stored_at, COUNT(*) AS qty_in_store
+       FROM blankets
+       WHERE status = 'stored' AND blanket_number = ?
+       GROUP BY blanket_number
+       LIMIT 1`
+    )
+    .get(orderNo) as
+    | {
+        order_no: string;
+        first_stored_at: string | null;
+        qty_in_store: number;
+      }
+    | undefined;
+  if (!grouped) return null;
+
+  const slots = db
+    .prepare(
+      `SELECT id, blanket_number, store, row, "column", status, created_at
+       FROM blankets
+       WHERE status = 'stored' AND blanket_number = ?
+       ORDER BY datetime(created_at) ASC, id ASC`
+    )
+    .all(orderNo) as Array<{
+    id: number;
+    blanket_number: string;
+    store: string;
+    row: number;
+    column: number;
+    status: string;
+    created_at: string | null;
+  }>;
+
+  return {
+    order_no: orderNo,
+    qty_in_store: Math.max(0, Number(grouped.qty_in_store ?? 0) || 0),
+    first_stored_at: grouped.first_stored_at ? String(grouped.first_stored_at) : null,
+    store_slots: slots.map((slot) => ({
+      blanket_id: Number(slot.id ?? 0) || 0,
+      store: String(slot.store ?? ''),
+      row: Number(slot.row ?? 0) || 0,
+      column: Number(slot.column ?? 0) || 0,
+      status: String(slot.status ?? 'stored'),
+      created_at: slot.created_at ? String(slot.created_at) : null,
+    })),
+  };
+};
+
+const resolvePosOrderDetailsByOrderNo = async (orderNo: string) => {
+  const normalizedOrderNo = normalizeAlertOrderNo(orderNo);
+  if (!normalizedOrderNo) throw new Error('Order number is required.');
+
+  let sourceOrdersId = '';
+  let sourceInvoiceId = '';
+  let searchError = '';
+
+  try {
+    const search = await fetchPosOrderSearch(normalizedOrderNo);
+    const exact = search.orders.find((order) => normalizeAlertOrderNo(order.order_no) === normalizedOrderNo) ?? search.orders[0];
+    if (exact) {
+      sourceOrdersId = String(exact.orders_id ?? '').trim();
+      sourceInvoiceId = String(exact.invoice_id ?? '').trim();
+    }
+  } catch (error: any) {
+    searchError = String(error?.message || 'POS order search failed');
+  }
+
+  if (!sourceOrdersId && !sourceInvoiceId) {
+    const compact = normalizedOrderNo.replace(/[^0-9A-Z]/gi, '');
+    const numericOnly = compact.replace(/\D+/g, '');
+    const candidates = Array.from(
+      new Set([normalizedOrderNo, compact, numericOnly].map((value) => String(value ?? '').trim()).filter((value) => value.length > 0))
+    );
+
+    for (const candidate of candidates) {
+      const directAttempts = [
+        { order_id: '0', s_order_id: candidate },
+        { order_id: candidate, s_order_id: '0' },
+      ];
+      for (const attempt of directAttempts) {
+        try {
+          const details = await fetchPosOrderDetails({
+            order_id: attempt.order_id,
+            s_order_id: attempt.s_order_id,
+            mode: '0',
+            open_type: 'preview',
+          });
+          if ((details.line_items ?? []).length > 0) return details;
+        } catch {
+          // keep trying alternate order shapes
+        }
+      }
+    }
+  }
+
+  if (!sourceOrdersId && !sourceInvoiceId) {
+    throw new Error(searchError || 'Unable to resolve order ID from POS.');
+  }
+
+  return fetchPosOrderDetails({
+    order_id: sourceInvoiceId || '0',
+    s_order_id: sourceOrdersId || '0',
+    mode: '0',
+    open_type: 'preview',
+  });
+};
+
+const readLatestAlertLogByOrderNo = () => {
+  const rows = db
+    .prepare(
+      `SELECT log.order_no, log.status, log.sent_at
+       FROM customer_alert_logs log
+       INNER JOIN (
+         SELECT order_no, MAX(id) AS max_id
+         FROM customer_alert_logs
+         GROUP BY order_no
+       ) latest
+       ON latest.max_id = log.id`
+    )
+    .all() as Array<{ order_no: string; status: string; sent_at: string | null }>;
+  const map = new Map<string, { status: string; sent_at: string | null }>();
+  for (const row of rows) {
+    map.set(normalizeAlertOrderNo(row.order_no), {
+      status: String(row.status ?? ''),
+      sent_at: row.sent_at ? String(row.sent_at) : null,
+    });
+  }
+  return map;
+};
+
+const buildAlertCandidateFromSnapshot = async (
+  snapshot: Awaited<ReturnType<typeof loadStoredOrderSnapshots>>[number],
+  latestStatusMap: Map<string, { status: string; sent_at: string | null }>
+): Promise<CustomerAlertCandidate> => {
+  const latest = latestStatusMap.get(normalizeAlertOrderNo(snapshot.order_no));
+  const fallbackOrderNo = normalizeAlertOrderNo(snapshot.order_no);
+  const fallbackQtyInStore = Math.max(0, Number(snapshot.qty_in_store ?? 0) || 0);
+  const fallback: CustomerAlertCandidate = {
+    order_number: fallbackOrderNo,
+    order_no: fallbackOrderNo,
+    customer_name: '',
+    phone: '',
+    quantity_in_order: 0,
+    quantity_in_store: fallbackQtyInStore,
+    qty_in_order: 0,
+    qty_in_store: fallbackQtyInStore,
+    matched: 'no',
+    match_state: 'unknown',
+    warnings: toAlertWarnings({
+      match_state: 'unknown',
+      qty_in_order: 0,
+      qty_in_store: fallbackQtyInStore,
+    }),
+    total_amount: 0,
+    first_stored_at: snapshot.first_stored_at,
+    store_slots: snapshot.store_slots,
+    last_alert_status: latest?.status ?? null,
+    last_alert_at: latest?.sent_at ?? null,
+  };
+
+  try {
+    const details = await resolvePosOrderDetailsByOrderNo(snapshot.order_no);
+    const qtyInOrder = (details.line_items ?? []).reduce((sum, line) => sum + Math.max(0, Number(line.qty ?? 0) || 0), 0);
+    const qtyInStore = Math.max(0, Number(snapshot.qty_in_store ?? 0) || 0);
+    const match = evaluateAlertMatch(qtyInOrder, qtyInStore);
+    return {
+      ...fallback,
+      customer_name: String(details.general.customer_name ?? '').trim(),
+      phone: String(details.general.customer_mobile ?? '').trim(),
+      quantity_in_order: qtyInOrder,
+      quantity_in_store: qtyInStore,
+      qty_in_order: qtyInOrder,
+      qty_in_store: qtyInStore,
+      matched: match.matched,
+      match_state: match.match_state,
+      warnings: toAlertWarnings({
+        match_state: match.match_state,
+        qty_in_order: qtyInOrder,
+        qty_in_store: qtyInStore,
+      }),
+      total_amount: Math.max(0, Number(details.general.grand_total ?? details.general.total_amount ?? 0) || 0),
+    };
+  } catch (error: any) {
+    const posError = String(error?.message || 'POS details unavailable');
+    return {
+      ...fallback,
+      pos_error: posError,
+      warnings: toAlertWarnings({
+        match_state: fallback.match_state,
+        pos_error: posError,
+        qty_in_order: fallback.qty_in_order,
+        qty_in_store: fallback.qty_in_store,
+      }),
+    };
+  }
+};
+
+const buildCustomerAlertCandidates = async (limit = 120) => {
+  const snapshots = await loadStoredOrderSnapshots(limit);
+  const latestStatusMap = readLatestAlertLogByOrderNo();
+  const out: CustomerAlertCandidate[] = [];
+  for (const batch of chunk(snapshots, 4)) {
+    const resolved = await Promise.all(batch.map((snapshot) => buildAlertCandidateFromSnapshot(snapshot, latestStatusMap)));
+    out.push(...resolved);
+  }
+  return out.sort((a, b) => {
+    const aAt = a.first_stored_at ? new Date(a.first_stored_at).getTime() : Number.MAX_SAFE_INTEGER;
+    const bAt = b.first_stored_at ? new Date(b.first_stored_at).getTime() : Number.MAX_SAFE_INTEGER;
+    if (aAt !== bAt) return aAt - bAt;
+    return a.order_no.localeCompare(b.order_no);
+  });
+};
+
 const normalizeSortingOrderNo = (value: unknown) => String(value ?? '').trim().toUpperCase();
 
 const toSortingCellStatus = (totalSorted: number, totalRequired: number): SortingCellStatus => {
@@ -2763,6 +3311,115 @@ const getAipsoftPhoneCandidates = (phoneNormalized: string, phoneE164: string) =
   return [formatAipsoftPhone(phoneNormalized, phoneE164)];
 };
 
+const sendCustomerAlertWhatsapp = async (phoneRaw: string, message: string) => {
+  const phoneNormalized = normalizeCustomerPhone(phoneRaw);
+  const phoneE164 = phoneNormalized ? toCustomerPhoneE164(phoneNormalized) : null;
+  const fallbackPhone = String(phoneRaw ?? '').replace(/\s+/g, '');
+  const phoneCandidates =
+    phoneNormalized && phoneE164
+      ? getAipsoftPhoneCandidates(phoneNormalized, phoneE164)
+      : fallbackPhone
+        ? [fallbackPhone]
+        : [];
+
+  if (phoneCandidates.length === 0) {
+    throw new Error('Customer phone is empty or invalid.');
+  }
+
+  const normalizedMessage = String(message ?? '').trim();
+  if (!normalizedMessage) {
+    throw new Error('Message body is required.');
+  }
+
+  if (CUSTOMER_ALERT_WHATSAPP_PROVIDER === 'mock') {
+    return {
+      provider: 'mock',
+      status: 'sent',
+      response: 'Mock provider accepted message.',
+    };
+  }
+
+  if (CUSTOMER_ALERT_WHATSAPP_PROVIDER !== 'aipsoft') {
+    throw new Error('Unsupported WhatsApp provider. Set CUSTOMER_ALERT_WHATSAPP_PROVIDER to mock or aipsoft.');
+  }
+
+  if (!AIPSOFT_WHATSAPP_SEND_URL || !AIPSOFT_SMS_SECRET) {
+    throw new Error('AIPSoft WhatsApp is not configured. Set AIPSOFT_WHATSAPP_SEND_URL and AIPSOFT_SMS_SECRET.');
+  }
+
+  const encodings: Array<'multipart' | 'urlencoded'> = ['multipart', 'urlencoded'];
+  let lastBody = '';
+  let lastAttempt = '';
+  let lastError: Error | null = null;
+
+  const sendAttempt = async (
+    payload: Array<[string, string]>,
+    encoding: 'multipart' | 'urlencoded',
+    signal: AbortSignal
+  ) => {
+    if (encoding === 'urlencoded') {
+      const form = new URLSearchParams();
+      for (const [key, value] of payload) form.append(key, value);
+      return fetch(AIPSOFT_WHATSAPP_SEND_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: form.toString(),
+        signal,
+      });
+    }
+    const form = new FormData();
+    for (const [key, value] of payload) form.append(key, value);
+    return fetch(AIPSOFT_WHATSAPP_SEND_URL, {
+      method: 'POST',
+      body: form,
+      signal,
+    });
+  };
+
+  for (const phone of phoneCandidates) {
+    const payload: Array<[string, string]> = [
+      ['secret', AIPSOFT_SMS_SECRET],
+      ['type', AIPSOFT_WHATSAPP_TYPE || 'whatsapp'],
+      ['phone', phone],
+      ['message', normalizedMessage],
+    ];
+    if (AIPSOFT_WHATSAPP_ACCOUNT) payload.push(['account', AIPSOFT_WHATSAPP_ACCOUNT]);
+
+    for (const encoding of encodings) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), CUSTOMER_ALERT_SEND_TIMEOUT_MS);
+      try {
+        lastAttempt = `phone=${phone}, encoding=${encoding}`;
+        const response = await sendAttempt(payload, encoding, controller.signal);
+        const body = await response.text().catch(() => '');
+        lastBody = body;
+        const parsed = tryParseJson(body) as { status?: number | string; message?: string };
+        const providerStatus = Number(parsed.status ?? (response.ok ? 200 : response.status));
+        if (response.ok && providerStatus === 200) {
+          return {
+            provider: 'aipsoft',
+            status: 'sent',
+            response: body || 'AIPSoft accepted message.',
+          };
+        }
+        lastError = new Error(body || `AIPSoft message failed (${response.status})`);
+      } catch (error: any) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+  }
+
+  throw new Error(
+    `Failed to send WhatsApp alert via AIPSoft. ${lastAttempt}${lastBody ? ` | ${String(lastBody).slice(0, 260)}` : ''}${
+      lastError?.message ? ` | ${lastError.message}` : ''
+    }`
+  );
+};
+
 const sendOtpViaAipsoft = async (
   phoneNormalized: string,
   phoneE164: string,
@@ -3330,8 +3987,8 @@ const restoreSqliteFromSnapshot = (snapshot: { stores: any[]; blankets: any[]; l
     const insertStore = db.prepare(`
       INSERT OR REPLACE INTO stores (
         store_name, position_x, position_y, position_z, width, depth, height,
-        rows, columns, rotation_y, auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_opacity, cell_width, cell_depth, cell_height
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        rows, columns, rotation_y, auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_color_visible, store_opacity, cell_width, cell_depth, cell_height
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     for (const s of snapshot.stores ?? []) {
@@ -3352,6 +4009,7 @@ const restoreSqliteFromSnapshot = (snapshot: { stores: any[]; blankets: any[]; l
         s.slot_capacity ?? 1,
         normalizeStoreRequirePickScan((s as any).require_pick_scan, s.store_type ?? 'grid') ? 1 : 0,
         normalizeStoreColor(s.store_color),
+        normalizeStoreColorVisible((s as any).store_color_visible) ? 1 : 0,
         normalizeStoreOpacity(s.store_opacity),
         normalizeStoreCellDimension(s.cell_width, deriveDefaultCellWidth(s.columns ?? 10)),
         normalizeStoreCellDimension(s.cell_depth, deriveDefaultCellDepth(s.rows ?? 10)),
@@ -3708,8 +4366,8 @@ if (storeCount.count === 0) {
   const insertStore = db.prepare(`
     INSERT INTO stores (
       store_name, position_x, position_y, position_z, width, depth, height,
-      rows, columns, rotation_y, auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_opacity, cell_width, cell_depth, cell_height
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      rows, columns, rotation_y, auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_color_visible, store_opacity, cell_width, cell_depth, cell_height
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   initialStores.forEach((store) => {
@@ -3730,6 +4388,7 @@ if (storeCount.count === 0) {
       store.slot_capacity,
       normalizeStoreRequirePickScan((store as any).require_pick_scan, store.store_type) ? 1 : 0,
       normalizeStoreColor((store as any).store_color),
+      normalizeStoreColorVisible((store as any).store_color_visible) ? 1 : 0,
       normalizeStoreOpacity((store as any).store_opacity),
       normalizeStoreCellDimension((store as any).cell_width, deriveDefaultCellWidth(store.columns)),
       normalizeStoreCellDimension((store as any).cell_depth, deriveDefaultCellDepth(store.rows)),
@@ -3810,6 +4469,11 @@ const normalizeStoreOpacity = (value: unknown) => {
   return Math.min(1, Math.max(0.1, Number(value ?? 1) || 1));
 };
 
+const normalizeStoreColorVisible = (value: unknown) => {
+  if (value === false || value === 0 || value === '0') return false;
+  return true;
+};
+
 const normalizeStoreRequirePickScan = (value: unknown, storeType: unknown) => {
   if (value === true || value === 1 || value === '1') return true;
   if (value === false || value === 0 || value === '0') return false;
@@ -3831,6 +4495,22 @@ const normalizeStoreCellDimension = (value: unknown, fallback: number) => {
   const clamped = Math.min(20, Math.max(-20, parsed));
   if (Math.abs(clamped) >= 0.001) return clamped;
   return clamped < 0 || Object.is(clamped, -0) ? -0.001 : 0.001;
+};
+
+const isMissingStoreColorVisibleColumnError = (error: any) => {
+  const code = String(error?.code ?? '').trim();
+  const message = String(error?.message ?? '').toLowerCase();
+  return code === '42703' && message.includes('store_color_visible');
+};
+
+const ensurePostgresLocalStoreColumns = async () => {
+  if (!USE_POSTGRES_LOCAL || !pgPool) return;
+  await pgPool.query(
+    "ALTER TABLE stores ADD COLUMN IF NOT EXISTS store_color_visible integer DEFAULT 1"
+  );
+  await pgPool.query(
+    'UPDATE stores SET store_color_visible = 1 WHERE store_color_visible IS NULL'
+  );
 };
 
 const getLogMeta = (req: express.Request) => {
@@ -4178,6 +4858,15 @@ const getSupabaseUsers = async (username?: string) => {
 };
 
 async function startServer() {
+  try {
+    await ensurePostgresLocalStoreColumns();
+  } catch (error: any) {
+    console.warn(
+      'Postgres stores schema check failed:',
+      error?.message || error
+    );
+  }
+
   const app = express();
   const envPort = Number(process.env.PORT);
   const PORT = Number.isFinite(envPort) && envPort > 0 ? envPort : 3001;
@@ -4199,14 +4888,173 @@ async function startServer() {
     const enabled = process.env.VITE_SUPABASE_ENABLED ?? process.env.VITE_USE_SUPABASE ?? '';
     const url = process.env.VITE_SUPABASE_URL ?? '';
     const anonKey = process.env.VITE_SUPABASE_ANON_KEY ?? '';
+    const dbProvider = DB_PROVIDER || 'sqlite';
+    const dbActive = USE_POSTGRES_LOCAL ? 'postgres' : 'sqlite';
     res.send(
       [
         'window.__RUNTIME_CONFIG__ = window.__RUNTIME_CONFIG__ || {};',
         `window.__RUNTIME_CONFIG__.VITE_SUPABASE_ENABLED = ${JSON.stringify(enabled)};`,
         `window.__RUNTIME_CONFIG__.VITE_SUPABASE_URL = ${JSON.stringify(url)};`,
         `window.__RUNTIME_CONFIG__.VITE_SUPABASE_ANON_KEY = ${JSON.stringify(anonKey)};`,
+        `window.__RUNTIME_CONFIG__.VITE_DB_PROVIDER = ${JSON.stringify(dbProvider)};`,
+        `window.__RUNTIME_CONFIG__.VITE_DB_ACTIVE = ${JSON.stringify(dbActive)};`,
       ].join('\n')
     );
+  });
+
+  app.get('/api/db/status', requireAdmin, async (req, res) => {
+    try {
+      const sqlitePath = path.resolve('blanket_storage.db');
+      const sqliteFile = existsSync(sqlitePath) ? statSync(sqlitePath) : null;
+      const sqliteCounts = {
+        stores: Number((db.prepare('SELECT COUNT(*) AS c FROM stores').get() as any)?.c ?? 0) || 0,
+        blankets: Number((db.prepare('SELECT COUNT(*) AS c FROM blankets').get() as any)?.c ?? 0) || 0,
+        logs: Number((db.prepare('SELECT COUNT(*) AS c FROM logs').get() as any)?.c ?? 0) || 0,
+      };
+
+      let postgres: any = {
+        configured: Boolean(USE_POSTGRES_LOCAL && pgPool),
+        reachable: false,
+        counts: null,
+        error: null,
+      };
+
+      if (USE_POSTGRES_LOCAL && pgPool) {
+        try {
+          const [storesRes, blanketsRes, logsRes] = await Promise.all([
+            pgPool.query('SELECT COUNT(*)::int AS c FROM stores'),
+            pgPool.query('SELECT COUNT(*)::int AS c FROM blankets'),
+            pgPool.query('SELECT COUNT(*)::int AS c FROM logs'),
+          ]);
+          postgres = {
+            configured: true,
+            reachable: true,
+            counts: {
+              stores: Number(storesRes.rows?.[0]?.c ?? 0) || 0,
+              blankets: Number(blanketsRes.rows?.[0]?.c ?? 0) || 0,
+              logs: Number(logsRes.rows?.[0]?.c ?? 0) || 0,
+            },
+            error: null,
+          };
+        } catch (error: any) {
+          postgres = {
+            configured: true,
+            reachable: false,
+            counts: null,
+            error: String(error?.message || 'Postgres unreachable'),
+          };
+        }
+      }
+
+      const activeProvider = USE_POSTGRES_LOCAL ? 'postgres' : 'sqlite';
+      const activeCounts = activeProvider === 'postgres' && postgres.reachable ? postgres.counts : sqliteCounts;
+
+      return res.json({
+        active_provider: activeProvider,
+        counts: activeCounts,
+        sqlite: {
+          path: sqlitePath,
+          file_exists: Boolean(sqliteFile),
+          file_size_bytes: sqliteFile?.size ?? 0,
+          last_modified: sqliteFile?.mtime?.toISOString?.() ?? null,
+          counts: sqliteCounts,
+        },
+        postgres,
+        now: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      return res.status(500).json({ error: error?.message || 'Failed to load database status.' });
+    }
+  });
+
+  app.get('/api/db/table-preview', requireAdmin, async (req, res) => {
+    try {
+      const table = String(req.query.table ?? 'stores').trim().toLowerCase();
+      if (!['stores', 'blankets', 'logs'].includes(table)) {
+        return res.status(400).json({ error: 'Unsupported table. Use stores, blankets, or logs.' });
+      }
+      const q = String(req.query.q ?? '').trim();
+      const limit = Math.max(1, Math.min(200, Number(req.query.limit ?? 50) || 50));
+      const offset = Math.max(0, Number(req.query.offset ?? 0) || 0);
+
+      if (USE_POSTGRES_LOCAL && pgPool) {
+        let whereSql = '';
+        let params: any[] = [];
+        if (q) {
+          if (table === 'stores') {
+            whereSql = 'WHERE store_name ILIKE $1';
+            params = [`%${q}%`];
+          } else if (table === 'blankets') {
+            whereSql = 'WHERE blanket_number ILIKE $1 OR store ILIKE $1 OR status ILIKE $1';
+            params = [`%${q}%`];
+          } else {
+            whereSql = 'WHERE blanket_number ILIKE $1 OR action ILIKE $1 OR "user" ILIKE $1 OR store ILIKE $1 OR COALESCE(notes, \'\') ILIKE $1';
+            params = [`%${q}%`];
+          }
+        }
+        const orderSql =
+          table === 'stores'
+            ? 'ORDER BY store_name ASC'
+            : table === 'blankets'
+              ? 'ORDER BY created_at DESC, id DESC'
+              : 'ORDER BY "timestamp" DESC, id DESC';
+
+        const countSql = `SELECT COUNT(*)::int AS c FROM ${table} ${whereSql}`;
+        const dataSql = `SELECT * FROM ${table} ${whereSql} ${orderSql} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+        const [countRes, dataRes] = await Promise.all([
+          pgPool.query(countSql, params),
+          pgPool.query(dataSql, [...params, limit, offset]),
+        ]);
+        return res.json({
+          provider: 'postgres',
+          table,
+          total: Number(countRes.rows?.[0]?.c ?? 0) || 0,
+          offset,
+          limit,
+          rows: Array.isArray(dataRes.rows) ? dataRes.rows : [],
+        });
+      }
+
+      let whereSql = '';
+      const sqliteParams: any[] = [];
+      if (q) {
+        if (table === 'stores') {
+          whereSql = 'WHERE store_name LIKE ?';
+          sqliteParams.push(`%${q}%`);
+        } else if (table === 'blankets') {
+          whereSql = 'WHERE blanket_number LIKE ? OR store LIKE ? OR status LIKE ?';
+          sqliteParams.push(`%${q}%`, `%${q}%`, `%${q}%`);
+        } else {
+          whereSql = 'WHERE blanket_number LIKE ? OR action LIKE ? OR user LIKE ? OR store LIKE ? OR COALESCE(notes, \'\') LIKE ?';
+          sqliteParams.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+        }
+      }
+
+      const orderSql =
+        table === 'stores'
+          ? 'ORDER BY store_name ASC'
+          : table === 'blankets'
+            ? 'ORDER BY datetime(created_at) DESC, id DESC'
+            : 'ORDER BY datetime(timestamp) DESC, id DESC';
+
+      const total = Number(
+        (db.prepare(`SELECT COUNT(*) AS c FROM ${table} ${whereSql}`).get(...sqliteParams) as any)?.c ?? 0
+      ) || 0;
+      const rows = db
+        .prepare(`SELECT * FROM ${table} ${whereSql} ${orderSql} LIMIT ? OFFSET ?`)
+        .all(...sqliteParams, limit, offset);
+
+      return res.json({
+        provider: 'sqlite',
+        table,
+        total,
+        offset,
+        limit,
+        rows: Array.isArray(rows) ? rows : [],
+      });
+    } catch (error: any) {
+      return res.status(500).json({ error: error?.message || 'Failed to load table preview.' });
+    }
   });
 
   app.get(
@@ -4277,6 +5125,7 @@ async function startServer() {
       ...payload,
       require_pick_scan: normalizeStoreRequirePickScan((payload as any).require_pick_scan, (payload as any).store_type),
       store_color: normalizeStoreColor((payload as any).store_color),
+      store_color_visible: normalizeStoreColorVisible((payload as any).store_color_visible),
       store_opacity: normalizeStoreOpacity((payload as any).store_opacity),
       cell_width: normalizeStoreCellDimension((payload as any).cell_width, deriveDefaultCellWidth((payload as any).columns ?? 10)),
       cell_depth: normalizeStoreCellDimension((payload as any).cell_depth, deriveDefaultCellDepth((payload as any).rows ?? 10)),
@@ -4288,6 +5137,7 @@ async function startServer() {
       const {
         require_pick_scan: _requirePickScan,
         store_color: _storeColor,
+        store_color_visible: _storeColorVisible,
         store_opacity: _storeOpacity,
         cell_width: _cellWidth,
         cell_depth: _cellDepth,
@@ -4309,6 +5159,7 @@ async function startServer() {
       ...payload,
       require_pick_scan: normalizeStoreRequirePickScan((payload as any).require_pick_scan, (payload as any).store_type),
       store_color: normalizeStoreColor((payload as any).store_color),
+      store_color_visible: normalizeStoreColorVisible((payload as any).store_color_visible),
       store_opacity: normalizeStoreOpacity((payload as any).store_opacity),
       cell_width: normalizeStoreCellDimension((payload as any).cell_width, deriveDefaultCellWidth((payload as any).columns ?? 10)),
       cell_depth: normalizeStoreCellDimension((payload as any).cell_depth, deriveDefaultCellDepth((payload as any).rows ?? 10)),
@@ -4320,6 +5171,7 @@ async function startServer() {
       const {
         require_pick_scan: _requirePickScan,
         store_color: _storeColor,
+        store_color_visible: _storeColorVisible,
         store_opacity: _storeOpacity,
         cell_width: _cellWidth,
         cell_depth: _cellDepth,
@@ -5053,6 +5905,7 @@ async function startServer() {
         slot_capacity: s.slot_capacity ?? 1,
         require_pick_scan: normalizeStoreRequirePickScan((s as any).require_pick_scan, s.store_type ?? 'grid'),
         store_color: normalizeStoreColor(s.store_color),
+        store_color_visible: normalizeStoreColorVisible((s as any).store_color_visible),
         store_opacity: normalizeStoreOpacity(s.store_opacity),
         cell_width: normalizeStoreCellDimension(s.cell_width, deriveDefaultCellWidth(s.columns ?? 10)),
         cell_depth: normalizeStoreCellDimension(s.cell_depth, deriveDefaultCellDepth(s.rows ?? 10)),
@@ -5340,7 +6193,7 @@ async function startServer() {
   });
 
   app.post('/api/stores', requireOperationsManager, async (req, res) => {
-    const { store_name, rows, columns, auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, width, depth, height, store_color, store_opacity, cell_width, cell_depth, cell_height } = req.body;
+    const { store_name, rows, columns, auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, width, depth, height, store_color, store_color_visible, store_opacity, cell_width, cell_depth, cell_height } = req.body;
 
     const normalizedRows = store_type === 'hanger' ? 1 : Math.max(1, Number(rows ?? 10) || 1);
     const normalizedHangerSlots = store_type === 'hanger'
@@ -5351,6 +6204,7 @@ async function startServer() {
     const normalizedDepth = Math.max(0.1, Number(depth ?? (store_type === 'hanger' ? 1 : normalizedRows)) || (store_type === 'hanger' ? 1 : normalizedRows));
     const normalizedHeight = Math.max(0.1, Number(height ?? 3) || 3);
     const normalizedStoreColor = normalizeStoreColor(store_color);
+    const normalizedStoreColorVisible = normalizeStoreColorVisible(store_color_visible);
     const normalizedStoreOpacity = normalizeStoreOpacity(store_opacity);
     const normalizedRequirePickScan = normalizeStoreRequirePickScan(require_pick_scan, store_type || 'grid');
     const normalizedCellWidth = normalizeStoreCellDimension(cell_width, deriveDefaultCellWidth(normalizedColumns));
@@ -5372,35 +6226,69 @@ async function startServer() {
         const position_x = availableSlot ? availableSlot.x : (existingPositions.length ? Number(existingPositions[existingPositions.length - 1].position_x) + 15 : 0);
         const position_z = availableSlot ? availableSlot.z : 0;
 
-        await pgPool.query(
-          `
-          INSERT INTO stores (
-            store_name, position_x, position_z, width, depth, height, rows, columns,
-            auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_opacity, cell_width, cell_depth, cell_height
-          )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-          `,
-          [
-            store_name,
-            position_x,
-            position_z,
-            normalizedWidth,
-            normalizedDepth,
-            normalizedHeight,
-            normalizedRows,
-            normalizedColumns,
-            auto_settle === false ? 0 : 1,
-            store_type || 'grid',
-            normalizedHangerSlots,
-            normalizedSlotCapacity,
-            normalizedRequirePickScan ? 1 : 0,
-            normalizedStoreColor,
-            normalizedStoreOpacity,
-            normalizedCellWidth,
-            normalizedCellDepth,
-            normalizedCellHeight,
-          ]
-        );
+        try {
+          await pgPool.query(
+            `
+            INSERT INTO stores (
+              store_name, position_x, position_z, width, depth, height, rows, columns,
+              auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_color_visible, store_opacity, cell_width, cell_depth, cell_height
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+            `,
+            [
+              store_name,
+              position_x,
+              position_z,
+              normalizedWidth,
+              normalizedDepth,
+              normalizedHeight,
+              normalizedRows,
+              normalizedColumns,
+              auto_settle === false ? 0 : 1,
+              store_type || 'grid',
+              normalizedHangerSlots,
+              normalizedSlotCapacity,
+              normalizedRequirePickScan ? 1 : 0,
+              normalizedStoreColor,
+              normalizedStoreColorVisible ? 1 : 0,
+              normalizedStoreOpacity,
+              normalizedCellWidth,
+              normalizedCellDepth,
+              normalizedCellHeight,
+            ]
+          );
+        } catch (error: any) {
+          if (!isMissingStoreColorVisibleColumnError(error)) throw error;
+          await pgPool.query(
+            `
+            INSERT INTO stores (
+              store_name, position_x, position_z, width, depth, height, rows, columns,
+              auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_opacity, cell_width, cell_depth, cell_height
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+            `,
+            [
+              store_name,
+              position_x,
+              position_z,
+              normalizedWidth,
+              normalizedDepth,
+              normalizedHeight,
+              normalizedRows,
+              normalizedColumns,
+              auto_settle === false ? 0 : 1,
+              store_type || 'grid',
+              normalizedHangerSlots,
+              normalizedSlotCapacity,
+              normalizedRequirePickScan ? 1 : 0,
+              normalizedStoreColor,
+              normalizedStoreOpacity,
+              normalizedCellWidth,
+              normalizedCellDepth,
+              normalizedCellHeight,
+            ]
+          );
+        }
         return res.json({ success: true });
       } catch (error: any) {
         return res.status(500).json({ error: error?.message || 'Failed to create store' });
@@ -5418,9 +6306,9 @@ async function startServer() {
     db.prepare(`
       INSERT INTO stores (
         store_name, position_x, position_z, width, depth, height, rows, columns,
-        auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_opacity, cell_width, cell_depth, cell_height
+        auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_color_visible, store_opacity, cell_width, cell_depth, cell_height
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       store_name,
       position_x,
@@ -5436,6 +6324,7 @@ async function startServer() {
       normalizedSlotCapacity,
       normalizedRequirePickScan ? 1 : 0,
       normalizedStoreColor,
+      normalizedStoreColorVisible ? 1 : 0,
       normalizedStoreOpacity,
       normalizedCellWidth,
       normalizedCellDepth,
@@ -5447,7 +6336,7 @@ async function startServer() {
 
   app.put('/api/stores/:name', requireOperationsManager, async (req, res) => {
     const { name } = req.params;
-    const { position_x, position_y, position_z, width, depth, height, rows, columns, rotation_y, auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_opacity, cell_width, cell_depth, cell_height } = req.body;
+    const { position_x, position_y, position_z, width, depth, height, rows, columns, rotation_y, auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_color_visible, store_opacity, cell_width, cell_depth, cell_height } = req.body;
 
     const normalizedRows = store_type === 'hanger' ? 1 : Math.max(1, Number(rows ?? 10) || 1);
     const normalizedHangerSlots = store_type === 'hanger'
@@ -5458,6 +6347,7 @@ async function startServer() {
     const normalizedDepth = Math.max(0.1, Number(depth ?? (store_type === 'hanger' ? 1 : normalizedRows)) || (store_type === 'hanger' ? 1 : normalizedRows));
     const normalizedHeight = Math.max(0.1, Number(height ?? 3) || 3);
     const normalizedStoreColor = normalizeStoreColor(store_color);
+    const normalizedStoreColorVisible = normalizeStoreColorVisible(store_color_visible);
     const normalizedStoreOpacity = normalizeStoreOpacity(store_opacity);
     const normalizedRequirePickScan = normalizeStoreRequirePickScan(require_pick_scan, store_type || 'grid');
     const normalizedCellWidth = normalizeStoreCellDimension(cell_width, deriveDefaultCellWidth(normalizedColumns));
@@ -5467,69 +6357,107 @@ async function startServer() {
 
     if (USE_POSTGRES_LOCAL && pgPool) {
       try {
-        await pgPool.query(
-          `
-          UPDATE stores
-          SET position_x = $1, position_y = $2, position_z = $3, width = $4, depth = $5, height = $6, rows = $7, columns = $8, rotation_y = $9, auto_settle = $10, store_type = $11, hanger_slots = $12, slot_capacity = $13, require_pick_scan = $14, store_color = $15, store_opacity = $16, cell_width = $17, cell_depth = $18, cell_height = $19
-          WHERE store_name = $20
-          `,
-          [
-            position_x,
-            position_y,
-            position_z,
-            normalizedWidth,
-            normalizedDepth,
-            normalizedHeight,
-            normalizedRows,
-            normalizedColumns,
-            rotation_y,
-            auto_settle === false ? 0 : 1,
-            store_type || 'grid',
-            normalizedHangerSlots,
-            normalizedSlotCapacity,
-            normalizedRequirePickScan ? 1 : 0,
-            normalizedStoreColor,
-            normalizedStoreOpacity,
-            normalizedCellWidth,
-            normalizedCellDepth,
-            normalizedCellHeight,
-            name,
-          ]
-        );
+        try {
+          await pgPool.query(
+            `
+            UPDATE stores
+            SET position_x = $1, position_y = $2, position_z = $3, width = $4, depth = $5, height = $6, rows = $7, columns = $8, rotation_y = $9, auto_settle = $10, store_type = $11, hanger_slots = $12, slot_capacity = $13, require_pick_scan = $14, store_color = $15, store_color_visible = $16, store_opacity = $17, cell_width = $18, cell_depth = $19, cell_height = $20
+            WHERE store_name = $21
+            `,
+            [
+              position_x,
+              position_y,
+              position_z,
+              normalizedWidth,
+              normalizedDepth,
+              normalizedHeight,
+              normalizedRows,
+              normalizedColumns,
+              rotation_y,
+              auto_settle === false ? 0 : 1,
+              store_type || 'grid',
+              normalizedHangerSlots,
+              normalizedSlotCapacity,
+              normalizedRequirePickScan ? 1 : 0,
+              normalizedStoreColor,
+              normalizedStoreColorVisible ? 1 : 0,
+              normalizedStoreOpacity,
+              normalizedCellWidth,
+              normalizedCellDepth,
+              normalizedCellHeight,
+              name,
+            ]
+          );
+        } catch (error: any) {
+          if (!isMissingStoreColorVisibleColumnError(error)) throw error;
+          await pgPool.query(
+            `
+            UPDATE stores
+            SET position_x = $1, position_y = $2, position_z = $3, width = $4, depth = $5, height = $6, rows = $7, columns = $8, rotation_y = $9, auto_settle = $10, store_type = $11, hanger_slots = $12, slot_capacity = $13, require_pick_scan = $14, store_color = $15, store_opacity = $16, cell_width = $17, cell_depth = $18, cell_height = $19
+            WHERE store_name = $20
+            `,
+            [
+              position_x,
+              position_y,
+              position_z,
+              normalizedWidth,
+              normalizedDepth,
+              normalizedHeight,
+              normalizedRows,
+              normalizedColumns,
+              rotation_y,
+              auto_settle === false ? 0 : 1,
+              store_type || 'grid',
+              normalizedHangerSlots,
+              normalizedSlotCapacity,
+              normalizedRequirePickScan ? 1 : 0,
+              normalizedStoreColor,
+              normalizedStoreOpacity,
+              normalizedCellWidth,
+              normalizedCellDepth,
+              normalizedCellHeight,
+              name,
+            ]
+          );
+        }
         return res.json({ success: true });
       } catch (error: any) {
         return res.status(500).json({ error: error?.message || 'Failed to update store' });
       }
     }
 
-    db.prepare(`
-      UPDATE stores
-      SET position_x = ?, position_y = ?, position_z = ?, width = ?, depth = ?, height = ?, rows = ?, columns = ?, rotation_y = ?, auto_settle = ?, store_type = ?, hanger_slots = ?, slot_capacity = ?, require_pick_scan = ?, store_color = ?, store_opacity = ?, cell_width = ?, cell_depth = ?, cell_height = ?
-      WHERE store_name = ?
-    `).run(
-      position_x,
-      position_y,
-      position_z,
-      normalizedWidth,
-      normalizedDepth,
-      normalizedHeight,
-      normalizedRows,
-      normalizedColumns,
-      rotation_y,
-      auto_settle === false ? 0 : 1,
-      store_type || 'grid',
-      normalizedHangerSlots,
-      normalizedSlotCapacity,
-      normalizedRequirePickScan ? 1 : 0,
-      normalizedStoreColor,
-      normalizedStoreOpacity,
-      normalizedCellWidth,
-      normalizedCellDepth,
-      normalizedCellHeight,
-      name
-    );
-
-    res.json({ success: true });
+    try {
+      db.prepare(`
+        UPDATE stores
+        SET position_x = ?, position_y = ?, position_z = ?, width = ?, depth = ?, height = ?, rows = ?, columns = ?, rotation_y = ?, auto_settle = ?, store_type = ?, hanger_slots = ?, slot_capacity = ?, require_pick_scan = ?, store_color = ?, store_color_visible = ?, store_opacity = ?, cell_width = ?, cell_depth = ?, cell_height = ?
+        WHERE store_name = ?
+      `).run(
+        position_x,
+        position_y,
+        position_z,
+        normalizedWidth,
+        normalizedDepth,
+        normalizedHeight,
+        normalizedRows,
+        normalizedColumns,
+        rotation_y,
+        auto_settle === false ? 0 : 1,
+        store_type || 'grid',
+        normalizedHangerSlots,
+        normalizedSlotCapacity,
+        normalizedRequirePickScan ? 1 : 0,
+        normalizedStoreColor,
+        normalizedStoreColorVisible ? 1 : 0,
+        normalizedStoreOpacity,
+        normalizedCellWidth,
+        normalizedCellDepth,
+        normalizedCellHeight,
+        name
+      );
+      return res.json({ success: true });
+    } catch (error: any) {
+      return res.status(500).json({ error: error?.message || 'Failed to update store' });
+    }
   });
 
   app.delete('/api/stores/:name', requireOperationsManager, async (req, res) => {
@@ -6549,6 +7477,413 @@ async function startServer() {
     } catch (error: any) {
       console.error('POS products failed:', error);
       res.status(502).json({ error: error?.message || 'Failed to fetch products from POS system.' });
+    }
+  });
+
+  const resolveAlertMessageBody = (templateId: number | null, message: string | null) => {
+    if (templateId && Number.isFinite(templateId) && templateId > 0) {
+      const template = db
+        .prepare('SELECT * FROM customer_alert_templates WHERE id = ?')
+        .get(templateId) as CustomerAlertTemplateRecord | undefined;
+      if (!template) {
+        throw new Error('Template not found.');
+      }
+      if (Number(template.is_active ?? 1) === 0) {
+        throw new Error('Template is inactive.');
+      }
+      return { body: String(template.body ?? ''), template_id: template.id };
+    }
+    const raw = String(message ?? '').trim();
+    if (!raw) {
+      throw new Error('Message body is required when template is not selected.');
+    }
+    return { body: raw, template_id: null };
+  };
+
+  const insertCustomerAlertLog = (payload: {
+    order_no: string;
+    customer_name: string;
+    phone: string;
+    message_body: string;
+    template_id: number | null;
+    status: string;
+    provider_response?: string | null;
+    error_message?: string | null;
+    sent_by: string;
+  }) => {
+    db.prepare(
+      `INSERT INTO customer_alert_logs
+       (order_no, customer_name, phone, message_body, template_id, status, provider_response, error_message, sent_by, sent_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+    ).run(
+      payload.order_no,
+      payload.customer_name,
+      payload.phone,
+      payload.message_body,
+      payload.template_id,
+      payload.status,
+      payload.provider_response ?? null,
+      payload.error_message ?? null,
+      payload.sent_by
+    );
+  };
+
+  const resolveAlertCandidateByOrderNo = async (orderNoInput: string) => {
+    const snapshot = await loadStoredOrderSnapshotByOrderNo(orderNoInput);
+    if (!snapshot) return null;
+    const latestStatusMap = readLatestAlertLogByOrderNo();
+    return buildAlertCandidateFromSnapshot(snapshot, latestStatusMap);
+  };
+
+  app.get('/api/customer-alerts/templates', requirePicker, (_req, res) => {
+    try {
+      const rows = db
+        .prepare('SELECT * FROM customer_alert_templates ORDER BY is_active DESC, updated_at DESC, id DESC')
+        .all() as CustomerAlertTemplateRecord[];
+      res.json({ templates: rows });
+    } catch (error: any) {
+      res.status(500).json({ error: error?.message || 'Failed to load alert templates.' });
+    }
+  });
+
+  app.get('/api/customer-alerts/scan-storage', requirePicker, async (req, res) => {
+    try {
+      const limit = Math.max(1, Math.min(500, Number(req.query.limit ?? 200) || 200));
+      const snapshots = await loadStoredOrderSnapshots(limit);
+      const orders = snapshots.map((snapshot) => ({
+        order_number: normalizeAlertOrderNo(snapshot.order_no),
+        order_no: normalizeAlertOrderNo(snapshot.order_no),
+        quantity_in_store: Math.max(0, Number(snapshot.qty_in_store ?? 0) || 0),
+        qty_in_store: Math.max(0, Number(snapshot.qty_in_store ?? 0) || 0),
+        first_stored_at: snapshot.first_stored_at,
+        locations_count: snapshot.store_slots.length,
+        store_slots: snapshot.store_slots,
+      }));
+      res.json({
+        orders,
+        scanned_count: orders.length,
+        generated_at: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error?.message || 'Failed to scan storage.' });
+    }
+  });
+
+  app.post('/api/customer-alerts/templates', requireOperationsManager, (req, res) => {
+    try {
+      const name = String(req.body?.name ?? '').trim();
+      const body = String(req.body?.body ?? '').trim();
+      const channel = String(req.body?.channel ?? 'whatsapp').trim() || 'whatsapp';
+      const isActive = req.body?.is_active === undefined ? 1 : Number(req.body?.is_active ? 1 : 0);
+      if (!name) return res.status(400).json({ error: 'Template name is required.' });
+      if (!body) return res.status(400).json({ error: 'Template body is required.' });
+      const result = db
+        .prepare(
+          `INSERT INTO customer_alert_templates (name, channel, body, is_active, created_by, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+        )
+        .run(name, channel, body, isActive, req.auth?.username || 'system');
+      const row = db
+        .prepare('SELECT * FROM customer_alert_templates WHERE id = ?')
+        .get(Number(result.lastInsertRowid)) as CustomerAlertTemplateRecord | undefined;
+      res.json({ success: true, template: row ?? null });
+    } catch (error: any) {
+      res.status(500).json({ error: error?.message || 'Failed to create alert template.' });
+    }
+  });
+
+  app.put('/api/customer-alerts/templates/:id', requireOperationsManager, (req, res) => {
+    try {
+      const id = Number(req.params.id ?? 0);
+      if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Valid template id is required.' });
+      const existing = db
+        .prepare('SELECT * FROM customer_alert_templates WHERE id = ?')
+        .get(id) as CustomerAlertTemplateRecord | undefined;
+      if (!existing) return res.status(404).json({ error: 'Template not found.' });
+
+      const name = req.body?.name === undefined ? existing.name : String(req.body?.name ?? '').trim();
+      const body = req.body?.body === undefined ? existing.body : String(req.body?.body ?? '').trim();
+      const channel = req.body?.channel === undefined ? existing.channel : String(req.body?.channel ?? '').trim();
+      const isActive = req.body?.is_active === undefined ? Number(existing.is_active ?? 1) : Number(req.body?.is_active ? 1 : 0);
+
+      if (!name) return res.status(400).json({ error: 'Template name is required.' });
+      if (!body) return res.status(400).json({ error: 'Template body is required.' });
+      if (!channel) return res.status(400).json({ error: 'Template channel is required.' });
+
+      db.prepare(
+        `UPDATE customer_alert_templates
+         SET name = ?, channel = ?, body = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`
+      ).run(name, channel, body, isActive, id);
+
+      const row = db
+        .prepare('SELECT * FROM customer_alert_templates WHERE id = ?')
+        .get(id) as CustomerAlertTemplateRecord | undefined;
+      res.json({ success: true, template: row ?? null });
+    } catch (error: any) {
+      res.status(500).json({ error: error?.message || 'Failed to update alert template.' });
+    }
+  });
+
+  app.delete('/api/customer-alerts/templates/:id', requireOperationsManager, (req, res) => {
+    try {
+      const id = Number(req.params.id ?? 0);
+      if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Valid template id is required.' });
+      const row = db
+        .prepare('SELECT * FROM customer_alert_templates WHERE id = ?')
+        .get(id) as CustomerAlertTemplateRecord | undefined;
+      if (!row) return res.status(404).json({ error: 'Template not found.' });
+      db.prepare('DELETE FROM customer_alert_templates WHERE id = ?').run(id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error?.message || 'Failed to delete alert template.' });
+    }
+  });
+
+  app.get('/api/customer-alerts/candidates', requirePicker, async (req, res) => {
+    try {
+      const limit = Math.max(1, Math.min(500, Number(req.query.limit ?? 120) || 120));
+      const candidates = await buildCustomerAlertCandidates(limit);
+      res.json({ candidates, generated_at: new Date().toISOString() });
+    } catch (error: any) {
+      res.status(500).json({ error: error?.message || 'Failed to load customer alert candidates.' });
+    }
+  });
+
+  app.post('/api/customer-alerts/check-order', requirePicker, async (req, res) => {
+    try {
+      const orderNo = normalizeAlertOrderNo(req.body?.orderNo);
+      if (!orderNo) return res.status(400).json({ error: 'orderNo is required.' });
+      const candidate = await resolveAlertCandidateByOrderNo(orderNo);
+      if (!candidate) return res.status(404).json({ error: 'No stored pieces found for this order.' });
+      res.json({ candidate, warnings: candidate.warnings ?? [] });
+    } catch (error: any) {
+      res.status(500).json({ error: error?.message || 'Failed to check order matching.' });
+    }
+  });
+
+  app.post('/api/customer-alerts/send-one', requirePicker, async (req, res) => {
+    try {
+      const orderNo = normalizeAlertOrderNo(req.body?.orderNo);
+      if (!orderNo) return res.status(400).json({ error: 'orderNo is required.' });
+
+      const sendOnlyMatched = req.body?.sendOnlyMatched === undefined ? true : Boolean(req.body?.sendOnlyMatched);
+      const dryRun = Boolean(req.body?.dryRun);
+      const templateIdRaw = Number(req.body?.templateId ?? 0);
+      const templateId = Number.isFinite(templateIdRaw) && templateIdRaw > 0 ? templateIdRaw : null;
+      const providedMessage = req.body?.message === undefined ? null : String(req.body?.message ?? '').trim();
+
+      const candidate = await resolveAlertCandidateByOrderNo(orderNo);
+      if (!candidate) return res.status(404).json({ error: 'No stored pieces found for this order.' });
+      if (sendOnlyMatched && candidate.match_state !== 'complete') {
+        return res.status(409).json({
+          error: 'لا يمكن الإرسال لأن الكمية غير مكتملة.',
+          candidate,
+        });
+      }
+
+      const messageSource = resolveAlertMessageBody(templateId, providedMessage);
+      const stores = Array.from(new Set(candidate.store_slots.map((slot) => slot.store).filter(Boolean))).join(', ');
+      const renderedMessage = renderAlertTemplate(messageSource.body, {
+        name: candidate.customer_name || 'عميلنا العزيز',
+        order_no: candidate.order_no,
+        pieces: candidate.qty_in_order || candidate.qty_in_store,
+        total: candidate.total_amount.toFixed(2),
+        store: stores,
+      }).trim();
+      if (!renderedMessage) return res.status(400).json({ error: 'Rendered message is empty.' });
+
+      const phone = String(req.body?.phone ?? candidate.phone ?? '').trim();
+      if (!phone) {
+        return res.status(400).json({
+          error: 'Customer phone is missing in POS details.',
+          candidate,
+        });
+      }
+
+      if (dryRun) {
+        return res.json({
+          success: true,
+          dryRun: true,
+          candidate,
+          preview: {
+            phone,
+            message: renderedMessage,
+          },
+        });
+      }
+
+      const sentBy = String(req.auth?.username ?? 'system');
+      try {
+        const providerResult = await sendCustomerAlertWhatsapp(phone, renderedMessage);
+        insertCustomerAlertLog({
+          order_no: candidate.order_no,
+          customer_name: candidate.customer_name,
+          phone,
+          message_body: renderedMessage,
+          template_id: messageSource.template_id,
+          status: 'sent',
+          provider_response: JSON.stringify(providerResult),
+          sent_by: sentBy,
+        });
+        return res.json({
+          success: true,
+          candidate,
+          result: providerResult,
+        });
+      } catch (sendError: any) {
+        insertCustomerAlertLog({
+          order_no: candidate.order_no,
+          customer_name: candidate.customer_name,
+          phone,
+          message_body: renderedMessage,
+          template_id: messageSource.template_id,
+          status: 'failed',
+          error_message: String(sendError?.message || 'send failed'),
+          sent_by: sentBy,
+        });
+        return res.status(502).json({
+          error: sendError?.message || 'Failed to send WhatsApp alert.',
+          candidate,
+        });
+      }
+    } catch (error: any) {
+      res.status(500).json({ error: error?.message || 'Failed to send alert.' });
+    }
+  });
+
+  app.post('/api/customer-alerts/send-bulk', requirePicker, async (req, res) => {
+    try {
+      const orderNosInput = Array.isArray(req.body?.orderNos) ? req.body.orderNos : [];
+      const normalizedOrderNos = Array.from(
+        new Set(orderNosInput.map((value: unknown) => normalizeAlertOrderNo(value)).filter((value: string) => value.length > 0))
+      );
+      const dryRun = Boolean(req.body?.dryRun);
+      const sendOnlyMatched = req.body?.sendOnlyMatched === undefined ? true : Boolean(req.body?.sendOnlyMatched);
+      const retryFailedOnly = Boolean(req.body?.retryFailedOnly);
+      const limit = Math.max(1, Math.min(500, Number(req.body?.limit ?? 120) || 120));
+      const templateIdRaw = Number(req.body?.templateId ?? 0);
+      const templateId = Number.isFinite(templateIdRaw) && templateIdRaw > 0 ? templateIdRaw : null;
+      const providedMessage = req.body?.message === undefined ? null : String(req.body?.message ?? '').trim();
+      const messageSource = resolveAlertMessageBody(templateId, providedMessage);
+      const sentBy = String(req.auth?.username ?? 'system');
+
+      const baseCandidates =
+        normalizedOrderNos.length > 0
+          ? (
+              await Promise.all(
+                normalizedOrderNos.map(async (orderNo: string) => resolveAlertCandidateByOrderNo(orderNo))
+              )
+            ).filter((candidate): candidate is CustomerAlertCandidate => Boolean(candidate))
+          : await buildCustomerAlertCandidates(limit);
+
+      const failedOrderSet = retryFailedOnly
+        ? new Set(
+            (db
+              .prepare("SELECT DISTINCT order_no FROM customer_alert_logs WHERE status = 'failed'")
+              .all() as Array<{ order_no: string }>)
+              .map((row) => normalizeAlertOrderNo(row.order_no))
+              .filter((value) => value.length > 0)
+          )
+        : null;
+
+      const candidates = baseCandidates.filter((candidate) => {
+        if (failedOrderSet && !failedOrderSet.has(normalizeAlertOrderNo(candidate.order_no))) return false;
+        if (sendOnlyMatched && candidate.match_state !== 'complete') return false;
+        return true;
+      });
+
+      const summary = {
+        total: candidates.length,
+        sent: 0,
+        failed: 0,
+        skipped: 0,
+      };
+      const results: Array<{
+        order_no: string;
+        status: 'sent' | 'failed' | 'skipped';
+        reason?: string;
+        phone?: string;
+      }> = [];
+
+      for (const candidate of candidates) {
+        const stores = Array.from(new Set(candidate.store_slots.map((slot) => slot.store).filter(Boolean))).join(', ');
+        const renderedMessage = renderAlertTemplate(messageSource.body, {
+          name: candidate.customer_name || 'عميلنا العزيز',
+          order_no: candidate.order_no,
+          pieces: candidate.qty_in_order || candidate.qty_in_store,
+          total: candidate.total_amount.toFixed(2),
+          store: stores,
+        }).trim();
+        const phone = String(candidate.phone ?? '').trim();
+
+        if (!phone || !renderedMessage) {
+          summary.skipped += 1;
+          results.push({
+            order_no: candidate.order_no,
+            status: 'skipped',
+            reason: !phone ? 'missing phone' : 'empty message',
+          });
+          continue;
+        }
+
+        if (dryRun) {
+          summary.sent += 1;
+          results.push({
+            order_no: candidate.order_no,
+            status: 'sent',
+            phone,
+          });
+          continue;
+        }
+
+        try {
+          const providerResult = await sendCustomerAlertWhatsapp(phone, renderedMessage);
+          insertCustomerAlertLog({
+            order_no: candidate.order_no,
+            customer_name: candidate.customer_name,
+            phone,
+            message_body: renderedMessage,
+            template_id: messageSource.template_id,
+            status: 'sent',
+            provider_response: JSON.stringify(providerResult),
+            sent_by: sentBy,
+          });
+          summary.sent += 1;
+          results.push({
+            order_no: candidate.order_no,
+            status: 'sent',
+            phone,
+          });
+        } catch (sendError: any) {
+          insertCustomerAlertLog({
+            order_no: candidate.order_no,
+            customer_name: candidate.customer_name,
+            phone,
+            message_body: renderedMessage,
+            template_id: messageSource.template_id,
+            status: 'failed',
+            error_message: String(sendError?.message || 'send failed'),
+            sent_by: sentBy,
+          });
+          summary.failed += 1;
+          results.push({
+            order_no: candidate.order_no,
+            status: 'failed',
+            reason: String(sendError?.message || 'send failed'),
+            phone,
+          });
+        }
+      }
+
+      res.json({
+        success: true,
+        dryRun,
+        summary,
+        results,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error?.message || 'Failed to send bulk alerts.' });
     }
   });
 

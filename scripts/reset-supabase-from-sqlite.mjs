@@ -33,6 +33,8 @@ const requireSchema = async () => {
 
   const { error: slotCapacityError } = await supabaseAdmin.from('stores').select('slot_capacity').limit(1);
   if (slotCapacityError) throw slotCapacityError;
+  const { error: storeColorVisibleError } = await supabaseAdmin.from('stores').select('store_color_visible').limit(1);
+  if (storeColorVisibleError) throw storeColorVisibleError;
 
   const { error: blanketsError } = await supabaseAdmin.from('blankets').select('id').limit(1);
   if (blanketsError) throw blanketsError;
@@ -50,7 +52,7 @@ const resetSupabaseData = async () => {
   try {
     stores = db
       .prepare(
-        'SELECT store_name, position_x, position_y, position_z, width, depth, height, rows, columns, rotation_y, auto_settle, store_type, hanger_slots, slot_capacity FROM stores ORDER BY store_name'
+        'SELECT store_name, position_x, position_y, position_z, width, depth, height, rows, columns, rotation_y, auto_settle, store_type, hanger_slots, slot_capacity, store_color_visible FROM stores ORDER BY store_name'
       )
       .all();
   } catch {
@@ -59,7 +61,7 @@ const resetSupabaseData = async () => {
         'SELECT store_name, position_x, position_y, position_z, width, depth, height, rows, columns, rotation_y, auto_settle, store_type, hanger_slots FROM stores ORDER BY store_name'
       )
       .all()
-      .map((store) => ({ ...store, slot_capacity: null }));
+      .map((store) => ({ ...store, slot_capacity: null, store_color_visible: null }));
   }
 
   const blankets = db
@@ -82,6 +84,7 @@ const resetSupabaseData = async () => {
     const normalizedStores = stores.map((store) => ({
       ...store,
       auto_settle: Boolean(store.auto_settle),
+      store_color_visible: store.store_color_visible !== false && store.store_color_visible !== 0,
       slot_capacity:
         store.store_type === 'hanger'
           ? 1
@@ -163,4 +166,3 @@ try {
   console.error(error);
   process.exit(1);
 }
-

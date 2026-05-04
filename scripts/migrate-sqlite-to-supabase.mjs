@@ -188,6 +188,16 @@ const migrate = async () => {
       throw slotCapacityError;
     }
 
+    const { error: storeColorVisibleError } = await supabaseAdmin.from('stores').select('store_color_visible').limit(1);
+    if (storeColorVisibleError) {
+      if (storeColorVisibleError.code === 'PGRST204' || storeColorVisibleError.code === '42703') {
+        throw new Error(
+          "Supabase schema is missing `stores.store_color_visible`.\nRun `supabase-schema.sql` in the Supabase SQL Editor, or run:\nALTER TABLE stores ADD COLUMN IF NOT EXISTS store_color_visible boolean NOT NULL DEFAULT true;"
+        );
+      }
+      throw storeColorVisibleError;
+    }
+
     const { error: blanketsError } = await supabaseAdmin.from('blankets').select('id').limit(1);
     if (blanketsError) throw blanketsError;
 
@@ -210,7 +220,7 @@ const migrate = async () => {
   try {
     stores = db
       .prepare(
-        'SELECT store_name, position_x, position_y, position_z, width, depth, height, rows, columns, rotation_y, auto_settle, store_type, hanger_slots, slot_capacity FROM stores ORDER BY store_name'
+        'SELECT store_name, position_x, position_y, position_z, width, depth, height, rows, columns, rotation_y, auto_settle, store_type, hanger_slots, slot_capacity, store_color_visible FROM stores ORDER BY store_name'
       )
       .all();
   } catch {
@@ -219,7 +229,7 @@ const migrate = async () => {
         'SELECT store_name, position_x, position_y, position_z, width, depth, height, rows, columns, rotation_y, auto_settle, store_type, hanger_slots FROM stores ORDER BY store_name'
       )
       .all()
-      .map((store) => ({ ...store, slot_capacity: null }));
+      .map((store) => ({ ...store, slot_capacity: null, store_color_visible: null }));
   }
 
   const blankets = db
@@ -266,6 +276,7 @@ const migrate = async () => {
     const normalizedStores = stores.map((store) => ({
       ...store,
       auto_settle: Boolean(store.auto_settle),
+      store_color_visible: store.store_color_visible !== false && store.store_color_visible !== 0,
       slot_capacity:
         store.store_type === 'hanger'
           ? 1

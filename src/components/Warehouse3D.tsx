@@ -58,6 +58,9 @@ const normalizeCellDimension = (value: unknown, fallback: number) => {
   return clamped < 0 || Object.is(clamped, -0) ? -0.001 : 0.001;
 };
 
+const isStoreColorVisible = (value: unknown) =>
+  !(value === false || value === 0 || value === '0');
+
 const focusStorePopupInput = () => {
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
@@ -313,7 +316,7 @@ function StoreObject({ store, isSelected, onSelect, mode }: { store: StoreType, 
   const storeColor = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test((store as any).store_color || '')
     ? (store as any).store_color
     : '#3b82f6';
-  const storeColorVisible = (store as any).store_color_visible !== false;
+  const storeColorVisible = isStoreColorVisible((store as any).store_color_visible);
   const displayStoreColor = storeColorVisible ? storeColor : '#94a3b8';
   const storeOpacity = Math.min(1, Math.max(0.1, Number((store as any).store_opacity ?? 1) || 1));
   const overlayCellWidth = Math.min(
@@ -769,9 +772,11 @@ function RowSlider({
 function Viewer3DControlPanel() {
   const { settings, patchSettings, resetSettings, requestCameraReset, requestFocusSelectedStore } =
     useViewer3D();
-  const { stores, selectedStore, updateStore } = useStore();
+  const { stores, selectedStore, updateStore, currentUser } = useStore();
   const [open, setOpen] = useState(true);
   const [batchEdit, setBatchEdit] = useState(false);
+  const [panelError, setPanelError] = useState<string | null>(null);
+  const canModify = canEditWarehouse(currentUser?.role);
   const selected = stores.find((s) => s.store_name === selectedStore);
   const selectedCellWidth = selected
     ? normalizeCellDimension((selected as any).cell_width, STORE_LOCAL_FOOTPRINT_WIDTH / Math.max(1, selected.columns))
@@ -789,13 +794,25 @@ function Viewer3DControlPanel() {
     h: string;
   } | null>(null);
 
-  const patchStore = (partial: Partial<StoreType>) => {
-    if (batchEdit) {
-      stores.forEach((store) => updateStore(store.store_name, partial));
+  const patchStore = async (partial: Partial<StoreType>) => {
+    if (!canModify) {
+      setPanelError('ليس لديك صلاحية تعديل إعدادات المخزن.');
       return;
     }
-    if (!selected) return;
-    updateStore(selected.store_name, partial);
+    try {
+      setPanelError(null);
+      if (batchEdit) {
+        await Promise.all(stores.map((store) => updateStore(store.store_name, partial)));
+        return;
+      }
+      if (!selected) return;
+      await updateStore(selected.store_name, partial);
+    } catch (error: any) {
+      const message =
+        String(error?.response?.data?.error || error?.message || '').trim() ||
+        'تعذر حفظ التعديل.';
+      setPanelError(message);
+    }
   };
 
   useEffect(() => {
@@ -901,6 +918,16 @@ function Viewer3DControlPanel() {
 
       {open && (
         <div className="flex-1 overflow-y-auto p-4 space-y-5 no-scrollbar">
+          {panelError ? (
+            <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-2 py-1 text-[10px] text-rose-200">
+              {panelError}
+            </div>
+          ) : null}
+          {!canModify ? (
+            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[10px] text-amber-200">
+              عرض فقط: تحتاج صلاحية إدارة لتعديل المخازن.
+            </div>
+          ) : null}
           <div className="flex gap-2">
             <button
               type="button"
@@ -1274,7 +1301,7 @@ function Viewer3DControlPanel() {
             {!selected ? (
               <p className="text-xs text-slate-500 font-bold">اضغط على مخزن في المشهد لتحرير القيم.</p>
             ) : (
-              <div className="space-y-2">
+              <fieldset className="space-y-2" disabled={!canModify}>
                 <p className="text-[11px] font-black text-white truncate">{selected.store_name}</p>
                 <div className="grid grid-cols-3 gap-2">
                   <label className="text-[9px] font-bold text-slate-500 uppercase col-span-1">
@@ -1284,7 +1311,7 @@ function Viewer3DControlPanel() {
                       step={0.1}
                       className="mt-0.5 w-full px-1.5 py-1 rounded-lg bg-slate-800 border border-slate-600 text-white text-xs font-mono"
                       value={Number(selected.position_x.toFixed(3))}
-                      onChange={(e) => patchStore({ position_x: parseFloat(e.target.value) || 0 })}
+                      onChange={(e) => void patchStore({ position_x: parseFloat(e.target.value) || 0 })}
                     />
                   </label>
                   <label className="text-[9px] font-bold text-slate-500 uppercase col-span-1">
@@ -1294,7 +1321,7 @@ function Viewer3DControlPanel() {
                       step={0.1}
                       className="mt-0.5 w-full px-1.5 py-1 rounded-lg bg-slate-800 border border-slate-600 text-white text-xs font-mono"
                       value={Number(selected.position_y.toFixed(3))}
-                      onChange={(e) => patchStore({ position_y: parseFloat(e.target.value) || 0 })}
+                      onChange={(e) => void patchStore({ position_y: parseFloat(e.target.value) || 0 })}
                     />
                   </label>
                   <label className="text-[9px] font-bold text-slate-500 uppercase col-span-1">
@@ -1304,7 +1331,7 @@ function Viewer3DControlPanel() {
                       step={0.1}
                       className="mt-0.5 w-full px-1.5 py-1 rounded-lg bg-slate-800 border border-slate-600 text-white text-xs font-mono"
                       value={Number(selected.position_z.toFixed(3))}
-                      onChange={(e) => patchStore({ position_z: parseFloat(e.target.value) || 0 })}
+                      onChange={(e) => void patchStore({ position_z: parseFloat(e.target.value) || 0 })}
                     />
                   </label>
                 </div>
@@ -1316,7 +1343,7 @@ function Viewer3DControlPanel() {
                     className="mt-0.5 w-full px-2 py-1.5 rounded-lg bg-slate-800 border border-slate-600 text-white text-xs font-mono"
                     value={Math.round((selected.rotation_y * 180) / Math.PI)}
                     onChange={(e) =>
-                      patchStore({ rotation_y: ((parseFloat(e.target.value) || 0) * Math.PI) / 180 })
+                      void patchStore({ rotation_y: ((parseFloat(e.target.value) || 0) * Math.PI) / 180 })
                     }
                   />
                 </label>
@@ -1329,7 +1356,7 @@ function Viewer3DControlPanel() {
                       min={0.1}
                       className="mt-0.5 w-full px-1.5 py-1 rounded-lg bg-slate-800 border border-slate-600 text-white text-xs font-mono"
                       value={Number(selected.width.toFixed(2))}
-                      onChange={(e) => patchStore({ width: Math.max(0.1, parseFloat(e.target.value) || 0.1) })}
+                      onChange={(e) => void patchStore({ width: Math.max(0.1, parseFloat(e.target.value) || 0.1) })}
                     />
                   </label>
                   <label className="text-[9px] font-bold text-slate-500 uppercase">
@@ -1340,7 +1367,7 @@ function Viewer3DControlPanel() {
                       min={0.1}
                       className="mt-0.5 w-full px-1.5 py-1 rounded-lg bg-slate-800 border border-slate-600 text-white text-xs font-mono"
                       value={Number(selected.depth.toFixed(2))}
-                      onChange={(e) => patchStore({ depth: Math.max(0.1, parseFloat(e.target.value) || 0.1) })}
+                      onChange={(e) => void patchStore({ depth: Math.max(0.1, parseFloat(e.target.value) || 0.1) })}
                     />
                   </label>
                   <label className="text-[9px] font-bold text-slate-500 uppercase">
@@ -1351,7 +1378,7 @@ function Viewer3DControlPanel() {
                       min={0.1}
                       className="mt-0.5 w-full px-1.5 py-1 rounded-lg bg-slate-800 border border-slate-600 text-white text-xs font-mono"
                       value={Number(selected.height.toFixed(2))}
-                      onChange={(e) => patchStore({ height: Math.max(0.1, parseFloat(e.target.value) || 0.1) })}
+                      onChange={(e) => void patchStore({ height: Math.max(0.1, parseFloat(e.target.value) || 0.1) })}
                     />
                   </label>
                 </div>
@@ -1399,7 +1426,7 @@ function Viewer3DControlPanel() {
                           ? (selected as any).store_color
                           : '#3b82f6'
                       }
-                      onChange={(e) => patchStore({ store_color: e.target.value } as Partial<StoreType>)}
+                      onChange={(e) => void patchStore({ store_color: e.target.value } as Partial<StoreType>)}
                     />
                   </label>
                   <label className="text-[9px] font-bold text-slate-500 uppercase">
@@ -1412,7 +1439,7 @@ function Viewer3DControlPanel() {
                       className="mt-0.5 w-full px-1.5 py-1 rounded-lg bg-slate-800 border border-slate-600 text-white text-xs font-mono"
                       value={Number((Math.min(1, Math.max(0.1, Number((selected as any).store_opacity ?? 1) || 1))).toFixed(2))}
                       onChange={(e) =>
-                        patchStore({
+                        void patchStore({
                           store_opacity: Math.min(1, Math.max(0.1, parseFloat(e.target.value) || 1)),
                         } as Partial<StoreType>)
                       }
@@ -1422,23 +1449,23 @@ function Viewer3DControlPanel() {
                     <button
                       type="button"
                       onClick={() =>
-                        patchStore({
-                          store_color_visible: (selected as any).store_color_visible === false,
+                        void patchStore({
+                          store_color_visible: !isStoreColorVisible((selected as any).store_color_visible),
                         } as Partial<StoreType>)
                       }
                       className={cn(
                         'w-full py-2 rounded-lg text-[10px] font-black uppercase border transition-colors',
-                        (selected as any).store_color_visible !== false
+                        isStoreColorVisible((selected as any).store_color_visible)
                           ? 'bg-amber-500/10 border-amber-400/40 text-amber-300 hover:bg-amber-500/20'
                           : 'bg-emerald-500/10 border-emerald-400/40 text-emerald-300 hover:bg-emerald-500/20'
                       )}
-                      title={(selected as any).store_color_visible !== false ? 'Hide color' : 'Show color'}
+                      title={isStoreColorVisible((selected as any).store_color_visible) ? 'Hide color' : 'Show color'}
                     >
-                      {(selected as any).store_color_visible !== false ? 'إخفاء اللون' : 'إظهار اللون'}
+                      {isStoreColorVisible((selected as any).store_color_visible) ? 'إخفاء اللون' : 'إظهار اللون'}
                     </button>
                   </div>
                 </div>
-              </div>
+              </fieldset>
             )}
           </section>
 

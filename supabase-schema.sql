@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS stores (
   slot_capacity integer NOT NULL DEFAULT 1,
   require_pick_scan boolean NOT NULL DEFAULT false,
   store_color text NOT NULL DEFAULT '#3b82f6',
+  store_color_visible boolean NOT NULL DEFAULT true,
   store_opacity numeric NOT NULL DEFAULT 1,
   cell_width numeric NOT NULL DEFAULT 0.5,
   cell_depth numeric NOT NULL DEFAULT 0.5,
@@ -48,6 +49,8 @@ ALTER TABLE stores
   ADD COLUMN IF NOT EXISTS require_pick_scan boolean;
 ALTER TABLE stores
   ADD COLUMN IF NOT EXISTS store_color text NOT NULL DEFAULT '#3b82f6';
+ALTER TABLE stores
+  ADD COLUMN IF NOT EXISTS store_color_visible boolean NOT NULL DEFAULT true;
 ALTER TABLE stores
   ADD COLUMN IF NOT EXISTS store_opacity numeric NOT NULL DEFAULT 1;
 ALTER TABLE stores
@@ -69,6 +72,10 @@ WHERE cell_depth IS NULL OR ABS(cell_depth) < 0.001;
 UPDATE stores
 SET cell_height = 0.11
 WHERE cell_height IS NULL OR ABS(cell_height) < 0.001;
+
+UPDATE stores
+SET store_color_visible = true
+WHERE store_color_visible IS NULL;
 
 -- Backfill pick-scan flag for stores created before this column existed.
 UPDATE stores

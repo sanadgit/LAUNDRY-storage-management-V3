@@ -57,6 +57,7 @@ const tables: TableMigrationConfig[] = [
         slot_capacity integer DEFAULT 1,
         require_pick_scan integer DEFAULT 0,
         store_color text DEFAULT '#3b82f6',
+        store_color_visible integer DEFAULT 1,
         store_opacity double precision DEFAULT 1,
         cell_width double precision DEFAULT 0.5,
         cell_depth double precision DEFAULT 0.5,
