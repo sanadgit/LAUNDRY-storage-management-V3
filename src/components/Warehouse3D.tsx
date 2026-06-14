@@ -1750,7 +1750,7 @@ function StoreQuickPopup() {
     try {
       await markAsPicked(blanket);
     } catch (err: any) {
-      setError(err?.message || 'Failed to mark as picked.');
+      setError(err?.response?.data?.error || err?.message || 'Failed to mark as picked.');
     } finally {
       setPickingId(null);
     }

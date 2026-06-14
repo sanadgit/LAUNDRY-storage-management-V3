@@ -1,0 +1,1262 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <!-- Meta, title, CSS, favicons, etc. -->
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="images/icons/favicon1.ico" type="image/ico" />
+    <title>Laundry Packing System</title>
+    <!-- Bootstrap -->
+    <!-- <link rel="stylesheet" type="text/css" href="css/bootstrap.css"> -->
+    <link rel="stylesheet" type="text/css" href="css/bootstrap.min.css">
+    <link rel="stylesheet" type="text/css" href="css/pos_style.css">
+    <link rel="stylesheet" type="text/css" href="css/fontawesome.min.css">
+    <link rel="stylesheet" type="text/css" href="css/all.min.css">
+    <link rel="stylesheet" type="text/css" href="css/daterangepicker.css">
+    <link rel="stylesheet" href="css/jquery-confirm.min.css">
+    <link rel="stylesheet" href="datatable/dataTables.bootstrap.min.css">
+    <link rel="stylesheet" type="text/css" href="css/bootstrap-datepicker.css">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;1,100&display=swap" rel="stylesheet">
+    <!-- <script src="server.js"></script> -->
+</head>
+
+<body>
+
+    <!----------- nav heder ------------>
+
+    <div class="nav_header">
+        <div class="aipsoft_logo">
+            <img src="images/aipsoft_headerLogo.png">
+        </div>        
+        <div class="nav_logo">
+            <!-- <img src="images/mobaschgrp-logo.svg"> -->
+        </div>
+        <div class="cashor_details">
+            <img src="" class="profile_avatar">
+            <p class="profile_name">-</p>
+            <h6 class="profile_type">-</h6>
+            <span class="profile_logged">Counter Opened @ -:-:-</span>
+        </div>
+        <div class="logout" data-toggle="modal" data-target="#logout_modal">
+            <img src="images/logout.svg">
+        </div>
+        <div class="header_datetime">
+            <div  id="header_date"><h5>- <span>-</span></h5>  </div>
+            <p class="profile_branch">Counter: -</p> 
+        </div>        
+    </div>
+
+    <div class="header_spice"></div>
+
+    <!----------- End nav header ------------>
+    <div class="scrollBar">
+        <div class="numberpaad_body">
+            <div class="NumberPadding_wrap">
+                <!--------------------- checkbox for job search ------------------------->
+                <div class="success-message" style="display:none;">sadasd</div>
+                <div class="job_check hidden">
+                    <input type="checkbox" id="myCheck" style="width:17px;height:17px;" onclick="enablejobsearch()">
+                    <label for="myCheck" class="jobcheckbox" style="color: white; font-size:19px; margin-bottom: 15px;">Enable Job Search</label> 
+                </div>
+                <div class="option_wrapper">
+                    <label class="option_label">Choose Search Option: </label>
+                    <select class="scanning_options">
+                        <option value="1" selected>Order No.</option>
+                        <option value="2">Job ID</option>
+                        <option value="3">Cloth ID</option>
+                    </select>
+                </div>
+                <div class="dependancy_wrap hidden">
+                    <label class="option_label">Choose Default Dependency</label>
+                    <select class="user_dependencies">
+                    </select>
+                </div>
+                <div class="number_qty inp_fields">
+                    <p>Prefix</p>
+                    <input type="text" name="" placeholder="" class="valid_inp pref_char">
+                </div>                    
+                <div class="number_ICI inp_fields">
+                    <p>Scan/ Type Order No</p>
+                    <input type="text" name="" class="valid_inp scanned_text main_entry_fld focused" onclick="ok.openBarcode();">
+                </div>
+                <div class="number_padd">
+                    <ul class="key_pad">
+                        <li class="digit">7</li>
+                        <li class="digit">8</li>
+                        <li class="digit">9</li>
+                        <li class="toggleMenu">
+                            <i class="fas fa-ellipsis-v dot_icon"></i></li>
+                        <li class="digit">4</li>
+                        <li class="digit">5</li>
+                        <li class="digit">6</li>
+                        <li class="find_any Number_search">
+                            <h6>F3</h6>
+                            <i class="fas fa-search"></i>
+                            <p>Packings</p>
+                        </li>
+                        <li class="digit">1</li>
+                        <li class="digit">2</li>
+                        <li class="digit">3</li>
+                        <li class="find_packing Number_qty">
+                           <img class="packedIcon" src="images/packed_icon.png">
+                            <p>Packed</p>
+                        </li>
+                        <li class="digit">0</li>
+                        <li class="digit dot">.</li>
+                        <li class="clear_last"><img class="backspace" src="images/backbutton.svg"></li>
+                        <li class="clear_all">AC</li>
+                        <li class="enter_Btn">
+                            <h5>Enter</h5>
+                            <i class="fas fa-check-square tick_icon"></i>
+                        </li>
+                        
+                    </ul>
+                </div>
+                <button class="btn-jobs my-jobs hidden">My Jobs<span>0</span></button>
+            </div>
+        </div>
+    </div>    
+
+        <div class="pos_footer">
+            <p>AipSoft-POS-Magnus World IT Solutions - Abu Dhabi - UAE-Tel :- +971 56 664 4516 , +971 56 664 4514</p>
+        </div>
+
+
+ 
+
+
+     <!------------------------------ Logout popup  ------------------------------------>
+    <div class="modal fade" id="logout_modal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                      <img class="popupclose_btn closeModalBtn" src="images/closebtn.png">
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="logout_wrap">
+                        <ul class="power_actions">
+
+                            <li data-action="logout">
+                                <img src="images/logout_icon.svg">
+                                <p>LogOut</p>
+                            </li>                         
+                            <!-- <li data-action="shutdown">
+                                <img src="images/shutdown_icon.svg">
+                                <p>Shut Down</p>
+                            </li>                         
+                            <li data-action="restart">
+                                <img src="images/reset_icon.svg">
+                                <p>Restart</p>
+                            </li> -->
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!------------------------------------------------------------------>
+
+    <div class="modal fade find_any_modal" id="search" tabindex="-1" role="dialog" aria-labelledby="myModalLabel">
+      <div class="modal-dialog search-dialog" role="document">
+        <div class="modal-content search-content">
+          <div class="modal-header">
+           <button type="button" class="close close_popup_btn" data-dismiss="modal"><i class="fa fa-times" aria-hidden="true"></i></button> 
+          </div>
+          <div class="modal-body">
+            <div class="search_body">
+                <img src="images/search-engine.png">
+                <h1 class="search_here_txt">Search here</h1>
+                <p class="search_here_comment_txt">Search by- Order ID,Customer Name,Mobile No</p>
+                <!-- <form class="navbar-form " role="search"> -->
+                  <div class="form-group">
+                    <input type="text" class="search_form white_input_ripple find_key_input search_here_comment_txt" placeholder="Search by- Order ID,Customer Name,Mobile No">
+                  </div>
+                 <!-- </form> -->
+                 <div class="search_button_wrp">
+                    <button type="button" class="Cancel_btn cancel_txt" data-dismiss="modal">Cancel</button>
+                    <button id="okcontinue" type="button" class="okcontinue_btn theam1_background find_any_btn ok_txt">Ok</button>
+                    <button id="todayorder" type="button" class="okcontinue_btn theam1_background order_today today_order_txt">Packings made today</button>
+                 </div>
+            </div>
+        </div>
+
+
+        </div>
+      </div>
+    </div>
+
+    <div class="modal fade okcontinue_overlay find_any_result_modal" id="myModal-okcontinue" tabindex="-1" role="dialog" aria-labelledby="myModalLabel" aria-hidden="true">
+        <div class="modal-dialog okcontinue_dialog">
+            <div class="modal-content okcontinue_content">  
+                <button type="button" class="close close_popup_btn" data-dismiss="modal"><i class="fa fa-times" aria-hidden="true"></i></button>      
+                <d'iv class="modal-body okcontinue_body">
+                    <div class="okcontinue_topfield">
+                        <div class="row">
+                            
+                            <div class="col-md-5 row find_btn_block">
+                                
+                            </div>
+                        </div>
+                    </div>
+                    <input type="hidden" name="" class="job_search_txt_fld" value="">   
+                    <input type="hidden" name="" class="job_search_date_fld" value="">
+                    <!-- <div class="search_table_arrow"><i class="fas fa-caret-up faa-float animated-hover search_touch_arrow"></i></div> -->
+                    <div id="find_results_wrapper">
+                           <table class="table table-striped find_results">
+                                <thead class="find_thead">
+                                </thead>
+                            </table>
+                    </div>
+                    <div class="search_table_arrow_btm"><i class="fas fa-caret-down faa-float animated-hover search_touch_arrow"></i></div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal fade open_inv_modal" id="invoice_open" tabindex="-1" role="dialog" aria-labelledby="myModalLabel">
+      <div class="modal-dialog invoice-dialog" role="document">
+        <div class="modal-content invoice-content">
+          <div class="modal-header">
+              <button type="button" class="close close_popup_btn" data-dismiss="modal"><i class="fa fa-times" aria-hidden="true"></i></button>
+              </div>
+              <div class="modal-body">
+                <div class="invoice_body">
+                    <img src="images/invoice-icon.png">
+                    <h1 class="invoice_txt">Open Packing</h1>
+                    <p class="enter_inv_no_txt">Please enter the Packing Number</p>
+                    
+                      <div class="form-group">
+                        <input type="text" class="search_form white_input_ripple open_inv_no_input enter_inv_no_txt" placeholder="Enter Packing Number">
+                      </div>
+                    
+                    <div class="invoic_button_wrp">
+                        <button type="button" class="Cancel_btn cancel_txt" data-dismiss="modal">Cancel</button>
+                        <button type="button" class="invoiceok_btn ok_txt open_inv_btn theam1_background">Ok</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+      </div>
+    </div>
+    <!---------------------------- js ----------------------------------->
+
+    <script type="text/javascript" src="js/jquery-3.4.1.min.js"></script>
+    <script type="text/javascript" src="js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="js/fontawesome.min.js"></script>
+    <script type="text/javascript" src="js/bootstrap-datepicker.min.js"></script>
+    <script src="https://unpkg.com/popper.js@1"></script>
+    <script src="https://unpkg.com/tippy.js@5"></script>
+    <script type="text/javascript" src="js/packing.js"></script>
+    <script src="js/jquery-confirm.min.js"></script>
+    <script src="datatable/datatables.min.js"></script>
+    <script src="js/daterangepicker.min.js"></script>
+    <script src="datatable/dataTables.bootstrap.min.js"></script>
+    <script src="datatable/dataTables.pageLoadMore.min.js"></script>
+    <script src="datatable/dataTables.fixedHeader.min.js"></script>
+    <script type="text/javascript" src="js/bootstrap-timepicker.min.js"></script>
+    <script type="text/javascript" src="js/moment.min.js"></script>
+    <!------------------- Fadein-Out mobile card list ------------------->
+
+
+
+    <!------------------------- Tippy tooltip ------------------------->
+
+<style type="text/css">
+    .NumberPadding_wrap{
+        margin-top: 50px;
+    }
+    label.option_label {
+        color: #fff;
+        font-size: 15px;
+        display: block;
+        margin: 0;
+    }
+    select.scanning_options
+    {
+        width: 95%;
+        padding: 5px;
+        margin-bottom: 15px;
+        background: #2c3c92;
+        color: #fff;
+    }
+    select.user_dependencies {
+        width: 95%;
+        padding: 5px;
+        margin-bottom: 15px;
+        background: #2c3c92;
+        color: #fff;
+    }
+    .success-message {
+        background-color: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+        padding: 12px 20px;
+        border-radius: 4px;
+        font-size: 16px;
+        margin: 10px 0;
+        display: none; /* Initially hidden */
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        transition: opacity 0.5s ease-in-out;
+    }
+
+</style>
+
+<script type="text/javascript">
+// $(document).on('click', 'ul li', function() {
+//     $('ul li').removeClass('focus');
+//     $(this).addClass('focus');
+//  });
+$(document).ready(function(){
+    // findanyDatePicker();
+})
+let loadmore;
+$(document).on('keypress','.valid_inp',function(e){
+    let val = $(this).val();
+    if(val!='' && (e.which == 13  || e.keyCode == 13))
+    {
+        if($(this).parents('.inp_fields').next('.inp_fields').find('.valid_inp').length > 0 && $(this).val()!='')
+        {
+            $(this).parents('.inp_fields').next('.inp_fields').find('.valid_inp').trigger('focus');
+        }
+        else
+        {
+            $('.enter_Btn').trigger('click');
+        }
+    }
+})
+$(document).on('focus','.valid_inp',function(e){
+    $('.valid_inp').removeClass('focused');
+    $(this).addClass('focused');
+})
+$("body").on('click','.enter_Btn',function(eInner)
+{
+    let search_option = localStorage.getItem('search_option');
+    // if (localStorage.getItem('enableJobSearch') === 'true') {
+    if(search_option == 3) openClothSearch()
+    else if(search_option == 2) openJobSearch() 
+    else openOrder();   
+})
+
+function openOrder()
+{
+
+    let pre_char = $('.pref_char').val();
+    let main_txt = $('.main_entry_fld').val();
+    if(main_txt!='')
+    {
+        $.ajax({
+            url: api_url+'/packing_api/searchOrder',
+            method: 'POST',
+            data: {'pre_char': pre_char,'main_txt':main_txt,'client_identifier':client_identifier},
+            success: function(response) {
+                var data =JSON.parse(response);
+                console.log(data); //return false;
+                if(data.status==1)
+                {
+                    let order_id = data.data;
+                    console.log('order_id ',order_id)
+                    if(order_id !='0')
+                    {
+                        window.localStorage.setItem('automated_scan','0');
+                        window.localStorage.setItem('origin_from','landing');
+                        window.localStorage.setItem('current_order_id',order_id);
+                        window.location = "split.html";
+                    }
+                    else
+                    {
+                        let title = 'Error !';
+                        let content = 'Either the Searched Order is Completely Packed or not Available';
+                        loadErrorPopup(title,content)
+                    }
+                    //<h2>Counter Opened @ '+successData.counter_open_date+' '+successData.counter_open_time+' </h2>
+                    console.log(successData);
+                }
+                else if(data.status==2)
+                {
+                    let order_id = data.data;
+                    // let title = 'Invoice Found !';
+                    // let content = 'Unpacked/Undelivered Products Not Found On This Invoice : '+pre_char+main_txt+"<br>Remark:"+data.remark;
+                    // loadErrorPopup(title,content)
+                    window.localStorage.setItem('current_order_id',order_id);
+                    window.localStorage.setItem('current_invoice_id',0);
+                    window.location = "delivery_preview.html";
+                }
+                else if(data.status==3)
+                {
+                    let cloth_barcode = data.data;
+                    if(cloth_barcode !='0')
+                    {
+                        window.localStorage.setItem('automated_scan','1');
+                        window.localStorage.setItem('cloth_barcode',cloth_barcode);
+                        window.location = "customer-orders.html";
+                    }
+                    else
+                    {
+                        let title = 'Error !';
+                        let content = 'Either the Searched Order is Completely Packed or not Available';
+                        loadErrorPopup(title,content)
+                    }
+                    // localStorage.setItem("customer_id",JSON.stringify(data));
+                    // window.location = "customer-orders.html";
+                }
+                else if(data.status==4) //already delivered orders
+                {
+                    let order_id = data.data;
+                    window.localStorage.setItem('current_invoice_id',order_id);
+                    window.localStorage.setItem('current_order_id',0);
+                    window.location = "delivery_preview.html";
+                }
+                else
+                {
+                    let title = 'Not Found !';
+                    let content = data.message;
+                    loadErrorPopup(title,content)
+                     // $.alert(data.message);
+                     return false;
+                }
+            },
+            error:function (xhr, ajaxOptions, thrownError){
+                    // if(xhr.status==404) {
+                        // $.alert('Invalid Login Credential..!');
+                        let title = 'Login Failed !';
+                        let content = 'Invalid Login Credential..!';
+                        loadErrorPopup(title,content)
+                        return false;
+                       
+                    // }
+                }   
+
+        }); 
+    }
+    return false;
+}
+
+$("body").on('click','.key_pad li',function(eInner)
+{
+    $('.key_pad li').removeClass('focus');
+    $(this).addClass('focus')
+    let existing_val = $('.focused').val();
+    let $this        = $(this);
+    let typed_dig    = $(this).text();
+    if($this.hasClass('digit'))
+    {
+        if($this.hasClass('dot'))
+        {
+            if(!existing_val.includes('.')){
+              if(existing_val=='')
+                existing_val = '0';
+              existing_val = (existing_val+typed_dig);
+              $('.focused').val(existing_val);
+            }
+        }
+        else
+        {
+            existing_val = (existing_val+typed_dig);
+            $('.focused').val(existing_val);
+        }
+    }
+    if($this.hasClass('clear_all'))
+    {
+        existing_val = '';
+        $('.valid_inp').val('');
+        $('.pref_char').val(prefix_char);
+        $('.username').focus();
+    }
+    if($this.hasClass('clear_last'))
+    {
+        existing_val = existing_val.slice(0,-1);
+        $('.focused').val(existing_val);
+    }
+    if($this.hasClass('find_any'))
+    {
+        openFindAnyModal();
+    }
+    if($this.hasClass('find_packing'))
+    {
+        openPackingModal();
+    }
+    if($this.hasClass('enter_Btn'))
+    {
+        let e = jQuery.Event("keypress");
+        e.which = 13; // Enter
+        // $('.focused').trigger('click');
+    }
+    if($this.hasClass('reload_page'))
+    {
+        location.reload();
+    }
+    setTimeout(function(){
+      var SearchInput = $('.focused');
+      var strLength= SearchInput.val().length;
+      SearchInput.focus();
+      SearchInput[0].setSelectionRange(strLength, strLength);
+      // $('.focused').trigger('focus') 
+    },150)
+})
+function openFindAnyModal()
+{
+    $('.find_key_input').val('');
+    $(".find_any_modal").modal({
+            backdrop: 'static',
+                keyboard: false
+    });
+    setTimeout(function(){$('.find_key_input').trigger('focus')},200)
+}
+function openPackingModal()
+{
+    $('.open_inv_no_input').val('');
+    $(".open_inv_modal").modal({
+            backdrop: 'static',
+                keyboard: false
+    });
+    setTimeout(function(){$('.open_inv_no_input').trigger('focus')},200)
+}
+$("body").on('keydown','.find_key_input',function(e){
+    if(e.keyCode == 13) 
+    {
+        $(".find_any_btn").trigger('click');
+        e.preventDefault();
+    }
+})
+$("body").on('click','.find_any_btn',function(){
+    let job_search_txt = $('.find_key_input').val();
+    if(!job_search_txt){
+        // return false;
+        $(".order_today").trigger('click');
+    }
+    else
+    {
+        if ( $.fn.dataTable.isDataTable( '.find_results' ) ) 
+        {
+            $('.find_results').DataTable().destroy();
+        }
+        listPackingOrders(job_search_txt,"");
+    }
+})
+$("body").on('click','.retrieve_icn',function(){
+    let packing_id   = $(this).data('pack_id'); 
+    viewPacking(packing_id);
+})
+$("body").on('click','.packing_sms_icn',function(){
+    let packing_id   = $(this).data('pack_id'); 
+    smsPacking(packing_id);
+})
+$("body").on('click','.packing_print_icn',function(){
+    let packing_id   = $(this).data('pack_id'); 
+    $.confirm({
+      title: '<b>Aipsoft Prompt</b>',
+      content: '<label>Are You Sure Print Job Note?</label>',
+      boxWidth: '30%',
+      buttons: {
+          ok:{
+            text: 'Yes, Print it !',
+            btnClass: 'btn-blue qty_ok',
+              action: function () {
+                  print_packing(packing_id);
+              }
+          },
+          cancel: {
+            action: function (cancel) {
+            },
+            text: 'No, Cancel'
+              //close
+          },
+      },
+      onContentReady: function () {
+          // bind to events
+          var jc = this;
+          this.$content.find('.split_qty_input').on('keyup', function (e) {
+            let val = $(this).val();
+            if(e.which == 13  || e.keyCode == 13)
+            {
+              if(!isNaN(val))
+                jc.$$ok.trigger('click');
+            }
+          }); 
+    }
+  });
+})
+$("body").on('click','.packing_print_icn',function(){
+    let packing_id   = $(this).data('pack_id'); 
+    $.confirm({
+      title: '<b>Aipsoft Prompt</b>',
+      content: '<label>Are You Sure Print Job Note?</label>',
+      boxWidth: '30%',
+      buttons: {
+          ok:{
+            text: 'Yes, Print it !',
+            btnClass: 'btn-blue qty_ok',
+              action: function () {
+                  print_packing(packing_id);
+              }
+          },
+          cancel: {
+            action: function (cancel) {
+            },
+            text: 'No, Cancel'
+              //close
+          },
+      },
+      onContentReady: function () {
+          // bind to events
+          var jc = this;
+          this.$content.find('.split_qty_input').on('keyup', function (e) {
+            let val = $(this).val();
+            if(e.which == 13  || e.keyCode == 13)
+            {
+              if(!isNaN(val))
+                jc.$$ok.trigger('click');
+            }
+          }); 
+    }
+  });
+})
+$("body").on('click','.order_today',function(){
+    if ( $.fn.dataTable.isDataTable( '.find_results' ) ) 
+    {
+        $('.find_results').DataTable().destroy();
+    }
+    listPackingOrders('','today');
+})
+$('body').on('keyup', '.find_table_search', function(event) {
+    if (event.which == 13) 
+    {
+        let search_item = $('.find_table_search').val();
+        console.log('search_item - '+search_item)
+        $('.job_search_txt_fld').val(search_item);  
+        if ( $.fn.dataTable.isDataTable( '.find_results' ) ) 
+        {
+            $('.find_results').DataTable().destroy();
+        }
+        listPackingOrders(search_item)
+    }
+});
+$('body').on('search','.find_table_search[type=search]', function () {
+    let search_item = $('.find_table_search').val();
+    if(search_item=='')
+    {
+        $('.job_search_txt_fld').val('0');  
+        if ( $.fn.dataTable.isDataTable( '.find_results' ) ) 
+        {
+            $('.find_results').DataTable().destroy();
+        }
+        listPackingOrders('0')
+    }
+})
+let listPackingOrders   = function(job_search_txt,date = "",from_date='',to_date='')
+{
+    console.log(job_search_txt);
+    let order_prefix = job_search_txt.substring(0,3);
+    order_prefix = order_prefix.toLowerCase();
+    let no_data_avail = 0;
+
+    $('.find_thead').empty();
+
+    $('.find_thead').append('<tr><th>Sl.No</th><th>Ord.No</th><th>Mobile</th><th>Ord.Date</th><th>Cust.Name</th><th>Pack.No.</th><th>PackDate</th><th>Pack.Time</th><th>Branch</th>\
+                <th>salesman</th><th>SMS</th>\
+            <th>View</th>\
+        </tr>');
+   let search_fld_txt_val  = job_search_txt;
+   let search_fld_date_val = '';
+    if(date!='')
+    {
+        search_fld_date_val = date;
+    }
+    $('.job_search_txt_fld').val(search_fld_txt_val);
+    $('.job_search_date_fld').val(search_fld_date_val);
+    var find_table = $('.find_results').DataTable({
+            order: [[0, 'DESC']],
+            lengthMenu: [100,200,300,500,"All"],
+            columnDefs: [{
+                targets: [0,8,9,10,11],
+                orderable: false,
+                searchable: false,
+            }],
+            processing: true,
+            serverSide: true,
+            fixedHeader: true,
+            scrollY:'55vh',
+            ajax: ({
+                method   : 'POST',
+                url      : base_url+'/packing_api/findPackings',
+                data     : {'job_search_txt':job_search_txt,'date':date,'from_date':from_date,'to_date':to_date,'client_identifier':client_identifier,'branch_id':branch_id},
+                 beforeSend: function (request) {
+                   loadAjax();
+                   $('.find_results').parents('.dataTables_wrapper').find('.row').addClass('col-sm-12');
+                   $('.find_results').parents('.dataTables_wrapper').find('.col-sm-12').css('padding-right','0px')
+                },
+                complete: function (request) {
+                    // console.log();
+                   removeAjaxLoad();
+                   $('.find_results').parents('row').addClass('col-sm-12')
+                   $('.find_any_modal').modal('hide'); 
+                   // $('.find_results tbody').attr('id','searchtable_scrollbar');
+                   $('.not_paid_fully').parents('tr').find('td:nth-child(13)').addClass('notFullPaid');
+                   $('.full_paid').parents('tr').find('td:nth-child(13)').addClass('FullPaid');
+                   // $("#myModal-okcontinue").modal('show');
+                   $('#find_results_wrapper').find('.filter_columns').remove();
+                   let serachHTML = `<div class="table_header_search filter_columns">
+                                        <label class="lable_block">Search here</label>
+                                        <input type="search" autocomplete="off" style="margin:0;width:100%;" id="product_table_search" class="find_table_search form-control input-sm" placeholder="Search here.." >
+                                    </div>`;
+                                   
+                    let dateRangeHTML = `<div class="col-md-7">
+                                <label class="date_range_txt">Date Range</label> 
+                                <div id="find_result_range" style="">
+                                    <i class="glyphicon glyphicon-calendar fa fa-calendar"></i>&nbsp;
+                                    <span></span> <i class="fa fa-caret-down"></i>
+                                </div>
+                                <input type="hidden" name=""  readonly="readonly" class="okcontinue_inputfield find_any_from_dt pos_datepicker_find black_input_ripple" style="padding-left: 22px;" autocomplete="off">
+                                <input type="hidden" id="from_timepicker" readonly="readonly"  class="find_any_from_tm timepicker_cls" autocomplete="off">
+                                <input type="hidden" name="" readonly="readonly"  class="okcontinue_inputfield find_any_to_dt pos_datepicker_find black_input_ripple" style="padding-left: 22px;" autocomplete="off">
+                                <input type="hidden" readonly="readonly"  id="to_timepicker" class="find_any_to_tm timepicker_cls" autocomplete="off">
+                            </div>`;             
+                    $('#find_results_wrapper .dataTables_filter').addClass('col-sm-12').html(serachHTML);
+                    $('#find_results_wrapper .dataTables_filter').parents('.col-sm-6').addClass('col-sm-4').removeClass('col-sm-6');
+                    // $('#find_results_wrapper .dataTables_length').parents('.col-sm-6').addClass('rowss col-sm-8').removeClass('col-sm-6').append(dateRangeHTML);
+                    $('#find_results_wrapper .dataTables_length').parents('.col-sm-6').addClass('rowss col-sm-8').removeClass('col-sm-6');
+                    $('#find_results_wrapper .dataTables_length').addClass('col-sm-4').css('margin-top','20px');    
+                   if($('#myModal-okcontinue.in, #myModal-okcontinue.show').length == 0)
+                   {
+                         $('#myModal-okcontinue').modal({
+                            backdrop: 'static',
+                            keyboard: false
+                        })
+                        $('.unpaid_check .chkBox').prop('checked',false);
+                        $('#find_results_wrapper .dataTables_filter input[type="search"]').val(search_fld_txt_val);
+                        let default_day = 0;
+                        if(search_fld_date_val=='today')
+                        {
+                            default_day = 1;
+                        }
+                        // findanyDatePicker(default_day);
+                        if(search_fld_date_val=='today')
+                        {
+                            $('.find_any_search').trigger('click');
+                        }
+                   }
+                   else
+                   {
+                        $('.job_search_txt_fld').val(request.responseJSON.filterTxt);
+                        $('#find_results_wrapper .dataTables_filter input[type="search"]').val(request.responseJSON.filterTxt);
+                   }
+                   // $('.cust_type_filter').val(cust_type);
+                   // $('.del_type_filter').val(del_type);
+                   // $('.payment_type_filter').val(pay_type);
+                   console.log('loadmore -'+loadmore)
+                   if(loadmore == 0)
+                    {
+                         $('.find_results tbody').find('tr:first-child').addClass('active');
+                         console.log('I am here')
+                    }
+                    else
+                    {
+                        $('.find_results tr').eq(loadmore+1).addClass('active');
+                    }
+                   setTimeout(function(){
+                        // $('.find_results').find('tr.active').find('td:last-child button').trigger('focus');
+                        $('#find_results_wrapper').find('.dataTables_filter').find('input[type="search"]').trigger('focus');
+                        
+                   },600);
+                  
+                    let d = new Date();
+                    let month = d.getMonth()+1;
+                    let day = d.getDate();
+                    let todayDt = (day<10 ? '0' : '') + day + '/' +(month<10 ? '0' : '') + month + '/' +d.getFullYear();
+                   from_date = from_date==''?todayDt:from_date;
+                   to_date   = to_date==''?todayDt:to_date;
+                   // $('.find_any_from_dt').datepicker('setDate', from_date);
+                   // $('.find_any_to_dt').datepicker('setDate', to_data);
+                   $("#searchtable_scrollbar").animate({ scrollTop: $(".find_any_result_modal .dataTables_wrapper").height() }, "slow");
+                }
+            }),
+             drawCallback: function(){
+             if($('.search_table_arrow_btm').is(':visible')){
+                $('.find_any_result_modal').animate({
+                   scrollTop: $('.search_table_arrow_btm').offset().top
+                }, 1000);
+             }
+             $('[data-toggle="tooltip"]').tooltip();
+             let inv_ids = $('.payMultiBtn').data('inv_ids');
+             console.log(inv_ids)
+             $('.chk_select_all_rows input[type="checkbox"]').prop('checked',false);
+             $.each(inv_ids, function( index, value ) {
+                $('.chk_each_rows input[data-order_no="'+value+'"]').trigger('click');
+             });
+             // setTimeout(function(){
+                // if($('.chk_select_all_rows input[type="checkbox"]').prop("checked") == true)
+                // {
+                    // $('.chk_select_all_rows input[type="checkbox"]').trigger('click');
+                // }
+            // },10)
+             $('.search_table_arrow_btm').toggle(this.api().page.hasMore());
+          }, 
+        });   
+}
+$("body").on('click','.search_table_arrow_btm',function(){
+    console.log('I am clicked search_table_arrow_btm')
+    loadmore = $('.find_results tr.active').index();
+    // console.log('loadmore when clicking next - '+loadmore)
+    $('.find_results').DataTable().page.loadMore();
+})
+$("body").on('keydown','.open_inv_no_input',function(e){
+    if(e.keyCode == 13) 
+    {
+        $(".open_inv_btn").trigger('click');
+        e.preventDefault();
+    }
+})
+$("body").on('click','.open_inv_btn',function(){
+    let packing_id  = $('.open_inv_no_input').val();
+    if(!packing_id){
+        return false;
+    }
+    else
+    {
+        viewPackingProcess(packing_id);
+    }
+})
+$("body").on('click','.btn-jobs.my-jobs',function(){
+    let job_count = Number($(this).find('span').text())
+    if(job_count > 0){
+        window.location = "my-jobs.html";
+    }
+})
+let findanyDatePicker = function(default_day=0)
+{
+    console.log('time_zone - '+time_zone)
+    $('.find_any_search').removeClass('clicked');
+    let working_time_start    = ""; //"10:30 AM";
+    let working_time_end      = ""; //"11:00 PM";
+    // console.log('set_bill_date_on_worktime - '+pos_settings.set_bill_date_on_worktime)
+    // if(pos_settings && pos_settings.set_bill_date_on_worktime=='1')
+    // {
+        working_time_start = '12:00 AM';
+        working_time_end   = '11:59 PM';
+    // }
+    // else if(working_time != "" && working_time!=undefined)
+    // {
+    //     working_time_arr = working_time.split("-"); 
+    //     working_time_start = working_time_arr[0];
+    //     working_time_end   = working_time_arr[1];
+    // }
+    console.log(working_time_start);
+    console.log(working_time_end);
+    if(working_time_start !="" && working_time_end !="")
+    {
+        let working_time_start_tf = getTwentyFourHourTime(working_time_start);
+        let working_time_end_tf   = getTwentyFourHourTime(working_time_end);
+        let working_time_start_tf_sp = working_time_start_tf.split(":");
+        let working_time_end_tf_sp   = working_time_end_tf.split(":");
+        console.log(working_time_start_tf_sp);
+        let multiple_day = 0;
+        let timeStart = new Date("01/01/2007 " + working_time_start);
+        let timeEnd = new Date("01/01/2007 " + working_time_end);
+        let diff = (timeEnd - timeStart) / 60000; //dividing by seconds and milliseconds
+        let minutes = diff % 60;
+        let hours = (diff - minutes) / 60;
+        if(hours < 0)multiple_day = 1;
+        if(multiple_day == 1)
+        {
+            let current_time_hour   = moment.tz(moment(), time_zone).format('HH');
+            let current_time_minute = moment.tz(moment(), time_zone).format('mm');
+            let sub_day = 0;
+            current_time_hour   = Number(current_time_hour);
+            current_time_minute = Number(current_time_minute);
+            if(current_time_hour < working_time_end_tf_sp[0])//not reached the closing time
+            {
+                sub_day = 1;
+                start = moment().subtract(sub_day,'days');
+            }
+            var predefined_date_selection = {
+               'Today': [moment(start).set({"hour": working_time_start_tf_sp[0], "minute": working_time_start_tf_sp[1]}),moment(start).add(1, 'days').set({"hour": working_time_end_tf_sp[0], "minute": working_time_end_tf_sp[1]})],
+
+               'Yesterday': [moment().subtract(1+sub_day, 'days').set({"hour": working_time_start_tf_sp[0], "minute": working_time_start_tf_sp[1]}), moment(start).set({"hour": working_time_end_tf_sp[0], "minute": working_time_end_tf_sp[1]})],
+
+               'Last 7 Days': [moment().subtract(6+sub_day, 'days').set({"hour": working_time_start_tf_sp[0], "minute": working_time_start_tf_sp[1]}), moment(start).add(1, 'days').set({"hour": working_time_end_tf_sp[0], "minute": working_time_end_tf_sp[1]})],
+
+               'Last 30 Days': [moment().subtract(29+sub_day, 'days').set({"hour": working_time_start_tf_sp[0], "minute": working_time_start_tf_sp[1]}), moment(start).add(1, 'days').set({"hour": working_time_end_tf_sp[0], "minute": working_time_end_tf_sp[1]})],
+
+               'This Month': [moment().startOf('month').set({"hour": working_time_start_tf_sp[0], "minute": working_time_start_tf_sp[1]}), moment(start).endOf('month').add(1, 'days').set({"hour": working_time_end_tf_sp[0], "minute": working_time_end_tf_sp[1]})],
+
+               'Last Month': [moment().subtract(1, 'month').startOf('month').set({"hour": working_time_start_tf_sp[0], "minute": working_time_start_tf_sp[1]}), moment(start).subtract(1, 'month').endOf('month').add(1, 'days').set({"hour": working_time_end_tf_sp[0], "minute": working_time_end_tf_sp[1]})],
+               'Financial Year': [moment().startOf('year').set({"hour": working_time_start_tf_sp[0], "minute": working_time_start_tf_sp[1]}), moment(start).endOf('year').add(1, 'days').set({"hour": working_time_end_tf_sp[0], "minute": working_time_end_tf_sp[1]})]
+            }
+        }
+        else
+        {
+            var predefined_date_selection = {
+               'Today': [moment(start).set({"hour": working_time_start_tf_sp[0], "minute": working_time_start_tf_sp[1]}),moment(start).set({"hour": working_time_end_tf_sp[0], "minute": working_time_end_tf_sp[1]})],
+
+               'Yesterday': [moment().subtract(1, 'days').set({"hour": working_time_start_tf_sp[0], "minute": working_time_start_tf_sp[1]}), moment().subtract(1, 'days').set({"hour": working_time_end_tf_sp[0], "minute": working_time_end_tf_sp[1]})],
+
+               'Last 7 Days': [moment().subtract(6, 'days').set({"hour": working_time_start_tf_sp[0], "minute": working_time_start_tf_sp[1]}), moment().set({"hour": working_time_end_tf_sp[0], "minute": working_time_end_tf_sp[1]})],
+
+               'Last 30 Days': [moment().subtract(29, 'days').set({"hour": working_time_start_tf_sp[0], "minute": working_time_start_tf_sp[1]}), moment().set({"hour": working_time_end_tf_sp[0], "minute": working_time_end_tf_sp[1]})],
+
+               'This Month': [moment().startOf('month').set({"hour": working_time_start_tf_sp[0], "minute": working_time_start_tf_sp[1]}), moment().endOf('month').set({"hour": working_time_end_tf_sp[0], "minute": working_time_end_tf_sp[1]})],
+
+               'Last Month': [moment().subtract(1, 'month').startOf('month').set({"hour": working_time_start_tf_sp[0], "minute": working_time_start_tf_sp[1]}), moment().subtract(1, 'month').endOf('month').set({"hour": working_time_end_tf_sp[0], "minute": working_time_end_tf_sp[1]})],
+                'Financial Year': [moment().startOf('year').set({"hour": working_time_start_tf_sp[0], "minute": working_time_start_tf_sp[1]}), moment().endOf('year').set({"hour": working_time_end_tf_sp[0], "minute": working_time_end_tf_sp[1]})]
+            }
+        }  
+    }
+    else
+    {
+        var predefined_date_selection = {
+           'Today': [moment(start).startOf('day'),moment(start).endOf('day')],
+           'Yesterday': [moment().subtract(1, 'days').startOf('day'), moment().subtract(1, 'days').endOf('day')],
+           'Last 7 Days': [moment().subtract(6, 'days').startOf('day'), moment().endOf('day')],
+           'Last 30 Days': [moment().subtract(29, 'days').startOf('day'), moment().endOf('day')],
+           'This Month': [moment().startOf('month'), moment().endOf('month')],
+           'Last Month': [moment().subtract(1, 'month').startOf('month'), moment().subtract(1, 'month').endOf('month')],
+           'Financial Year': [moment().startOf('year'), moment().endOf('year')]
+        }
+    }
+    console.log(time_zone)
+    if(time_zone)
+        // moment.tz.setDefault(time_zone);
+    var start = moment();//.subtract(29, 'days');
+    date_format = 'DD/MM/YYYY';
+    if(date_format)
+      date_format = date_format.toUpperCase();
+    //console.log(date_format);
+    //console.log(time_zone);
+    var end = moment();
+
+    function cb_find(start, end) {
+        $('#find_result_range span').html(start.format(date_format+" "+"hh:mm A") + ' to ' + end.format(date_format+" "+"hh:mm A"));
+        // retrieveReport(0,0); 
+    }
+    $('#find_result_range').daterangepicker({
+        timePicker: true,
+        startDate: start,
+        endDate: end,
+        locale: {
+            format: date_format+'hh:mm A'
+        },
+        // moment(date).tz('Europe/Berlin').format(format)
+        ranges: predefined_date_selection
+    }, cb_find);
+    $('#find_result_range span').html('');
+    console.log('default_day - '+default_day)
+    if(default_day==1)
+    {
+        selected_range_arr = (predefined_date_selection['Today']);
+        cb_find(selected_range_arr[0],selected_range_arr[1]);
+        // cb_find(moment(start).startOf('day'),end);
+        $(".daterangepicker").find("li").eq(0).trigger('click');
+        setTimeout(function(){ $(".daterangepicker").find("li").eq(0).trigger('click');},1000);
+    }
+}
+function getTwentyFourHourTime(amPmString) { 
+    var d = new Date("1/1/2017 " + amPmString); 
+    return d.getHours() + ':' + d.getMinutes(); 
+}
+function print_packing(pack_id)
+{
+    loadAjax();
+    setTimeout(function(){ removeAjaxLoad() },200)
+}
+function viewPacking(pack_id)
+{
+    if(pack_id !='0' && pack_id!=undefined && pack_id!='')
+    {
+        window.localStorage.setItem('current_packing_id',pack_id);
+        window.location = "packing.html";
+    }
+}
+function smsPacking(pack_id)
+{
+    loadAjax();
+    $.ajax({
+        url: api_url+'/packing_api/send_sms',
+        method: 'POST',
+        data: {'pack_id': pack_id,'client_identifier':client_identifier},
+        success: function(response) {
+            removeAjaxLoad()
+            var data =JSON.parse(response);
+            console.log(data);
+            if(data.status==1)
+            {
+                loadErrorPopup("Successful",data.status_message,0,0,1);
+            }
+            else
+            {
+                let title = 'Error !';
+                let content = data.status_message;
+                loadErrorPopup(title,content);
+                // $('.open_inv_no_input').select();
+                return false;
+            }
+        },
+        error:function (xhr, ajaxOptions, thrownError){
+            removeAjaxLoad()
+            let title = 'Sending Error !';
+            let content = 'Something went wrong..!';
+            loadErrorPopup(title,content)
+            return false;
+        }   
+
+    });
+}
+function viewPackingProcess(pack_id)
+{
+    loadAjax();
+    $.ajax({
+        url: api_url+'/packing_api/viewPackingProcess',
+        method: 'POST',
+        data: {'pack_id': pack_id,'client_identifier':client_identifier},
+        success: function(response) {
+            removeAjaxLoad()
+            var data =JSON.parse(response);
+            console.log(data);
+            if(data.status==1)
+            {
+                window.localStorage.setItem('current_packing_id',pack_id);
+                window.location = "packing.html";
+            }
+            else
+            {
+                let title = 'Packing not Found !';
+                let content = 'No Packing found with number - '+pack_id;
+                loadErrorPopup(title,content);
+                $('.open_inv_no_input').select();
+                return false;
+            }
+        },
+        error:function (xhr, ajaxOptions, thrownError){
+            removeAjaxLoad()
+            let title = 'Loading Error !';
+            let content = 'Something went wrong..!';
+            loadErrorPopup(title,content)
+            return false;
+        }   
+
+    }); 
+}
+
+function setDelayItem(str)
+{
+$('.scanned_text').val(str);
+openOrder();
+}
+
+// let screenHeight = Number($(window).outerHeight());
+// let grn_table_height = screenHeight-190;
+// $('.grn_table').css('height',grn_table_height+'px');
+
+
+    function enablejobsearch() {
+        const $cb      = $('#myCheck');
+        const newState = $cb.is(':checked');
+
+        $.confirm({
+            title: 'Please Confirm',
+            content: newState
+            ? 'Are you sure you want to <strong>ENABLE</strong> job search?'
+            : 'Are you sure you want to <strong>DISABLE</strong> job search?',
+            buttons: {
+                yes: {
+                    text: 'Yes',
+                    btnClass: 'btn-green',
+                    action: function() {
+                        localStorage.setItem('enableJobSearch', newState);
+                    }
+                },
+                no: {
+                    text: 'No',
+                    btnClass: 'btn-red',
+                    action: function() {
+                        $cb.prop('checked', !newState);
+                    }
+                }
+            }
+        });
+    }
+
+    $(function() {
+        // const saved = localStorage.getItem('enableJobSearch');
+        const search_option = localStorage.getItem('search_option');
+        if (search_option !== null) {
+            $('.scanning_options').val(search_option);
+            if(search_option == 3){
+                $('.dependancy_wrap').removeClass('hidden')
+            }
+        }
+
+        $('body').on('change','.scanning_options',function(){
+            // const $cb      = $('#myCheck');
+            const newState = $(this).val();
+            let key_name = 'Order No';
+            if(newState == 2) key_name = 'Job ID';
+            if(newState == 3) key_name = 'Cloth ID';
+            $.confirm({
+                title: 'Please Confirm',
+                content: 'Are you sure you want to set <strong>'+key_name+'</strong> as default search option?',
+                buttons: {
+                    yes: {
+                        text: 'Yes',
+                        btnClass: 'btn-green',
+                        action: function() {
+                            localStorage.setItem('search_option', newState);
+                            if(newState == 3)
+                                $('.dependancy_wrap').removeClass('hidden')
+                            else
+                                $('.dependancy_wrap').addClass('hidden')
+                        }
+                    },
+                    no: {
+                        text: 'No',
+                        btnClass: 'btn-red',
+                        action: function() {
+                            let search_option = localStorage.getItem('search_option');
+                            search_option = search_option !== null ? search_option : 1;
+                            $('.scanning_options').val(search_option);
+                        }
+                    }
+                }
+            });
+        })
+        $('body').on('change','.user_dependencies',function(){
+            let def_dep = $(this).val();
+            localStorage.setItem('default_dependency',def_dep);
+        })
+    });
+
+    function checkAndProceedjob(jobId, depId) {
+        $.ajax({
+            url: api_url + '/packing_api/check_selected_job',
+            method: 'POST',
+            dataType: 'json',
+            data: {
+                job_id           : jobId,
+                dep_id           : depId,
+                client_identifier: client_identifier,
+                user_id          : user_id
+            }
+        })
+        .done(function(r) {
+            if (!r.ok) {
+            return loadErrorPopup('Error', r.message);
+            }
+            $.confirm({
+                title:'job assigned success',
+                content: r.message,
+                type:'green',
+                icon:'fa fa-check',
+                typeAnimated: true,
+                buttons: {
+                    ok: {
+                        text: 'OK',
+                        btnClass: 'btn-blue',
+                        action: function() {
+                            location.reload();
+                        }
+                    }
+                    
+                }
+            })
+        })
+        .fail(function() {
+            loadErrorPopup('Error', 'Network error during check.');
+        });
+    }
+
+    function openJobSearch() {
+        const jobId = $('.main_entry_fld').val().trim();
+        if (!jobId) {
+            return loadErrorPopup('Error', 'Please scan or type a Job Id.');
+        }
+
+        $.ajax({
+            url: api_url + '/packing_api/searchjob',
+            method: 'POST',
+            dataType: 'json',
+            data: { job_id: jobId ,'client_identifier':client_identifier,'user_id':user_id}
+        })
+        .done(function(resp) {
+            if (!resp.ok) {
+                return loadErrorPopup('Error', resp.message);
+            }
+
+            const deps = resp.backend_deps || [];
+            if (deps.length === 0) {
+                return loadErrorPopup('Error', 'No service assigned for you.');
+            }
+            if (deps.length === 1) {
+                checkAndProceedjob(jobId, deps[0].id);
+                return;
+            }
+            const options = deps .map(d => `<option value="${d.id}">${d.name}</option>`) .join('');
+            $.confirm({
+                title: 'Select Service',
+                type: 'blue',
+                icon: 'fa fa-list',
+                content: `
+                    <p>${resp.message || 'Job validated successfully.'}</p>
+                    <div style="margin-top:10px;">
+                    <label for="jcBackendDep">Choose a backend dept:</label><br>
+                    <select id="jcBackendDep" class="form-control">${options}</select>
+                    </div>
+                `,
+                buttons: {
+                    ok: {
+                        text: 'OK',
+                        btnClass: 'btn-blue',
+                        action: function() {
+                            const selectedDep = this.$content.find('#jcBackendDep').val();
+                            checkAndProceedjob(jobId, selectedDep);
+                        }
+                    },
+                    cancel: { text: 'Cancel' }
+                }
+            });
+        })
+        .fail(function() {
+            loadErrorPopup('Error', 'Validation request failed.');
+        });
+    }
+
+    function openClothSearch() {
+        const clothId = $('.main_entry_fld').val().trim();
+        let def_dependency = $('.user_dependencies').val();
+        console.log('def_dependency',def_dependency); 
+        if (!clothId) {
+            return loadErrorPopup('Error', 'Please scan or type a Cloth Id.');
+        }
+        if (def_dependency<=0 || def_dependency == null) {
+            return loadErrorPopup('Error', 'Please choose a default Dependency.');
+        }
+        $.ajax({
+            url: api_url + '/packing_api/cloth_job_procssed',
+            method: 'POST',
+            dataType: 'json',
+            data: { cloth_id: clothId,'client_identifier':client_identifier,'user_id':user_id,'def_dependency':def_dependency}
+        })
+        .done(function(resp) {
+            $('.main_entry_fld').val('')
+            if (resp.status != 1) {
+                return loadErrorPopup(resp.class, resp.message);
+            }
+            else{
+                $('.success-message')
+                    .text(resp.message)
+                    .fadeIn(500)
+                    .delay(3000)
+                    .fadeOut(500);
+            }            
+        })
+        .fail(function() {
+            loadErrorPopup('Error', 'Validation request failed.');
+        });
+    }
+</script>
+</body>
+</html>

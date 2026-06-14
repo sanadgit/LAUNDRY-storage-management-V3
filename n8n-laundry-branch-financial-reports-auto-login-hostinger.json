@@ -1,0 +1,484 @@
+{
+  "name": "Laundry Branch Financial Reports Automation - Auto Login POS Hostinger",
+  "nodes": [
+    {
+      "id": "note-daily",
+      "name": "Daily Financial Report",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -920,
+        -360
+      ],
+      "parameters": {
+        "content": "## Daily Financial Report\nAuto Login POS version for Hostinger n8n. No cookie copy, no environment variables."
+      }
+    },
+    {
+      "id": "daily-schedule",
+      "name": "Daily Schedule 11:30 PM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -900,
+        -180
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 23 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "daily-range",
+      "name": "Daily Date Range",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        -180
+      ],
+      "parameters": {
+        "jsCode": "const p=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Dubai',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date()); const g=(t)=>p.find(x=>x.type===t)?.value; const d=`${g('year')}-${g('month')}-${g('day')}`; return [{json:{from_date:d,to_date:d,period_label:d}}];"
+      }
+    },
+    {
+      "id": "daily-fetch",
+      "name": "Fetch POS Daily Report Auto Login",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -420,
+        -180
+      ],
+      "parameters": {
+        "jsCode": "const vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst POS_USERNAME = String(vars.POS_USERNAME || 'REPLACE_POS_USERNAME').trim();\nconst POS_PASSWORD = String(vars.POS_PASSWORD || 'REPLACE_POS_PASSWORD').trim();\nconst POS_CLIENT_IDENTIFIER = String(vars.POS_CLIENT_IDENTIFIER || 'inout').trim() || 'inout';\nconst POS_LOGIN_ENDPOINT = String(vars.POS_LOGIN_ENDPOINT || 'https://beta.aipsoft.com/inout/login/check').trim();\nconst POS_LOGIN_REFERER = String(vars.POS_LOGIN_REFERER || 'https://beta.aipsoft.com/inout/sales').trim();\nconst POS_ORIGIN = String(vars.POS_ORIGIN || 'https://beta.aipsoft.com').trim();\nconst POS_REPORT_URL = String(vars.POS_REPORT_URL || 'https://beta.aipsoft.com/inout/sales/generate_report').trim();\n\nif (!POS_USERNAME || POS_USERNAME === 'REPLACE_POS_USERNAME' || !POS_PASSWORD || POS_PASSWORD === 'REPLACE_POS_PASSWORD') {\n  throw new Error('Set POS_USERNAME and POS_PASSWORD in n8n Variables, or replace them inside this Code node.');\n}\n\nconst range = {\n  from_date: String($json.from_date || '').trim(),\n  to_date: String($json.to_date || '').trim(),\n  period_label: String($json.period_label || '').trim(),\n};\nif (!range.from_date || !range.to_date) throw new Error('Missing from_date/to_date from Date Range node.');\n\nconst normalizeHeaders = (headers = {}) => {\n  const out = {};\n  if (headers && typeof headers.forEach === 'function') {\n    headers.forEach((value, key) => { out[String(key).toLowerCase()] = value; });\n    if (typeof headers.getSetCookie === 'function') out['set-cookie'] = headers.getSetCookie();\n    return out;\n  }\n  for (const [key, value] of Object.entries(headers || {})) out[String(key).toLowerCase()] = value;\n  return out;\n};\n\nconst getSetCookies = (headers = {}) => {\n  const normalized = normalizeHeaders(headers);\n  const raw = normalized['set-cookie'];\n  if (!raw) return [];\n  if (Array.isArray(raw)) return raw;\n  return String(raw).split(/,(?=\\s*[^;,\\s]+=)/g).map((v) => v.trim()).filter(Boolean);\n};\n\nconst parseCookieHeader = (cookieHeader) => {\n  const map = new Map();\n  for (const part of String(cookieHeader || '').split(';')) {\n    const segment = part.trim();\n    if (!segment) continue;\n    const eqIndex = segment.indexOf('=');\n    if (eqIndex <= 0) continue;\n    const key = segment.slice(0, eqIndex).trim();\n    const value = segment.slice(eqIndex + 1).trim();\n    if (key) map.set(key, value);\n  }\n  return map;\n};\n\nconst mergeCookieHeaders = (baseCookieHeader, setCookies) => {\n  const merged = parseCookieHeader(baseCookieHeader);\n  for (const setCookie of setCookies || []) {\n    const cookiePart = String(setCookie || '').split(';')[0]?.trim();\n    if (!cookiePart) continue;\n    const eqIndex = cookiePart.indexOf('=');\n    if (eqIndex <= 0) continue;\n    const key = cookiePart.slice(0, eqIndex).trim();\n    const value = cookiePart.slice(eqIndex + 1).trim();\n    if (key) merged.set(key, value);\n  }\n  return Array.from(merged.entries()).map(([key, value]) => `${key}=${value}`).join('; ');\n};\n\nconst formEncode = (params) => Object.entries(params).map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(String(value ?? ''))).join('&');\nconst hasMinimalPosCookie = (cookieHeader) => /ci_session_/i.test(String(cookieHeader || '')) && /\\binout=/i.test(String(cookieHeader || ''));\nconst isLikelyPosLoginHtml = (text) => {\n  const lower = String(text || '').toLowerCase();\n  return lower.includes(':: login') || lower.includes('login/check') || lower.includes('assets/dashboard/css/login.css') || lower.includes('name=\"password\"') || lower.includes(\"name='password'\");\n};\n\nasync function requestFull(options) {\n  const requestOptions = {\n    method: options.method || 'GET',\n    url: options.url,\n    headers: options.headers || {},\n    body: options.body,\n    json: false,\n    returnFullResponse: true,\n    resolveWithFullResponse: true,\n    simple: false,\n    timeout: 30000,\n  };\n\n  if (this?.helpers?.httpRequest) {\n    const response = await this.helpers.httpRequest(requestOptions);\n    if (response && typeof response === 'object' && (response.headers || Object.prototype.hasOwnProperty.call(response, 'body'))) {\n      const body = typeof response.body === 'string' ? response.body : JSON.stringify(response.body ?? '');\n      return { statusCode: response.statusCode || response.status || 0, headers: response.headers || {}, body };\n    }\n    return { statusCode: 0, headers: {}, body: typeof response === 'string' ? response : JSON.stringify(response ?? '') };\n  }\n\n  if (typeof fetch !== 'function') throw new Error('No HTTP helper available inside n8n Code node.');\n  const response = await fetch(options.url, {\n    method: options.method || 'GET',\n    headers: options.headers || {},\n    body: options.body,\n    redirect: 'manual',\n  });\n  const body = await response.text();\n  return { statusCode: response.status, headers: response.headers, body };\n}\n\nlet cookieHeader = 'language=english; direction=ltr; dont_show_today=true';\n\ntry {\n  const preflight = await requestFull.call(this, {\n    method: 'GET',\n    url: POS_LOGIN_REFERER,\n    headers: {\n      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',\n      'Cache-Control': 'no-cache',\n      Pragma: 'no-cache',\n      Cookie: cookieHeader,\n    },\n  });\n  cookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(preflight.headers));\n} catch (error) {\n  // Some POS installations allow login without preflight cookies.\n}\n\nconst usernameBeforeAt = POS_USERNAME.includes('@') ? POS_USERNAME.split('@')[0].trim() : POS_USERNAME;\nconst usernameVariants = Array.from(new Set([\n  POS_USERNAME,\n  POS_USERNAME.toLowerCase(),\n  usernameBeforeAt,\n  usernameBeforeAt.toLowerCase(),\n  usernameBeforeAt ? `${usernameBeforeAt}@${POS_CLIENT_IDENTIFIER}` : '',\n  usernameBeforeAt ? `${usernameBeforeAt.toLowerCase()}@${POS_CLIENT_IDENTIFIER}` : '',\n].filter(Boolean)));\n\nlet authed = false;\nlet usedUsername = '';\nlet lastLoginBody = '';\nfor (const username of usernameVariants) {\n  const payload = formEncode({\n    username,\n    password: POS_PASSWORD,\n    client_identifier: POS_CLIENT_IDENTIFIER,\n    auto_login: 'null',\n    connection_path: 'null',\n  });\n\n  const loginResponse = await requestFull.call(this, {\n    method: 'POST',\n    url: POS_LOGIN_ENDPOINT,\n    headers: {\n      Accept: 'application/json, text/javascript, */*; q=0.01',\n      'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ar;q=0.7',\n      'Cache-Control': 'no-cache',\n      Pragma: 'no-cache',\n      Origin: POS_ORIGIN,\n      Referer: POS_LOGIN_REFERER,\n      'X-Requested-With': 'XMLHttpRequest',\n      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',\n      Cookie: cookieHeader,\n    },\n    body: payload,\n  });\n\n  cookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(loginResponse.headers));\n  lastLoginBody = String(loginResponse.body || '');\n  const lower = lastLoginBody.toLowerCase();\n  const looksSuccess = lower.includes('login_success') || lower.includes('password_ok') || ((loginResponse.statusCode >= 200 && loginResponse.statusCode < 400) && !isLikelyPosLoginHtml(lastLoginBody));\n  if (looksSuccess && hasMinimalPosCookie(cookieHeader)) {\n    authed = true;\n    usedUsername = username;\n    break;\n  }\n}\n\nif (!authed) {\n  throw new Error('POS login failed. Check POS_USERNAME/POS_PASSWORD and POS sales permission. Last response: ' + lastLoginBody.slice(0, 250));\n}\n\nconst reportParams = {\n  report_type: 'counter_cash',\n  from_date: range.from_date,\n  from_time: '12:00 AM',\n  to_date: range.to_date,\n  to_time: '11:59 PM',\n  no_of_decimal_places: '2',\n  save: '1',\n  predefined_date: 'Custom Range',\n  prod_details: '0',\n  void_details: '0',\n  ord_prod_details: '0',\n  ord_void_details: '0',\n  cust_details: '0',\n  expns_details: '1',\n  print: '0',\n  inv_cat_wise: '0',\n  ord_cat_wise: '0',\n  inv_cat_wise_tax: '0',\n  ord_cat_wise_tax: '0',\n  salesman_wise: '0',\n  credit_invoice: '0',\n  return_invoice: '0',\n  return_invoice_prod_details: '0',\n  expence_entry_details: '0',\n  purchase_etnry_details: '0',\n  order_billwise_details: '0',\n  vehicle_details: '0',\n  salesman_wise_detail: '0',\n  received_payment_details: '0',\n  order_product_unit_wise: '0',\n};\nconst reportPayload = formEncode(reportParams);\n\nconst reportResponse = await requestFull.call(this, {\n  method: 'POST',\n  url: POS_REPORT_URL,\n  headers: {\n    Accept: '*/*',\n    'Cache-Control': 'no-cache',\n    Pragma: 'no-cache',\n    Origin: POS_ORIGIN,\n    Referer: POS_LOGIN_REFERER,\n    'X-Requested-With': 'XMLHttpRequest',\n    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',\n    Cookie: cookieHeader,\n  },\n  body: reportPayload,\n});\ncookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(reportResponse.headers));\nconst html = String(reportResponse.body || '');\nif (!html.trim()) throw new Error('POS report returned empty response.');\nif (isLikelyPosLoginHtml(html)) throw new Error('POS returned login page after auto login. Check POS permissions for Counter Cash report.');\n\nconst stripHtml = (value) => String(value ?? '').replace(/<[^>]*>/g, ' ').replace(/\\s+/g, ' ').trim();\nconst parseMoney = (value) => {\n  const parsed = Number(String(value ?? '').replace(/,/g, '').replace(/[^0-9.-]/g, ''));\n  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : 0;\n};\nconst escapeRegex = (value) => String(value).replace(/[.*+?^\\${}()|[\\]\\\\]/g, '\\\\$&');\nconst extractAmount = (sectionHtml, label) => {\n  const pattern = new RegExp('<td[^>]*>\\\\s*' + escapeRegex(label) + '\\\\s*<\\\\/td>\\\\s*<td[^>]*>\\\\s*([\\\\d,.-]+)\\\\s*<\\\\/td>', 'i');\n  const match = String(sectionHtml || '').match(pattern);\n  return match ? parseMoney(match[1]) : 0;\n};\nconst extractText = (pattern) => {\n  const match = html.match(pattern);\n  return match ? stripHtml(match[1]) : '';\n};\nconst parseExpenseRows = (sectionHtml) => {\n  const rows = [];\n  const pattern = /<tr>\\s*<td[^>]*>\\s*(\\d+)\\s*<\\/td>\\s*<td[^>]*colspan=\"3\"[^>]*>([\\s\\S]*?)<\\/td>[\\s\\S]*?<td[^>]*align=\"right\"[^>]*>\\s*([\\d,.-]+)\\s*<\\/td>\\s*<\\/tr>/gi;\n  for (const match of String(sectionHtml || '').matchAll(pattern)) {\n    rows.push({ no: Number(match[1]) || rows.length + 1, description: stripHtml(match[2]), amount: parseMoney(match[3]) });\n  }\n  return rows;\n};\n\nconst expense_sections = [];\nconst sectionPattern = /<h3[^>]*class=\"[^\"]*sub_title[^\"]*\"[^>]*>([\\s\\S]*?)<\\/h3>([\\s\\S]*?)(?=<tr>\\s*<td[^>]*colspan=\"5\"[^>]*>\\s*<h3[^>]*class=\"[^\"]*sub_title|<\\/tbody>\\s*<\\/table>)/gi;\nfor (const match of html.matchAll(sectionPattern)) {\n  const title = stripHtml(match[1]);\n  const sectionHtml = String(match[2] || '');\n  if (!title) continue;\n  const key = title.toLowerCase().includes('credit') ? 'credit_card' : 'cash';\n  expense_sections.push({ key, title, received_total: extractAmount(sectionHtml, 'Received Total'), expense_total: extractAmount(sectionHtml, 'Expense Total'), balance: extractAmount(sectionHtml, 'Balance'), rows: parseExpenseRows(sectionHtml) });\n}\nconst cash = expense_sections.find((s) => s.key === 'cash') || { received_total: 0, expense_total: 0, balance: 0, rows: [] };\nconst cardExp = expense_sections.find((s) => s.key === 'credit_card') || { received_total: 0, expense_total: 0, balance: 0, rows: [] };\n\nconst customerRows = [];\nconst customerPattern = /<tr>\\s*<td[^>]*align=\"left\"[^>]*>\\s*([^<]+?)\\s*<\\/td>\\s*<td[^>]*align=\"left\"[^>]*>\\s*(\\d+)\\s*<\\/td>\\s*<td[^>]*align=\"right\"[^>]*>\\s*([\\d,.-]+)\\s*<\\/td>\\s*<\\/tr>/gi;\nfor (const match of html.matchAll(customerPattern)) {\n  const customer = stripHtml(match[1]);\n  if (!customer || customer.toLowerCase() === 'customer') continue;\n  customerRows.push({ customer, invoice_count: Number(match[2]) || 0, amount: parseMoney(match[3]) });\n}\nconst round = (value) => Math.round((Number(value) || 0) * 100) / 100;\nconst summary = {\n  company: extractText(/<h4[^>]*>\\s*([^<]*IN AND OUT LAUNDRY[^<]*)\\s*<\\/h4>/i),\n  report_name: extractText(/<h4[^>]*>\\s*Reports\\s*:\\s*([\\s\\S]*?)<\\/h4>/i),\n  date_range: extractText(/Reports Date Range\\s*:\\s*([\\s\\S]*?)<\\/h4>/i),\n  printed_at: extractText(/Printing Date\\s*\\/\\s*Time\\s*:\\s*([\\s\\S]*?)<\\/h4>/i),\n  branch: extractText(/<h4[^>]*>\\s*Branch\\s*:\\s*([\\s\\S]*?)<\\/h4>/i),\n  cash_receipt: extractAmount(html, 'Cash Account(Reciept)'),\n  card_receipt: extractAmount(html, 'Credit Card(Reciept)'),\n  grand_total_receipt: extractAmount(html, 'Grand Total Receipt'),\n  total_income: extractAmount(html, 'Total Income'),\n  cash_in_hand: extractAmount(html, 'Cash in Hand'),\n  cash_received_total: cash.received_total,\n  cash_expense_total: cash.expense_total,\n  cash_balance: cash.balance,\n  credit_card_received_total: cardExp.received_total,\n  credit_card_expense_total: cardExp.expense_total,\n  credit_card_balance: cardExp.balance,\n  expense_total: round(expense_sections.reduce((sum, s) => sum + Number(s.expense_total || 0), 0)),\n  balance: round(expense_sections.reduce((sum, s) => sum + Number(s.balance || 0), 0)),\n  total_invoice: extractAmount(html, 'Total Invoice'),\n  expense_sections,\n  expenses: expense_sections.flatMap((section) => section.rows.map((row) => ({ ...row, account: section.key, account_title: section.title }))),\n  customers: customerRows,\n};\nif (!summary.report_name) throw new Error('Could not parse POS Counter Cash report. HTML length: ' + html.length);\nreturn [{ json: { ok: true, summary, html_length: html.length, used_username: usedUsername, period_label: range.period_label } }];"
+      }
+    },
+    {
+      "id": "daily-build",
+      "name": "Build Daily WhatsApp Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        -180
+      ],
+      "parameters": {
+        "jsCode": "const s=$json.summary||{}; const m=(v)=>Number(v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); const net=Number(s.cash_receipt||0)-Number(s.cash_expense_total||0); const msg=`📊 التقرير المالي اليومي\\n📅 التاريخ: ${s.date_range||$('Daily Date Range').first().json.period_label}\\n\\n🏪 الفرع: ${s.branch||'غير محدد'}\\n💰 إجمالي المبيعات: ${m(s.total_income)} AED\\n💵 الكاش: ${m(s.cash_receipt)} AED\\n💳 البطاقة: ${m(s.card_receipt)} AED\\n📉 مصروفات الكاش: ${m(s.cash_expense_total)} AED\\n💳 مصروفات البطاقة: ${m(s.credit_card_expense_total)} AED\\n📉 إجمالي المصروفات: ${m(s.expense_total)} AED\\n✅ صافي الكاش الموجود: ${m(net)} AED\\n🧾 عدد الطلبات: ${Number(s.total_invoice||0)}`; return [{json:{whatsapp_to:'REPLACE_MANAGEMENT_GROUP_ID_OR_PHONE',message:msg,summary:s}}];"
+      }
+    },
+    {
+      "id": "daily-send",
+      "name": "Send Daily WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        300,
+        -180
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "method": "POST",
+        "url": "https://graph.facebook.com/v20.0/REPLACE_PHONE_NUMBER_ID/messages",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { to: $json.whatsapp_to, type: 'text', text: { body: $json.message } } }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "REPLACE_WITH_WHATSAPP_BEARER_CREDENTIAL_ID",
+          "name": "WhatsApp API Bearer Token"
+        }
+      }
+    },
+    {
+      "id": "note-weekly",
+      "name": "Weekly Cash Deposit Report",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -920,
+        80
+      ],
+      "parameters": {
+        "content": "## Weekly Cash Deposit Report\nAuto Login POS report for last 7 days. No manual cookie."
+      }
+    },
+    {
+      "id": "weekly-schedule",
+      "name": "Weekly Schedule Sunday 10:45 PM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -900,
+        260
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "45 22 * * 0"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "weekly-range",
+      "name": "Weekly Date Range",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        260
+      ],
+      "parameters": {
+        "jsCode": "const pad=(n)=>String(n).padStart(2,'0'); const f=(d)=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; const now=new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Dubai'})); const end=new Date(now); const start=new Date(now); start.setDate(end.getDate()-6); return [{json:{from_date:f(start),to_date:f(end),period_label:`${f(start)} إلى ${f(end)}`}}];"
+      }
+    },
+    {
+      "id": "weekly-fetch",
+      "name": "Fetch POS Weekly Report Auto Login",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -420,
+        260
+      ],
+      "parameters": {
+        "jsCode": "const vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst POS_USERNAME = String(vars.POS_USERNAME || 'REPLACE_POS_USERNAME').trim();\nconst POS_PASSWORD = String(vars.POS_PASSWORD || 'REPLACE_POS_PASSWORD').trim();\nconst POS_CLIENT_IDENTIFIER = String(vars.POS_CLIENT_IDENTIFIER || 'inout').trim() || 'inout';\nconst POS_LOGIN_ENDPOINT = String(vars.POS_LOGIN_ENDPOINT || 'https://beta.aipsoft.com/inout/login/check').trim();\nconst POS_LOGIN_REFERER = String(vars.POS_LOGIN_REFERER || 'https://beta.aipsoft.com/inout/sales').trim();\nconst POS_ORIGIN = String(vars.POS_ORIGIN || 'https://beta.aipsoft.com').trim();\nconst POS_REPORT_URL = String(vars.POS_REPORT_URL || 'https://beta.aipsoft.com/inout/sales/generate_report').trim();\n\nif (!POS_USERNAME || POS_USERNAME === 'REPLACE_POS_USERNAME' || !POS_PASSWORD || POS_PASSWORD === 'REPLACE_POS_PASSWORD') {\n  throw new Error('Set POS_USERNAME and POS_PASSWORD in n8n Variables, or replace them inside this Code node.');\n}\n\nconst range = {\n  from_date: String($json.from_date || '').trim(),\n  to_date: String($json.to_date || '').trim(),\n  period_label: String($json.period_label || '').trim(),\n};\nif (!range.from_date || !range.to_date) throw new Error('Missing from_date/to_date from Date Range node.');\n\nconst normalizeHeaders = (headers = {}) => {\n  const out = {};\n  if (headers && typeof headers.forEach === 'function') {\n    headers.forEach((value, key) => { out[String(key).toLowerCase()] = value; });\n    if (typeof headers.getSetCookie === 'function') out['set-cookie'] = headers.getSetCookie();\n    return out;\n  }\n  for (const [key, value] of Object.entries(headers || {})) out[String(key).toLowerCase()] = value;\n  return out;\n};\n\nconst getSetCookies = (headers = {}) => {\n  const normalized = normalizeHeaders(headers);\n  const raw = normalized['set-cookie'];\n  if (!raw) return [];\n  if (Array.isArray(raw)) return raw;\n  return String(raw).split(/,(?=\\s*[^;,\\s]+=)/g).map((v) => v.trim()).filter(Boolean);\n};\n\nconst parseCookieHeader = (cookieHeader) => {\n  const map = new Map();\n  for (const part of String(cookieHeader || '').split(';')) {\n    const segment = part.trim();\n    if (!segment) continue;\n    const eqIndex = segment.indexOf('=');\n    if (eqIndex <= 0) continue;\n    const key = segment.slice(0, eqIndex).trim();\n    const value = segment.slice(eqIndex + 1).trim();\n    if (key) map.set(key, value);\n  }\n  return map;\n};\n\nconst mergeCookieHeaders = (baseCookieHeader, setCookies) => {\n  const merged = parseCookieHeader(baseCookieHeader);\n  for (const setCookie of setCookies || []) {\n    const cookiePart = String(setCookie || '').split(';')[0]?.trim();\n    if (!cookiePart) continue;\n    const eqIndex = cookiePart.indexOf('=');\n    if (eqIndex <= 0) continue;\n    const key = cookiePart.slice(0, eqIndex).trim();\n    const value = cookiePart.slice(eqIndex + 1).trim();\n    if (key) merged.set(key, value);\n  }\n  return Array.from(merged.entries()).map(([key, value]) => `${key}=${value}`).join('; ');\n};\n\nconst formEncode = (params) => Object.entries(params).map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(String(value ?? ''))).join('&');\nconst hasMinimalPosCookie = (cookieHeader) => /ci_session_/i.test(String(cookieHeader || '')) && /\\binout=/i.test(String(cookieHeader || ''));\nconst isLikelyPosLoginHtml = (text) => {\n  const lower = String(text || '').toLowerCase();\n  return lower.includes(':: login') || lower.includes('login/check') || lower.includes('assets/dashboard/css/login.css') || lower.includes('name=\"password\"') || lower.includes(\"name='password'\");\n};\n\nasync function requestFull(options) {\n  const requestOptions = {\n    method: options.method || 'GET',\n    url: options.url,\n    headers: options.headers || {},\n    body: options.body,\n    json: false,\n    returnFullResponse: true,\n    resolveWithFullResponse: true,\n    simple: false,\n    timeout: 30000,\n  };\n\n  if (this?.helpers?.httpRequest) {\n    const response = await this.helpers.httpRequest(requestOptions);\n    if (response && typeof response === 'object' && (response.headers || Object.prototype.hasOwnProperty.call(response, 'body'))) {\n      const body = typeof response.body === 'string' ? response.body : JSON.stringify(response.body ?? '');\n      return { statusCode: response.statusCode || response.status || 0, headers: response.headers || {}, body };\n    }\n    return { statusCode: 0, headers: {}, body: typeof response === 'string' ? response : JSON.stringify(response ?? '') };\n  }\n\n  if (typeof fetch !== 'function') throw new Error('No HTTP helper available inside n8n Code node.');\n  const response = await fetch(options.url, {\n    method: options.method || 'GET',\n    headers: options.headers || {},\n    body: options.body,\n    redirect: 'manual',\n  });\n  const body = await response.text();\n  return { statusCode: response.status, headers: response.headers, body };\n}\n\nlet cookieHeader = 'language=english; direction=ltr; dont_show_today=true';\n\ntry {\n  const preflight = await requestFull.call(this, {\n    method: 'GET',\n    url: POS_LOGIN_REFERER,\n    headers: {\n      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',\n      'Cache-Control': 'no-cache',\n      Pragma: 'no-cache',\n      Cookie: cookieHeader,\n    },\n  });\n  cookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(preflight.headers));\n} catch (error) {\n  // Some POS installations allow login without preflight cookies.\n}\n\nconst usernameBeforeAt = POS_USERNAME.includes('@') ? POS_USERNAME.split('@')[0].trim() : POS_USERNAME;\nconst usernameVariants = Array.from(new Set([\n  POS_USERNAME,\n  POS_USERNAME.toLowerCase(),\n  usernameBeforeAt,\n  usernameBeforeAt.toLowerCase(),\n  usernameBeforeAt ? `${usernameBeforeAt}@${POS_CLIENT_IDENTIFIER}` : '',\n  usernameBeforeAt ? `${usernameBeforeAt.toLowerCase()}@${POS_CLIENT_IDENTIFIER}` : '',\n].filter(Boolean)));\n\nlet authed = false;\nlet usedUsername = '';\nlet lastLoginBody = '';\nfor (const username of usernameVariants) {\n  const payload = formEncode({\n    username,\n    password: POS_PASSWORD,\n    client_identifier: POS_CLIENT_IDENTIFIER,\n    auto_login: 'null',\n    connection_path: 'null',\n  });\n\n  const loginResponse = await requestFull.call(this, {\n    method: 'POST',\n    url: POS_LOGIN_ENDPOINT,\n    headers: {\n      Accept: 'application/json, text/javascript, */*; q=0.01',\n      'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ar;q=0.7',\n      'Cache-Control': 'no-cache',\n      Pragma: 'no-cache',\n      Origin: POS_ORIGIN,\n      Referer: POS_LOGIN_REFERER,\n      'X-Requested-With': 'XMLHttpRequest',\n      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',\n      Cookie: cookieHeader,\n    },\n    body: payload,\n  });\n\n  cookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(loginResponse.headers));\n  lastLoginBody = String(loginResponse.body || '');\n  const lower = lastLoginBody.toLowerCase();\n  const looksSuccess = lower.includes('login_success') || lower.includes('password_ok') || ((loginResponse.statusCode >= 200 && loginResponse.statusCode < 400) && !isLikelyPosLoginHtml(lastLoginBody));\n  if (looksSuccess && hasMinimalPosCookie(cookieHeader)) {\n    authed = true;\n    usedUsername = username;\n    break;\n  }\n}\n\nif (!authed) {\n  throw new Error('POS login failed. Check POS_USERNAME/POS_PASSWORD and POS sales permission. Last response: ' + lastLoginBody.slice(0, 250));\n}\n\nconst reportParams = {\n  report_type: 'counter_cash',\n  from_date: range.from_date,\n  from_time: '12:00 AM',\n  to_date: range.to_date,\n  to_time: '11:59 PM',\n  no_of_decimal_places: '2',\n  save: '1',\n  predefined_date: 'Custom Range',\n  prod_details: '0',\n  void_details: '0',\n  ord_prod_details: '0',\n  ord_void_details: '0',\n  cust_details: '0',\n  expns_details: '1',\n  print: '0',\n  inv_cat_wise: '0',\n  ord_cat_wise: '0',\n  inv_cat_wise_tax: '0',\n  ord_cat_wise_tax: '0',\n  salesman_wise: '0',\n  credit_invoice: '0',\n  return_invoice: '0',\n  return_invoice_prod_details: '0',\n  expence_entry_details: '0',\n  purchase_etnry_details: '0',\n  order_billwise_details: '0',\n  vehicle_details: '0',\n  salesman_wise_detail: '0',\n  received_payment_details: '0',\n  order_product_unit_wise: '0',\n};\nconst reportPayload = formEncode(reportParams);\n\nconst reportResponse = await requestFull.call(this, {\n  method: 'POST',\n  url: POS_REPORT_URL,\n  headers: {\n    Accept: '*/*',\n    'Cache-Control': 'no-cache',\n    Pragma: 'no-cache',\n    Origin: POS_ORIGIN,\n    Referer: POS_LOGIN_REFERER,\n    'X-Requested-With': 'XMLHttpRequest',\n    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',\n    Cookie: cookieHeader,\n  },\n  body: reportPayload,\n});\ncookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(reportResponse.headers));\nconst html = String(reportResponse.body || '');\nif (!html.trim()) throw new Error('POS report returned empty response.');\nif (isLikelyPosLoginHtml(html)) throw new Error('POS returned login page after auto login. Check POS permissions for Counter Cash report.');\n\nconst stripHtml = (value) => String(value ?? '').replace(/<[^>]*>/g, ' ').replace(/\\s+/g, ' ').trim();\nconst parseMoney = (value) => {\n  const parsed = Number(String(value ?? '').replace(/,/g, '').replace(/[^0-9.-]/g, ''));\n  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : 0;\n};\nconst escapeRegex = (value) => String(value).replace(/[.*+?^\\${}()|[\\]\\\\]/g, '\\\\$&');\nconst extractAmount = (sectionHtml, label) => {\n  const pattern = new RegExp('<td[^>]*>\\\\s*' + escapeRegex(label) + '\\\\s*<\\\\/td>\\\\s*<td[^>]*>\\\\s*([\\\\d,.-]+)\\\\s*<\\\\/td>', 'i');\n  const match = String(sectionHtml || '').match(pattern);\n  return match ? parseMoney(match[1]) : 0;\n};\nconst extractText = (pattern) => {\n  const match = html.match(pattern);\n  return match ? stripHtml(match[1]) : '';\n};\nconst parseExpenseRows = (sectionHtml) => {\n  const rows = [];\n  const pattern = /<tr>\\s*<td[^>]*>\\s*(\\d+)\\s*<\\/td>\\s*<td[^>]*colspan=\"3\"[^>]*>([\\s\\S]*?)<\\/td>[\\s\\S]*?<td[^>]*align=\"right\"[^>]*>\\s*([\\d,.-]+)\\s*<\\/td>\\s*<\\/tr>/gi;\n  for (const match of String(sectionHtml || '').matchAll(pattern)) {\n    rows.push({ no: Number(match[1]) || rows.length + 1, description: stripHtml(match[2]), amount: parseMoney(match[3]) });\n  }\n  return rows;\n};\n\nconst expense_sections = [];\nconst sectionPattern = /<h3[^>]*class=\"[^\"]*sub_title[^\"]*\"[^>]*>([\\s\\S]*?)<\\/h3>([\\s\\S]*?)(?=<tr>\\s*<td[^>]*colspan=\"5\"[^>]*>\\s*<h3[^>]*class=\"[^\"]*sub_title|<\\/tbody>\\s*<\\/table>)/gi;\nfor (const match of html.matchAll(sectionPattern)) {\n  const title = stripHtml(match[1]);\n  const sectionHtml = String(match[2] || '');\n  if (!title) continue;\n  const key = title.toLowerCase().includes('credit') ? 'credit_card' : 'cash';\n  expense_sections.push({ key, title, received_total: extractAmount(sectionHtml, 'Received Total'), expense_total: extractAmount(sectionHtml, 'Expense Total'), balance: extractAmount(sectionHtml, 'Balance'), rows: parseExpenseRows(sectionHtml) });\n}\nconst cash = expense_sections.find((s) => s.key === 'cash') || { received_total: 0, expense_total: 0, balance: 0, rows: [] };\nconst cardExp = expense_sections.find((s) => s.key === 'credit_card') || { received_total: 0, expense_total: 0, balance: 0, rows: [] };\n\nconst customerRows = [];\nconst customerPattern = /<tr>\\s*<td[^>]*align=\"left\"[^>]*>\\s*([^<]+?)\\s*<\\/td>\\s*<td[^>]*align=\"left\"[^>]*>\\s*(\\d+)\\s*<\\/td>\\s*<td[^>]*align=\"right\"[^>]*>\\s*([\\d,.-]+)\\s*<\\/td>\\s*<\\/tr>/gi;\nfor (const match of html.matchAll(customerPattern)) {\n  const customer = stripHtml(match[1]);\n  if (!customer || customer.toLowerCase() === 'customer') continue;\n  customerRows.push({ customer, invoice_count: Number(match[2]) || 0, amount: parseMoney(match[3]) });\n}\nconst round = (value) => Math.round((Number(value) || 0) * 100) / 100;\nconst summary = {\n  company: extractText(/<h4[^>]*>\\s*([^<]*IN AND OUT LAUNDRY[^<]*)\\s*<\\/h4>/i),\n  report_name: extractText(/<h4[^>]*>\\s*Reports\\s*:\\s*([\\s\\S]*?)<\\/h4>/i),\n  date_range: extractText(/Reports Date Range\\s*:\\s*([\\s\\S]*?)<\\/h4>/i),\n  printed_at: extractText(/Printing Date\\s*\\/\\s*Time\\s*:\\s*([\\s\\S]*?)<\\/h4>/i),\n  branch: extractText(/<h4[^>]*>\\s*Branch\\s*:\\s*([\\s\\S]*?)<\\/h4>/i),\n  cash_receipt: extractAmount(html, 'Cash Account(Reciept)'),\n  card_receipt: extractAmount(html, 'Credit Card(Reciept)'),\n  grand_total_receipt: extractAmount(html, 'Grand Total Receipt'),\n  total_income: extractAmount(html, 'Total Income'),\n  cash_in_hand: extractAmount(html, 'Cash in Hand'),\n  cash_received_total: cash.received_total,\n  cash_expense_total: cash.expense_total,\n  cash_balance: cash.balance,\n  credit_card_received_total: cardExp.received_total,\n  credit_card_expense_total: cardExp.expense_total,\n  credit_card_balance: cardExp.balance,\n  expense_total: round(expense_sections.reduce((sum, s) => sum + Number(s.expense_total || 0), 0)),\n  balance: round(expense_sections.reduce((sum, s) => sum + Number(s.balance || 0), 0)),\n  total_invoice: extractAmount(html, 'Total Invoice'),\n  expense_sections,\n  expenses: expense_sections.flatMap((section) => section.rows.map((row) => ({ ...row, account: section.key, account_title: section.title }))),\n  customers: customerRows,\n};\nif (!summary.report_name) throw new Error('Could not parse POS Counter Cash report. HTML length: ' + html.length);\nreturn [{ json: { ok: true, summary, html_length: html.length, used_username: usedUsername, period_label: range.period_label } }];"
+      }
+    },
+    {
+      "id": "weekly-build",
+      "name": "Build Weekly Deposit Messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        260
+      ],
+      "parameters": {
+        "jsCode": "const s=$json.summary||{}; const r=$('Weekly Date Range').first().json; const m=(v)=>Number(v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); const dep=Number(s.cash_receipt||0)-Number(s.cash_expense_total||0); const branch=s.branch||'AL FALAH'; const id=`${branch.replace(/\\s+/g,'_')}_${r.from_date}_${r.to_date}`; const manager=`📌 تقرير الإيداع الأسبوعي\\n🏪 الفرع: ${branch}\\n📅 الفترة: ${r.period_label}\\n\\n💵 إجمالي الكاش: ${m(s.cash_receipt)} AED\\n📉 إجمالي مصروفات الكاش: ${m(s.cash_expense_total)} AED\\n🏦 المبلغ المطلوب إيداعه: ${m(dep)} AED\\n\\nيرجى إيداع مبلغ ${m(dep)} AED ثم إرسال صورة الإيصال.\\nDeposit ID: ${id}`; const admin=`📌 نسخة الإدارة - تقرير الإيداع الأسبوعي\\n🏪 الفرع: ${branch}\\n📅 الفترة: ${r.period_label}\\n🏦 المطلوب إيداعه: ${m(dep)} AED\\nDeposit ID: ${id}`; return [{json:{deposit_id:id,manager_whatsapp:'REPLACE_BRANCH_MANAGER_WHATSAPP',admin_whatsapp:'REPLACE_MANAGEMENT_GROUP_ID_OR_PHONE',manager_message:manager,admin_message:admin,summary:s}}];"
+      }
+    },
+    {
+      "id": "weekly-send-manager",
+      "name": "Send Weekly To Branch Manager",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        300,
+        200
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "method": "POST",
+        "url": "https://graph.facebook.com/v20.0/REPLACE_PHONE_NUMBER_ID/messages",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { to: $json.manager_whatsapp, type: 'text', text: { body: $json.manager_message } } }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "REPLACE_WITH_WHATSAPP_BEARER_CREDENTIAL_ID",
+          "name": "WhatsApp API Bearer Token"
+        }
+      }
+    },
+    {
+      "id": "weekly-send-admin",
+      "name": "Send Weekly Copy To Management",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        300,
+        320
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "method": "POST",
+        "url": "https://graph.facebook.com/v20.0/REPLACE_PHONE_NUMBER_ID/messages",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { to: $json.admin_whatsapp, type: 'text', text: { body: $json.admin_message } } }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "REPLACE_WITH_WHATSAPP_BEARER_CREDENTIAL_ID",
+          "name": "WhatsApp API Bearer Token"
+        }
+      }
+    },
+    {
+      "id": "note-monthly",
+      "name": "Monthly Branch Report",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -920,
+        560
+      ],
+      "parameters": {
+        "content": "## Monthly Branch Report\nAuto Login POS previous month report. No manual cookie."
+      }
+    },
+    {
+      "id": "monthly-schedule",
+      "name": "Monthly Schedule 1st Day 8 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -900,
+        740
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 1 * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "monthly-range",
+      "name": "Monthly Date Range",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        740
+      ],
+      "parameters": {
+        "jsCode": "const pad=(n)=>String(n).padStart(2,'0'); const f=(d)=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; const now=new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Dubai'})); const firstThis=new Date(now.getFullYear(),now.getMonth(),1); const lastPrev=new Date(firstThis); lastPrev.setDate(0); const firstPrev=new Date(lastPrev.getFullYear(),lastPrev.getMonth(),1); return [{json:{from_date:f(firstPrev),to_date:f(lastPrev),period_label:`${firstPrev.getFullYear()}-${pad(firstPrev.getMonth()+1)}`}}];"
+      }
+    },
+    {
+      "id": "monthly-fetch",
+      "name": "Fetch POS Monthly Report Auto Login",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -420,
+        740
+      ],
+      "parameters": {
+        "jsCode": "const vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst POS_USERNAME = String(vars.POS_USERNAME || 'REPLACE_POS_USERNAME').trim();\nconst POS_PASSWORD = String(vars.POS_PASSWORD || 'REPLACE_POS_PASSWORD').trim();\nconst POS_CLIENT_IDENTIFIER = String(vars.POS_CLIENT_IDENTIFIER || 'inout').trim() || 'inout';\nconst POS_LOGIN_ENDPOINT = String(vars.POS_LOGIN_ENDPOINT || 'https://beta.aipsoft.com/inout/login/check').trim();\nconst POS_LOGIN_REFERER = String(vars.POS_LOGIN_REFERER || 'https://beta.aipsoft.com/inout/sales').trim();\nconst POS_ORIGIN = String(vars.POS_ORIGIN || 'https://beta.aipsoft.com').trim();\nconst POS_REPORT_URL = String(vars.POS_REPORT_URL || 'https://beta.aipsoft.com/inout/sales/generate_report').trim();\n\nif (!POS_USERNAME || POS_USERNAME === 'REPLACE_POS_USERNAME' || !POS_PASSWORD || POS_PASSWORD === 'REPLACE_POS_PASSWORD') {\n  throw new Error('Set POS_USERNAME and POS_PASSWORD in n8n Variables, or replace them inside this Code node.');\n}\n\nconst range = {\n  from_date: String($json.from_date || '').trim(),\n  to_date: String($json.to_date || '').trim(),\n  period_label: String($json.period_label || '').trim(),\n};\nif (!range.from_date || !range.to_date) throw new Error('Missing from_date/to_date from Date Range node.');\n\nconst normalizeHeaders = (headers = {}) => {\n  const out = {};\n  if (headers && typeof headers.forEach === 'function') {\n    headers.forEach((value, key) => { out[String(key).toLowerCase()] = value; });\n    if (typeof headers.getSetCookie === 'function') out['set-cookie'] = headers.getSetCookie();\n    return out;\n  }\n  for (const [key, value] of Object.entries(headers || {})) out[String(key).toLowerCase()] = value;\n  return out;\n};\n\nconst getSetCookies = (headers = {}) => {\n  const normalized = normalizeHeaders(headers);\n  const raw = normalized['set-cookie'];\n  if (!raw) return [];\n  if (Array.isArray(raw)) return raw;\n  return String(raw).split(/,(?=\\s*[^;,\\s]+=)/g).map((v) => v.trim()).filter(Boolean);\n};\n\nconst parseCookieHeader = (cookieHeader) => {\n  const map = new Map();\n  for (const part of String(cookieHeader || '').split(';')) {\n    const segment = part.trim();\n    if (!segment) continue;\n    const eqIndex = segment.indexOf('=');\n    if (eqIndex <= 0) continue;\n    const key = segment.slice(0, eqIndex).trim();\n    const value = segment.slice(eqIndex + 1).trim();\n    if (key) map.set(key, value);\n  }\n  return map;\n};\n\nconst mergeCookieHeaders = (baseCookieHeader, setCookies) => {\n  const merged = parseCookieHeader(baseCookieHeader);\n  for (const setCookie of setCookies || []) {\n    const cookiePart = String(setCookie || '').split(';')[0]?.trim();\n    if (!cookiePart) continue;\n    const eqIndex = cookiePart.indexOf('=');\n    if (eqIndex <= 0) continue;\n    const key = cookiePart.slice(0, eqIndex).trim();\n    const value = cookiePart.slice(eqIndex + 1).trim();\n    if (key) merged.set(key, value);\n  }\n  return Array.from(merged.entries()).map(([key, value]) => `${key}=${value}`).join('; ');\n};\n\nconst formEncode = (params) => Object.entries(params).map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(String(value ?? ''))).join('&');\nconst hasMinimalPosCookie = (cookieHeader) => /ci_session_/i.test(String(cookieHeader || '')) && /\\binout=/i.test(String(cookieHeader || ''));\nconst isLikelyPosLoginHtml = (text) => {\n  const lower = String(text || '').toLowerCase();\n  return lower.includes(':: login') || lower.includes('login/check') || lower.includes('assets/dashboard/css/login.css') || lower.includes('name=\"password\"') || lower.includes(\"name='password'\");\n};\n\nasync function requestFull(options) {\n  const requestOptions = {\n    method: options.method || 'GET',\n    url: options.url,\n    headers: options.headers || {},\n    body: options.body,\n    json: false,\n    returnFullResponse: true,\n    resolveWithFullResponse: true,\n    simple: false,\n    timeout: 30000,\n  };\n\n  if (this?.helpers?.httpRequest) {\n    const response = await this.helpers.httpRequest(requestOptions);\n    if (response && typeof response === 'object' && (response.headers || Object.prototype.hasOwnProperty.call(response, 'body'))) {\n      const body = typeof response.body === 'string' ? response.body : JSON.stringify(response.body ?? '');\n      return { statusCode: response.statusCode || response.status || 0, headers: response.headers || {}, body };\n    }\n    return { statusCode: 0, headers: {}, body: typeof response === 'string' ? response : JSON.stringify(response ?? '') };\n  }\n\n  if (typeof fetch !== 'function') throw new Error('No HTTP helper available inside n8n Code node.');\n  const response = await fetch(options.url, {\n    method: options.method || 'GET',\n    headers: options.headers || {},\n    body: options.body,\n    redirect: 'manual',\n  });\n  const body = await response.text();\n  return { statusCode: response.status, headers: response.headers, body };\n}\n\nlet cookieHeader = 'language=english; direction=ltr; dont_show_today=true';\n\ntry {\n  const preflight = await requestFull.call(this, {\n    method: 'GET',\n    url: POS_LOGIN_REFERER,\n    headers: {\n      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',\n      'Cache-Control': 'no-cache',\n      Pragma: 'no-cache',\n      Cookie: cookieHeader,\n    },\n  });\n  cookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(preflight.headers));\n} catch (error) {\n  // Some POS installations allow login without preflight cookies.\n}\n\nconst usernameBeforeAt = POS_USERNAME.includes('@') ? POS_USERNAME.split('@')[0].trim() : POS_USERNAME;\nconst usernameVariants = Array.from(new Set([\n  POS_USERNAME,\n  POS_USERNAME.toLowerCase(),\n  usernameBeforeAt,\n  usernameBeforeAt.toLowerCase(),\n  usernameBeforeAt ? `${usernameBeforeAt}@${POS_CLIENT_IDENTIFIER}` : '',\n  usernameBeforeAt ? `${usernameBeforeAt.toLowerCase()}@${POS_CLIENT_IDENTIFIER}` : '',\n].filter(Boolean)));\n\nlet authed = false;\nlet usedUsername = '';\nlet lastLoginBody = '';\nfor (const username of usernameVariants) {\n  const payload = formEncode({\n    username,\n    password: POS_PASSWORD,\n    client_identifier: POS_CLIENT_IDENTIFIER,\n    auto_login: 'null',\n    connection_path: 'null',\n  });\n\n  const loginResponse = await requestFull.call(this, {\n    method: 'POST',\n    url: POS_LOGIN_ENDPOINT,\n    headers: {\n      Accept: 'application/json, text/javascript, */*; q=0.01',\n      'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ar;q=0.7',\n      'Cache-Control': 'no-cache',\n      Pragma: 'no-cache',\n      Origin: POS_ORIGIN,\n      Referer: POS_LOGIN_REFERER,\n      'X-Requested-With': 'XMLHttpRequest',\n      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',\n      Cookie: cookieHeader,\n    },\n    body: payload,\n  });\n\n  cookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(loginResponse.headers));\n  lastLoginBody = String(loginResponse.body || '');\n  const lower = lastLoginBody.toLowerCase();\n  const looksSuccess = lower.includes('login_success') || lower.includes('password_ok') || ((loginResponse.statusCode >= 200 && loginResponse.statusCode < 400) && !isLikelyPosLoginHtml(lastLoginBody));\n  if (looksSuccess && hasMinimalPosCookie(cookieHeader)) {\n    authed = true;\n    usedUsername = username;\n    break;\n  }\n}\n\nif (!authed) {\n  throw new Error('POS login failed. Check POS_USERNAME/POS_PASSWORD and POS sales permission. Last response: ' + lastLoginBody.slice(0, 250));\n}\n\nconst reportParams = {\n  report_type: 'counter_cash',\n  from_date: range.from_date,\n  from_time: '12:00 AM',\n  to_date: range.to_date,\n  to_time: '11:59 PM',\n  no_of_decimal_places: '2',\n  save: '1',\n  predefined_date: 'Custom Range',\n  prod_details: '0',\n  void_details: '0',\n  ord_prod_details: '0',\n  ord_void_details: '0',\n  cust_details: '0',\n  expns_details: '1',\n  print: '0',\n  inv_cat_wise: '0',\n  ord_cat_wise: '0',\n  inv_cat_wise_tax: '0',\n  ord_cat_wise_tax: '0',\n  salesman_wise: '0',\n  credit_invoice: '0',\n  return_invoice: '0',\n  return_invoice_prod_details: '0',\n  expence_entry_details: '0',\n  purchase_etnry_details: '0',\n  order_billwise_details: '0',\n  vehicle_details: '0',\n  salesman_wise_detail: '0',\n  received_payment_details: '0',\n  order_product_unit_wise: '0',\n};\nconst reportPayload = formEncode(reportParams);\n\nconst reportResponse = await requestFull.call(this, {\n  method: 'POST',\n  url: POS_REPORT_URL,\n  headers: {\n    Accept: '*/*',\n    'Cache-Control': 'no-cache',\n    Pragma: 'no-cache',\n    Origin: POS_ORIGIN,\n    Referer: POS_LOGIN_REFERER,\n    'X-Requested-With': 'XMLHttpRequest',\n    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',\n    Cookie: cookieHeader,\n  },\n  body: reportPayload,\n});\ncookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(reportResponse.headers));\nconst html = String(reportResponse.body || '');\nif (!html.trim()) throw new Error('POS report returned empty response.');\nif (isLikelyPosLoginHtml(html)) throw new Error('POS returned login page after auto login. Check POS permissions for Counter Cash report.');\n\nconst stripHtml = (value) => String(value ?? '').replace(/<[^>]*>/g, ' ').replace(/\\s+/g, ' ').trim();\nconst parseMoney = (value) => {\n  const parsed = Number(String(value ?? '').replace(/,/g, '').replace(/[^0-9.-]/g, ''));\n  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : 0;\n};\nconst escapeRegex = (value) => String(value).replace(/[.*+?^\\${}()|[\\]\\\\]/g, '\\\\$&');\nconst extractAmount = (sectionHtml, label) => {\n  const pattern = new RegExp('<td[^>]*>\\\\s*' + escapeRegex(label) + '\\\\s*<\\\\/td>\\\\s*<td[^>]*>\\\\s*([\\\\d,.-]+)\\\\s*<\\\\/td>', 'i');\n  const match = String(sectionHtml || '').match(pattern);\n  return match ? parseMoney(match[1]) : 0;\n};\nconst extractText = (pattern) => {\n  const match = html.match(pattern);\n  return match ? stripHtml(match[1]) : '';\n};\nconst parseExpenseRows = (sectionHtml) => {\n  const rows = [];\n  const pattern = /<tr>\\s*<td[^>]*>\\s*(\\d+)\\s*<\\/td>\\s*<td[^>]*colspan=\"3\"[^>]*>([\\s\\S]*?)<\\/td>[\\s\\S]*?<td[^>]*align=\"right\"[^>]*>\\s*([\\d,.-]+)\\s*<\\/td>\\s*<\\/tr>/gi;\n  for (const match of String(sectionHtml || '').matchAll(pattern)) {\n    rows.push({ no: Number(match[1]) || rows.length + 1, description: stripHtml(match[2]), amount: parseMoney(match[3]) });\n  }\n  return rows;\n};\n\nconst expense_sections = [];\nconst sectionPattern = /<h3[^>]*class=\"[^\"]*sub_title[^\"]*\"[^>]*>([\\s\\S]*?)<\\/h3>([\\s\\S]*?)(?=<tr>\\s*<td[^>]*colspan=\"5\"[^>]*>\\s*<h3[^>]*class=\"[^\"]*sub_title|<\\/tbody>\\s*<\\/table>)/gi;\nfor (const match of html.matchAll(sectionPattern)) {\n  const title = stripHtml(match[1]);\n  const sectionHtml = String(match[2] || '');\n  if (!title) continue;\n  const key = title.toLowerCase().includes('credit') ? 'credit_card' : 'cash';\n  expense_sections.push({ key, title, received_total: extractAmount(sectionHtml, 'Received Total'), expense_total: extractAmount(sectionHtml, 'Expense Total'), balance: extractAmount(sectionHtml, 'Balance'), rows: parseExpenseRows(sectionHtml) });\n}\nconst cash = expense_sections.find((s) => s.key === 'cash') || { received_total: 0, expense_total: 0, balance: 0, rows: [] };\nconst cardExp = expense_sections.find((s) => s.key === 'credit_card') || { received_total: 0, expense_total: 0, balance: 0, rows: [] };\n\nconst customerRows = [];\nconst customerPattern = /<tr>\\s*<td[^>]*align=\"left\"[^>]*>\\s*([^<]+?)\\s*<\\/td>\\s*<td[^>]*align=\"left\"[^>]*>\\s*(\\d+)\\s*<\\/td>\\s*<td[^>]*align=\"right\"[^>]*>\\s*([\\d,.-]+)\\s*<\\/td>\\s*<\\/tr>/gi;\nfor (const match of html.matchAll(customerPattern)) {\n  const customer = stripHtml(match[1]);\n  if (!customer || customer.toLowerCase() === 'customer') continue;\n  customerRows.push({ customer, invoice_count: Number(match[2]) || 0, amount: parseMoney(match[3]) });\n}\nconst round = (value) => Math.round((Number(value) || 0) * 100) / 100;\nconst summary = {\n  company: extractText(/<h4[^>]*>\\s*([^<]*IN AND OUT LAUNDRY[^<]*)\\s*<\\/h4>/i),\n  report_name: extractText(/<h4[^>]*>\\s*Reports\\s*:\\s*([\\s\\S]*?)<\\/h4>/i),\n  date_range: extractText(/Reports Date Range\\s*:\\s*([\\s\\S]*?)<\\/h4>/i),\n  printed_at: extractText(/Printing Date\\s*\\/\\s*Time\\s*:\\s*([\\s\\S]*?)<\\/h4>/i),\n  branch: extractText(/<h4[^>]*>\\s*Branch\\s*:\\s*([\\s\\S]*?)<\\/h4>/i),\n  cash_receipt: extractAmount(html, 'Cash Account(Reciept)'),\n  card_receipt: extractAmount(html, 'Credit Card(Reciept)'),\n  grand_total_receipt: extractAmount(html, 'Grand Total Receipt'),\n  total_income: extractAmount(html, 'Total Income'),\n  cash_in_hand: extractAmount(html, 'Cash in Hand'),\n  cash_received_total: cash.received_total,\n  cash_expense_total: cash.expense_total,\n  cash_balance: cash.balance,\n  credit_card_received_total: cardExp.received_total,\n  credit_card_expense_total: cardExp.expense_total,\n  credit_card_balance: cardExp.balance,\n  expense_total: round(expense_sections.reduce((sum, s) => sum + Number(s.expense_total || 0), 0)),\n  balance: round(expense_sections.reduce((sum, s) => sum + Number(s.balance || 0), 0)),\n  total_invoice: extractAmount(html, 'Total Invoice'),\n  expense_sections,\n  expenses: expense_sections.flatMap((section) => section.rows.map((row) => ({ ...row, account: section.key, account_title: section.title }))),\n  customers: customerRows,\n};\nif (!summary.report_name) throw new Error('Could not parse POS Counter Cash report. HTML length: ' + html.length);\nreturn [{ json: { ok: true, summary, html_length: html.length, used_username: usedUsername, period_label: range.period_label } }];"
+      }
+    },
+    {
+      "id": "monthly-build",
+      "name": "Build Monthly WhatsApp Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        740
+      ],
+      "parameters": {
+        "jsCode": "const s=$json.summary||{}; const r=$('Monthly Date Range').first().json; const m=(v)=>Number(v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); const rev=Number(s.total_income||0); const exp=Number(s.expense_total||0); const orders=Number(s.total_invoice||0); const avg=orders>0?rev/orders:0; const msg=`📆 التقرير المالي الشهري\\nالشهر: ${r.period_label}\\n\\n🏪 الفرع: ${s.branch||'غير محدد'}\\n💰 إجمالي الإيرادات: ${m(rev)} AED\\n📉 إجمالي المصروفات: ${m(exp)} AED\\n✅ الصافي: ${m(rev-exp)} AED\\n💵 الكاش: ${m(s.cash_receipt)} AED\\n💳 البطاقة: ${m(s.card_receipt)} AED\\n🧾 عدد الطلبات: ${orders}\\n📊 متوسط الفاتورة: ${m(avg)} AED`; return [{json:{whatsapp_to:'REPLACE_MANAGEMENT_GROUP_ID_OR_PHONE',message:msg,summary:s}}];"
+      }
+    },
+    {
+      "id": "monthly-send",
+      "name": "Send Monthly WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        300,
+        740
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "method": "POST",
+        "url": "https://graph.facebook.com/v20.0/REPLACE_PHONE_NUMBER_ID/messages",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { to: $json.whatsapp_to, type: 'text', text: { body: $json.message } } }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "REPLACE_WITH_WHATSAPP_BEARER_CREDENTIAL_ID",
+          "name": "WhatsApp API Bearer Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily Schedule 10:30 PM": {
+      "main": [
+        [
+          {
+            "node": "Daily Date Range",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily Date Range": {
+      "main": [
+        [
+          {
+            "node": "Fetch POS Daily Report Auto Login",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch POS Daily Report Auto Login": {
+      "main": [
+        [
+          {
+            "node": "Build Daily WhatsApp Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Daily WhatsApp Message": {
+      "main": [
+        [
+          {
+            "node": "Send Daily WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weekly Schedule Sunday 10:45 PM": {
+      "main": [
+        [
+          {
+            "node": "Weekly Date Range",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weekly Date Range": {
+      "main": [
+        [
+          {
+            "node": "Fetch POS Weekly Report Auto Login",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch POS Weekly Report Auto Login": {
+      "main": [
+        [
+          {
+            "node": "Build Weekly Deposit Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Weekly Deposit Messages": {
+      "main": [
+        [
+          {
+            "node": "Send Weekly To Branch Manager",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Weekly Copy To Management",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Monthly Schedule 1st Day 8 AM": {
+      "main": [
+        [
+          {
+            "node": "Monthly Date Range",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Monthly Date Range": {
+      "main": [
+        [
+          {
+            "node": "Fetch POS Monthly Report Auto Login",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch POS Monthly Report Auto Login": {
+      "main": [
+        [
+          {
+            "node": "Build Monthly WhatsApp Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Monthly WhatsApp Message": {
+      "main": [
+        [
+          {
+            "node": "Send Monthly WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "laundry"
+    },
+    {
+      "name": "finance"
+    },
+    {
+      "name": "pos-auto-login"
+    }
+  ],
+  "triggerCount": 3,
+  "updatedAt": "2026-06-06T00:00:00.000Z",
+  "versionId": "4-auto-login-pos-hostinger"
+}

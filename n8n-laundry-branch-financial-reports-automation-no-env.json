@@ -1,0 +1,1159 @@
+{
+  "name": "Laundry Branch Financial Reports Automation - No Env",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 1. Daily Financial Report\nRuns every day at 10:30 PM Dubai time.\nFetches POS counter cash report through Smart Storage Hub API, builds Arabic WhatsApp message, sends to management group."
+      },
+      "id": "note-daily",
+      "name": "Daily Financial Report",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -920,
+        -360
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 22 * * *"
+            }
+          ]
+        }
+      },
+      "id": "daily-schedule",
+      "name": "Daily Schedule 10:30 PM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -900,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dubai', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());\nconst get = (type) => parts.find((part) => part.type === type)?.value;\nconst date = `${get('year')}-${get('month')}-${get('day')}`;\nreturn [{ json: { report_type: 'daily', from_date: date, to_date: date, period_label: date } }];"
+      },
+      "id": "daily-range",
+      "name": "Daily Date Range",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3002/api/login",
+        "sendBody": true,
+        "contentType": "json",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "username",
+              "value": "sanad"
+            },
+            {
+              "name": "password",
+              "value": "REPLACE_SMART_HUB_PASSWORD"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "daily-login",
+      "name": "Smart Hub Login - Daily",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -420,
+        -180
+      ],
+      "notes": "Edit URL/username/password here if your Smart Storage Hub is not reachable at host.docker.internal:3002. This no-env version uses direct values only."
+    },
+    {
+      "parameters": {
+        "jsCode": "const range = $('Daily Date Range').first().json;\nreturn [{ json: { ...range, token: $json.token } }];"
+      },
+      "id": "daily-attach-token",
+      "name": "Attach Daily Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -180,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3002/api/pos/report/counter-cash",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$json.token}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "from_date",
+              "value": "={{$json.from_date}}"
+            },
+            {
+              "name": "from_time",
+              "value": "12:00 AM"
+            },
+            {
+              "name": "to_date",
+              "value": "={{$json.to_date}}"
+            },
+            {
+              "name": "to_time",
+              "value": "11:59 PM"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "daily-fetch-report",
+      "name": "Fetch POS Daily Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        60,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const summary = $json.summary || {};\nconst money = (value) => Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });\nconst date = summary.date_range || $('Daily Date Range').first().json.period_label;\nconst netCash = Number(summary.cash_receipt || 0) - Number(summary.cash_expense_total || 0);\nconst cardExpense = Number(summary.credit_card_expense_total || 0);\nconst alerts = [];\nif (Number(summary.expense_total || 0) <= 0) alerts.push('لا توجد مصروفات مسجلة في التقرير.');\nif (netCash < 0) alerts.push('تنبيه: صافي الكاش سالب، يرجى المراجعة.');\nif (cardExpense > 0) alerts.push(`يوجد مصروفات بطاقة: ${money(cardExpense)} AED`);\nconst message = `📊 التقرير المالي اليومي\\n📅 التاريخ: ${date}\\n\\n🏪 الفرع: ${summary.branch || 'غير محدد'}\\n💰 إجمالي المبيعات: ${money(summary.total_income)} AED\\n💵 الكاش: ${money(summary.cash_receipt)} AED\\n💳 البطاقة: ${money(summary.card_receipt)} AED\\n📉 مصروفات الكاش: ${money(summary.cash_expense_total)} AED\\n💳 مصروفات البطاقة: ${money(summary.credit_card_expense_total)} AED\\n📉 إجمالي المصروفات: ${money(summary.expense_total)} AED\\n✅ صافي الكاش الموجود: ${money(netCash)} AED\\n🧾 عدد الطلبات: ${Number(summary.total_invoice || 0)}\\n\\n${alerts.length ? '⚠️ ملاحظات:\\n- ' + alerts.join('\\n- ') : '✅ لا توجد ملاحظات مالية حرجة.'}`;\nreturn [{ json: { report_type: 'daily', branch_name: summary.branch, whatsapp_to: 'REPLACE_MANAGEMENT_GROUP_ID', message, summary } }];"
+      },
+      "id": "daily-build-message",
+      "name": "Build Daily WhatsApp Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "method": "POST",
+        "url": "https://graph.facebook.com/v20.0/REPLACE_PHONE_NUMBER_ID/messages",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { to: $json.whatsapp_to, type: 'text', text: { body: $json.message } } }}",
+        "options": {}
+      },
+      "id": "daily-send-whatsapp",
+      "name": "Send Daily WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        540,
+        -180
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "REPLACE_WITH_WHATSAPP_BEARER_CREDENTIAL_ID",
+          "name": "WhatsApp API Bearer Token"
+        }
+      },
+      "notes": "Replace REPLACE_PHONE_NUMBER_ID in URL, then attach the WhatsApp API Bearer Token credential."
+    },
+    {
+      "parameters": {
+        "content": "## 2. Weekly Cash Deposit Report\nRuns every Sunday at 10:45 PM Dubai time.\nCalculates weekly cash deposit amount and sends one message to branch manager plus copy to management."
+      },
+      "id": "note-weekly",
+      "name": "Weekly Cash Deposit Report",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -920,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "45 22 * * 0"
+            }
+          ]
+        }
+      },
+      "id": "weekly-schedule",
+      "name": "Weekly Schedule Sunday 10:45 PM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -900,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const pad = (n) => String(n).padStart(2, '0');\nconst format = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;\nconst dubaiNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Dubai' }));\nconst end = new Date(dubaiNow);\nconst start = new Date(dubaiNow);\nstart.setDate(end.getDate() - 6);\nreturn [{ json: { report_type: 'weekly', from_date: format(start), to_date: format(end), period_label: `${format(start)} إلى ${format(end)}` } }];"
+      },
+      "id": "weekly-range",
+      "name": "Weekly Date Range",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3002/api/login",
+        "sendBody": true,
+        "contentType": "json",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "username",
+              "value": "sanad"
+            },
+            {
+              "name": "password",
+              "value": "REPLACE_SMART_HUB_PASSWORD"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "weekly-login",
+      "name": "Smart Hub Login - Weekly",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -420,
+        260
+      ],
+      "notes": "Edit URL/username/password here if your Smart Storage Hub is not reachable at host.docker.internal:3002. This no-env version uses direct values only."
+    },
+    {
+      "parameters": {
+        "jsCode": "const range = $('Weekly Date Range').first().json;\nreturn [{ json: { ...range, token: $json.token } }];"
+      },
+      "id": "weekly-attach-token",
+      "name": "Attach Weekly Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -180,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3002/api/pos/report/counter-cash",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$json.token}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "from_date",
+              "value": "={{$json.from_date}}"
+            },
+            {
+              "name": "from_time",
+              "value": "12:00 AM"
+            },
+            {
+              "name": "to_date",
+              "value": "={{$json.to_date}}"
+            },
+            {
+              "name": "to_time",
+              "value": "11:59 PM"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "weekly-fetch-report",
+      "name": "Fetch POS Weekly Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        60,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const summary = $json.summary || {};\nconst range = $('Weekly Date Range').first().json;\nconst money = (value) => Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });\nconst depositAmount = Number(summary.cash_receipt || 0) - Number(summary.cash_expense_total || 0);\nconst branchName = summary.branch || 'AL FALAH';\nconst managerName = 'Branch Manager';\nconst managerWhatsapp = 'REPLACE_BRANCH_MANAGER_WHATSAPP';\nconst depositId = `${branchName.replace(/\\s+/g, '_')}_${range.from_date}_${range.to_date}`;\nconst managerMessage = `📌 تقرير الإيداع الأسبوعي\\n🏪 الفرع: ${branchName}\\n📅 الفترة: ${range.period_label}\\n\\n💵 إجمالي الكاش: ${money(summary.cash_receipt)} AED\\n📉 إجمالي مصروفات الكاش: ${money(summary.cash_expense_total)} AED\\n🏦 المبلغ المطلوب إيداعه: ${money(depositAmount)} AED\\n\\nيرجى إيداع مبلغ ${money(depositAmount)} AED في الحساب البنكي، ثم إرسال صورة إيصال الإيداع في هذا القروب/الواتساب.\\n\\nDeposit ID: ${depositId}`;\nconst adminMessage = `📌 نسخة الإدارة - تقرير الإيداع الأسبوعي\\n🏪 الفرع: ${branchName}\\n👤 المدير: ${managerName}\\n📅 الفترة: ${range.period_label}\\n💵 الكاش: ${money(summary.cash_receipt)} AED\\n📉 مصروفات الكاش: ${money(summary.cash_expense_total)} AED\\n🏦 المطلوب إيداعه: ${money(depositAmount)} AED\\nDeposit ID: ${depositId}`;\nreturn [{ json: { report_type: 'weekly_deposit', deposit_id: depositId, branch_name: branchName, manager_name: managerName, manager_whatsapp: managerWhatsapp, admin_whatsapp: 'REPLACE_MANAGEMENT_GROUP_ID', deposit_amount: depositAmount, manager_message: managerMessage, admin_message: adminMessage, summary } }];"
+      },
+      "id": "weekly-build-message",
+      "name": "Build Weekly Deposit Messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "method": "POST",
+        "url": "https://graph.facebook.com/v20.0/REPLACE_PHONE_NUMBER_ID/messages",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { to: $json.manager_whatsapp, type: 'text', text: { body: $json.manager_message } } }}",
+        "options": {}
+      },
+      "id": "weekly-send-manager",
+      "name": "Send Weekly To Branch Manager",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        540,
+        200
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "REPLACE_WITH_WHATSAPP_BEARER_CREDENTIAL_ID",
+          "name": "WhatsApp API Bearer Token"
+        }
+      },
+      "notes": "Replace REPLACE_PHONE_NUMBER_ID in URL, then attach the WhatsApp API Bearer Token credential."
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "method": "POST",
+        "url": "https://graph.facebook.com/v20.0/REPLACE_PHONE_NUMBER_ID/messages",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { to: $json.admin_whatsapp, type: 'text', text: { body: $json.admin_message } } }}",
+        "options": {}
+      },
+      "id": "weekly-send-admin",
+      "name": "Send Weekly Copy To Management",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        540,
+        320
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "REPLACE_WITH_WHATSAPP_BEARER_CREDENTIAL_ID",
+          "name": "WhatsApp API Bearer Token"
+        }
+      },
+      "notes": "Replace REPLACE_PHONE_NUMBER_ID in URL, then attach the WhatsApp API Bearer Token credential."
+    },
+    {
+      "parameters": {
+        "amount": 24,
+        "unit": "hours"
+      },
+      "id": "weekly-wait-24h",
+      "name": "Wait 24h For Deposit Receipt",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://example.com/deposit_receipts/status",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "deposit_id",
+              "value": "={{$json.deposit_id}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "weekly-check-receipt",
+      "name": "Check Deposit Receipt Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1020,
+        260
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "receipt-not-received",
+              "leftValue": "={{$json.status || $json.received}}",
+              "rightValue": "received",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "weekly-if-missing",
+      "name": "Receipt Missing?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.1,
+      "position": [
+        1260,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "method": "POST",
+        "url": "https://graph.facebook.com/v20.0/REPLACE_PHONE_NUMBER_ID/messages",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { to: 'REPLACE_BRANCH_MANAGER_WHATSAPP', type: 'text', text: { body: '⏰ تذكير: لم يتم استلام إيصال الإيداع خلال 24 ساعة. يرجى إرسال صورة الإيصال الآن. Deposit ID: ' + ($json.deposit_id || '') } } }}",
+        "options": {}
+      },
+      "id": "weekly-reminder-manager",
+      "name": "Send Receipt Reminder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1500,
+        180
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "REPLACE_WITH_WHATSAPP_BEARER_CREDENTIAL_ID",
+          "name": "WhatsApp API Bearer Token"
+        }
+      },
+      "notes": "Replace REPLACE_PHONE_NUMBER_ID in URL, then attach the WhatsApp API Bearer Token credential."
+    },
+    {
+      "parameters": {
+        "content": "## 3. Deposit Receipt Follow-up\nWebhook receives deposit receipt image/file.\nUpload to storage, log deposit receipt, then send confirmation to management group."
+      },
+      "id": "note-receipt",
+      "name": "Deposit Receipt Follow-up",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -920,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "deposit-receipt",
+        "responseMode": "lastNode",
+        "options": {
+          "binaryData": true
+        }
+      },
+      "id": "receipt-webhook",
+      "name": "Deposit Receipt Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -900,
+        740
+      ],
+      "webhookId": "deposit-receipt"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\nreturn [{ json: { deposit_id: body.deposit_id || body.DepositID || '', branch_name: body.branch_name || body.branch || 'غير محدد', manager_name: body.manager_name || body.manager || 'غير محدد', deposit_amount: Number(body.deposit_amount || body.amount || 0), received_at: new Date().toISOString() }, binary: $binary }];"
+      },
+      "id": "receipt-normalize",
+      "name": "Normalize Receipt Submission",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        740
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "method": "POST",
+        "url": "https://example.com/upload/deposit_receipt",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "deposit_id",
+              "value": "={{$json.deposit_id}}"
+            },
+            {
+              "name": "branch_name",
+              "value": "={{$json.branch_name}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "receipt-upload",
+      "name": "Upload Receipt To Storage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -420,
+        740
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_STORAGE_CREDENTIAL_ID",
+          "name": "Storage Upload API Key"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const previous = $('Normalize Receipt Submission').first().json;\nconst receiptUrl = $json.url || $json.webViewLink || $json.receipt_url || 'uploaded';\nconst money = (value) => Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });\nconst message = `✅ تم استلام إيصال الإيداع\\n🏪 الفرع: ${previous.branch_name}\\n👤 المدير: ${previous.manager_name}\\n💰 المبلغ: ${money(previous.deposit_amount)} AED\\n📎 تم حفظ الإيصال بنجاح.\\nDeposit ID: ${previous.deposit_id}`;\nreturn [{ json: { ...previous, receipt_url: receiptUrl, whatsapp_to: 'REPLACE_MANAGEMENT_GROUP_ID', message } }];"
+      },
+      "id": "receipt-build-confirmation",
+      "name": "Build Receipt Confirmation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -180,
+        740
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "method": "POST",
+        "url": "https://graph.facebook.com/v20.0/REPLACE_PHONE_NUMBER_ID/messages",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { to: $json.whatsapp_to, type: 'text', text: { body: $json.message } } }}",
+        "options": {}
+      },
+      "id": "receipt-send-confirmation",
+      "name": "Send Receipt Confirmation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        60,
+        740
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "REPLACE_WITH_WHATSAPP_BEARER_CREDENTIAL_ID",
+          "name": "WhatsApp API Bearer Token"
+        }
+      },
+      "notes": "Replace REPLACE_PHONE_NUMBER_ID in URL, then attach the WhatsApp API Bearer Token credential."
+    },
+    {
+      "parameters": {
+        "content": "## 4. Monthly Branch Report\nRuns first day of each month at 8:00 AM Dubai time.\nFetches previous month POS report and sends branch profit summary to management."
+      },
+      "id": "note-monthly",
+      "name": "Monthly Branch Report",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -920,
+        980
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 1 * *"
+            }
+          ]
+        }
+      },
+      "id": "monthly-schedule",
+      "name": "Monthly Schedule 1st Day 8 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -900,
+        1160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const pad = (n) => String(n).padStart(2, '0');\nconst format = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;\nconst now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Dubai' }));\nconst firstThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);\nconst lastPrevMonth = new Date(firstThisMonth);\nlastPrevMonth.setDate(0);\nconst firstPrevMonth = new Date(lastPrevMonth.getFullYear(), lastPrevMonth.getMonth(), 1);\nconst monthLabel = `${firstPrevMonth.getFullYear()}-${pad(firstPrevMonth.getMonth() + 1)}`;\nreturn [{ json: { report_type: 'monthly', from_date: format(firstPrevMonth), to_date: format(lastPrevMonth), period_label: monthLabel } }];"
+      },
+      "id": "monthly-range",
+      "name": "Monthly Date Range",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        1160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3002/api/login",
+        "sendBody": true,
+        "contentType": "json",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "username",
+              "value": "sanad"
+            },
+            {
+              "name": "password",
+              "value": "REPLACE_SMART_HUB_PASSWORD"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "monthly-login",
+      "name": "Smart Hub Login - Monthly",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -420,
+        1160
+      ],
+      "notes": "Edit URL/username/password here if your Smart Storage Hub is not reachable at host.docker.internal:3002. This no-env version uses direct values only."
+    },
+    {
+      "parameters": {
+        "jsCode": "const range = $('Monthly Date Range').first().json;\nreturn [{ json: { ...range, token: $json.token } }];"
+      },
+      "id": "monthly-attach-token",
+      "name": "Attach Monthly Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -180,
+        1160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3002/api/pos/report/counter-cash",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$json.token}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "from_date",
+              "value": "={{$json.from_date}}"
+            },
+            {
+              "name": "from_time",
+              "value": "12:00 AM"
+            },
+            {
+              "name": "to_date",
+              "value": "={{$json.to_date}}"
+            },
+            {
+              "name": "to_time",
+              "value": "11:59 PM"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "monthly-fetch-report",
+      "name": "Fetch POS Monthly Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        60,
+        1160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const summary = $json.summary || {};\nconst range = $('Monthly Date Range').first().json;\nconst money = (value) => Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });\nconst revenue = Number(summary.total_income || 0);\nconst expenses = Number(summary.expense_total || 0);\nconst netProfit = revenue - expenses;\nconst orders = Number(summary.total_invoice || 0);\nconst averageOrder = orders > 0 ? revenue / orders : 0;\nconst message = `📆 التقرير المالي الشهري\\nالشهر: ${range.period_label}\\n\\n🏪 الفرع: ${summary.branch || 'غير محدد'}\\n💰 إجمالي الإيرادات: ${money(revenue)} AED\\n📉 إجمالي المصروفات: ${money(expenses)} AED\\n✅ الصافي: ${money(netProfit)} AED\\n💵 الكاش: ${money(summary.cash_receipt)} AED\\n💳 البطاقة: ${money(summary.card_receipt)} AED\\n📉 مصروفات الكاش: ${money(summary.cash_expense_total)} AED\\n💳 مصروفات البطاقة: ${money(summary.credit_card_expense_total)} AED\\n🧾 عدد الطلبات: ${orders}\\n📊 متوسط الفاتورة: ${money(averageOrder)} AED`;\nreturn [{ json: { report_type: 'monthly', branch_name: summary.branch, whatsapp_to: 'REPLACE_MANAGEMENT_GROUP_ID', message, summary } }];"
+      },
+      "id": "monthly-build-message",
+      "name": "Build Monthly WhatsApp Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        1160
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "method": "POST",
+        "url": "https://graph.facebook.com/v20.0/REPLACE_PHONE_NUMBER_ID/messages",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { to: $json.whatsapp_to, type: 'text', text: { body: $json.message } } }}",
+        "options": {}
+      },
+      "id": "monthly-send-whatsapp",
+      "name": "Send Monthly WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        540,
+        1160
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "REPLACE_WITH_WHATSAPP_BEARER_CREDENTIAL_ID",
+          "name": "WhatsApp API Bearer Token"
+        }
+      },
+      "notes": "Replace REPLACE_PHONE_NUMBER_ID in URL, then attach the WhatsApp API Bearer Token credential."
+    },
+    {
+      "parameters": {},
+      "id": "error-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -900,
+        1480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const execution = $json.execution || {};\nconst workflow = $json.workflow || {};\nconst message = `🚨 فشل Workflow التقارير المالية\\nWorkflow: ${workflow.name || 'Laundry Branch Financial Reports Automation'}\\nExecution: ${execution.id || '-'}\\nالخطأ: ${$json.error?.message || $json.message || 'Unknown error'}`;\nreturn [{ json: { whatsapp_to: 'REPLACE_MANAGEMENT_GROUP_ID', message } }];"
+      },
+      "id": "error-build-message",
+      "name": "Build Error Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        1480
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "method": "POST",
+        "url": "https://graph.facebook.com/v20.0/REPLACE_PHONE_NUMBER_ID/messages",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { to: $json.whatsapp_to, type: 'text', text: { body: $json.message } } }}",
+        "options": {}
+      },
+      "id": "error-send-whatsapp",
+      "name": "Send Error WhatsApp Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -420,
+        1480
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "REPLACE_WITH_WHATSAPP_BEARER_CREDENTIAL_ID",
+          "name": "WhatsApp API Bearer Token"
+        }
+      },
+      "notes": "Replace REPLACE_PHONE_NUMBER_ID in URL, then attach the WhatsApp API Bearer Token credential."
+    }
+  ],
+  "connections": {
+    "Daily Schedule 10:30 PM": {
+      "main": [
+        [
+          {
+            "node": "Daily Date Range",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily Date Range": {
+      "main": [
+        [
+          {
+            "node": "Smart Hub Login - Daily",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Smart Hub Login - Daily": {
+      "main": [
+        [
+          {
+            "node": "Attach Daily Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach Daily Token": {
+      "main": [
+        [
+          {
+            "node": "Fetch POS Daily Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch POS Daily Report": {
+      "main": [
+        [
+          {
+            "node": "Build Daily WhatsApp Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Daily WhatsApp Message": {
+      "main": [
+        [
+          {
+            "node": "Send Daily WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weekly Schedule Sunday 10:45 PM": {
+      "main": [
+        [
+          {
+            "node": "Weekly Date Range",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weekly Date Range": {
+      "main": [
+        [
+          {
+            "node": "Smart Hub Login - Weekly",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Smart Hub Login - Weekly": {
+      "main": [
+        [
+          {
+            "node": "Attach Weekly Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach Weekly Token": {
+      "main": [
+        [
+          {
+            "node": "Fetch POS Weekly Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch POS Weekly Report": {
+      "main": [
+        [
+          {
+            "node": "Build Weekly Deposit Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Weekly Deposit Messages": {
+      "main": [
+        [
+          {
+            "node": "Send Weekly To Branch Manager",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Weekly Copy To Management",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Wait 24h For Deposit Receipt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 24h For Deposit Receipt": {
+      "main": [
+        [
+          {
+            "node": "Check Deposit Receipt Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Deposit Receipt Status": {
+      "main": [
+        [
+          {
+            "node": "Receipt Missing?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Receipt Missing?": {
+      "main": [
+        [
+          {
+            "node": "Send Receipt Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Deposit Receipt Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Receipt Submission",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Receipt Submission": {
+      "main": [
+        [
+          {
+            "node": "Upload Receipt To Storage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Receipt To Storage": {
+      "main": [
+        [
+          {
+            "node": "Build Receipt Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Receipt Confirmation": {
+      "main": [
+        [
+          {
+            "node": "Send Receipt Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Monthly Schedule 1st Day 8 AM": {
+      "main": [
+        [
+          {
+            "node": "Monthly Date Range",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Monthly Date Range": {
+      "main": [
+        [
+          {
+            "node": "Smart Hub Login - Monthly",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Smart Hub Login - Monthly": {
+      "main": [
+        [
+          {
+            "node": "Attach Monthly Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach Monthly Token": {
+      "main": [
+        [
+          {
+            "node": "Fetch POS Monthly Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch POS Monthly Report": {
+      "main": [
+        [
+          {
+            "node": "Build Monthly WhatsApp Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Monthly WhatsApp Message": {
+      "main": [
+        [
+          {
+            "node": "Send Monthly WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Error Alert": {
+      "main": [
+        [
+          {
+            "node": "Send Error WhatsApp Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "laundry"
+    },
+    {
+      "name": "finance"
+    },
+    {
+      "name": "pos"
+    }
+  ],
+  "triggerCount": 5,
+  "updatedAt": "2026-06-06T00:00:00.000Z",
+  "versionId": "2-no-env"
+}

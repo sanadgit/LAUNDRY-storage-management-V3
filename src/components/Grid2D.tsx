@@ -84,10 +84,10 @@ export default function Grid2D({
     [selectedStore]
   );
   const activeStore = store ?? fallbackStore;
-  const isConveyerStore = useMemo(
-    () => Boolean(store && /convey/i.test(activeStore.store_name.trim())),
-    [store, activeStore.store_name]
-  );
+  const isConveyerStore = useMemo(() => {
+    const key = activeStore.store_name.trim().toLowerCase();
+    return Boolean(store && (key.includes('convey') || key.includes('conveyor') || key.includes('كونفير') || key.includes('كنفير')));
+  }, [store, activeStore.store_name]);
 
   const storeBlankets = useMemo(
     () => blankets.filter((b) => b.store === store?.store_name && b.status === 'stored'),
@@ -355,7 +355,7 @@ export default function Grid2D({
     try {
       await markAsPicked(blanket);
     } catch (err: any) {
-      setError(err?.message || 'Failed to mark as picked.');
+      setError(err?.response?.data?.error || err?.message || 'Failed to mark as picked.');
     } finally {
       setPickingId(null);
     }

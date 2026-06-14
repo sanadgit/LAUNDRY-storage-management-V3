@@ -1,0 +1,2168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <!-- Meta, title, CSS, favicons, etc. -->
+    <meta charset="utf-8"> 
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0 viewport-fit=cover" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Aipsoft Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;300;400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/jquery-confirm.min.css">
+    <link rel="stylesheet" type="text/css" href="css/typeahead_css.css">
+    <script type="text/javascript" src="js/jquery-3.4.1.min.js"></script>
+    <script src="js/jquery-confirm.min.js"></script>
+     <!-- <script type="text/javascript" src="js/typeahead.js"></script> -->
+    <script type="text/javascript" src="js/typeahead.bundle.js"></script>
+    <script src="js/jquery-confirm.min.js"></script>
+    <script src="js/config.js"></script>
+    <script type="text/javascript"> 
+    
+    let api_user_id         = window.localStorage.getItem('api_user_id');
+    let api_url             = window.localStorage.getItem('api_url');
+    let client_identifier   = window.localStorage.getItem('client_identifier');
+    let order_id            = window.localStorage.getItem('order_id');
+    let vendor_id           = window.localStorage.getItem('vendor_id');
+    let branch_id           = window.localStorage.getItem('branch_id');
+    let currency_id         = window.localStorage.getItem('currency_id');
+    let tax_included        = window.localStorage.getItem('tax_included');
+    let expense_id          = window.localStorage.getItem('expense_id');
+    let module_settings;
+    let user_type;
+    let expense_data;
+    // console.log('tax_included - '+tax_included)
+    if((api_user_id == null || api_user_id == '' || api_url =='' || api_url == null)) {
+        window.location = "login.html";
+    } 
+    if(expense_id == '' || expense_id ==undefined || expense_id ==null || expense_id=='0') {
+        window.location = "expense.html";
+    } 
+    else
+    {
+        $(document).ready(function() {
+            loadAjax();
+            $.ajax({
+                url: api_url+'/purchase_api/get_expense_details_data',
+                method: 'POST',
+                data: {'expense_id': expense_id,'client_identifier':client_identifier},
+                success: function(response) {
+                    removeAjaxLoad();
+                    var response =JSON.parse(response);
+                    if(response.status==1)
+                    {
+                        expense_data     = response.expense_data;
+                        let expense_details  = response.expense_details;
+                        let supporting_doc   = response.supporting_doc;
+
+                        if(expense_details.length > 0)
+                        {
+                            let sl_no = 1;
+                            expense_details.forEach(function(each_expense, index) {
+                                if($(".sl_no").length>0)
+                                {
+                                    sl_no = Number($(".sl_no").length)+1;
+                                }
+                                let tRow = '<tr data-id="'+each_expense.id+'" class="item_row">\
+                                    <td class="sl_no">'+sl_no+'</td>\
+                                    <td class="expense_head">'+each_expense.acc_name1+'</td>\
+                                    <td class="expense_description">'+each_expense.notes+'</td>\
+                                    <td class="expense_amount">'+each_expense.amount+'</td>\
+                                    <td class="expense_tax_amount">'+each_expense.tax_amount+'</td>\
+                                    <td class="expense_total">'+each_expense.total+'</td>\
+                                </tr>';
+                                $('.expense_details_list tbody').append(tRow);
+                            })
+                        }
+
+                        // console.log(supporting_doc);
+                        let img_show_url = api_url.replace(client_identifier.toLowerCase(),'');
+                        // console.log(img_show_url);
+                        if(supporting_doc.length > 0)
+                        {
+                            supporting_doc.forEach(function(each_doc,index) {
+                                $(".image_list_ul").append(`<li>
+                                    <div class="imagelist_img">
+                                        <img class="img" data-saved="1" data-id='`+each_doc.id+`' onclick="$('.img-modal').show();$('.image_modal_content').attr('src',$(this).attr('src'));">
+                                        <img class="delete_img" src="images/delete_img.png" height="15px" width="15px" onclick="$('.image_list_ul li').removeClass('selected');$(this).parents('li').addClass('selected');delete_image('`+each_doc.doc_name+`',saved=1,id='`+each_doc.id+`');">
+                                    </div>
+                                </li>`);
+                                $('.img').eq($(".imagelist_img").length - 1).attr('src', img_show_url+'userdatas/clients/'+client_identifier+'/attachments/expenses/'+each_doc.doc_name);
+                                $('.img').eq($(".imagelist_img").length - 1).data('img_file_name',each_doc.doc_name);
+                            })
+                        }
+
+                        if(expense_data.hold == 1)
+                        {
+                            $('.addBtn').show();
+                            $('.saveBtn').show();
+                            $('.reset').show();
+                        }
+                        else
+                        {
+                            $('.delete_img').hide();
+                        }
+                    }
+                    else
+                    {
+                        $.alert(response.message);
+                    }
+                },
+                error:function (xhr, ajaxOptions, thrownError){
+                    removeAjaxLoad();
+                    $.alert('Expense Details cannot be fetched.Failed !');                        
+                }   
+            });
+        })
+    }
+
+
+
+    </script>
+</head>
+
+<style type="text/css">
+
+    body {
+        font-family: 'Roboto', sans-serif;
+        margin: 0;
+    }
+    .form_footerBtn.errorData {
+        background: #ff4646;
+        text-align: center;
+        font-size: 16px;
+        padding: 20px 0;
+    }
+    p.errortxt {
+        color: #fff;
+        font-size: 18px;
+    }
+    p.errortxt:last-child{
+        margin-bottom: 10px;
+    }
+    .nav_deader {
+        background-image: linear-gradient(to right, #305daf , #17a9ca);
+        /*background-image: linear-gradient(#252525, #070707);*/
+        padding: 8px;
+        color: #fff;
+        overflow: hidden;
+    }
+    .aiplogo {
+        float: left;
+        margin-right: 8px;
+    }
+    .nav_text p {
+        font-size: 14px;
+        margin: 0;
+        font-weight: 400;
+        margin-top: 2px;
+    }
+    .GRN_wrap {
+        padding: 8px 10px;
+        overflow: hidden;
+        position: relative;
+    }
+    .footer button{
+        width: 100%;
+        padding: 15px;
+        font-weight: 600;
+        font-size: 16px;
+        background-color: #2451a6;
+        color: #fff;
+        position: fixed;
+        bottom: 0px;
+        border: 1px solid #686f8c;
+    }
+    .scanitem {
+        width: 95%;
+        float: left;
+        position: relative;
+        display: flex;
+    }
+    .scanitem label {
+        color: #3b3b3b;
+        margin-bottom: 0;
+        font-size: 14px;
+        font-weight: 400;
+        width: 8%;
+        float: left;
+        position: relative;
+        top: 0;
+        padding: 10px 5px;
+    }
+    .scanitem input {
+        border: 1px solid #707070;
+        background-color: #e9e9e9;
+        padding: 8px;
+        color: #3b3b3b;
+        font-size: 14px;
+        font-weight: 400;
+        width: 100%;
+        padding-right: 35px;
+    }
+    .search_btn {
+        position: absolute;
+        right: 10px;
+        top: 10px;
+    }
+    .center_form{
+        width: 30%;
+        float: left;
+    } 
+    .center_form input{
+        border: 1px solid #707070;
+        background-color: #e9e9e9;
+        padding: 8px;
+        color: #3b3b3b;
+        font-size: 14px;
+        font-weight: 400;
+        margin-top: 3px;
+        width: 70%
+    }
+    .OK_Btn {
+        font-size: 14px;
+        font-weight: 600;
+        background-color: #000;
+        color: #fff;
+        border: 1px solid #707070;
+        padding: 8px 8px;
+        float: right;
+        position: relative;
+    }
+    .grn_table {
+        width: 100%;
+        height: 50vh;
+        overflow-y: auto;
+        overflow-x: hidden;
+    }    
+    .grn_table table {
+        border-spacing: 0px;
+        width: 100%
+    }
+    .grn_table th {
+        background-color: #2350a3;
+        font-size: 12px;
+        color: #fff;
+        padding: 5px;
+        border-right: 1px solid #6f6f6f;
+    }
+    .grn_table td {
+        font-size: 13px;
+        font-weight: 400;
+        color: #1e1e1e;
+        padding: 5px 3px;
+        border-right: 1px solid #6f6f6f;
+        border-bottom: 1px dotted #d7d7d7;
+    }
+
+    .grn_table .selected{
+        background-color: #e9e9e9;
+    }
+
+    .item_popup{
+        background-color: #f3f3f3;
+        padding: 20px;
+        display: none;
+    }
+    .item_popup p {
+        color: #2f2f2f;
+        font-size: 16px;
+        font-weight: 500;
+        padding-bottom: 5px;
+        margin: 0;
+    }
+    .imp{
+        color: #a82d25 !important;
+    }
+    .imp_sp{
+        color: #a900ff !important;
+    }
+    .item_popup {
+        background-color: #f3f3f3;
+        padding: 20px;
+        position: fixed;
+        bottom: 65px;
+    }
+    .itemForm{
+        width: 50%;
+        float: left;
+        margin-bottom: 6px;
+    }
+    .itemFormFull{
+        width: 100%;
+        float: left;
+        margin-bottom: 6px;
+    }
+    .itemFormFull label {
+        color: #3e3e3e;
+        font-size: 15px;
+        font-weight: 500;
+        margin-bottom: 5px;
+    }
+    .itemFormFull input {
+        border: 1px solid #6f6f6f;
+        font-size: 14px;
+        color: #333;
+        padding: 6px;
+        width: 90%;
+    }
+    .itemForm label {
+        color: #3e3e3e;
+        font-size: 15px;
+        font-weight: 500;
+        margin-bottom: 5px;
+    }
+    .itemForm input {
+        border: 1px solid #6f6f6f;
+        font-size: 14px;
+        color: #333;
+        padding: 6px;
+        width: 80%;
+    }
+    .itemFormFull select {
+        border: 1px solid #6f6f6f;
+        font-size: 14px;
+        color: #333;
+        padding: 6px;
+        width: 90%;
+    }
+    .form_footerBtn {
+        position: fixed;
+        bottom: 0px;
+        background-color: #254fa1;
+        z-index: 9999;
+        padding: 20px;
+        width: 100%;
+        left: 0px;
+    }
+    .form_footerBtn button {
+        background-color: #fff;
+        padding: 10px;
+        font-size: 14px;
+        font-weight: 500;
+        text-transform: uppercase;
+        color: #000;
+        border: 1px solid #5f7293;
+        width: 42%;
+        /*float: left;*/
+        margin-right: 15px;
+    }
+
+.loading {
+    position: fixed;
+    z-index: 999999;
+    height: 100%;
+    width: 100%;
+    overflow: show;
+    margin: auto;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    background: #000;
+    opacity: 0.5;
+}
+img.loadingIco {
+    width: 100%;
+    position: absolute;
+    top: 25%;
+}
+.form_footerBtn.errorData {
+        background: #ff4646;
+        text-align: center;
+        font-size: 16px;
+        padding: 20px 0;
+    }
+    p.errortxt {
+        color: #fff;
+        font-size: 18px;
+    }
+    .buttonDiv {
+        overflow: hidden;
+        text-align: center;
+    }
+    .addProdData {
+        background: green;
+        padding: 5%;
+        width: 90%
+    }
+.addProdData h1 {
+    margin: 0;
+    font-size: 22px;
+    color: #fff;
+    margin-bottom: 10px;
+}
+.item_popup.addProduct {
+    background: green;
+}
+.addProdData label {
+    color: #fff;
+}
+.addProdData .form_footerBtn{
+    background: green;
+}
+label.spectTxt {
+    padding: 15px 0 0;
+    display: block;
+}
+.form_footerBtn.addProdBtns button {
+    color: #fff;
+    font-weight: bold;
+    background: #000;
+}
+.form_footerBtn.addProdBtns button.closeBtn {
+    background: red !important;
+}
+input[readonly] {
+    background: #d6d6d6;
+}
+.hidden_item{
+    display: none !important;
+}
+.units{
+    width: 95% !important;
+}
+.invalid{
+    border: 3px solid #D95050 !important;
+}
+/*.scanitem_search {
+    position: absolute;
+    right: 0px;
+    top: 30px;
+}*/
+.item_search {
+    background-color: #fff;
+    height: 100vh;
+    top: 0;
+    position: fixed;
+    width: 100%;
+    padding: 0px;
+    left: 0;
+    z-index: 9;
+}
+.item_search .close_icon {
+    position: absolute;
+    right: 20px;
+    top: 25px;
+}
+.searchlisting_wrap {
+    overflow: hidden;
+    width: 100%;
+    padding: 15px 0;
+    height: calc(100vh - 98px);
+    overflow-y: scroll;
+    overflow-x: hidden;
+}
+.searchlisting_wrap ul{
+    padding: 0;
+    list-style-type: none;
+    margin: 0;
+}
+.searchlisting_wrap ul li{
+    width: 100%;
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 10px;
+    border-bottom: 1px solid #ececec;
+    padding: 10px;
+    color: #2f2f2f;
+}
+.item_search .scanitem {
+    width: 90%; 
+}
+.item_padd {
+    padding: 15px;
+}
+.hidden{
+    display: none;
+}
+.search_result_ul .selected{
+    background-color: #305bce;
+    color: #fff;
+}
+.search_result_ul .selected{
+    background-color: #305bce;
+    color: #fff;
+}
+.item_search .twitter-typeahead{
+    width: 100%;
+}
+.item_search .search_btn {
+    position: absolute;
+    right: -35px;
+    top: 10px;
+}
+.item_search .scanitem_search {
+    position: absolute;
+    right: -35px;
+    top: 9px;
+}
+
+@media only screen and (max-width: 1600px) {
+    .item_search .scanitem {
+        width: 92%;
+    }      
+}
+@media only screen and (max-width: 1200px) {
+    .item_search .scanitem {
+        width: 90%;
+    }      
+}
+
+@media only screen and (max-width: 993px) {
+    .scanitem label {
+        width: 15%;
+    }
+    .scanitem {
+        width: 92%;
+    }  
+    .item_search .scanitem {
+        width: 92%;
+    }
+    .item_search .scanitem {
+        width: 88%;
+    }        
+}
+
+@media only screen and (max-width: 800px) {
+    .item_search .scanitem {
+        width: 86%;
+    }    
+}
+
+@media only screen and (max-width: 600px) {
+    .scanitem label {
+        width: 22%;
+    }
+    .scanitem {
+        width: 90%;
+    }
+    .item_search .scanitem {
+        width: 90%;
+    } 
+    .item_search .scanitem {
+        width: 80%;
+    }    
+}
+
+
+@media only screen and (max-width: 500px) {
+    .item_search .close_icon {
+        right: 10px;
+    }
+    .scanitem label {
+        width: 30%;
+    }
+    .scanitem {
+        width: 88%;
+    } 
+    .item_search .scanitem {
+        width: 88%;
+        }
+    .item_search .scanitem {
+        width: 80%;
+    }   
+}
+
+
+@media only screen and (max-width: 400px) {
+    .item_search .scanitem {
+        width: 80%;
+    }
+/*    .item_search .scanitem_search {
+        position: absolute;
+        right: -10px;
+    }*/
+    .scanitem {
+        width: 85%;
+    }
+    .GRN_wrap {
+        padding: 8px 6px;
+    }
+    .scanitem label {
+        width: 50%;
+    }
+    .item_search .scanitem {
+        width: 85%;
+    } 
+    .item_search .scanitem {
+        width: 72%;
+    }   
+    .scanitem label {
+        font-size: 13px;
+    }     
+}
+
+/* CSS specific to iOS devices */ 
+
+@supports (-webkit-touch-callout: none) {
+    .nav_deader {
+        padding-top: 50px;
+    }
+    .GRN_wrap {
+        height:    calc(100vh - 90px);
+    } 
+}
+
+
+/* css for image upload */
+.content_body_img_upload {
+    margin-top: 60px;
+    margin-bottom: 15px;
+    border: 1px solid #d6d6d6;
+    padding: 10px;
+    height: 10vh;
+    /*overflow-y: auto;*/
+    overflow: hidden;
+    border-radius: 5px;
+    background-color: #fbfbfb;
+    bottom: 65px;
+}
+
+.content_body_img_upload::-webkit-scrollbar-track {
+    border-radius: 0px;
+    background-color: #fff;
+}
+
+.content_body_img_upload::-webkit-scrollbar {
+    width: 6px;
+    background-color: #717171;
+}
+
+.content_body_img_upload::-webkit-scrollbar-thumb {
+    border-radius: 6px;
+    background-color: #717171;
+}  
+
+.uploaded_images{
+    float: left;
+     width: 70%;
+}
+
+.image_upload_btns{
+    border-left: 1px solid #d6d6d6;
+    float: right;
+    width: 28%;
+}
+
+.image_upload_btns button{
+    float: right;
+    margin: 6px;
+}
+
+.upload_img{
+    background-image: url('images/file_upload.png');
+    background-color: transparent;
+    background-repeat: no-repeat;
+    background-size: cover;
+    border: none;
+    height: 70px;
+    width: 70px;
+}
+
+.delete_all_uploaded{
+    color: red;
+}
+
+.uploaded_images ul{
+    padding: 0;
+    list-style: none;
+    margin: 0;
+    height: 10vh;
+    overflow: auto;
+}
+
+.uploaded_images ul li {
+    width: 15%;
+    float: left;
+    border-radius: 5px;
+    margin: 5px;
+    position: relative;
+    padding-bottom: 10px;
+}
+
+.uploaded_images ul li img{
+    width: 100%;
+    border-radius: 5px;
+}
+
+.uploaded_images ul li .delete_img{
+    width: 15px;
+    position: absolute;
+    bottom: 15px;
+    right: 2px;
+}
+
+.uploaded_images ul li{width:20%;}
+
+.uploaded_images .deletIco {
+    position: absolute;
+    right: -5px;
+    top: -5px;
+    background-color: #e30d39;
+    border-radius: 30px;
+    width: 30px;
+    height: 30px;
+    text-align: center;
+    line-height: 30px;
+    color: #fff;
+}
+
+.imagelist_img {
+    background-repeat: no-repeat !important;
+    background-size: auto !important;
+    height: 60px;
+    width: 100%;
+    background-position: center !important;
+    border-radius: 8px;
+    border: 1px solid #325caa45;
+    box-shadow: 0px 2px 9px -2px rgb(133 133 133 / 75%);
+    -webkit-box-shadow: 0px 2px 9px -2px rgb(133 133 133 / 75%);
+    -moz-box-shadow: 0px 2px 9px -2px rgb(133 133 133 / 75%);
+}
+
+.img-modal {
+    display: none;
+    position: fixed; 
+    z-index: 1; 
+    left: 0;
+    top: 0;
+    width: 100%; /* Full width */
+    height: 100%; /* Full height */
+    background-color: rgba(0, 0, 0, 0.8); /* Black with opacity */
+    justify-content: center; /* Center horizontally */
+    align-items: center; /* Center vertically */
+}
+
+.img-modal-content {
+    position: relative;
+    margin: 15% auto;
+    display: block;
+    max-width: 80%;
+    max-height: 80%;
+    text-align: center;
+    background: #fff;
+    padding: 5%;
+    min-height: 40vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    justify-content: center;
+}
+
+.img-modal-content img {
+    width: 100%; /* Responsive image */
+    height: auto;
+}
+
+.close {
+    position: absolute;
+    top: -15px;
+    right: -15px;
+    color: white;
+    font-size: 30px;
+    font-weight: bold;
+    cursor: pointer;
+    background: red;
+    padding: 5px 8px;
+    line-height: 30px;
+    border-radius: 100%;
+}
+
+.close:hover,
+.close:focus {
+    color: #bbb;
+}
+
+.back_btn{
+    background-color: #2350a3;
+    font-size: 15px;
+    font-weight: 500;
+    color: #fff;
+    border: 0;
+    padding: 8px 30px;
+    float: left;
+    border-radius: 4px;
+    letter-spacing: 1px;
+}
+
+.content{
+    margin-bottom: 5px;
+    overflow: hidden;
+}
+/* css for image upload */
+
+
+.delete_expense_details{
+    position: absolute;
+    right: 10px;
+    top: 20px;
+}
+
+</style>
+
+<body>
+
+    <div class="nav_deader">
+        <div class="aiplogo">
+            <img src="images/aipsoft.png">
+        </div>
+        <div class="nav_text">
+            <p>AipSoft - Expense- <span class="expense_no"></span></p>
+        </div>
+    </div>
+
+    <div class="GRN_wrap">  
+        <div class="content">
+            <button type="button" class="back_btn">Back</button>
+        </div>
+        <div class="scanitem">
+            <label>Acc Head</label>
+            <input type="text" name="" class="barcode_search" id="barcode_get" onclick="open_camera();"> <!-- ok.openBarcode(); for android sendLoginAction() for ios-->
+            <div class="search_btn">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-search scanitem_search" viewBox="0 0 16 16">
+                  <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                </svg>   
+            </div>     
+        </div>
+        <button id="myBtn" type="button" class="OK_Btn" style="display: none;">OK</button>
+    </div>
+
+    <div class="item_search hidden">
+        <div class="item_padd">
+            <div class="close_search_btn">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-x-lg close_icon" viewBox="0 0 16 16">
+                  <path d="M1.293 1.293a1 1 0 0 1 1.414 0L8 6.586l5.293-5.293a1 1 0 1 1 1.414 1.414L9.414 8l5.293 5.293a1 1 0 0 1-1.414 1.414L8 9.414l-5.293 5.293a1 1 0 0 1-1.414-1.414L6.586 8 1.293 2.707a1 1 0 0 1 0-1.414z"/>
+                </svg>
+            </div>
+            <div class="scanitem">
+                <label>Scan Item</label>
+                <input type="text" name="" class="prod_search">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-search scanitem_search" viewBox="0 0 16 16">
+                  <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                </svg>
+            </div>
+            <div class="searchlisting_wrap">
+                <ul class="search_result_ul">
+                </ul>
+            </div>
+        </div>
+    </div>
+
+
+    <div class="grn_table">
+        <table class="expense_details_list">
+            <thead>
+                <tr>
+                    <th>SL No</th>
+                    <th>Account Head</th>
+                    <th>Description</th>
+                    <th>Amount</th>
+                    <th>Tax Amount</th>
+                    <th>Total</th>
+                </tr>
+            </thead>
+            <tbody>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="footer">
+        <button type="button" class="saveBtn" style="display:none">Save & Close</button>        
+    </div>
+
+
+    <div class="item_popup prod_details">
+        <p>Account Head</p>
+        <img class="delete_expense_details" src="images/delete_img.png" height="15px" width="15px" style="display:none">
+        <p class="imp head_name"></p>
+        <!-- <p class="imp_sp">Packet Qty: <span class="eq_base_qty"></span></p> -->
+        <!-- <p>Purchase Rate : <span class="purchase_rate">25:00</span></p> -->
+
+        <div class="form_wrap">
+            <div class="itemForm">
+                <label>Description</label>
+                <input type="text" class="description" value="">
+            </div> 
+            <div class="itemForm">
+                <label>Amount</label>
+                <input type="number" class="amount" value="">
+            </div>                       
+            <div class="itemForm">
+                <label>5 % Tax</label>
+                <input type="checkbox" class="tax" value="">
+            </div> 
+            <div class="itemForm">
+                <label>Total</label>
+                <input type="number" class="total" value="">
+            </div>           
+            <div class="form_footerBtn">
+                <button type="button" class="addBtn" style="display:none">ADD</button>
+                <button type="button" class="closeBtn">Close</button>
+            </div>
+        </div>
+    </div>
+    <!-- <div class="item_popup addProduct">
+    </div> -->
+
+    <div class="img-modal">
+        <div class="img-modal-content">
+            <span class="close">&times;</span>
+            <img class="image_modal_content">
+        </div>
+    </div>
+
+    <div class="content_body_img_upload">
+        <div class="uploaded_images">
+            <ul class="image_list_ul">
+            </ul>
+        </div>
+        <div class="image_upload_btns">
+            <input id="file-input" class="file-input" type="file" style="display:none;" accept="image/*">
+            <button class="upload_img"></button>   
+        </div>
+    </div>
+    <span class="reset delete_all_uploaded" style="display:none"><img src="images/delete_img.png" height="15px" width="15px">Delete all images</span>
+
+
+<script>
+function RoundNum(num, length) { 
+    let number = (Math.round( num * 100 ) / 100).toFixed(length);
+    return number;
+}
+
+function mainSearchBarcode()
+{
+    let search_sale_products = new Bloodhound(
+    {
+        datumTokenizer: function(datum) {
+          return Bloodhound.tokenizers.whitespace(datum.value);
+        },
+        queryTokenizer: Bloodhound.tokenizers.whitespace,
+        remote: 
+        {
+            url: api_url+"/purchase_api/accountHeadList",
+            cache: false,
+            prepare:function(query, settings)
+            {
+              $('.notify').remove();
+              $(".spin_loader_cp").removeClass('hidden_section');
+              $('.search_result').html('');
+              settings.url = this.url + "/"+client_identifier+"/"+query;
+              return settings;
+            },
+            transform: function(response) 
+            {
+                $(".spin_loader_cp").addClass('hidden_section');
+                $('.search_result').html('');
+                console.log(response)
+                if(response.status = 1)
+                {
+                    // $('.barcode_scan_field').parents('.label_style').find('.tt-menu').addClass('box_ul searchbox_arrow');
+                    // return response;
+                    let displayHtml = ``;
+                    $.each(response.data,function(indx,item)
+                    {
+                        // let price = Number(item.sale_rate_new?item.sale_rate_new:0).toFixed(2);
+                        displayHtml += `<li class="ItemData item_${item.id}" data-id="${item.id}" data-account_head="${item.text}"> ${item.text} 
+                            <p style="margin-top:4px"></p></li>`;
+                          
+                    })
+                    $('.search_result_ul').html(displayHtml);
+                    $('.search_result_ul').find('li:first-child').addClass('selected');
+                }
+                else
+                {
+                    $('.search_result_ul').html('<li> No items found!...</li>');
+                    //$('.prod_search').removeData();
+                    $('.prod_search').focus();
+                }
+            }
+        }
+    });
+    search_sale_prdt_ahead = $('.prod_search').typeahead(
+    {
+        hint: false,
+        highlight: true,
+        minLength: 1
+    },
+    {
+        limit: 50,
+        name: 'Search_sale_products',
+        source: search_sale_products,
+        display:function(data)
+        {
+            data.product_name
+        },
+        templates: 
+        {
+            suggestion: function(item) 
+            {
+                // let price = Number(item.sale_rate).toFixed(no_of_decimals);
+                // let displayHtml = `<tr data-id="${item.barcode}" tabindex="0">
+                //                     <td>${item.product_name}</td>
+                //                     <td>${item.cat_name}</td>
+                //                     <td>${Number(item.cost).toFixed(no_of_decimals)}</td>
+                //                     <td>${price}</td>
+                //                     <td>${item.stock?item.stock:'0'}</td>
+                //                 </tr>`;
+                // $('.search_result').append(displayHtml);
+                // $('.search_result').find('tr:first-child').addClass('selected');
+                // return displayHtml;
+            }
+        }
+    });
+    $('.prod_search').bind('typeahead:selected', function(obj, datum, name) 
+    {  
+        $(".notify").remove();
+        $('.searchbox_arrow').hide();
+        $('.tt-dataset').empty();
+        selectedItemFromList(datum.barcode);
+    });
+}
+    $(document).ready(function() {
+        mainSearchBarcode();
+
+
+        // loadAjax()
+        // getDefaultBarcode();
+        $('.expense_no').text(expense_id);
+        $('.barcode_search').focus(function(){
+            $(this).select();
+        })
+        setTimeout(function(){$('.barcode_search').focus()},100);
+    })
+    let getDefaultBarcode = function()
+    {
+        $.ajax({
+                url: api_url+'/purchase_api/default_barcode',
+                method: 'POST',
+                data: {'branch_id':branch_id,'client_identifier':client_identifier},
+                success: function(response) {
+                    var data =JSON.parse(response);
+                    $('.OK_Btn').data('def_barcode','0');
+                    if(data.status==1)
+                    {
+                        $('.OK_Btn').data('def_barcode',data.default_barcode.default_barcode)
+                    }
+                },
+                error:function (xhr, ajaxOptions, thrownError){
+                }   
+            });
+    }
+    $(document).on('keyup','.barcode_search',function(e){
+        let val = $(this).val();
+        let val_array = val.split("");
+        console.log('length', val_array.length)
+        console.log('numeric', !$.isNumeric(val))
+
+        if (val_array.length >= 3 && !$.isNumeric(val)) {
+
+            $('.prod_search').val(val)
+            $('.item_search').removeClass('hidden')
+            $('.prod_search').focus()
+            $('.prod_search').trigger('input')
+        }
+        if(val!='' && (e.which == 13  || e.keyCode == 13))
+        {
+            $('.OK_Btn').click();
+        }
+    })
+    $(document).on('keyup','.prod_search',function(e){
+        let val = $(this).val();
+        
+        if(val!='' && (e.which == 13  || e.keyCode == 13))
+        {
+            console.log("yy")
+            $('.barcode_search').val(val)
+            $('.item_search').addClass('hidden')
+            $('.barcode_search').focus()
+        }
+    })
+    $(document).on('keyup','.prod_qty',function(e){
+        let val = $(this).val();
+        if(val!='' && (e.which == 13  || e.keyCode == 13))
+        {
+            $('.prod_foc').select();
+        }
+    })
+    $(document).on('keyup','.pur_rate',function(e){
+        let val = $(this).val();
+        if(val!='' && (e.which == 13  || e.keyCode == 13))
+        {
+            $('.s_rate').select();
+        }
+    })
+    $(document).on('keyup','.s_rate',function(e){
+        let val = $(this).val();
+        if(val!='' && (e.which == 13  || e.keyCode == 13))
+        {
+            $('.prod_qty').select();
+        }
+    })
+    $(document).on('input','.pur_rate',function(e){
+        let price   = Number($(this).val()?$(this).val():1);
+        let qty     = Number($('.prod_qty').val());
+        let tot     = qty*price;
+        let assignedTax = $('.prod_name').data('product_taxes');
+        calculateTax(assignedTax,price);
+        $('.prod_total').val(tot.toFixed(2))
+    })
+    $(document).on('input','.prod_qty',function(e){
+        let qty     = Number($(this).val()?$(this).val():1);
+        let price   = Number($('.pur_rate').val());
+        let tot     = qty*price;
+        $('.prod_total').val(tot.toFixed(2))
+    })
+    $(document).on('input','.prod_foc',function(e){
+        let foc     = Number($(this).val()?$(this).val():0);
+        let qty   = Number($('.prod_qty').val());
+        let tot     = foc+qty;
+        $('.tot_qty').val(tot)
+    })
+    $(document).on('keyup','.prod_foc',function(e){
+        let val = $(this).val();
+        if((e.which == 13  || e.keyCode == 13))
+        {
+            $('.addBtn').click();
+        }
+    })
+    $(document).on('click','.addBtn',function(e){
+        /* let barcode  = $('.barcode_search').val();
+        let prod_qty = Number($('.prod_qty').val());
+        let prod_foc = Number($('.prod_foc').val()?$('.prod_foc').val():0);
+        let p_rate   = Number($('.pur_rate').val());
+        let s_rate   = Number($('.s_rate').val());
+        let p_unit   = $('.prod_name').data('unit');
+        let p_unit_id= $('.prod_name').data('unit_id');
+        let p_prod_id= $('.prod_name').data('prod_id');
+        let eq_to_base      = Number($('.prod_name').data('eq_to_base'));
+        let product_taxes   = $('.prod_name').data('product_taxes');
+        let pur_rate        = p_rate/eq_to_base;
+        let pr_name         = $('.prod_name').text();
+        let margin_perc     = 0;
+        let profit          = Number(s_rate-p_rate);
+        margin_perc         = (profit/s_rate)*100;
+        margin_perc         = Number(margin_perc).toFixed(6);
+
+        let product_total_tax = Number($('.prod_name').data('product_total_tax'));
+        let tot_tax_amount    = Number($('.prod_name').data('tot_tax_amount'));
+        let tax_less_amount   = Number($('.prod_name').data('tax_less_amount'));
+        let with_tax_amount   = Number($('.prod_name').data('with_tax_amount'));
+
+         if(barcode!='' && prod_qty!='' && prod_qty!='0')
+        {
+            loadAjax();
+            if(!$(this).hasClass('clicked'))
+                $(this).addClass('clicked');
+            else
+                return false;
+            $.ajax({
+                url: api_url+'/purchase_api/addProductToCart',
+                method: 'POST',
+                data: {'barcode': barcode,'order_id': order_id,'p_prod_id':p_prod_id,'prod_qty':prod_qty,'prod_foc':prod_foc,'p_rate':p_rate,'pur_rate':pur_rate,'s_rate':s_rate,'p_unit_id':p_unit_id,'branch_id':branch_id,'eq_to_base':eq_to_base,'margin_perc':margin_perc,'product_taxes':product_taxes,'product_total_tax':product_total_tax,'tot_tax_amount':tot_tax_amount,'tax_less_amount':tax_less_amount,'with_tax_amount':with_tax_amount,'tax_included':tax_included,'client_identifier':client_identifier},
+                success: function(response) {
+                    $('.addBtn').removeClass('clicked');
+                    removeAjaxLoad();
+                    $('.barcode_search').val('').focus()
+                    var data =JSON.parse(response);
+                    console.log(data);
+                    if(data.status==1)
+                    {
+                        let sl_no = 1;
+                        if($(".sl_no").length>0)
+                        {
+                            sl_no = Number($(".sl_no").length)+1;
+                        }
+                        let totQty = prod_qty+prod_foc;
+                        let tRow = '<tr class="item_row">\
+                                        <td class="sl_no" data-barcode="'+barcode+'">'+sl_no+'</td>\
+                                        <td >'+barcode+' - '+pr_name+'</td>\
+                                        <td >'+p_unit+'</td>\
+                                        <td >'+p_rate.toFixed(2)+'</td>\
+                                        <td >'+totQty+'</td>\
+                                        <td >'+(totQty*p_rate).toFixed(2)+'</td>\
+                                    </tr>';
+                        $('.productList tbody').append(tRow);
+                    }
+                    else
+                    {
+                        $('.prod_details').hide();
+                         $.alert(data.message);
+                         return false;
+                    }
+                    $('.closeBtn').click();
+                },
+                error:function (xhr, ajaxOptions, thrownError){
+                        $('.addBtn').removeClass('clicked');
+                        removeAjaxLoad();
+                        $.alert('No vendor found..!');
+                        return false;                          
+                    }   
+            });
+        } */
+
+        let account_head_id = $('.search_result_ul li.selected').data('id');
+
+        let amount = Number($('.amount').val());
+        if(!amount)
+        {
+            $.alert('Add Amount!');
+            return false;
+        }
+
+        let tax_amount=0;
+        if($('.tax').prop('checked'))
+        {
+            tax_amount  =  ((amount * 5) /100).toFixed(2);
+        }
+
+        let total = Number($('.total').val());
+
+        let notes = $('.description').val();
+
+        let expense_id          =    window.localStorage.getItem('expense_id');
+        let account_segment_id  =    window.localStorage.getItem('account_segment_id');
+        let account_class_id    =    window.localStorage.getItem('account_class_id');
+        let branch_id           =    window.localStorage.getItem('branch_id_expense');
+        let head_name           =    $('.head_name').html();
+        let button_type         =    $(this).html();
+        let expense_details_id  =    $('.expense_details_list tbody').find('.selected').attr('data-id');
+        
+        $(this).addClass('clicked');
+        loadAjax();
+        $.ajax({
+            url: api_url+'/purchase_api/save_expense_details',
+            method: 'POST',
+            data: {'expense_id':expense_id,'branch_id':branch_id,'account_head': account_head_id,'account_segment_id': account_segment_id,'account_class_id': account_class_id,'amount':amount,'tax_amount':tax_amount,'total':total,'notes':notes,'client_identifier':client_identifier,'button_type':button_type,'expense_details_id':expense_details_id},
+            success: function(response) {
+                response=JSON.parse(response);
+                removeAjaxLoad();
+                $('.addBtn').removeClass('clicked');
+                if(response.status==1)
+                {
+                    if(button_type == "ADD")
+                    {
+                        let sl_no = 1;
+                        if($(".sl_no").length>0)
+                        {
+                            sl_no = Number($(".sl_no").length)+1;
+                        }
+                        let tRow = '<tr data-id="'+response.expense_details_id+'" class="item_row">\
+                            <td class="sl_no">'+sl_no+'</td>\
+                            <td class="expense_head">'+head_name+'</td>\
+                            <td class="expense_description">'+notes+'</td>\
+                            <td class="expense_amount">'+amount+'</td>\
+                            <td class="expense_tax_amount">'+tax_amount+'</td>\
+                            <td class="expense_total">'+total+'</td>\
+                        </tr>';
+                        $('.expense_details_list tbody').append(tRow);
+                    } 
+                    else
+                    {
+                        $('.expense_details_list tbody').find('.selected').find('.expense_description').html(notes);
+                        $('.expense_details_list tbody').find('.selected').find('.expense_amount').html(amount);
+                        $('.expense_details_list tbody').find('.selected').find('.expense_tax_amount').html(tax_amount);
+                        $('.expense_details_list tbody').find('.selected').find('.expense_total').html(total);
+                    }
+                    window.localStorage.setItem('expense_tax_checked',$('.tax').prop('checked'));
+                    $('.closeBtn').click(); 
+                }
+                else
+                {
+                    $.alert(data.message);
+                }   
+            },
+            error:function (xhr, ajaxOptions, thrownError){
+                removeAjaxLoad();
+                $('.addBtn').removeClass('clicked');
+                $.alert('Expense details cannot be added. Failed!');                      
+            }   
+        });
+    })
+
+    $(document).on('click','.saveBtn',function(e){
+
+        if($('.expense_details_list tbody tr').length == 0)
+        {
+            $.alert('Add Expense Details !');   
+            return false;
+        }
+
+        let total_tax       = 0;
+        let total_amount    = 0;
+        $('.expense_details_list tbody').find('tr').each(function() {
+            total_tax       += Number($(this).find('.expense_tax_amount').html());
+            total_amount    += Number($(this).find('.expense_total').html());
+        });
+
+        let img_urls        = [];
+        $(".img").each(function(){
+            let image_saved_status = $(this).attr('data-saved');
+            if(image_saved_status == 0)
+            {
+                img_urls.push($(this).data('img_file_name'));
+            }
+        });
+        // console.log(img_urls);
+
+        $.confirm({
+            title:'Confirmation!',
+            content: 'Are you sure to save the updates?',
+            buttons: {
+                Okay: function () {
+                    loadAjax();
+                    $.ajax({
+                        url: api_url+'/purchase_api/approve_expense_data',
+                        method: 'POST',
+                        data: {'expense_id': expense_id,'client_identifier':client_identifier,'total_tax':total_tax,'total_amount':total_amount,'images':img_urls,'user_id':api_user_id},
+                        success: function(response) {
+                            removeAjaxLoad();
+                            $('.barcode_search').select();
+                            var data =JSON.parse(response);
+                            console.log(data);
+                            if(data.status==1)
+                            {
+                                window.localStorage.removeItem('expense_id');
+                                window.localStorage.removeItem('branch_id_expense');
+                                window.localStorage.removeItem('account_class_id');
+                                window.localStorage.removeItem('account_segment_id');
+                                $.alert({
+                                    title: 'Success',
+                                    content: 'Expense successfully saved.',
+                                    onContentReady: function () {
+                                        setTimeout(function(){$(".jconfirm-buttons").find('button').focus();},100);
+                                    },
+                                    onClose: function () { window.location = "home.html";}
+                                });
+                                // $('.closeBtn').click();
+                            }
+                            else
+                            {
+                                $.alert(data.message);
+                            }
+                        },
+                        error:function (xhr, ajaxOptions, thrownError){
+                            removeAjaxLoad();
+                            $.alert('Cannot save expense.Failed !');                        
+                        }   
+                    });
+                },
+                Cancel: function () {     
+                }
+            },
+            onOpen: function () {
+            // after the modal is displayed.
+            },
+        });
+    })
+
+    $(document).on('click','.closeBtn',function(e){
+        /*$('.prod_name').text(''); 
+        $('.cat_name').text(''); 
+        $('.purchase_rate').text(''); 
+        $('.prod_qty').val(1); 
+        $('.prod_foc').val(0); 
+        $('.tot_qty').val(1); 
+        $('.prod_total').val(''); 
+        $('.prod_name').data('unit','');
+        $('.prod_name').data('unit_id','');
+        $('.prod_name').data('prod_id','');
+
+        $('.prod_name').data('eq_to_base','');
+        $('.prod_name').data('product_taxes','');
+        $('.prod_name').data('product_total_tax','');
+        $('.prod_name').data('tot_tax_amount','');
+        $('.prod_name').data('tax_less_amount','');
+        $('.prod_name').data('with_tax_amount',''); */
+
+        $('.description').val('');
+        $('.head_name').html('');
+        $('.amount').val('');
+        $('.tax').prop('checked',false);
+        $('.total').val('');
+        $('.addBtn').html("ADD");
+
+        $('.item_popup').hide();
+        // $('.barcode_search').select();
+        $('.expense_details_list tbody tr').removeClass("selected");
+        $('.content_body_img_upload').show();
+
+        if(expense_data.hold == 1)
+        {
+            $('.delete_all_uploaded').show();
+        }
+    })
+
+    $(document).on('click','.addProd',function(e){
+        let barcode = $(this).data('id');
+        $('.addProduct').html('').hide();
+
+        $.ajax({
+                url: api_url+'/purchase_api/loadProductRelatedData',
+                method: 'POST',
+                data: {'branch_id':branch_id,'client_identifier':client_identifier},
+                success: function(response) {
+                    var data =JSON.parse(response);
+                    $('.OK_Btn').data('def_barcode','0');
+                    console.log('data', data)
+                    let cat_html = '<option value="0">Select</option>';
+                    let unit_html = '<option value="0">Select</option>';
+                    let tax_html = '';
+                    if(data.status==1)
+                    {
+                        if (data.data.category_count > 0) {
+                            data.data.category_result.forEach(function(cat) {
+                                cat_html += `<option value="${cat.id}">${cat.category_name1}</option>`;
+                                
+                            });
+                        } 
+                        if (data.data.unit_count > 0) {
+                            data.data.unit_result.forEach(function(unit) {
+                                unit_html += `<option value="${unit.id}">${unit.unitname}</option>`;
+                                
+                            });
+                        } 
+                        if (data.data.tax_count > 0) {
+                            let checked = "checked";
+                            data.data.tax_result.forEach(function(tax) {
+                                tax_html += `<input type="radio" name="tax_list" data-tax_value="${tax.tax_value}" value="${tax.id}" style="width:auto" ${checked}><label for="${tax.id}">${tax.tax_name} (${tax.tax_value})</label>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`;
+                                checked = "";
+                                
+                            });
+                        } 
+
+
+                          let divHtml = '<div class="addProdData">\
+                                            <div class="form_wrap">\
+                                                <h1>Create New Product</h1>\
+                                                <div class="itemFormFull rows">\
+                                                    <label>Barcode</label>\
+                                                    <input type="text" name="" class="prod_barcode" value="'+barcode+'" >\
+                                                </div>   \
+                                                <div class="itemFormFull rows">\
+                                                    <label>Item Name</label>\
+                                                    <input type="text" name="" class="prod_name_val" value="" >\
+                                                </div>            \
+                                                <div class="itemFormFull rows">\
+                                                    <label>Category</label>\
+                                                    <select class="categories">'+cat_html+'</select>\
+                                                </div> \
+                                                <div class="itemFormFull rows">\
+                                                    <label>Unit</label>\
+                                                    <select class="units">'+unit_html+'</select>\
+                                                </div> \
+                                                <div class="itemFormFull rows">\
+                                                    <label>Tax</label>\
+                                                    <div>'+tax_html+'</div>\
+                                                </div> \
+                                                <div class="itemForm rows">\
+                                                    <label>Purchase Rate</label>\
+                                                    <input type="number" name="" class="purchase_rate_val" value="0" onkeypress="return (event.charCode == 8 || event.charCode == 0 || event.charCode == 13) ? null : event.charCode >= 48 && event.charCode <= 57">\
+                                                </div>            \
+                                                <div class="itemForm rows">\
+                                                    <label>Sales Rate</label>\
+                                                    <input type="number" name="" class="sale_rate_val" value="0" onkeypress="return (event.charCode == 8 || event.charCode == 0 || event.charCode == 13) ? null : event.charCode >= 48 && event.charCode <= 57">\
+                                                </div> \
+                                                <div class="itemForm rows">\
+                                                    <label>Purchase Rate With VAT</label>\
+                                                    <input type="number" name="" class="purchase_rate_val_vat" value="0" onkeypress="return (event.charCode == 8 || event.charCode == 0 || event.charCode == 13) ? null : event.charCode >= 14">\
+                                                </div>            \
+                                                <div class="itemForm rows">\
+                                                    <label>Sales Rate With VAT</label>\
+                                                    <input type="number" name="" class="sale_rate_val_vat" value="0" onkeypress="return (event.charCode == 8 || event.charCode == 0 || event.charCode == 13) ? null : event.charCode >= 14">\
+                                                </div> \
+                                                <div class="form_footerBtn addProdBtns">\
+                                                    <button type="button" class="addProdBtn">ADD</button>\
+                                                    <button type="button" class="closeBtn">Close</button>\
+                                                </div>\
+                                            </div>\
+                                        </div>';
+                        $('.addProduct').html(divHtml).show();
+                        setTimeout(function(){$('.prod_name_val').select()},100);
+                    }
+                },
+                error:function (xhr, ajaxOptions, thrownError){
+                }   
+        });
+      
+    })
+    $(document).on('input','.purchase_rate_val',function(e){
+        let amount = Number($(this).val())?Number($(this).val()):0;
+        let tax_value          = $('input[name="tax_list"]:checked').attr('data-tax_value')?$('input[name="tax_list"]:checked').attr('data-tax_value'):0;
+        tax_value.replace("%", "");
+
+        tax_value = Number(tax_value);
+
+        let tax_amount = (tax_value*amount)/100;
+
+        let amount_with_vat = Number(amount) + Number(tax_amount);
+
+        $('.purchase_rate_val_vat').val(RoundNum(amount_with_vat, 2));
+
+    })
+    $(document).on('input','.sale_rate_val',function(e){
+        let amount = Number($(this).val())?Number($(this).val()):0;
+        let tax_value          = $('input[name="tax_list"]:checked').attr('data-tax_value')?$('input[name="tax_list"]:checked').attr('data-tax_value'):0;
+        tax_value.replace("%", "");
+
+        tax_value = Number(tax_value);
+
+        let tax_amount = (tax_value*amount)/100;
+
+        let amount_with_vat = Number(amount) + Number(tax_amount);
+
+        $('.sale_rate_val_vat').val(RoundNum(amount_with_vat, 2));
+
+    })
+    $(document).on('input','.purchase_rate_val_vat',function(e){
+        let amount_with_vat = Number($(this).val())?Number($(this).val()):0;
+        let tax_value          = $('input[name="tax_list"]:checked').attr('data-tax_value')?$('input[name="tax_list"]:checked').attr('data-tax_value'):0;
+        tax_value.replace("%", "");
+
+        tax_value = Number(tax_value);
+
+        let tax_amount = 100/(Number(100) + Number(tax_value));
+
+       let amount = Number(amount_with_vat) * Number(tax_amount);
+
+        $('.purchase_rate_val').val(RoundNum(amount, 2));
+
+    })
+    $(document).on('input','.sale_rate_val_vat',function(e){
+        let amount_with_vat = Number($(this).val())?Number($(this).val()):0;
+        let tax_value          = $('input[name="tax_list"]:checked').attr('data-tax_value')?$('input[name="tax_list"]:checked').attr('data-tax_value'):0;
+        tax_value.replace("%", "");
+
+        tax_value = Number(tax_value);
+
+        let tax_amount = 100/(Number(100) + Number(tax_value));
+
+       let amount = Number(amount_with_vat) * Number(tax_amount);
+
+        $('.sale_rate_val').val(RoundNum(amount, 2));
+
+    })
+    $(document).on('click','input[name="tax_list"]',function(e){
+       
+       $('.purchase_rate_val').trigger('input')
+       $('.sale_rate_val').trigger('input')
+
+    })
+    $(document).on('keyup','.rows input',function(e){
+        let val = $(this).val();
+        if(val!='' && (e.which == 13  || e.keyCode == 13))
+        {
+           if($(this).parents('.rows').next('.rows').find('input').length > 0)
+           {
+                $(this).parents('.rows').next('.rows').find('input').trigger('select');
+           }
+           else
+           {
+                $('.addProdBtn').trigger('click')
+           }
+        }
+    })
+  
+    $(document).on('click','.addProdBtn',function(e){
+        let flag = true;
+        let barcode  = $('.prod_barcode').val();
+        let prod_name= $('.prod_name_val').val();
+        let purchase_rate   = $('.purchase_rate_val').val();
+        let sale_rate       = $('.sale_rate_val').val();
+        let def_barcode     = $('.OK_Btn').data('def_barcode');
+        let category_id     = $('.addProdData .categories').find(':selected').val()?$('.addProdData .categories').find(':selected').val():0;
+        let unit_id     = $('.addProdData .units').find(':selected').val()?$('.addProdData .units').find(':selected').val():0;
+        let tax_id          = $('input[name="tax_list"]:checked').val();
+        let purchase_rate_vat   = $('.purchase_rate_val_vat').val();
+        let sale_rate_vat       = $('.sale_rate_val_vat').val();
+
+        if (category_id == 0) {
+            $('.addProdData .categories').addClass('invalid');
+            flag = false;
+        }
+        if (unit_id == 0) {
+            $('.addProdData .units').addClass('invalid');
+            flag = false;
+        }
+
+        console.log('category_id', category_id)
+         console.log('unit_id', unit_id)
+        
+        console.log(barcode+"!='' && "+prod_name+"!='' && "+purchase_rate+"!='' && "+sale_rate+"!='' && "+barcode+"!='0'")
+        if(barcode!='' && prod_name!='' && purchase_rate!='' && sale_rate!='' && barcode!='0' && flag == true)
+        {
+            loadAjax();
+            $.ajax({
+                url: api_url+'/purchase_api/creatProduct',
+                method: 'POST',
+                data: {'user_id':api_user_id,'barcode': barcode,'prod_name': prod_name,'purchase_rate':purchase_rate,'sale_rate':sale_rate,'def_barcode':def_barcode,'branch_id':branch_id,'currency_id':currency_id,'client_identifier':client_identifier, 'category_id':category_id, 'tax_id':tax_id, 'purchase_rate_vat':purchase_rate_vat, 'sale_rate_vat':sale_rate_vat, 'unit_id':unit_id},
+                success: function(response) {
+                    removeAjaxLoad();
+                    $('.barcode_search').select()
+                    var data =JSON.parse(response);
+                    console.log(data);
+                    if(data.status==1)
+                    {
+                        $('.closeBtn').click();
+                        $('.OK_Btn').data('def_barcode',data.default_barcode.default_barcode)
+                        // let e = jQuery.Event("keypress");
+                        // e.which = 13; // 
+                        $('.OK_Btn').trigger('click');
+                    }
+                    else
+                    {
+                        $('.prod_details').hide();
+                         $.alert(data.message);
+                         return false;
+                    }
+                },
+                error:function (xhr, ajaxOptions, thrownError){
+                        removeAjaxLoad();
+                        $.alert('No vendor found..!');
+                        return false;                          
+                    }   
+            });
+        }
+    })
+
+    $(document).on('click','.OK_Btn',function(e){
+        /* let val = $('.barcode_search').val();
+        if(val!='')
+        {
+            $('.addProduct').html('').hide();
+            loadAjax()
+            $.ajax({
+                url: api_url+'/purchase_api/accountHeadList/'+client_identifier+'/'+val,
+                method: 'POST',
+                // data: {'barcode': val,'branch_id':branch_id,'client_identifier':client_identifier},
+                success: function(response) {
+                    removeAjaxLoad();
+                    $('.barcode_search').select()
+                    var data =JSON.parse(response);
+                    console.log(data);
+                    if(data.status==1)
+                    {
+                        let productData  = data.data; */
+                        
+                        /* let duplicate_flag = 0;
+                        $(".item_row").each(function(){
+                            if($(this).find('.sl_no').data('barcode')==val)
+                            {
+                                duplicate_flag=1;
+                                return false;
+                            }
+                            
+                        });
+                        if(duplicate_flag==1)
+                        {
+                            $.confirm({
+                                title:'Confirmation!',
+                                content: 'This product already added, Are you sure to add again?',
+                                buttons: {
+                                    Okay: function () {
+                                        proceedToAdd();
+                                    },
+                                    Cancel: function () {
+                                        $('.closeBtn').click();    
+                                    }
+                                },
+                                onOpen: function () {
+                                // after the modal is displayed.
+                                   
+                                },
+
+                            });
+                        }
+                        else
+                        {
+                            proceedToAdd();
+                        } */
+                        proceedToAdd();
+                    /* }
+                    else
+                    {
+                        $('.prod_details').hide();
+                        addProd_cls = '';
+                        console.log('user_type', user_type)
+                        if(module_settings.add_product_from_mobile_application=='0' || user_type == 'Admin')
+                        {
+                            addProd_cls = 'hidden_item';
+                        }
+                        let divHtml = '<div class="form_footerBtn errorData">\
+                                            <p class="errortxt">'+val+'</p>\
+                                            <p class="errortxt">Product not found !!!</p>\
+                                             <p class="errortxt '+addProd_cls+'">Create New</p>\
+                                            <div class="buttonDiv">\
+                                                <button type="button" class="addProd '+addProd_cls+'" data-id="'+val+'">ADD</button>\
+                                            <div class="buttonDiv">\
+                                                <button type="button" class="closeBtn">Close</button>\
+                                            </div>\
+                                        </div>';
+                        $('.addProduct').html(divHtml).show();
+                         // $.alert(data.message);
+                         return false;
+                    }
+                },
+                error:function (xhr, ajaxOptions, thrownError){
+                        removeAjaxLoad();
+                        $.alert('No vendor found..!');
+                        return false;                          
+                    }   
+            });
+        } */
+    })
+    function loadAjax()
+    {
+        $('body').append("<div class='loading'><img src='images/new_loader.gif' class='loadingIco'></div>");
+        // $('.loading').removeClass('invisibl');
+    }
+    function removeAjaxLoad()
+    {
+        $('.loading').remove();
+        // setTimeout(function(){ $('.loading').remove();},100);
+    }
+    function proceedToAdd()
+    {
+        $('.content_body_img_upload').hide();
+        $('.delete_all_uploaded').hide();
+        
+        $('.description').val('');
+        $('.amount').val('');
+
+        $('.tax').prop('checked',false);
+        let expense_tax_checked = window.localStorage.getItem('expense_tax_checked');
+        if(expense_tax_checked  == "true")
+        {
+            $('.tax').prop('checked',true);
+        }
+
+        $('.total').val('');
+        $('.addBtn').html("ADD");
+        $('.delete_expense_details').hide();
+        $('.prod_details').show();
+        $('.description').focus();
+        /* if(productData.data_count > 0)
+        {
+            let product       = productData.data_result;
+            let assignedTax   = productData.assigned_tax;
+            let eq_to_base    = Number(product[0].avail_unit_eq_to_base!=null?product[0].avail_unit_eq_to_base:1);
+            let purchase_rate = Number(product[0].purchase_rate!=null?product[0].purchase_rate:'0.00');
+            purchase_rate     = Number(eq_to_base*purchase_rate);
+            let sale_price    = Number(product[0].sale_price!=null?product[0].sale_price:'0.00');
+            $('.prod_name').text(product[0].product_name); 
+            $('.prod_name').data('unit',product[0].avail_units);
+            $('.prod_name').data('eq_to_base',eq_to_base);
+            $('.prod_name').data('unit_id',product[0].unit_id);
+            $('.prod_name').data('prod_id',product[0].id);
+            $('.prod_name').data('product_taxes',assignedTax);
+            $('.cat_name').text(product[0].category_name);
+            $('.eq_base_qty').text(eq_to_base);
+            calculateTax(assignedTax,purchase_rate);
+            // $('.purchase_rate').text(purchase_rate).hide(); 
+            $('.prod_qty').val(1); 
+            $('.prod_foc').val(0); 
+            $('.tot_qty').val(1); 
+            $('.prod_total').val(purchase_rate.toFixed(2)); 
+            $('.pur_rate').val(purchase_rate.toFixed(2)); 
+            $('.s_rate').val(sale_price.toFixed(2)); 
+            $('.prod_details').show();
+            // if(mode==1)
+            //     setTimeout(function(){$('.prod_qty').select()},300)
+            // else
+            //     setTimeout(function(){$('.prod_qty').select()},100)
+            if(module_settings.edit_cost_non_admin_mobile=='1' || user_type == 'Admin')
+            {
+                $('.pur_rate').attr("readonly", false); 
+            }
+            if(module_settings.edit_sale_rate_non_admin_mobile=='1' || user_type == 'Admin')
+            {
+                $('.s_rate').attr("readonly", false); 
+            }
+            
+            if(module_settings.focus_after_scaning_barcode=='purchase_rate' && !$('input.pur_rate').is('[readonly]'))
+            {
+                setTimeout(function(){$('.pur_rate').select()},300)
+            }
+            else if(module_settings.focus_after_scaning_barcode=='sale_rate' && !$('input.s_rate').is('[readonly]'))
+            {
+                setTimeout(function(){$('.s_rate').select()},300)
+            }
+            else if(module_settings.focus_after_scaning_barcode=='qty')
+            {
+                setTimeout(function(){$('.prod_qty').select()},300)
+            }
+            else
+            {
+                setTimeout(function(){$('.prod_foc').select()},300)
+            }
+        } */
+    }
+    function calculateTax(taxes,pur_rate)
+    {
+        let product_total_tax = 0;
+        let tax_less_amount   = Number(pur_rate);
+        let tot_tax_amount    = 0;
+        let with_tax_amount   = Number(pur_rate);
+        if(taxes!=null && taxes!= undefined)
+        {
+            $.each(taxes,function(index,each_tax){
+                let per = '%';
+                let tax_rate = 0;
+                let tax = 0;
+                let tax_value = each_tax['tax_value'];
+                if (tax_value != 0) {
+                    tax_rate = tax_value.toString().split(per);
+                    tax = Number(tax_rate[0]);
+                }
+                if (tax_rate.length > 0) {
+                     product_total_tax += tax;
+                }
+                // console.log('tax_value - ' +each_tax['tax_value']);
+            });
+            console.log('tax_included - '+tax_included)
+            if(product_total_tax > 0)
+            {
+                if (tax_included == 1) 
+                {
+                    console.log('I am here')
+                    tot_tax_amount  = Number(pur_rate - (pur_rate/(product_total_tax+100))*100);
+                    tax_less_amount = pur_rate-tot_tax_amount;
+                    with_tax_amount = Number(pur_rate);
+                }
+                else
+                {
+                    console.log('No, I am here')
+                    tot_tax_amount  = Number((product_total_tax/100)*pur_rate);
+                    tax_less_amount = Number(pur_rate);
+                    with_tax_amount = Number(pur_rate)+Number(tot_tax_amount);
+                }
+            }
+        }
+        else
+        {
+            tax_less_amount = Number(pur_rate);
+            with_tax_amount = Number(pur_rate);
+        }
+        console.log('product_total_tax - '+product_total_tax)
+        console.log('tot_tax_amount - '+tot_tax_amount)
+        console.log('tax_less_amount - '+tax_less_amount)
+        console.log('with_tax_amount - '+with_tax_amount)
+        $('.prod_name').data('product_total_tax',product_total_tax);
+        $('.prod_name').data('tot_tax_amount',tot_tax_amount);
+        $('.prod_name').data('tax_less_amount',tax_less_amount);
+        $('.prod_name').data('with_tax_amount',with_tax_amount);
+    }
+
+ function setDelayItem(str)
+   {
+    $('#barcode_get').val(str);
+    $('#myBtn').click();
+   }
+
+function setRequestFocus()
+   {
+    setTimeout(function(){ $('#barcode_get').focus(); }, 300);
+   }
+
+    $(document).on('click','.search_btn',function(e){
+
+        $('.item_search').removeClass('hidden');
+        $('.prod_search').focus()
+
+    })
+
+    $(document).on('click','.close_search_btn',function(e){
+
+        let val = $('.prod_search').val();
+        $('.item_search').addClass('hidden');
+        $('.barcode_search').val("");
+        $('.prod_search').val(""); 
+        $('.barcode_search').focus()
+
+    })
+
+    $(document).on('click','.search_result_ul li',function(e){
+        $('.search_result_ul li').removeClass("selected");
+        $(this).addClass("selected");
+        let account_head  = $(this).attr('data-account_head');
+        $('.barcode_search').val("");
+        $('.prod_search').val(""); 
+        $('.head_name').html(account_head);
+        $('.OK_Btn').trigger('click');
+        $('.item_search').addClass('hidden');
+    })
+    
+let screenHeight = Number($(window).outerHeight());
+// console.log(screenHeight);
+// let grn_table_height = screenHeight-420;
+let grn_table_height = Math.round((50/100) * screenHeight);
+// console.log(grn_table_height);
+// $('.grn_table').css('height',grn_table_height+'px');
+
+$(document).on('keyup','.amount',function(e){
+    let amount      =   Number(this.value);
+    let total       =   amount;
+    if($('.tax').prop('checked'))
+    {
+        tax_amount  =  Number(((amount * 5) /100).toFixed(2));
+        total       =  amount + tax_amount;
+    }
+    $('.total').val(total);
+});
+
+$(".tax").change(function() {
+    amount          =  Number($('.amount').val());
+    let total       =   amount;
+    if(this.checked) {
+        tax_amount  =  Number(((amount * 5) /100).toFixed(2));
+        // console.log(tax_amount);
+        total       =  amount + tax_amount;
+    }
+    $('.total').val(total);
+});
+
+$(document).on('keyup','.total',function(e){
+    let total       =   Number(this.value);
+    let amount      =   total;
+    if($('.tax').prop('checked'))
+    {
+        amount      =   Number(((total * 100) / 105).toFixed(2));
+    }
+    $('.amount').val(amount);
+});
+
+$(document).on('click','.expense_details_list tbody tr',function(e){
+    $('.expense_details_list tbody tr').removeClass("selected");
+    $(this).addClass("selected");
+    $('.addBtn').html("UPDATE");
+    $('.content_body_img_upload').hide();
+    $('.delete_all_uploaded').hide();
+    
+    // console.log(expense_data);
+    if(expense_data.hold == 1)
+    {
+        $('.delete_expense_details').show();
+    }
+    $('.prod_details').show();
+
+    let account_head = $(this).find('.expense_head').html();
+    $('.head_name').html(account_head);
+
+    let description  = $(this).find('.expense_description').html();
+    $('.description').val(description);
+    $('.description').focus();
+
+    let amount       = $(this).find('.expense_amount').html();
+    $('.amount').val(amount);
+
+    let tax_amount   = Number($(this).find('.expense_tax_amount').html());
+    if(tax_amount    != 0)
+    {
+        $('.tax').prop('checked', true);
+    }
+    else
+    {
+        $('.tax').prop('checked', false);
+    }
+
+    let total        = $(this).find('.expense_total').html();
+    $('.total').val(total);
+});
+
+$('.upload_img').click(function(){
+    $(".file-input").trigger('click');
+});
+
+$("body").on('change','.file-input',function(){
+    formData = new FormData();
+    let imei_id = window.localStorage.getItem('imei_id');
+    let that = this;
+    let len  = $(".imagelist_img").length;
+    console.log(len);
+    formData.append('images',$('.file-input')[0].files[0]);
+    formData.append('client_identifier',client_identifier);
+    formData.append('imei_id',imei_id);
+    // formData.append('upload_path','userdatas/clients/'+client_identifier+'/attachments/expenses/');
+    let url   = this.value;
+    let ext   = url.substring(url.lastIndexOf('.') + 1).toLowerCase();
+    console.log(ext);
+    var reader = new FileReader();
+    reader.onload = function (e) {
+        image_upload();
+    }
+    reader.readAsDataURL(this.files[0]);
+});  
+
+let image_upload = function()
+{
+    loadAjax();
+    let upload_api_link = api_url + '/purchase_api/UploadImg'
+    /* let api_url_arr = api_url.split('/');
+    api_url_arr.pop();
+    let img_url = api_url_arr.join('/'); */
+    $.ajax({
+        url: upload_api_link,
+        data: formData,
+        contentType: false,
+        processData: false,
+        type: 'POST',
+        dataType:'JSON',
+        success: function(data)
+        {
+            if(data['img_sts'] == 0 || data['img_sts'] == '0')
+            {
+                $(".image_list_ul").append(`<li>
+                    <div class="imagelist_img">
+                        <img class="img" data-saved="0" onclick="$('.img-modal').show();$('.image_modal_content').attr('src',$(this).attr('src'));">
+                        <img class="delete_img" src="images/delete_img.png" height="15px" width="15px" onclick="$('.image_list_ul li').removeClass('selected');$(this).parents('li').addClass('selected');delete_image('${data['file_name']}');">
+                    </div>
+                </li>`);
+                // console.log(data);
+                // console.log(api_url);
+                let img_show_url = api_url.replace(client_identifier.toLowerCase(),'');
+                $('.img').eq($(".imagelist_img").length - 1).attr('src', img_show_url+data['file_name_with_path']);
+                $('.img').eq($(".imagelist_img").length - 1).data('img_file_name',data['file_name']);
+                // console.log($('.img').eq($(".imagelist_img").length - 1).data('img_file_name')); 
+            }
+            else
+            {
+                $.alert('<b>Photo/Image Only Acceptable !</b><br>Please take photo with Camera Or Choose image from gallery');
+            }
+            $('.file-input').val("");   
+            removeAjaxLoad();
+            // console.log(data);
+        }
+    });   
+}
+
+$('.close').click(function(){
+    $('.img-modal').hide();
+})
+
+$('.reset').click(function(){
+    $.confirm({
+        title:'Confirmation!',
+        content: 'Are you sure to remove all the uploaded images?',
+        buttons: {
+            Okay: function () {
+                let upload_api_link = api_url + '/purchase_api/delete_saved_and_notsaved_img';
+                let img_urls        = [];
+                $(".img").each(function(){
+                    img = {
+                        file_name: "",
+                        saved: "",
+                        id:"",
+                    }
+                    img.file_name       = $(this).data('img_file_name');
+                    img.saved           = $(this).attr('data-saved');
+                    img.id              = $(this).attr('data-id') ? $(this).attr('data-id') : 0;
+                    img=JSON.stringify(img);
+                    // console.log(img);
+                    img_urls.push(img);
+                });
+                
+                // console.log(img_urls);
+                $.ajax({
+                    url: upload_api_link,
+                    type:'POST',
+                    data:{'img_urls':JSON.stringify(img_urls),'client_identifier':client_identifier,'user_id':api_user_id},
+                    success:function(response){
+                        response = JSON.parse(response);
+                        if(response.status == 1)
+                        {
+                            $(".image_list_ul").empty();
+                            formData = new FormData();
+                        }
+                    }
+                })
+            },
+            Cancel: function () {
+            }
+        },
+        onOpen: function () {
+        // after the modal is displayed.    
+        },
+    });
+});
+
+
+let delete_image = function (file_name,saved=0,id=0)
+{
+    img = {
+        file_name: "",
+        saved: "",
+        id:"",
+    }
+    $.confirm({
+        title:'Confirmation!',
+        content: 'Are you sure to remove image?',
+        buttons: {
+            Okay: function () {
+                let upload_api_link = api_url + '/purchase_api/delete_saved_and_notsaved_img';
+                let img_urls        = [];
+                img.file_name       = file_name;
+                img.saved           = saved;
+                img.id              = id;
+                img=JSON.stringify(img);
+                img_urls.push(img);
+                // console.log(JSON.stringify(img_urls));
+                $.ajax({
+                    url: upload_api_link,
+                    type:'POST',
+                    data:{'img_urls':JSON.stringify(img_urls),'client_identifier':client_identifier,'user_id':api_user_id},
+                    success:function(data){
+                        $('.image_list_ul').find('.selected').remove();
+                        formData = new FormData();
+                    }
+                })
+            },
+            Cancel: function () {
+            }
+        },
+    });
+}
+
+$('.back_btn').click(function(){
+    window.location = "expense.html";
+})
+
+$('.delete_expense_details').click(function(){
+    $.confirm({
+        title:'Confirmation!',
+        content: 'Are you sure to remove?',
+        buttons: {
+            Okay: function () {
+                loadAjax();
+                let expense_details_id  =    $('.expense_details_list tbody').find('.selected').attr('data-id');
+                $.ajax({
+                    url: api_url + '/purchase_api/delete_expense_details',
+                    type:'POST',
+                    data:{'expense_details_id':expense_details_id,'client_identifier':client_identifier},
+                    success:function(response){
+                        response = JSON.parse(response);
+                        if(response.status == 1)
+                        {
+                            $('.expense_details_list tbody').find('.selected').remove();
+                            $('.prod_details').hide();
+                            $('.content_body_img_upload').show();
+                            $('.delete_all_uploaded').show();
+                        }
+                        removeAjaxLoad();
+                    },
+                    error:function (xhr, ajaxOptions, thrownError){
+                        removeAjaxLoad();
+                        $.alert('Cannot Delete.Failed !');     
+                    }
+                })
+            },  
+            Cancel: function () {
+            }               
+        }   
+    })
+})
+
+</script>
+</body>
+</html>

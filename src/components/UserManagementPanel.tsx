@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { ImagePlus, KeyRound, Mail, Pencil, Phone, Power, Shield, Trash2, UserPlus } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Building2, ImagePlus, KeyRound, Mail, Pencil, Phone, Power, Shield, Trash2, UserPlus } from 'lucide-react';
 import { useStore, type User, type UserPayload } from '../store/useStore';
 import { canManageUsers as hasUsersPermission } from '../lib/roleAccess';
 import { clsx, type ClassValue } from 'clsx';
@@ -10,6 +10,7 @@ function cn(...inputs: ClassValue[]) {
 }
 
 const emptyUserForm: UserPayload & { password: string } = {
+  branch_id: 1,
   username: '',
   full_name: '',
   email: '',
@@ -50,7 +51,7 @@ const formatTimestamp = (value: string | null) =>
   value ? new Date(value).toLocaleString() : 'Never';
 
 export default function UserManagementPanel() {
-  const { users, currentUser, addUser, updateUser, deleteUser } = useStore();
+  const { users, branches, currentUser, addUser, updateUser, deleteUser, fetchBranches } = useStore();
   const isAdmin = hasUsersPermission(currentUser?.role);
   const isSuperAdmin = currentUser?.role === 'super-admin';
   const [userForm, setUserForm] = useState<UserPayload & { password: string }>(emptyUserForm);
@@ -63,6 +64,10 @@ export default function UserManagementPanel() {
     () => [...users].sort((a, b) => a.full_name.localeCompare(b.full_name)),
     [users]
   );
+
+  useEffect(() => {
+    void fetchBranches();
+  }, [fetchBranches]);
 
   const startNewUser = () => {
     setEditingUserId(null);
@@ -78,6 +83,7 @@ export default function UserManagementPanel() {
 
     setEditingUserId(user.id);
     setUserForm({
+      branch_id: user.branch_id ?? 1,
       username: user.username,
       full_name: user.full_name || user.username,
       email: user.email || '',
@@ -150,6 +156,7 @@ export default function UserManagementPanel() {
           avatar_url: userForm.avatar_url,
           role: userForm.role,
           is_active: userForm.is_active,
+          branch_id: userForm.branch_id ?? 1,
         };
 
         if (userForm.password) {
@@ -160,6 +167,7 @@ export default function UserManagementPanel() {
       } else {
         await addUser({
           ...userForm,
+          branch_id: userForm.branch_id ?? 1,
           password: userForm.password,
         });
       }
@@ -254,6 +262,10 @@ export default function UserManagementPanel() {
                     <div className="text-xs text-slate-600 truncate">{user.email}</div>
                     <div className="text-xs text-slate-500 mt-1">
                       {user.role} • Last login: {formatTimestamp(user.last_login_at)}
+                    </div>
+                    <div className="mt-1 flex items-center gap-1.5 text-xs font-bold text-blue-700">
+                      <Building2 size={13} />
+                      {user.branch_name || branches.find((branch) => branch.id === user.branch_id)?.name || 'No branch'}
                     </div>
                   </div>
                 </div>
@@ -376,6 +388,22 @@ export default function UserManagementPanel() {
                 />
                 Active account
               </label>
+            </div>
+            <div className="relative">
+              <Building2 size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+              <select
+                title="Branch"
+                value={userForm.branch_id ?? 1}
+                onChange={(event) => setUserForm((prev) => ({ ...prev, branch_id: Number(event.target.value) }))}
+                className="w-full rounded-2xl bg-slate-50 border border-slate-200 text-slate-900 pl-10 pr-3 py-3 text-sm appearance-none"
+              >
+                {branches.length === 0 && <option value={1}>فرع الفلاح</option>}
+                {branches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name} - {branch.city || 'No city'}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="rounded-2xl border border-dashed border-slate-300 p-3 space-y-3">

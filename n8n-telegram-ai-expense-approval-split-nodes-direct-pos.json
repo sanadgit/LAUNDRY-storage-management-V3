@@ -1,0 +1,395 @@
+{
+  "name": "Telegram AI Expense Approval - Split Nodes Direct POS",
+  "nodes": [
+    {
+      "id": "note-setup",
+      "name": "Setup Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -940,
+        -520
+      ],
+      "parameters": {
+        "content": "## Split Nodes Version\nReadable workflow with separate Telegram, OpenAI, Draft, and POS System nodes.\n\nWebhook:\nhttps://n8n.inandoutuae.com/webhook/telegram-ai-expense-split-pos\n\nRequired Variables:\nTELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_CHAT_ID, OPENAI_API_KEY, POS_USERNAME, POS_PASSWORD, DEFAULT_PAY_ACCOUNT_ID, DEFAULT_PAID_BY_ID or AIPSOFT_API_USER_ID"
+      }
+    },
+    {
+      "id": "telegram-webhook",
+      "name": "Telegram Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -900,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "telegram-ai-expense-split-pos",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "normalize-update",
+      "name": "Telegram - Normalize And Route",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst trim = (v, f = '') => String(v ?? f).trim();\nconst update = $json.body && typeof $json.body === 'object' ? $json.body : $json;\nconst callback = update.callback_query;\nconst message = update.message || update.edited_message || callback?.message || {};\nconst text = trim(callback?.data || message.text || message.caption || '');\nconst chatId = trim(message.chat?.id);\nconst allowed = trim(vars.TELEGRAM_ALLOWED_CHAT_ID).split(',').map((v) => v.trim()).filter(Boolean);\nif (!chatId) return [];\nif (allowed.length && !allowed.includes(chatId)) return [];\n\nlet action = 'intake';\nlet draft_id = '';\nlet edit_text = '';\nif (text.startsWith('approve:')) {\n  action = 'approve';\n  draft_id = text.slice('approve:'.length).trim();\n} else if (text.startsWith('cancel:')) {\n  action = 'cancel';\n  draft_id = text.slice('cancel:'.length).trim();\n} else {\n  let m = text.match(/^(موافق|approve|ok)\\s+([A-Z0-9-]+)/i);\n  if (m) {\n    action = 'approve';\n    draft_id = m[2];\n  }\n  m = text.match(/^(إلغاء|الغاء|cancel)\\s+([A-Z0-9-]+)/i);\n  if (m) {\n    action = 'cancel';\n    draft_id = m[2];\n  }\n  m = text.match(/^(تعديل|edit)\\s+([A-Z0-9-]+)\\s*([\\s\\S]*)/i);\n  if (m) {\n    action = 'edit';\n    draft_id = m[2];\n    edit_text = trim(m[3]);\n  }\n}\n\nlet input_type = 'text';\nlet file_id = '';\nif (Array.isArray(message.photo) && message.photo.length) {\n  input_type = 'image';\n  file_id = message.photo[message.photo.length - 1].file_id;\n}\nif (message.document?.file_id) {\n  const mime = trim(message.document.mime_type);\n  if (mime === 'application/pdf' || /\\.pdf$/i.test(trim(message.document.file_name))) {\n    input_type = 'pdf';\n    file_id = message.document.file_id;\n  }\n}\n\nreturn [{\n  json: {\n    action,\n    draft_id,\n    edit_text,\n    input_type,\n    file_id,\n    message_text: trim(message.text || message.caption || ''),\n    chat_id: chatId,\n    message_id: message.message_id,\n    callback_query_id: trim(callback?.id),\n    from_name: trim(message.from?.username || callback?.from?.username || message.from?.first_name || callback?.from?.first_name, 'manager'),\n  },\n}];"
+      }
+    },
+    {
+      "id": "intake-prepare",
+      "name": "Intake - Prepare File And Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -380,
+        -220
+      ],
+      "parameters": {
+        "jsCode": "const vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst trim = (v, f = '') => String(v ?? f).trim();\nconst compact = (v, max = 3500) => {\n  const text = trim(v);\n  return text.length > max ? text.slice(0, max - 3) + '...' : text;\n};\nconst token = trim(vars.TELEGRAM_BOT_TOKEN);\nconst openaiModel = trim(vars.OPENAI_MODEL, 'gpt-4.1-mini');\nif ($json.action !== 'intake') return [];\nif (!token) throw new Error('Missing TELEGRAM_BOT_TOKEN n8n Variable.');\nif (!trim(vars.OPENAI_API_KEY)) throw new Error('Missing OPENAI_API_KEY n8n Variable.');\nif (!$json.message_text && !$json.file_id) {\n  await this.helpers.httpRequest({\n    method: 'POST',\n    url: 'https://api.telegram.org/bot' + token + '/sendMessage',\n    json: true,\n    body: { chat_id: $json.chat_id, text: 'أرسل فاتورة كنص أو صورة أو PDF، وبعدها سأرسل لك ملخص للموافقة.' },\n  });\n  return [];\n}\nawait this.helpers.httpRequest({\n  method: 'POST',\n  url: 'https://api.telegram.org/bot' + token + '/sendMessage',\n  json: true,\n  body: { chat_id: $json.chat_id, text: 'استلمت الفاتورة. جاري التحليل وتجهيز المسودة...' },\n});\nlet file_url = '';\nif ($json.file_id) {\n  const fileInfo = await this.helpers.httpRequest({\n    method: 'POST',\n    url: 'https://api.telegram.org/bot' + token + '/getFile',\n    json: true,\n    body: { file_id: $json.file_id },\n  });\n  const filePath = trim(fileInfo?.result?.file_path);\n  if (!filePath) throw new Error('Telegram getFile did not return file_path.');\n  file_url = 'https://api.telegram.org/file/bot' + token + '/' + filePath;\n}\nconst today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dubai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());\nconst schema = {\n  type: 'object',\n  additionalProperties: false,\n  properties: {\n    supplier_name: { type: 'string' },\n    invoice_no: { type: 'string' },\n    invoice_date: { type: 'string' },\n    currency: { type: 'string' },\n    subtotal: { type: 'number' },\n    vat_amount: { type: 'number' },\n    total: { type: 'number' },\n    description: { type: 'string' },\n    suggested_account_query: { type: 'string' },\n    suggested_account_name: { type: 'string' },\n    confidence: { type: 'number' },\n    needs_human_review: { type: 'boolean' },\n    warnings: { type: 'array', items: { type: 'string' } },\n  },\n  required: ['supplier_name','invoice_no','invoice_date','currency','subtotal','vat_amount','total','description','suggested_account_query','suggested_account_name','confidence','needs_human_review','warnings'],\n};\nconst prompt = [\n  'You are an accounting assistant for IN AND OUT LAUNDRY UAE.',\n  'Extract invoice expense data from the provided Telegram invoice.',\n  'Return JSON only.',\n  'Use AED unless another currency is clearly printed.',\n  'UAE VAT is usually 5%. If total includes VAT, split subtotal and VAT when possible.',\n  'If invoice number is missing, use an empty string.',\n  'If date is missing, use ' + today + ' and add a warning.',\n  'suggested_account_query must be short, such as petrol, chemicals, maintenance, rent, electricity, internet, insurance, visa, salary, software, delivery, miscellaneous.',\n  'Never invent supplier TRN or invoice number.',\n  'Telegram text/caption: ' + compact($json.message_text || '', 2500),\n].join('\\n');\nconst content = [{ type: 'input_text', text: prompt }];\nif (file_url && $json.input_type === 'image') content.push({ type: 'input_image', image_url: file_url });\nif (file_url && $json.input_type === 'pdf') content.push({ type: 'input_file', file_url });\nreturn [{\n  json: {\n    ...$json,\n    file_url,\n    openaiBody: {\n      model: openaiModel,\n      input: [{ role: 'user', content }],\n      text: { format: { type: 'json_schema', name: 'invoice_expense_extraction', strict: true, schema } },\n    },\n  },\n}];"
+      }
+    },
+    {
+      "id": "openai-extract",
+      "name": "OpenAI - Extract Invoice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -120,
+        -220
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$vars.OPENAI_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json.openaiBody}}",
+        "options": {}
+      }
+    },
+    {
+      "id": "parse-openai",
+      "name": "OpenAI - Parse Extraction JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        140,
+        -220
+      ],
+      "parameters": {
+        "jsCode": "const trim = (v) => String(v ?? '').trim();\nfunction responseText(response) {\n  if (typeof response?.output_text === 'string') return response.output_text;\n  const parts = [];\n  for (const output of response?.output || []) {\n    for (const content of output?.content || []) {\n      if (typeof content?.text === 'string') parts.push(content.text);\n    }\n  }\n  return parts.join('\\n');\n}\nfunction parseJsonText(text) {\n  const fence = String.fromCharCode(96).repeat(3);\n  let raw = trim(text);\n  if (raw.toLowerCase().startsWith(fence + 'json')) raw = raw.slice(7);\n  else if (raw.startsWith(fence)) raw = raw.slice(3);\n  if (raw.endsWith(fence)) raw = raw.slice(0, -3);\n  return JSON.parse(raw.trim());\n}\nconst prepared = $('Intake - Prepare File And Prompt').first().json;\nconst extracted = parseJsonText(responseText($json));\nreturn [{ json: { ...prepared, extracted } }];"
+      }
+    },
+    {
+      "id": "pos-find-account",
+      "name": "System POS - Find Expense Account",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        -220
+      ],
+      "parameters": {
+        "jsCode": "const trim = (v, f = '') => String(v ?? f).trim();\nconst num = (v, f = 0) => {\n  const parsed = Number(String(v ?? '').replace(/,/g, ''));\n  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : f;\n};\nconst vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst POS_USERNAME = trim(vars.POS_USERNAME);\nconst POS_PASSWORD = trim(vars.POS_PASSWORD);\nconst CLIENT_IDENTIFIER = trim(vars.AIPSOFT_CLIENT_IDENTIFIER, 'inout') || 'inout';\nconst POS_BASE_URL = trim(vars.AIPSOFT_API_BASE_URL, 'https://beta.aipsoft.com/inout').replace(/\\/$/, '');\nconst POS_LOGIN_ENDPOINT = trim(vars.POS_LOGIN_ENDPOINT, POS_BASE_URL + '/login/check');\nconst POS_LOGIN_REFERER = trim(vars.POS_LOGIN_REFERER, POS_BASE_URL + '/accounts/expenses');\nconst POS_ORIGIN = trim(vars.POS_ORIGIN, 'https://beta.aipsoft.com');\nif (!POS_USERNAME || !POS_PASSWORD) throw new Error('Missing POS_USERNAME or POS_PASSWORD n8n Variables.');\nconst formEncode = (params) => Object.entries(params || {}).flatMap(([key, value]) => Array.isArray(value) ? value.map((entry) => [key, entry]) : [[key, value]]).map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(String(value ?? ''))).join('&');\nconst parseCookieHeader = (cookieHeader) => {\n  const map = new Map();\n  for (const part of String(cookieHeader || '').split(';')) {\n    const segment = part.trim();\n    if (!segment) continue;\n    const eq = segment.indexOf('=');\n    if (eq <= 0) continue;\n    map.set(segment.slice(0, eq).trim(), segment.slice(eq + 1).trim());\n  }\n  return map;\n};\nconst normalizeHeaders = (headers = {}) => {\n  const out = {};\n  if (headers && typeof headers.forEach === 'function') {\n    headers.forEach((value, key) => { out[String(key).toLowerCase()] = value; });\n    if (typeof headers.getSetCookie === 'function') out['set-cookie'] = headers.getSetCookie();\n    return out;\n  }\n  for (const [key, value] of Object.entries(headers || {})) out[String(key).toLowerCase()] = value;\n  return out;\n};\nconst getSetCookies = (headers = {}) => {\n  const raw = normalizeHeaders(headers)['set-cookie'];\n  if (!raw) return [];\n  if (Array.isArray(raw)) return raw;\n  return String(raw).split(/,(?=\\s*[^;,\\s]+=)/g).map((value) => value.trim()).filter(Boolean);\n};\nconst mergeCookieHeaders = (baseCookieHeader, setCookies) => {\n  const merged = parseCookieHeader(baseCookieHeader);\n  for (const setCookie of setCookies || []) {\n    const cookiePart = String(setCookie || '').split(';')[0]?.trim();\n    const eq = cookiePart.indexOf('=');\n    if (eq <= 0) continue;\n    merged.set(cookiePart.slice(0, eq).trim(), cookiePart.slice(eq + 1).trim());\n  }\n  return Array.from(merged.entries()).map(([key, value]) => key + '=' + value).join('; ');\n};\nconst hasMinimalCookie = (cookieHeader) => /ci_session_/i.test(String(cookieHeader || '')) && /\\binout=/i.test(String(cookieHeader || ''));\nconst isLoginHtml = (text) => {\n  const lower = String(text || '').toLowerCase();\n  return lower.includes(':: login') || lower.includes('login/check') || lower.includes('name=\"password\"') || lower.includes(\"name='password'\");\n};\nasync function requestFull(options) {\n  const response = await this.helpers.httpRequest({\n    method: options.method || 'POST',\n    url: options.url,\n    headers: options.headers || {},\n    body: options.body,\n    json: false,\n    returnFullResponse: true,\n    resolveWithFullResponse: true,\n    simple: false,\n    timeout: 120000,\n  });\n  if (response && typeof response === 'object' && (response.headers || Object.prototype.hasOwnProperty.call(response, 'body'))) {\n    return { statusCode: response.statusCode || response.status || 0, headers: response.headers || {}, body: typeof response.body === 'string' ? response.body : JSON.stringify(response.body ?? '') };\n  }\n  return { statusCode: 0, headers: {}, body: typeof response === 'string' ? response : JSON.stringify(response ?? '') };\n}\nfunction parseJson(text, label) {\n  try { return JSON.parse(String(text || '')); }\n  catch { throw new Error(label + ' returned non-JSON response: ' + String(text || '').slice(0, 300)); }\n}\nfunction posHeaders(cookieHeader) {\n  return {\n    Accept: 'application/json, text/javascript, */*; q=0.01',\n    'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ar;q=0.7',\n    'Cache-Control': 'no-cache',\n    Pragma: 'no-cache',\n    Origin: POS_ORIGIN,\n    Referer: POS_LOGIN_REFERER,\n    'X-Requested-With': 'XMLHttpRequest',\n    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',\n    Cookie: cookieHeader,\n  };\n}\nasync function createPosSession() {\n  let cookieHeader = 'language=english; direction=ltr; dont_show_today=true';\n  try {\n    const preflight = await requestFull.call(this, { method: 'GET', url: POS_LOGIN_REFERER, headers: { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', Cookie: cookieHeader } });\n    cookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(preflight.headers));\n  } catch {}\n  const usernameBeforeAt = POS_USERNAME.includes('@') ? POS_USERNAME.split('@')[0].trim() : POS_USERNAME;\n  const usernames = Array.from(new Set([POS_USERNAME, POS_USERNAME.toLowerCase(), usernameBeforeAt, usernameBeforeAt.toLowerCase(), usernameBeforeAt ? usernameBeforeAt + '@' + CLIENT_IDENTIFIER : '', usernameBeforeAt ? usernameBeforeAt.toLowerCase() + '@' + CLIENT_IDENTIFIER : ''].filter(Boolean)));\n  let authed = false;\n  let usedUsername = '';\n  let lastLoginBody = '';\n  for (const username of usernames) {\n    const loginResponse = await requestFull.call(this, { method: 'POST', url: POS_LOGIN_ENDPOINT, headers: posHeaders(cookieHeader), body: formEncode({ username, password: POS_PASSWORD, client_identifier: CLIENT_IDENTIFIER, auto_login: 'null', connection_path: 'null' }) });\n    cookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(loginResponse.headers));\n    lastLoginBody = String(loginResponse.body || '');\n    const lower = lastLoginBody.toLowerCase();\n    const ok = lower.includes('login_success') || lower.includes('password_ok') || ((loginResponse.statusCode >= 200 && loginResponse.statusCode < 400) && !isLoginHtml(lastLoginBody));\n    if (ok && hasMinimalCookie(cookieHeader)) {\n      authed = true;\n      usedUsername = username;\n      break;\n    }\n  }\n  if (!authed) throw new Error('POS login failed. Last response: ' + lastLoginBody.slice(0, 240));\n  async function postApi(path, data, label) {\n    const response = await requestFull.call(this, { method: 'POST', url: POS_BASE_URL + path, headers: posHeaders(cookieHeader), body: formEncode(data || {}) });\n    cookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(response.headers));\n    if (isLoginHtml(response.body)) throw new Error(label + ' returned login page. Check POS permission.');\n    return parseJson(response.body, label);\n  }\n  return { postApi: postApi.bind(this), usedUsername: () => usedUsername };\n}\n\nconst fallbackAccounts = [\n  { id: '44291', text: 'petrol exp', keys: ['petrol', 'fuel', 'adnoc', 'gasoline', 'diesel'] },\n  { id: '36460', text: 'Chemicals Purchases', keys: ['chemical', 'chemicals', 'detergent', 'soap', 'laundry supplies'] },\n  { id: '44337', text: 'Car Expenses', keys: ['car', 'vehicle', 'motorcycle', 'repair', 'garage', 'tyre'] },\n  { id: '44775', text: 'maintenance machine', keys: ['maintenance', 'machine', 'spare', 'parts'] },\n  { id: '46298', text: 'rents', keys: ['rent', 'rents'] },\n  { id: '52253', text: 'Internet+Phone', keys: ['internet', 'phone', 'du', 'etisalat', 'telecom'] },\n  { id: '54265', text: 'WATER-Electricity', keys: ['water', 'electricity', 'taqa', 'utility'] },\n  { id: '61639', text: 'IT & Software', keys: ['software', 'computer', 'it', 'subscription'] },\n  { id: '66287', text: 'Traffic Fines', keys: ['police', 'fine', 'traffic'] },\n  { id: '33958', text: 'Miscellaneous Account', keys: ['misc', 'other', 'unknown', 'miscellaneous'] },\n];\nconst extracted = $json.extracted || {};\nconst query = trim(extracted.suggested_account_query || extracted.suggested_account_name || extracted.description || 'miscellaneous');\nlet accounts = [];\ntry {\n  const session = await createPosSession.call(this);\n  const result = await session.postApi('/purchase_api/accountHeadList/' + encodeURIComponent(CLIENT_IDENTIFIER) + '/' + encodeURIComponent(query), {}, 'accountHeadList');\n  const data = Array.isArray(result?.data) ? result.data : [];\n  accounts = data.map((item) => ({ id: trim(item?.id), text: trim(item?.text || item?.acc_name1), raw: item })).filter((item) => item.id && item.text);\n} catch {}\nlet account;\nif (accounts.length) {\n  const q = query.toLowerCase();\n  const exact = accounts.find((item) => trim(item.text).toLowerCase().includes(q));\n  account = { id: trim((exact || accounts[0]).id), text: trim((exact || accounts[0]).text), source: 'direct_pos_search', choices: accounts.slice(0, 5) };\n} else {\n  const haystack = [query, extracted.supplier_name, extracted.description, extracted.suggested_account_name].join(' ').toLowerCase();\n  const fallback = fallbackAccounts.find((item) => item.keys.some((key) => haystack.includes(key))) || fallbackAccounts[fallbackAccounts.length - 1];\n  account = { id: fallback.id, text: fallback.text, source: 'fallback_map', choices: [] };\n}\nreturn [{ json: { ...$json, account } }];"
+      }
+    },
+    {
+      "id": "save-draft",
+      "name": "Draft - Save And Send Approval",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        -220
+      ],
+      "parameters": {
+        "jsCode": "const vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst trim = (v, f = '') => String(v ?? f).trim();\nconst num = (v, f = 0) => {\n  const parsed = Number(String(v ?? '').replace(/,/g, ''));\n  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : f;\n};\nconst money = (v) => num(v, 0).toFixed(2);\nconst compact = (v, max = 3500) => {\n  const text = trim(v);\n  return text.length > max ? text.slice(0, max - 3) + '...' : text;\n};\nfunction todayDubai() {\n  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dubai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());\n}\nfunction draftId() {\n  const stamp = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dubai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(new Date()).replace(/[^\\d]/g, '');\n  return 'EXP-' + stamp + '-' + Math.random().toString(36).slice(2, 6).toUpperCase();\n}\nfunction buildPayload(extracted, account) {\n  const total = num(extracted.total);\n  const tax = num(extracted.vat_amount);\n  const subtotal = num(extracted.subtotal, Math.max(total - tax, 0));\n  const date = /^\\d{4}-\\d{2}-\\d{2}$/.test(trim(extracted.invoice_date)) ? trim(extracted.invoice_date) : todayDubai();\n  const billNo = trim(extracted.invoice_no);\n  const supplier = trim(extracted.supplier_name, 'Unknown supplier');\n  const description = trim(extracted.description, 'Invoice expense');\n  return {\n    user_id: trim(vars.AIPSOFT_API_USER_ID || vars.DEFAULT_PAID_BY_ID),\n    paid_by: trim(vars.DEFAULT_PAID_BY_NAME, 'SAOOD'),\n    paid_by_id: trim(vars.DEFAULT_PAID_BY_ID || vars.AIPSOFT_API_USER_ID),\n    paid_user_id: trim(vars.DEFAULT_PAID_BY_ID || vars.AIPSOFT_API_USER_ID),\n    branch_id: trim(vars.DEFAULT_BRANCH_ID, '1'),\n    pay_account: trim(vars.DEFAULT_PAY_ACCOUNT_ID),\n    date,\n    bill_date: date,\n    bill_no: billNo,\n    remark: compact(supplier + (billNo ? ' - Bill #' + billNo : '') + ' - ' + description, 240),\n    vendor_id: '',\n    project_id: '',\n    order_no: '',\n    expense_type: trim(vars.DEFAULT_EXPENSE_TYPE, '2'),\n    lines: [{ account_head: account.id, notes: compact(supplier + (billNo ? ' - Bill #' + billNo : '') + ' - ' + description, 240), amount: subtotal, tax_amount: tax, total: total || num(subtotal + tax) }],\n  };\n}\nfunction reviewMessage(id, draft) {\n  const branchName = trim(vars.DEFAULT_BRANCH_NAME, 'AL FALAH');\n  const payAccountName = trim(vars.DEFAULT_PAY_ACCOUNT_NAME, 'Credit');\n  const p = draft.payload;\n  const line = p.lines[0];\n  const warnings = (draft.extracted.warnings || []).filter(Boolean);\n  return [\n    'فاتورة جاهزة للمراجعة',\n    '',\n    'Draft: ' + id,\n    'الفرع: ' + branchName + ' (' + p.branch_id + ')',\n    'Paid By: ' + p.paid_by + ' / ' + p.paid_by_id,\n    'Pay Account: ' + payAccountName + ' / ' + p.pay_account,\n    '',\n    'المورد: ' + draft.extracted.supplier_name,\n    'رقم الفاتورة: ' + (p.bill_no || '-'),\n    'التاريخ: ' + p.bill_date,\n    'حساب المصروف: ' + draft.account.text + ' (' + line.account_head + ')',\n    'الوصف: ' + line.notes,\n    'المبلغ قبل الضريبة: AED ' + money(line.amount),\n    'VAT: AED ' + money(line.tax_amount),\n    'الإجمالي: AED ' + money(line.total),\n    'الثقة: ' + Math.round(num(draft.extracted.confidence) * 100) + '%',\n    warnings.length ? 'تنبيهات: ' + warnings.join(' | ') : '',\n    '',\n    'للموافقة اكتب: موافق ' + id,\n    'للتعديل اكتب: تعديل ' + id + ' amount=100 tax_amount=5 total=105 account_head=44291',\n    'للإلغاء اكتب: إلغاء ' + id,\n  ].filter(Boolean).join('\\n');\n}\nif (!trim(vars.DEFAULT_PAY_ACCOUNT_ID)) throw new Error('Missing DEFAULT_PAY_ACCOUNT_ID n8n Variable.');\nif (!trim(vars.DEFAULT_PAID_BY_ID || vars.AIPSOFT_API_USER_ID)) throw new Error('Missing DEFAULT_PAID_BY_ID or AIPSOFT_API_USER_ID n8n Variable.');\nconst payload = buildPayload($json.extracted, $json.account);\nconst id = draftId();\nconst store = $getWorkflowStaticData('global');\nif (!store.expenseDrafts || typeof store.expenseDrafts !== 'object') store.expenseDrafts = {};\nstore.expenseDrafts[id] = {\n  status: 'pending_approval',\n  created_at: new Date().toISOString(),\n  created_by: $json.from_name,\n  telegram_chat_id: $json.chat_id,\n  telegram_message_id: $json.message_id,\n  input_type: $json.input_type,\n  extracted: $json.extracted,\n  account: $json.account,\n  payload,\n};\nawait this.helpers.httpRequest({\n  method: 'POST',\n  url: 'https://api.telegram.org/bot' + trim(vars.TELEGRAM_BOT_TOKEN) + '/sendMessage',\n  json: true,\n  body: {\n    chat_id: $json.chat_id,\n    text: reviewMessage(id, store.expenseDrafts[id]),\n    reply_markup: { inline_keyboard: [[{ text: 'موافق', callback_data: 'approve:' + id }, { text: 'إلغاء', callback_data: 'cancel:' + id }]] },\n  },\n});\nreturn [{ json: { ok: true, action: 'draft_created', draft_id: id, payload, account: $json.account, extracted: $json.extracted } }];"
+      }
+    },
+    {
+      "id": "approve-load",
+      "name": "Approve - Load Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -380,
+        80
+      ],
+      "parameters": {
+        "jsCode": "if ($json.action !== 'approve') return [];\nconst store = $getWorkflowStaticData('global');\nconst draft = store.expenseDrafts?.[$json.draft_id];\nif (!draft) {\n  const token = String($vars.TELEGRAM_BOT_TOKEN || '').trim();\n  await this.helpers.httpRequest({ method: 'POST', url: 'https://api.telegram.org/bot' + token + '/sendMessage', json: true, body: { chat_id: $json.chat_id, text: 'لم أجد هذا الـ Draft: ' + $json.draft_id } });\n  return [];\n}\nreturn [{ json: { ...$json, draft } }];"
+      }
+    },
+    {
+      "id": "pos-register",
+      "name": "System POS - Register Expense",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -120,
+        80
+      ],
+      "parameters": {
+        "jsCode": "const trim = (v, f = '') => String(v ?? f).trim();\nconst num = (v, f = 0) => {\n  const parsed = Number(String(v ?? '').replace(/,/g, ''));\n  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : f;\n};\nconst vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst POS_USERNAME = trim(vars.POS_USERNAME);\nconst POS_PASSWORD = trim(vars.POS_PASSWORD);\nconst CLIENT_IDENTIFIER = trim(vars.AIPSOFT_CLIENT_IDENTIFIER, 'inout') || 'inout';\nconst POS_BASE_URL = trim(vars.AIPSOFT_API_BASE_URL, 'https://beta.aipsoft.com/inout').replace(/\\/$/, '');\nconst POS_LOGIN_ENDPOINT = trim(vars.POS_LOGIN_ENDPOINT, POS_BASE_URL + '/login/check');\nconst POS_LOGIN_REFERER = trim(vars.POS_LOGIN_REFERER, POS_BASE_URL + '/accounts/expenses');\nconst POS_ORIGIN = trim(vars.POS_ORIGIN, 'https://beta.aipsoft.com');\nif (!POS_USERNAME || !POS_PASSWORD) throw new Error('Missing POS_USERNAME or POS_PASSWORD n8n Variables.');\nconst formEncode = (params) => Object.entries(params || {}).flatMap(([key, value]) => Array.isArray(value) ? value.map((entry) => [key, entry]) : [[key, value]]).map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(String(value ?? ''))).join('&');\nconst parseCookieHeader = (cookieHeader) => {\n  const map = new Map();\n  for (const part of String(cookieHeader || '').split(';')) {\n    const segment = part.trim();\n    if (!segment) continue;\n    const eq = segment.indexOf('=');\n    if (eq <= 0) continue;\n    map.set(segment.slice(0, eq).trim(), segment.slice(eq + 1).trim());\n  }\n  return map;\n};\nconst normalizeHeaders = (headers = {}) => {\n  const out = {};\n  if (headers && typeof headers.forEach === 'function') {\n    headers.forEach((value, key) => { out[String(key).toLowerCase()] = value; });\n    if (typeof headers.getSetCookie === 'function') out['set-cookie'] = headers.getSetCookie();\n    return out;\n  }\n  for (const [key, value] of Object.entries(headers || {})) out[String(key).toLowerCase()] = value;\n  return out;\n};\nconst getSetCookies = (headers = {}) => {\n  const raw = normalizeHeaders(headers)['set-cookie'];\n  if (!raw) return [];\n  if (Array.isArray(raw)) return raw;\n  return String(raw).split(/,(?=\\s*[^;,\\s]+=)/g).map((value) => value.trim()).filter(Boolean);\n};\nconst mergeCookieHeaders = (baseCookieHeader, setCookies) => {\n  const merged = parseCookieHeader(baseCookieHeader);\n  for (const setCookie of setCookies || []) {\n    const cookiePart = String(setCookie || '').split(';')[0]?.trim();\n    const eq = cookiePart.indexOf('=');\n    if (eq <= 0) continue;\n    merged.set(cookiePart.slice(0, eq).trim(), cookiePart.slice(eq + 1).trim());\n  }\n  return Array.from(merged.entries()).map(([key, value]) => key + '=' + value).join('; ');\n};\nconst hasMinimalCookie = (cookieHeader) => /ci_session_/i.test(String(cookieHeader || '')) && /\\binout=/i.test(String(cookieHeader || ''));\nconst isLoginHtml = (text) => {\n  const lower = String(text || '').toLowerCase();\n  return lower.includes(':: login') || lower.includes('login/check') || lower.includes('name=\"password\"') || lower.includes(\"name='password'\");\n};\nasync function requestFull(options) {\n  const response = await this.helpers.httpRequest({\n    method: options.method || 'POST',\n    url: options.url,\n    headers: options.headers || {},\n    body: options.body,\n    json: false,\n    returnFullResponse: true,\n    resolveWithFullResponse: true,\n    simple: false,\n    timeout: 120000,\n  });\n  if (response && typeof response === 'object' && (response.headers || Object.prototype.hasOwnProperty.call(response, 'body'))) {\n    return { statusCode: response.statusCode || response.status || 0, headers: response.headers || {}, body: typeof response.body === 'string' ? response.body : JSON.stringify(response.body ?? '') };\n  }\n  return { statusCode: 0, headers: {}, body: typeof response === 'string' ? response : JSON.stringify(response ?? '') };\n}\nfunction parseJson(text, label) {\n  try { return JSON.parse(String(text || '')); }\n  catch { throw new Error(label + ' returned non-JSON response: ' + String(text || '').slice(0, 300)); }\n}\nfunction posHeaders(cookieHeader) {\n  return {\n    Accept: 'application/json, text/javascript, */*; q=0.01',\n    'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ar;q=0.7',\n    'Cache-Control': 'no-cache',\n    Pragma: 'no-cache',\n    Origin: POS_ORIGIN,\n    Referer: POS_LOGIN_REFERER,\n    'X-Requested-With': 'XMLHttpRequest',\n    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',\n    Cookie: cookieHeader,\n  };\n}\nasync function createPosSession() {\n  let cookieHeader = 'language=english; direction=ltr; dont_show_today=true';\n  try {\n    const preflight = await requestFull.call(this, { method: 'GET', url: POS_LOGIN_REFERER, headers: { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', Cookie: cookieHeader } });\n    cookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(preflight.headers));\n  } catch {}\n  const usernameBeforeAt = POS_USERNAME.includes('@') ? POS_USERNAME.split('@')[0].trim() : POS_USERNAME;\n  const usernames = Array.from(new Set([POS_USERNAME, POS_USERNAME.toLowerCase(), usernameBeforeAt, usernameBeforeAt.toLowerCase(), usernameBeforeAt ? usernameBeforeAt + '@' + CLIENT_IDENTIFIER : '', usernameBeforeAt ? usernameBeforeAt.toLowerCase() + '@' + CLIENT_IDENTIFIER : ''].filter(Boolean)));\n  let authed = false;\n  let usedUsername = '';\n  let lastLoginBody = '';\n  for (const username of usernames) {\n    const loginResponse = await requestFull.call(this, { method: 'POST', url: POS_LOGIN_ENDPOINT, headers: posHeaders(cookieHeader), body: formEncode({ username, password: POS_PASSWORD, client_identifier: CLIENT_IDENTIFIER, auto_login: 'null', connection_path: 'null' }) });\n    cookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(loginResponse.headers));\n    lastLoginBody = String(loginResponse.body || '');\n    const lower = lastLoginBody.toLowerCase();\n    const ok = lower.includes('login_success') || lower.includes('password_ok') || ((loginResponse.statusCode >= 200 && loginResponse.statusCode < 400) && !isLoginHtml(lastLoginBody));\n    if (ok && hasMinimalCookie(cookieHeader)) {\n      authed = true;\n      usedUsername = username;\n      break;\n    }\n  }\n  if (!authed) throw new Error('POS login failed. Last response: ' + lastLoginBody.slice(0, 240));\n  async function postApi(path, data, label) {\n    const response = await requestFull.call(this, { method: 'POST', url: POS_BASE_URL + path, headers: posHeaders(cookieHeader), body: formEncode(data || {}) });\n    cookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(response.headers));\n    if (isLoginHtml(response.body)) throw new Error(label + ' returned login page. Check POS permission.');\n    return parseJson(response.body, label);\n  }\n  return { postApi: postApi.bind(this), usedUsername: () => usedUsername };\n}\n\nconst draft = $json.draft;\nif (!draft.payload.paid_by_id || !draft.payload.paid_user_id) throw new Error('paid_by_id is required before creating expense.');\nif (draft.status === 'registered') return [{ json: { ...$json, already_registered: true, result: draft.result } }];\nconst session = await createPosSession.call(this);\nconst payload = draft.payload;\nconst header = {\n  user_id: payload.user_id,\n  paid_by: payload.paid_by,\n  paid_by_id: payload.paid_by_id,\n  paid_user_id: payload.paid_user_id,\n  branch_id: payload.branch_id,\n  pay_account: payload.pay_account,\n  date: payload.date,\n  remark: payload.remark,\n  client_identifier: CLIENT_IDENTIFIER,\n  bill_date: payload.bill_date,\n  bill_no: payload.bill_no,\n  account_segment_id: payload.account_segment_id || '',\n  account_class_id: payload.account_class_id || '',\n  project_id: payload.project_id || '',\n  party_account: payload.party_account || payload.vendor_id || '',\n  driver_id: payload.driver_id || '',\n  expense_id: payload.expense_id || '',\n  amount: payload.amount || 0,\n};\nconst hold = await session.postApi('/purchase_api/hold_expense', header, 'hold_expense');\nif (Number(hold.status) !== 1 || !hold.expense_id) throw new Error('hold_expense failed: ' + JSON.stringify(hold));\nconst expenseId = String(hold.expense_id);\nconst detailResponses = [];\nlet totalTax = 0;\nlet totalAmount = 0;\nfor (const line of payload.lines || []) {\n  totalTax = num(totalTax + Number(line.tax_amount || 0));\n  totalAmount = num(totalAmount + Number(line.total || 0));\n  const detail = await session.postApi('/purchase_api/save_expense_details', {\n    expense_id: expenseId,\n    branch_id: payload.branch_id,\n    account_head: line.account_head,\n    account_segment_id: header.account_segment_id,\n    account_class_id: header.account_class_id,\n    amount: line.amount,\n    tax_amount: line.tax_amount,\n    total: line.total,\n    notes: line.notes,\n    client_identifier: CLIENT_IDENTIFIER,\n    button_type: 'ADD',\n    expense_details_id: '',\n  }, 'save_expense_details');\n  if (Number(detail.status) !== 1) throw new Error('save_expense_details failed: ' + JSON.stringify(detail));\n  detailResponses.push(detail);\n}\nconst approve = await session.postApi('/purchase_api/approve_expense_data', {\n  expense_id: expenseId,\n  client_identifier: CLIENT_IDENTIFIER,\n  total_tax: totalTax,\n  total_amount: totalAmount,\n  images: Array.isArray(payload.images) ? payload.images : [],\n  user_id: payload.user_id,\n  paid_by: payload.paid_by,\n  paid_by_id: payload.paid_by_id,\n  paid_user_id: payload.paid_user_id,\n}, 'approve_expense_data');\nif (Number(approve.status) !== 1) throw new Error('approve_expense_data failed: ' + JSON.stringify(approve));\nconst result = { ok: true, expense_id: expenseId, header, lines: payload.lines, total_tax: totalTax, total_amount: totalAmount, hold_response: hold, detail_responses: detailResponses, approve_response: approve, used_username: session.usedUsername() };\nconst store = $getWorkflowStaticData('global');\nstore.expenseDrafts[$json.draft_id].status = 'registered';\nstore.expenseDrafts[$json.draft_id].result = result;\nstore.expenseDrafts[$json.draft_id].registered_at = new Date().toISOString();\nreturn [{ json: { ...$json, result } }];"
+      }
+    },
+    {
+      "id": "send-result",
+      "name": "Telegram - Send Registration Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        140,
+        80
+      ],
+      "parameters": {
+        "jsCode": "const trim = (v) => String(v ?? '').trim();\nconst money = (v) => (Math.round((Number(v) || 0) * 100) / 100).toFixed(2);\nconst token = trim($vars.TELEGRAM_BOT_TOKEN);\nconst result = $json.result || {};\nconst draft = $json.draft || {};\nconst id = trim(result.expense_id || result.hold_response?.expense_id || 'UNKNOWN');\nconst line = draft.payload?.lines?.[0] || {};\nawait this.helpers.httpRequest({\n  method: 'POST',\n  url: 'https://api.telegram.org/bot' + token + '/sendMessage',\n  json: true,\n  body: {\n    chat_id: $json.chat_id,\n    text: ['تم تسجيل المصروف بنجاح', 'Expense ID: ' + id, 'الإجمالي: AED ' + money(line.total), 'الحساب: ' + (draft.account?.text || line.account_head), 'Paid By: ' + (draft.payload?.paid_by || '')].join('\\n'),\n  },\n});\nreturn [{ json: { ok: true, expense_id: id, result } }];"
+      }
+    },
+    {
+      "id": "edit-prepare",
+      "name": "Edit - Load Draft And Prepare AI",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -380,
+        320
+      ],
+      "parameters": {
+        "jsCode": "if ($json.action !== 'edit') return [];\nconst store = $getWorkflowStaticData('global');\nconst draft = store.expenseDrafts?.[$json.draft_id];\nif (!draft) {\n  const token = String($vars.TELEGRAM_BOT_TOKEN || '').trim();\n  await this.helpers.httpRequest({ method: 'POST', url: 'https://api.telegram.org/bot' + token + '/sendMessage', json: true, body: { chat_id: $json.chat_id, text: 'لم أجد هذا الـ Draft: ' + $json.draft_id } });\n  return [];\n}\nconst schema = {\n  type: 'object',\n  additionalProperties: false,\n  properties: {\n    bill_no: { type: 'string' },\n    date: { type: 'string' },\n    bill_date: { type: 'string' },\n    supplier_name: { type: 'string' },\n    description: { type: 'string' },\n    account_head: { type: 'string' },\n    account_name: { type: 'string' },\n    amount: { type: 'number' },\n    tax_amount: { type: 'number' },\n    total: { type: 'number' },\n    remark: { type: 'string' },\n    notes: { type: 'string' },\n  },\n  required: ['bill_no','date','bill_date','supplier_name','description','account_head','account_name','amount','tax_amount','total','remark','notes'],\n};\nconst prompt = ['Convert the manager Arabic/English edit instruction into JSON patch for this POS expense draft.', 'If a field is not mentioned, return an empty string for text fields and 0 for numeric fields.', 'Current draft:', JSON.stringify(draft, null, 2), 'Instruction:', $json.edit_text || ''].join('\\n');\nreturn [{ json: { ...$json, draft, openaiBody: { model: String($vars.OPENAI_MODEL || 'gpt-4.1-mini'), input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }], text: { format: { type: 'json_schema', name: 'expense_edit_patch', strict: true, schema } } } } }];"
+      }
+    },
+    {
+      "id": "openai-edit",
+      "name": "OpenAI - Parse Edit Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -120,
+        320
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$vars.OPENAI_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json.openaiBody}}",
+        "options": {}
+      }
+    },
+    {
+      "id": "apply-edit",
+      "name": "Draft - Apply Edit And Resend Approval",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        140,
+        320
+      ],
+      "parameters": {
+        "jsCode": "const trim = (v) => String(v ?? '').trim();\nconst num = (v, f = 0) => {\n  const parsed = Number(String(v ?? '').replace(/,/g, ''));\n  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : f;\n};\nfunction responseText(response) {\n  if (typeof response?.output_text === 'string') return response.output_text;\n  const parts = [];\n  for (const output of response?.output || []) {\n    for (const content of output?.content || []) {\n      if (typeof content?.text === 'string') parts.push(content.text);\n    }\n  }\n  return parts.join('\\n');\n}\nfunction parseJsonText(text) {\n  const fence = String.fromCharCode(96).repeat(3);\n  let raw = trim(text);\n  if (raw.toLowerCase().startsWith(fence + 'json')) raw = raw.slice(7);\n  else if (raw.startsWith(fence)) raw = raw.slice(3);\n  if (raw.endsWith(fence)) raw = raw.slice(0, -3);\n  return JSON.parse(raw.trim());\n}\nfunction money(v) { return num(v, 0).toFixed(2); }\nfunction reviewMessage(id, draft) {\n  const p = draft.payload;\n  const line = p.lines[0];\n  return ['تم تعديل المسودة. راجعها من جديد:', '', 'Draft: ' + id, 'الفرع: ' + String($vars.DEFAULT_BRANCH_NAME || 'AL FALAH'), 'Paid By: ' + p.paid_by + ' / ' + p.paid_by_id, 'المورد: ' + draft.extracted.supplier_name, 'رقم الفاتورة: ' + (p.bill_no || '-'), 'التاريخ: ' + p.bill_date, 'حساب المصروف: ' + draft.account.text + ' (' + line.account_head + ')', 'الوصف: ' + line.notes, 'المبلغ قبل الضريبة: AED ' + money(line.amount), 'VAT: AED ' + money(line.tax_amount), 'الإجمالي: AED ' + money(line.total), '', 'للموافقة اكتب: موافق ' + id].join('\\n');\n}\nconst original = $('Edit - Load Draft And Prepare AI').first().json;\nconst patch = parseJsonText(responseText($json));\nconst store = $getWorkflowStaticData('global');\nconst draft = store.expenseDrafts[original.draft_id];\nconst line = draft.payload.lines[0];\nif (trim(patch.bill_no)) draft.payload.bill_no = trim(patch.bill_no);\nif (trim(patch.date)) draft.payload.date = trim(patch.date);\nif (trim(patch.bill_date)) draft.payload.bill_date = trim(patch.bill_date);\nif (trim(patch.remark)) draft.payload.remark = trim(patch.remark);\nif (trim(patch.notes)) line.notes = trim(patch.notes);\nif (trim(patch.account_head)) line.account_head = trim(patch.account_head);\nif (trim(patch.account_name)) draft.account.text = trim(patch.account_name);\nif (num(patch.amount) > 0) line.amount = num(patch.amount);\nif (String(patch.tax_amount ?? '').trim() !== '') line.tax_amount = num(patch.tax_amount);\nif (num(patch.total) > 0) line.total = num(patch.total);\nif (!line.total && (line.amount || line.tax_amount)) line.total = num(line.amount + line.tax_amount);\nif (trim(patch.supplier_name)) draft.extracted.supplier_name = trim(patch.supplier_name);\nif (trim(patch.description)) draft.extracted.description = trim(patch.description);\ndraft.updated_at = new Date().toISOString();\nawait this.helpers.httpRequest({ method: 'POST', url: 'https://api.telegram.org/bot' + String($vars.TELEGRAM_BOT_TOKEN || '').trim() + '/sendMessage', json: true, body: { chat_id: original.chat_id, text: reviewMessage(original.draft_id, draft), reply_markup: { inline_keyboard: [[{ text: 'موافق', callback_data: 'approve:' + original.draft_id }, { text: 'إلغاء', callback_data: 'cancel:' + original.draft_id }]] } } });\nreturn [{ json: { ok: true, action: 'edited', draft_id: original.draft_id, patch } }];"
+      }
+    },
+    {
+      "id": "cancel-draft",
+      "name": "Cancel - Mark Draft Cancelled",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -380,
+        540
+      ],
+      "parameters": {
+        "jsCode": "if ($json.action !== 'cancel') return [];\nconst token = String($vars.TELEGRAM_BOT_TOKEN || '').trim();\nconst store = $getWorkflowStaticData('global');\nif (store.expenseDrafts?.[$json.draft_id]) {\n  store.expenseDrafts[$json.draft_id].status = 'cancelled';\n  store.expenseDrafts[$json.draft_id].cancelled_at = new Date().toISOString();\n}\nawait this.helpers.httpRequest({ method: 'POST', url: 'https://api.telegram.org/bot' + token + '/sendMessage', json: true, body: { chat_id: $json.chat_id, text: 'تم إلغاء تسجيل الفاتورة.\\nDraft: ' + $json.draft_id } });\nreturn [{ json: { ok: true, action: 'cancelled', draft_id: $json.draft_id } }];"
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Webhook": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Normalize And Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Normalize And Route": {
+      "main": [
+        [
+          {
+            "node": "Intake - Prepare File And Prompt",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Approve - Load Draft",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Edit - Load Draft And Prepare AI",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Cancel - Mark Draft Cancelled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intake - Prepare File And Prompt": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Extract Invoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Extract Invoice": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Parse Extraction JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Parse Extraction JSON": {
+      "main": [
+        [
+          {
+            "node": "System POS - Find Expense Account",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "System POS - Find Expense Account": {
+      "main": [
+        [
+          {
+            "node": "Draft - Save And Send Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approve - Load Draft": {
+      "main": [
+        [
+          {
+            "node": "System POS - Register Expense",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "System POS - Register Expense": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Send Registration Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit - Load Draft And Prepare AI": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Parse Edit Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Parse Edit Request": {
+      "main": [
+        [
+          {
+            "node": "Draft - Apply Edit And Resend Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "laundry"
+    },
+    {
+      "name": "telegram"
+    },
+    {
+      "name": "ai"
+    },
+    {
+      "name": "expenses"
+    },
+    {
+      "name": "split-nodes"
+    },
+    {
+      "name": "direct-pos"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2026-06-11T00:00:00.000Z",
+  "versionId": "telegram-ai-expense-split-pos-v1"
+}

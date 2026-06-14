@@ -5,6 +5,7 @@ import {
   Instagram, Facebook, Mail, Send, 
   Car, Store, Globe, ChevronLeft, Sparkles
 } from 'lucide-react';
+import { LaundryIcon } from './LaundryIcon';
 
 export const Contact: React.FC = () => {
   const [activeBranch, setActiveBranch] = useState(1);
@@ -33,6 +34,12 @@ export const Contact: React.FC = () => {
       {/* Hero Header */}
       <div className="bg-secondary rounded-[2rem] p-12 text-center relative overflow-hidden">
         <div className="absolute top-0 right-0 w-64 h-64 bg-primary/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+        <LaundryIcon
+          name="outty-support"
+          alt=""
+          className="pointer-events-none absolute bottom-5 left-5 hidden h-32 w-32 rounded-[2rem] bg-white/10 p-2 shadow-2xl shadow-primary/10 md:inline-flex"
+          imageClassName="h-full w-full rounded-3xl object-contain"
+        />
         <div className="relative z-10 space-y-4">
           <div className="inline-flex items-center gap-2 bg-primary/20 text-primary px-4 py-2 rounded-full border border-primary/30 text-[10px] font-bold uppercase">
              📍 الإمارات العربية المتحدة — أبوظبي
@@ -181,6 +188,12 @@ export const Contact: React.FC = () => {
             allowFullScreen={true}
             loading="lazy"
           />
+          <LaundryIcon
+            name="outty-branch-map"
+            alt=""
+            className="pointer-events-none absolute bottom-4 left-4 hidden h-28 w-28 rounded-3xl bg-white/80 p-2 shadow-2xl shadow-primary/10 backdrop-blur md:inline-flex"
+            imageClassName="h-full w-full rounded-2xl object-contain"
+          />
         </div>
       </section>
 
@@ -267,7 +280,7 @@ export const Contact: React.FC = () => {
         {[
           { icon: <Instagram />, name: 'انستقرام', handle: '@inandoutuae' },
           { icon: <Facebook />, name: 'فيسبوك', handle: 'inandoutuae' },
-          { icon: <Mail />, name: 'البريد الإلكتروني', handle: 'info@inandout.ae' },
+          { icon: <Mail />, name: 'البريد الإلكتروني', handle: 'inandoutuae@gmail.com' },
           { icon: <Store />, name: 'مواقعنا', handle: 'أبوظبي، الإمارات' },
         ].map((soc, i) => (
           <div key={i} className="bg-white p-6 rounded-[2rem] border border-gray-100 text-center space-y-2">

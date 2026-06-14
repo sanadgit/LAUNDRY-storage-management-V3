@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <!-- Meta, title, CSS, favicons, etc. -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0 viewport-fit=cover" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Aipsoft Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;300;400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/jquery-confirm.min.css">
+    <script type="text/javascript">
+    let api_user_id         = window.localStorage.getItem('api_user_id');
+    let api_url             = window.localStorage.getItem('api_url');
+    let client_identifier   = window.localStorage.getItem('client_identifier');
+    let branch_id           = window.localStorage.getItem('branch_id');
+    let currency_id         = window.localStorage.getItem('currency_id');
+    if((api_user_id == null || api_user_id == '' || api_url =='' || api_url == null)) {
+            window.location = "login.html";
+    } 
+    // let order_id     = window.localStorage.getItem('order_id');
+    // if(order_id!=0 && order_id!=undefined && order_id!=null && order_id!='')
+    // {
+    //     window.location = "grn_item.html";
+    // }
+    </script>
+</head>
+
+<style type="text/css">
+
+    body {
+        font-family: 'Roboto', sans-serif;
+        margin: 0;
+    }
+    .nav_deader {
+        background-image: linear-gradient(to right, #305daf , #17a9ca);
+        /*background-image: linear-gradient(#252525, #070707);*/
+        padding: 8px;
+        color: #fff;
+        overflow: hidden;
+    }
+    .aiplogo {
+        float: left;
+        margin-right: 8px;
+    }
+    .nav_text p {
+        font-size: 14px;
+        margin: 0;
+        font-weight: 400;
+        margin-top: 2px;
+    }
+    .GRN_wrap{
+        padding: 8px 10px;
+        overflow: hidden;
+    }
+    .back_btn{
+        background-color: #2350a3;
+        font-size: 15px;
+        font-weight: 500;
+        color: #fff;
+        border: 0;
+        padding: 8px 30px;
+        float: left;
+        border-radius: 4px;
+        letter-spacing: 1px;
+    }
+    .content{
+        margin-bottom: 5px;
+        overflow: hidden;
+    }
+    .content p {
+        text-align: right;
+        margin: 0;
+        position: relative;
+        top: 12px;
+        color: #3b3b3b;
+        font-weight: 400;
+        font-size: 16px;
+        display: inline;
+        float: right;
+    }
+    .search{
+        position: relative;
+        margin-bottom: 6px;
+        display: flex;
+    }
+    .search input {
+        width: 100%;
+        padding: 10px;
+        padding-right: 40px;
+        color: #3b3b3b;
+        border: 1px solid #989898;
+        border-radius: 4px;
+    }
+    .search img {
+        position: absolute;
+        right: 8px;
+        overflow: hidden;
+        top: 6px;
+        color: #5d5d5d;
+    }
+    .content_body {
+        border: 1px solid #d6d6d6;
+        padding: 10px;
+        height: 50vh;
+        overflow-y: auto;
+        border-radius: 5px;
+        background-color: #fbfbfb;
+    }
+    .content_body::-webkit-scrollbar-track {
+        border-radius: 0px;
+        background-color: #fff;
+    }
+
+    .content_body::-webkit-scrollbar {
+        width: 6px;
+        background-color: #717171;
+    }
+
+    .content_body::-webkit-scrollbar-thumb {
+        border-radius: 6px;
+        background-color: #717171;
+    }    
+    .content_body ul{
+        padding: 0;
+        list-style-type: none;
+        margin: 0;
+    }
+    .content_body ul li {
+        background-color: #e9e9e9;
+        padding: 6px;
+        border: 1px solid #717171;
+        color: #3a3a3a;
+        margin-bottom: 6px;
+        font-size: 14px;
+    }    
+    .content_body ul li.active {
+        background-color: #2350a3;
+        color: #fff;
+    }
+    .footer button{
+        width: 100%;
+        padding: 15px;
+        font-weight: 600;
+        font-size: 16px;
+        background-color: #2451a6;
+        color: #fff;
+        position: fixed;
+        bottom: 0px;
+        border: 1px solid #686f8c;
+    }
+    .loadingIco{ display: none; }
+    .loading {
+        position: fixed;
+        z-index: 999999;
+        height: 100%;
+        width: 100%;
+        overflow: show;
+        margin: auto;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        right: 0;
+        background: #000;
+        opacity: 0.5;
+    }
+    img.loadingIco {
+        width: 100%;
+        position: absolute;
+        top: 25%;
+    }
+     .itemForm{
+        width: 50%;
+        float: left;
+        margin-bottom: 6px;
+    }
+    .itemForm label {
+        color: #3e3e3e;
+        font-size: 15px;
+        font-weight: 500;
+        margin-bottom: 5px;
+        display: block;
+    }
+    .itemForm select {
+        border: 1px solid #bfbfbf;
+        font-size: 14px;
+        color: #333;
+        padding: 8px;
+        width: 90%;
+        font-weight: 500;
+        border-radius: 5px;
+    }
+    .search.header_type {
+        padding: 12px 0;
+    }    
+    .header_type p {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 400;
+    }
+
+    @media only screen and (max-width: 400px) {
+        .itemForm {
+            width: 100%;
+            margin-bottom: 12px;
+        }    
+        .itemForm select {
+            width: 100%;
+        }         
+    }
+
+
+    /* CSS specific to iOS devices */ 
+
+    @supports (-webkit-touch-callout: none) {
+    .nav_deader {
+        padding-top: 50px;
+    }
+
+    }
+
+</style>
+
+<body>
+
+    <div class="nav_deader">
+        <div class="aiplogo">
+            <img src="images/aipsoft.png">
+        </div>
+        <div class="nav_text">
+            <p>AipSoft - Stock Adjustment</p>
+        </div>
+    </div>
+
+    <div class="GRN_wrap">  
+        <div class="content">
+            <button type="button" class="back_btn">Back</button>
+        </div>
+        <div class="search header_type">
+            <p>Select Branches</p>
+        </div>
+
+        <div class="content_body">
+            <div class="itemForm">
+                <label>Branch From</label>
+                <select class="br_from branches">
+                </select>
+            </div> 
+            <div class="itemForm">
+                <label>Branch To</label>
+                <select class="br_to branches">
+                </select>
+            </div> 
+        </div>
+    
+    </div>
+    <div class="footer">
+        <button type="button" class="startBtn">Start   ></button>        
+    </div>
+<script type="text/javascript" src="js/jquery-3.5.1.min.js"></script>
+<script src="js/jquery-confirm.min.js"></script>
+<script>
+$(document).ready(function() {
+    $('.logout_btn').click(function(){
+         window.localStorage.setItem('api_user_id','');
+         window.location = "login.html";
+    })
+    $('.back_btn').click(function(){
+        window.location = "home.html";
+    })
+    loadAjax();
+    $.ajax({
+        url: api_url+'/purchase_api/loadBranches',
+        method: 'POST',
+        data: {'api_user_id': api_user_id,'client_identifier':client_identifier, 'type': 'stock_transfer'},
+        success: function(response) {
+            removeAjaxLoad();
+            var data =JSON.parse(response);
+            if(data.pending_inventory>0)
+            {
+                //redirect to stock adjustment details page
+                window.localStorage.setItem('inventory_id',data.pending_inventory);
+                window.location = "inventory_transfer.html";
+            }
+            else if(data.status==1)
+            {
+                let branches  = data.data;
+                let brHTML = '';
+                let prevent_depot_status = data.prevent_depot_status;
+                let br_from_html  =  ``;
+                if(branches.length > 0)
+                {
+                    branches.forEach(function(branch, index) {
+                        brHTML += '<option class="item" data-id="'+branch.id+'" value="'+branch.id+'">'+branch.city+'</option>';
+
+                        if (prevent_depot_status == '1') {
+
+                            if (branch.id == branch_id)
+                                br_from_html +=  `<option value="${branch.id}">${branch.city}</option>`;
+                        }else{
+                            br_from_html +=  `<option value="${branch.id}">${branch.city}</option>`;
+                        }
+                    })
+
+                }
+                else
+                {
+                    brHTML = '<option class="empty" value="0">No item found</option>';
+                }
+                $('.br_to').html(brHTML);
+                 $('.br_from').html(br_from_html);
+            }
+            else
+            {
+                 let brHTML = '<option class="empty" value="0">No item found</option>';
+                 $('.branches').html(stockTypesList);
+                 $.alert(data.message);
+                 return false;
+            }
+        },
+        error:function (xhr, ajaxOptions, thrownError){
+                removeAjaxLoad();
+                $.alert('No Branch found..!');
+                return false;                          
+            }   
+    });
+})
+
+$(document).on('click','.vendors_list li.item',function(e){
+    $('.vendors_list li.item').removeClass('active');
+    $(this).addClass('active');
+})
+$(document).on('click','.startBtn',function(e){
+    let br_from             = $('.br_from').val();
+    let br_to               = $('.br_to').val();
+    console.log('br_from', br_from)
+    console.log('br_to', br_to)
+
+    if((br_from!=null && br_from!='' && br_from!=0) && (br_to!=null && br_to!='' && br_to!=0))
+    {
+        $('.startBtn').attr('disabled', 'disabled');
+        loadAjax();
+        $.ajax({
+                url: api_url+'/purchase_api/startInventoryProcess',
+                method: 'POST',
+                data: {'user_id':api_user_id,'stockType_id':'50','branch_from': br_from,'branch_to': br_to,'currency_id': currency_id,'client_identifier':client_identifier},
+                success: function(response) {
+                    $('.startBtn').removeAttr("disabled");
+                    var data =JSON.parse(response);
+                    console.log(data);
+                    if(data.status==1)
+                    {
+                        window.localStorage.setItem('inventory_id',data.inventory_id);
+                        window.localStorage.setItem('stockType_id','50');
+                        window.localStorage.setItem('branch_from',br_from);
+                        window.location = "inventory_transfer.html";
+                    }
+                    else
+                    {
+                        removeAjaxLoad();
+                        window.localStorage.setItem('inventory_id','0');
+                        $.alert(data.message);
+                        return false;
+                    }
+                },
+                error:function (xhr, ajaxOptions, thrownError){
+                        removeAjaxLoad();
+                        $('.startBtn').removeAttr("disabled");
+                        $.alert('Server error.Please Contact Aipsoft Support!');
+                        return false;                          
+                    }   
+        });
+        // window.localStorage.setItem('stockType_id',stockTypes_id);
+        // window.location = "inventory.html";
+    }
+})
+function loadAjax()
+{
+    $('body').append("<div class='loading'><img src='images/new_loader.gif' class='loadingIco'></div>");
+    // $('.loading').removeClass('invisibl');
+}
+function removeAjaxLoad()
+{
+    $('.loading').remove();
+    // setTimeout(function(){ $('.loading').remove();},100);
+}
+</script>
+</body>
+
+</html>

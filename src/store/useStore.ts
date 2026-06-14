@@ -85,6 +85,7 @@ if (typeof window !== 'undefined') {
 
 export interface Store {
   store_name: string;
+  branch_id: number;
   position_x: number;
   position_y: number;
   position_z: number;
@@ -131,6 +132,8 @@ export type BlanketWritePayload = Omit<Blanket, 'id' | 'created_at'> & {
 
 export interface User {
   id: number;
+  branch_id: number | null;
+  branch_name?: string | null;
   full_name: string;
   username: string;
   email: string;
@@ -144,6 +147,7 @@ export interface User {
 }
 
 export interface UserPayload {
+  branch_id?: number | null;
   username: string;
   full_name: string;
   email: string;
@@ -152,6 +156,19 @@ export interface UserPayload {
   role: User['role'];
   is_active: boolean;
   password?: string;
+}
+
+export interface Branch {
+  id: number;
+  name: string;
+  city: string;
+  trade_license: string | null;
+  phone: string | null;
+  address: string | null;
+  status: 'active' | 'inactive';
+  notes: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 }
 
 export interface Log {
@@ -188,11 +205,15 @@ interface AppState {
   /** Mobile search UI mode: hide top app bar when true. */
   searchImmersive: boolean;
   users: User[];
+  branches: Branch[];
   currentUser: User | null;
   sessionNotice: string | null;
   themeMode: AppThemeMode;
 
   fetchUsers: () => Promise<void>;
+  fetchBranches: () => Promise<void>;
+  addBranch: (branch: Omit<Branch, 'id' | 'created_at' | 'updated_at'>) => Promise<void>;
+  updateBranch: (id: number, branch: Partial<Omit<Branch, 'id' | 'created_at' | 'updated_at'>>) => Promise<void>;
   loginUser: (username: string, password: string) => Promise<void>;
   logoutUser: () => void;
   addUser: (user: UserPayload & { password: string }) => Promise<void>;
@@ -213,7 +234,7 @@ interface AppState {
   setRetrievalMode: (mode: boolean) => void;
   setRetrievalIndex: (index: number) => void;
   setViewMode: (mode: '2D' | '3D') => void;
-  markAsPicked: (blanket: Blanket) => Promise<void>;
+  markAsPicked: (blanket: Blanket, options?: { pickScanValue?: string }) => Promise<void>;
   setLastUsedStore: (name: string | null) => void;
   setLastInsertedCell: (cell: { row: number, column: number } | null) => void;
   setGridFace: (face: GridFace) => void;
@@ -292,6 +313,7 @@ const normalizeStore = (store: Partial<Store> & Pick<Store, 'store_name'>): Stor
 
   return {
     store_name: store.store_name,
+    branch_id: Math.max(1, Number((store as any).branch_id ?? 1) || 1),
     position_x: Number(store.position_x ?? 0),
     position_y: Number(store.position_y ?? 0),
     position_z: Number(store.position_z ?? 0),
@@ -394,13 +416,14 @@ export const useStore = create<AppState>((set, get) => {
   searchQuery: '',
   retrievalMode: false,
   retrievalIndex: 0,
-  viewMode: '3D',
+  viewMode: '2D',
   lastUsedStore: localStorage.getItem('lastUsedStore'),
   lastInsertedCell: null,
   gridFace: 'front',
   selectedGridCell: null,
   searchImmersive: false,
   users: [],
+  branches: [],
   currentUser: null,
   sessionNotice: null,
   themeMode: readInitialThemeMode(),
@@ -483,6 +506,30 @@ export const useStore = create<AppState>((set, get) => {
         sessionNotice: 'Connection issue. Session is still kept; retry in a moment.',
       });
     }
+  },
+
+  fetchBranches: async () => {
+    try {
+      const res = await axios.get('/api/branches');
+      set({ branches: Array.isArray(res.data) ? (res.data as Branch[]) : [] });
+    } catch (error) {
+      console.error('fetchBranches failed:', error);
+      set({ branches: [] });
+    }
+  },
+
+  addBranch: async (branch) => {
+    ensureWarehouseEditAccess();
+    await axios.post('/api/branches', branch);
+    await get().fetchBranches();
+  },
+
+  updateBranch: async (id, branch) => {
+    ensureWarehouseEditAccess();
+    await axios.put(`/api/branches/${id}`, branch);
+    await get().fetchBranches();
+    await get().fetchStores();
+    await get().fetchUsers();
   },
 
   loginUser: async (username, password) => {
@@ -618,10 +665,8 @@ export const useStore = create<AppState>((set, get) => {
       return;
     }
 
-    await axios.put(`/api/stores/${name}`, updated);
-    set((state) => ({
-      stores: state.stores.map((item) => (item.store_name === name ? updated : item)),
-    }));
+    await axios.put(`/api/stores/${encodeURIComponent(name)}`, updated);
+    await get().fetchStores();
   },
 
   deleteStore: async (name, options) => {
@@ -792,13 +837,14 @@ export const useStore = create<AppState>((set, get) => {
   setRetrievalIndex: (index) => set({ retrievalIndex: index }),
   setViewMode: (mode) => set({ viewMode: mode }),
 
-  markAsPicked: async (blanket) => {
+  markAsPicked: async (blanket, options) => {
     ensurePickAccess();
     if (isSupabaseEnabled) {
       const meta = createRequestMeta();
       await requireSupabaseProxy(() =>
         axios.post(`${supabaseProxyBase}/blankets/${blanket.id}/pick`, {
           user: get().currentUser?.username || 'system',
+          pick_scan_value: options?.pickScanValue,
           ...meta,
         })
       );
@@ -811,6 +857,7 @@ export const useStore = create<AppState>((set, get) => {
 
     await axios.post(`/api/blankets/${blanket.id}/pick`, {
       user: get().currentUser?.username || 'system',
+      pick_scan_value: options?.pickScanValue,
       ...createRequestMeta(),
     });
     await get().fetchBlankets();

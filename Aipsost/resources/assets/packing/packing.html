@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <!-- Meta, title, CSS, favicons, etc. -->
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- <link rel="icon" href="images/icons/favicon1.ico" type="image/ico" /> -->
+    <title>Laundry Packing System</title>
+    <!-- Bootstrap -->
+    <!-- <link rel="stylesheet" type="text/css" href="css/bootstrap.css"> -->
+    <link rel="stylesheet" type="text/css" href="css/bootstrap.min.css">
+    <link rel="stylesheet" type="text/css" href="css/pos_style.css">
+    <link rel="stylesheet" type="text/css" href="css/fontawesome.min.css">
+    <link rel="stylesheet" type="text/css" href="css/all.min.css">
+    <link rel="stylesheet" href="css/jquery-confirm.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;1,100&display=swap" rel="stylesheet">
+    <script src="server.js"></script>
+</head>
+
+<body class="overflow">
+
+    <!----------- nav heder ------------>
+
+    <div class="nav_header">
+        <div class="aipsoft_logo">
+            <img src="images/aipsoft_headerLogo.png">
+        </div>        
+        <div class="nav_logo">
+            <!-- <img src="images/mobaschgrp-logo.svg"> -->
+        </div>
+        <div class="cashor_details">
+            <img src="" class="profile_avatar">
+            <p class="profile_name">-</p>
+            <h6 class="profile_type">-</h6>
+            <span class="profile_logged">Counter Opened @ -:-:-</span>
+        </div>
+        <div class="logout" data-toggle="modal" data-target="#logout_modal">
+            <img src="images/logout.svg">
+        </div>
+        <div class="header_datetime">
+            <div  id="header_date"><h5>- <span>-</span></h5>  </div>
+            <p class="profile_branch">Counter: -</p> 
+        </div>        
+    </div>
+
+    <!----------- End nav header ------------>
+
+    <div class="split_header"></div>
+
+    <div class="scrollBar">
+        <div class="header_form window_view">
+            <ul>
+                <li>
+                    <label>Order: </label>
+                    <input type="" name="" class="order_no inp_field" readonly="readonly">
+                </li>            
+                <li>
+                    <label>Depot/Branch: </label>
+                    <!-- <select class="order_branch inp_field select_field"></select> -->
+                    <input type="" name="" class="order_branch inp_field" readonly="readonly">
+                </li>            
+                <li>
+                    <label>Packing Date:  </label>
+                    <input type="" name="" class="packing_date inp_field" readonly="readonly">
+                </li>
+                <li>
+                    <label>Packing Time:  </label>
+                    <input type="" name="" class="packing_time inp_field" readonly="readonly">
+                </li>            
+                <li>
+                    <label>Delivery date:  </label>
+                    <input type="" name="" class="del_date inp_field" readonly="readonly">
+                </li>            
+                <li>
+                    <label>Delivery time:  </label>
+                    <input type="" name="" class="del_time inp_field" readonly="readonly">
+                </li>            
+                <li>
+                    <label>Salesman:   </label>
+                    <!-- <select class="salesman inp_field select_field"></select> -->
+                    <input type="" name="" class="salesman inp_field" readonly="readonly">
+                </li>
+            </ul>
+            <p class="left cust_data">-</p>
+            <!-- <p class="right"><label class="custom_box check_label send_sms">
+                <input type="checkbox" checked="checked"><span class="checkmark"></span> Send SMS</label></p> -->
+        </div>
+
+
+        <div class="split_mobile_header">
+            <div class="header_form mobile">
+                    <ul>
+                        <li>
+                            <label>Order: </label>
+                            <input type="" name="" class="order_no inp_field" readonly="readonly">
+                        </li>            
+                        <li>
+                            <label>Depot/Branch: </label>
+                            <!-- <select class="order_branch inp_field select_field"></select> -->
+                            <input type="" name="" class="order_branch inp_field" readonly="readonly">
+                        </li>            
+                        <li>
+                            <label>Packing Date:  </label>
+                            <input type="" name="" class="packing_date inp_field" readonly="readonly">
+                        </li>
+                        <li>
+                            <label>Packing Time:  </label>
+                            <input type="" name="" class="packing_time inp_field" readonly="readonly">
+                        </li>  
+                    </ul>              
+                    <div class="accordion-panel">
+                        <dl class="accordion"> <dt><i class="fas fa-plus-circle accordion_icon"></i></dt> 
+                            <dd>
+                                <div class="content">
+                                    <ul>            
+                                        <li>
+                                            <label>Delivery date:  </label>
+                                            <input type="" name="" class="del_date inp_field" readonly="readonly">
+                                        </li>            
+                                        <li>
+                                            <label>Delivery time:  </label>
+                                            <input type="" name="" class="del_time inp_field" readonly="readonly">
+                                        </li>            
+                                        <li>
+                                            <label>Salesman:   </label>
+                                            <!-- <select class="salesman inp_field select_field"></select> -->
+                                            <input type="" name="" class="salesman inp_field" readonly="readonly">
+                                        </li>
+                                    </ul>
+                                    <p class="cust_data">-</p>
+                                    <!-- <p class=""><label class="custom_box send_sms">
+                                    <input type="checkbox" checked="checked"><span class="checkmark"></span></label> Send SMS</p> -->   
+                                </div>
+                            </dd>
+                        </dl>
+                    </div>
+                </div>
+
+             
+
+            <div class="mobile_body_bg">
+                <div class="order_wrap">
+                    <h2>Packing : <span class="next_packing_no">-</span></h2>
+                </div>
+
+                <div class="mobile_product_list paking">
+                    <ul class="packedd_items">
+                                                           
+                    </ul>
+                </div>
+            </div>
+            
+
+            <div class="footerPacking_wrap">
+                <button type="button" class="left back_btn" data-page="packing"><i class="fas fa-chevron-left"></i> Back</button>
+                <button type="button" class="right removeBtn"><i class="fas fa-trash-alt"></i> Remove Pack</button>
+            </div>
+
+        </div>
+
+
+        <div class="split_page window_view major_container">
+          <div class="availabe_module_wrp scroll-container">
+            <div class="availabe_module">Packing : <span class="next_packing_no">-</span></div>
+                <div class="arrow_wrap vertical_up">  
+                    <i class="fas fa-chevron-circle-up"></i>
+                </div>
+                <div class="modules_padd">
+                  <div id="module-left-scrollbar" class="scrollbar scroll_vertically">
+                        <div class="product_data">
+                            <ul class="packedd_items">
+                                                 
+                            </ul>
+                        </div>
+                  </div>
+                </div>
+                <div class="arrow_wrap vertical_down">  
+                    <i class="fas fa-chevron-circle-down"></i>
+                </div> 
+                <div class="total_details">
+                    <p>Qty: <span class="tot_packed_item_qty">0</span></p>
+                    <!-- <p>Total: 67.00 AED</p> -->
+                </div>               
+          </div>
+            <div class="ftrsplit_btn">
+                <button type="button" class="left back_btn" data-page="packing"><i class="fas fa-chevron-left"></i> Back</button>
+                <button type="button" class="right removeBtn"><i class="fas fa-trash-alt"></i> Remove Pack</button>
+            </div>
+        </div>   
+    </div>
+
+    <!--------------------------------------->
+
+        <div class="pos_footer">
+            <p>AipSoft-POS-Magnus World IT Solutions - Abu Dhabi - UAE-Tel :- +971 56 664 4516 , +971 56 664 4514</p>
+        </div>
+
+
+     <!------------------------------ Logout popup  ------------------------------------>
+
+
+    <div class="modal fade" id="logout_modal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                      <img class="popupclose_btn closeModalBtn" src="images/closebtn.png">
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="logout_wrap">
+                        <ul class="power_actions">
+                            <li data-action="logout">
+                                <img src="images/logout_icon.svg">
+                                <p>LogOut</p>
+                            </li>                         
+                            <li data-action="shutdown">
+                                <img src="images/shutdown_icon.svg">
+                                <p>Shut Down</p>
+                            </li>                         
+                            <li data-action="restart">
+                                <img src="images/reset_icon.svg">
+                                <p>Restart</p>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!------------------------------------------------------------------>
+
+
+
+
+
+    <!---------------------------- js ----------------------------------->
+
+    <script type="text/javascript" src="js/jquery-3.4.1.min.js"></script>
+    <script type="text/javascript" src="js/popper.min.js"></script>
+    <script type="text/javascript" src="js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="js/packing.js"></script>
+    <script src="js/jquery-confirm.min.js"></script>
+    <script type="text/javascript" src="js/fontawesome.min.js"></script>
+    <script src="https://unpkg.com/tippy.js@5"></script>
+
+
+    <!------------------- Fadein-Out mobile card list ------------------->
+
+
+
+<!------ accordion ----------->
+
+<script >$(document).ready(function() {
+
+  var bodyEl = $('body'),
+    accordionDT = $('.accordion').find('dt'),
+    accordionDD = accordionDT.next('dd'),
+    parentHeight = accordionDD.height(),
+    childHeight = accordionDD.children('.content').outerHeight(true),
+    newHeight = parentHeight > 0 ? 0 : childHeight,
+    accordionPanel = $('.accordion-panel'),
+    buttonsWrapper = accordionPanel.find('.buttons-wrapper'),
+    openBtn = accordionPanel.find('.open-btn'),
+    closeBtn = accordionPanel.find('.close-btn');
+
+  bodyEl.on('click', function(argument) {
+    var totalItems = $('.accordion').children('dt').length;
+    var totalItemsOpen = $('.accordion').children('dt.is-open').length;
+
+    if (totalItems == totalItemsOpen) {
+      openBtn.addClass('hidden');
+      closeBtn.removeClass('hidden');
+      buttonsWrapper.addClass('is-open');
+      //accordionDD.addClass('isActive');
+      //accordionDD.css('overflow','visible');
+      setTimeout(function(){accordionDD.css('overflow','visible');},500)
+    } else {
+      openBtn.removeClass('hidden');
+      closeBtn.addClass('hidden');
+      buttonsWrapper.removeClass('is-open');
+      //accordionDD.removeClass('isActive');
+
+      accordionDD.css('overflow','hidden');
+    }
+  });
+
+      function openAll() {
+
+        openBtn.on('click', function(argument) {
+
+          accordionDD.each(function(argument) {
+            var eachNewHeight = $(this).children('.content').outerHeight(true);
+            $(this).css({
+              height: eachNewHeight
+            });
+          });
+          accordionDT.addClass('is-open');
+        });
+      }
+
+      function closeAll() {
+
+        closeBtn.on('click', function(argument) {
+          accordionDD.css({
+            height: 0
+          });
+          accordionDT.removeClass('is-open');
+        });
+      }
+
+      function openCloseItem() {
+        accordionDT.on('click', function() {
+
+          var el = $(this),
+            target = el.next('dd'),
+            parentHeight = target.height(),
+            childHeight = target.children('.content').outerHeight(true),
+            newHeight = parentHeight > 0 ? 0 : childHeight;
+
+          // animate to new height
+          target.css({
+            height: newHeight
+          });
+
+          // remove existing classes & add class to clicked target
+          if (!el.hasClass('is-open')) {
+            el.addClass('is-open');
+          }
+
+          // if we are on clicked target then remove the class
+          else {
+            el.removeClass('is-open');
+          }
+        });
+      }
+
+      openAll();
+      closeAll();
+      openCloseItem();
+    });
+$("body").on('click','.removeBtn',function(){
+    let packing_id = window.localStorage.getItem('current_packing_id');
+    if(packing_id!=undefined && packing_id!='')
+    {
+        $.confirm({
+              title: '<b>Aipsoft Prompt</b>',
+              content: '<label>Are You Sure to Remove this Packing?</label>',
+              boxWidth: '35%',
+              buttons: {
+                  ok:{
+                    text: 'Yes, Remove it !',
+                    btnClass: 'btn-blue qty_ok',
+                      action: function () {
+                          deletePacking(packing_id);
+                      }
+                  },
+                  cancel: {
+                    action: function (cancel) {
+                    },
+                    text: 'No, Cancel'
+                      //close
+                  },
+              },
+              onContentReady: function () {
+                  // bind to events
+                  var jc = this;
+                  this.$content.find('.split_qty_input').on('keyup', function (e) {
+                    let val = $(this).val();
+                    if(e.which == 13  || e.keyCode == 13)
+                    {
+                      if(!isNaN(val))
+                        jc.$$ok.trigger('click');
+                    }
+                  }); 
+            }
+          });
+    }
+})
+function deletePacking(packing_id)
+{
+    $.ajax({
+        url      : base_url+"/"+client_identifier+"/packing_api/deletePacking",
+        type     : "POST",
+        data     : {'client_identifier': client_identifier,'packing_id': packing_id,'user_id':user_id},
+        dataType : "JSON",
+        success: function(data) 
+        {
+          removeAjaxLoad();
+          $('.valid_input').val('');
+          if(data.status==1)
+          {
+            window.localStorage.setItem('current_packing_id','');
+              $.confirm({
+                  title: 'Process Successful',
+                  content: 'Your packing removed successfully.',
+                  boxWidth: '50%',
+                  useBootstrap: false,
+                  icon: 'fas fa-exclamation-triangle',
+                  backgroundDismissAnimation: 'glow',
+                  type: 'green',
+                  buttons: {
+                      redirectUser: {
+                          text: 'OK',
+                          action: function () {
+                              window.location.replace(`landing.html`);
+                          }
+                      }
+                  }
+              });
+          }
+        },
+        error:function(request, status, error)
+        {
+          removeAjaxLoad();
+          loadErrorPopup('Error in Process','Something went wrong, Please try again')
+          return false;
+        }
+    });
+}
+</script>
+
+
+
+
+</body>
+
+</html>

@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <!-- Meta, title, CSS, favicons, etc. -->
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="images/icons/favicon1.ico" type="image/ico" />
+    <title>Laundry Packing System</title>
+    <!-- Bootstrap -->
+    <!-- <link rel="stylesheet" type="text/css" href="css/bootstrap.css"> -->
+    <link rel="stylesheet" type="text/css" href="css/bootstrap.min.css">
+    <link rel="stylesheet" type="text/css" href="css/pos_style.css">
+    <link rel="stylesheet" type="text/css" href="css/fontawesome.min.css">
+    <link rel="stylesheet" type="text/css" href="css/all.min.css">
+    <link rel="stylesheet" href="css/jquery-confirm.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;1,100&display=swap" rel="stylesheet">
+</head>
+
+<body>
+
+
+    <div class="login_header">
+        <div class="mobashLogo">
+            <!-- <img src="images/mobashLogo.jpg"> -->
+        </div>            
+        <div class="aipsoftLogo">
+            <img src="images/AIPlogo.svg">
+        </div>
+        <div class="header_date" id="header_date">
+            <h5>04:45</h5>
+            <p>Thurs, 10 Sep 2020</p>
+        </div>             
+    </div>
+
+    <div class="header_spice"></div>
+
+    <div class="login_background">            
+        <div class="scrollBar">
+            <div class="login_wrap">
+                <div class="input_form">
+                    <p>Counter 1</p>
+                    <i class="fas fa-check tick_icon"></i>
+                </div>            
+                <div class="input_form">
+                    <input type="text" class="valid_inp username" name="" placeholder="Username">
+                    <i class="fas fa-lock lock_icon"></i>
+                </div>            
+                <div class="input_form">
+                    <input type="password" class="valid_inp pwd" name="" placeholder="Password">
+                    <i class="fas fa-lock lock_icon"></i>
+                </div>
+
+                <div class="numberKey">
+                    <ul class="key_pad">
+                        <li class="digit">7</li>
+                        <li class="digit">8</li>
+                        <li class="digit">9</li>
+                        <li class="digit">.</li>
+                        <li class="digit">4</li>
+                        <li class="digit">5</li>
+                        <li class="digit">6</li>
+                        <li class="clear_last">C</li>
+                        <li class="digit">1</li>
+                        <li class="digit">2</li>
+                        <li class="digit">3</li>
+                        <li class="clear_all">AC</li>
+                        <li class="digit">0</li>
+                        <li class="enter_Btn">LOGIN</li>
+                    </ul>
+                </div>
+
+            </div>
+
+
+            <div class="login_footer">        
+                <p>AipSoft-POS-Magnus World IT Solutions - Abu Dhabi - UAE-Tel :- +971 56 664 4516 , +971 56 664 4514</p>
+            </div>
+
+        </div>
+    </div>
+
+    <!---------------------------- js ----------------------------------->
+
+    <script type="text/javascript" src="js/jquery-3.4.1.min.js"></script>
+    <script type="text/javascript" src="js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="js/fontawesome.min.js"></script>
+    <!-- <script type="text/javascript" src="js/packing.js"></script> -->
+    <script type="text/javascript" src="js/popper.min.js"></script>
+    <!-- <script src="https://unpkg.com/popper.js@1"></script> -->
+    <script src="https://unpkg.com/tippy.js@5"></script>
+    <script src="js/jquery-confirm.min.js"></script>
+    <script src="server.js"></script>
+    <script type="text/javascript">
+        let api_url='';
+        let client_identifier='';
+        let api_user_id = window.localStorage.getItem('api_user_id');
+        $(document).ready(function(){
+            data = server_details;
+            if(typeof(data) == "object")
+            {
+                api_url = data.api_url;
+                client_identifier = data.client_identifier;
+                window.localStorage.setItem('api_url',api_url);
+                window.localStorage.setItem('client_identifier',client_identifier);
+                showPrompt();
+            }
+            else
+            {
+                let title = 'Alert.. !';
+                let content = 'Error in Loading, Please contact Software Support.';
+                loadErrorPopup(title,content,'1')
+            }
+            // $.getJSON("server.json", function(data){
+            //     console.log(data.client_identifier);
+            //     console.log(data.api_url); // Prints: Harry
+            //     api_url = data.api_url;
+            //     client_identifier = data.client_identifier;
+            //     window.localStorage.setItem('api_url',api_url);
+            //     window.localStorage.setItem('client_identifier',client_identifier);
+            //     showPrompt();
+            // }).fail(function(){
+            //     let title = 'Alert.. !';
+            //     let content = 'Error in Loading, Please contact Software Support.';
+            //     loadErrorPopup(title,content,'1')
+            // });
+        });
+        $(document).on('keypress','.valid_inp',function(e){
+            let val = $(this).val();
+            console.log('val - '+val);
+            console.log('e.keyCode - '+e.which);
+            if(val!='' && (e.which == 13  || e.keyCode == 13))
+            {
+                if($(this).parents('.input_form').next('.input_form').find('.valid_inp').length > 0 && $(this).val()!='')
+                {
+                    $(this).parents('.input_form').next('.input_form').find('.valid_inp').trigger('focus');
+                }
+                else
+                {
+                    $('.enter_Btn').trigger('click');
+                }
+            }
+        })
+        $(document).on('click','.enter_Btn',function(e){
+            let api_username  = $('.username').val();
+            let api_password  = $('.pwd').val();
+            // alert(api_url);
+            if(api_url=='' || client_identifier==''){
+                // $.alert('Enter a Valid URL');
+                let title   = 'Alert.. !';
+                let content = 'Error in Settings, Please contact Software Support.';
+                loadErrorPopup(title,content,'1')
+                return false;
+            }
+            else if(!api_username)
+            {
+                // $.alert('Enter Api Username');
+                $.alert({
+                    title: '',
+                    content: 'Enter Api Username',
+                    onContentReady: function () {
+                        setTimeout(function(){$(".jconfirm-buttons").find('button').focus();},10);
+                    },
+                    onClose: function () {
+                         $('.valid_inp').removeClass('focused');
+                        setTimeout(function(){ $('.username').val('').addClass('focused').focus() },300);
+                    }
+                });
+               
+                return false;
+            }
+            else if(!api_password)
+            {
+                $.alert({
+                    title: '',
+                    content: 'Enter Api Password',
+                    onContentReady: function () {
+                        setTimeout(function(){$(".jconfirm-buttons").find('button').focus();},10);
+                    },
+                    onClose: function () {
+                        $('.valid_inp').removeClass('focused');
+                        setTimeout(function(){ $('.pwd').val('').addClass('focused').focus() },300);
+                    }
+                });
+               
+                return false;
+            }
+             else 
+             {
+                var apiPost_url = api_url;
+                $.ajax({
+                            url: apiPost_url+'/'+client_identifier+'/packing_api/login_action',
+                            method: 'POST',
+                            data: {'username': api_username,'password':api_password,'client_identifier':client_identifier},
+                            success: function(response) {
+                                var data =JSON.parse(response);
+                                console.log(data);
+                                if(data.status==1)
+                                {
+                                    let successData = data.data;
+                                    //<h2>Counter Opened @ '+successData.counter_open_date+' '+successData.counter_open_time+' </h2>
+                                    $.confirm({
+                                        title: 'Counter Confirmation!',
+                                        content: '<h1>User: '+successData.user_name+'</h1>',
+                                        boxWidth: '60%',
+                                        useBootstrap: false,
+                                        icon: 'fas fa-exclamation-triangle',
+                                        backgroundDismissAnimation: 'glow',
+                                        type: 'blue',
+                                        buttons: {
+                                            omg1:{
+                                                text: 'Close',
+                                                action: function(){
+                                                }
+                                            },
+                                            omg: {
+                                                    text: 'Confirm',
+                                                    btnClass: 'btn-red',
+                                                    action: function(){
+                                                        window.localStorage.setItem('api_url',apiPost_url);
+                                                        window.localStorage.setItem('api_user_id',successData.user_id);
+                                                        window.localStorage.setItem('client_identifier',successData.oem_identifier);
+                                                        window.localStorage.setItem('branch_id',successData.branch_id);
+                                                        window.localStorage.setItem('currency_id',successData.currency_id);
+                                                        window.localStorage.setItem('login_date',successData.login_date);
+                                                        window.localStorage.setItem('login_time',successData.login_time);
+                                                        window.localStorage.setItem('counter_opened_date',successData.counter_open_date);
+                                                        window.localStorage.setItem('counter_opened_time',successData.counter_open_time);
+                                                        window.location = "landing.html";
+                                                    }
+                                                }
+                                        },
+                                        onOpenBefore: function () {
+                                          $('.jconfirm').addClass('notFoundClass notFoundClass_new')
+                                        },
+                                        onContentReady: function () {
+                                          
+                                        },
+                                    });
+                                }
+                                else
+                                {
+                                    let title = 'Login Failed !';
+                                    let content = data.message;
+                                    loadErrorPopup(title,content)
+                                     // $.alert(data.message);
+                                     return false;
+                                }
+                            },
+                            error:function (xhr, ajaxOptions, thrownError){
+                                    // if(xhr.status==404) {
+                                        // $.alert('Invalid Login Credential..!');
+                                        let title = 'Login Failed !';
+                                        let content = 'Invalid Login Credential..!';
+                                        loadErrorPopup(title,content)
+                                        return false;
+                                       
+                                    // }
+                                }   
+
+                        }); 
+                return false;
+                
+                // window.localStorage.setItem('subdomain', subdomain);
+                // loadTable()
+            }
+        })
+        $(document).on('focus','.valid_inp',function(e){
+            $('.valid_inp').removeClass('focused');
+            $(this).addClass('focused');
+        })
+        $("body").on('click','.key_pad li',function(eInner)
+        {
+            $('.key_pad li').removeClass('focus');
+            $(this).addClass('focus')
+            let existing_val = $('.focused').val();
+            let $this        = $(this);
+            let typed_dig    = $(this).text();
+            if($this.hasClass('digit'))
+            {
+                if($this.hasClass('dot'))
+                {
+                    if(!existing_val.includes('.')){
+                      if(existing_val=='')
+                        existing_val = '0';
+                      existing_val = (existing_val+typed_dig);
+                      $('.focused').val(existing_val);
+                    }
+                }
+                else
+                {
+                    existing_val = (existing_val+typed_dig);
+                    $('.focused').val(existing_val);
+                }
+            }
+            if($this.hasClass('clear_all'))
+            {
+                existing_val = '';
+                $('.valid_inp').val('');
+                $('.username').focus();
+            }
+            if($this.hasClass('clear_last'))
+            {
+                existing_val = existing_val.slice(0,-1);
+                $('.focused').val(existing_val);
+            }
+            if($this.hasClass('qty_btn'))
+            {
+                if(existing_val!='' && existing_val!='0' && parseInt(existing_val))
+                  $('.qty_fld').val(parseInt(existing_val));
+                $('.focused').val('');
+            }
+            if($this.hasClass('enter_Btn'))
+            {
+                let e = jQuery.Event("keypress");
+                e.which = 13; // Enter
+                $('.focused').trigger('click');
+            }
+            if($this.hasClass('reload_page'))
+            {
+                location.reload();
+            }
+            setTimeout(function(){
+              var SearchInput = $('.focused');
+              var strLength= SearchInput.val().length;
+              SearchInput.focus();
+              SearchInput[0].setSelectionRange(strLength, strLength);
+              // $('.focused').trigger('focus') 
+            },100)
+        })
+        function showPrompt()
+        {
+            if((api_user_id != null && api_user_id != undefined && api_user_id != 0)) {
+                window.location.replace(`landing.html`);
+            } 
+            if(api_url=='' || client_identifier == '')
+            {
+                let title = 'Alert.. !';
+                let content = 'Error in Loading, Please contact Software Support.';
+                loadErrorPopup(title,content,'1')
+            }   
+            else
+            {
+                $('.mobashLogo').html('<img src="'+api_url+'/userdatas/clients/'+client_identifier+'/login.png" />');
+                $('.valid_inp').val('');
+                setTimeout(function(){ $('.username').focus(); },200);
+            }
+        }
+        clock();  
+        window.onload = setInterval(clock,1000);
+        function clock()
+        {
+          var d = new Date();
+          var date = d.getDate();
+          var month = d.getMonth();
+          var montharr =["Jan","Feb","Mar","April","May","June","July","Aug","Sep","Oct","Nov","Dec"];
+          month=montharr[month];
+          var year = d.getFullYear();
+          var day = d.getDay();
+          var dayarr =["Sun","Mon","Tues","Wed","Thurs","Fri","Sat"];
+          day=dayarr[day];
+          var hour =d.getHours();
+          var min = d.getMinutes();
+          var sec = d.getSeconds();
+          document.getElementById("header_date").innerHTML="<h5>"+(hour<10?'0'+hour:hour)+":"+(min<10?'0'+min:min)+":"+(sec<10?'0'+sec:sec)+"</h5><p>"+day+", "+date+" "+month+" "+year+"</p>";
+          // document.getElementById("time").innerHTML=hour+":"+min+":"+sec;
+        }
+        function loadErrorPopup(title='Error',content='Try again',hideBtn=0,focus=0,success=0)
+        {
+            console.log('hideBtn - '+hideBtn)
+            $.confirm({
+                title: title,
+                content: content,
+                boxWidth: '50%',
+                useBootstrap: false,
+                icon: 'fas fa-exclamation-triangle',
+                backgroundDismissAnimation: 'glow',
+                type: 'red',
+                buttons: {
+                    omg: {
+                        text: 'Close',
+                        btnClass: 'btn-red',
+                        action: function(){
+                          if(focus==0)
+                            $('.main_entry_fld').val('').trigger('focus');
+                          else
+                            $('.pc_barcode_scan').val('').trigger('focus');
+                        }
+                    }
+                },
+                onOpenBefore: function () {
+                  $('.jconfirm').addClass('notFoundClass')
+                  if(hideBtn=='1')
+                    $(".jconfirm-buttons").find('button').hide();
+                  if(success==1)
+                  {
+                    $('.notFoundClass .jconfirm-box').removeClass('jconfirm-type-red').addClass('jconfirm-type-green')
+                    $('.jconfirm .jconfirm-box .jconfirm-buttons button.btn-red').css('background-color','#2ecc71');
+                  }
+                },
+                onContentReady: function () {
+                  if(hideBtn=='1')
+                    $(".jconfirm-buttons").find('button').hide();
+                },
+            });
+        }
+    </script>
+
+</body>
+
+</html>

@@ -13,7 +13,11 @@ export default defineConfig(({mode}) => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+        'stats.js': path.resolve(__dirname, 'src/lib/statsJsDefault.ts'),
       },
+    },
+    optimizeDeps: {
+      exclude: ['@react-three/drei'],
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

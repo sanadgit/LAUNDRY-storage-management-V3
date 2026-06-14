@@ -8,6 +8,7 @@ import {
 import { JOURNEY_STEPS } from '../constants';
 import { CustomerUser, Order } from '../types';
 import { ORDER_STATUS_LABEL_AR } from '../lib/orders';
+import { LaundryIcon } from './LaundryIcon';
 
 interface DashboardProps {
   orders: Order[];
@@ -180,7 +181,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ orders, onNewOrderClick, o
                                 ${isSelected ? 'ring-2 ring-primary ring-offset-2 ring-offset-gray-900 z-20' : ''}
                               `}
                             >
-                              {isCompleted ? <CheckCircle2 size={24} /> : <span>{step.key}</span>}
+                              {isCompleted ? <CheckCircle2 size={24} /> : <LaundryIcon name={step.key} alt="" className="h-9 w-9" />}
                             </motion.div>
                             <span className={`
                               text-[11px] font-bold uppercase tracking-tight transition-colors duration-300
@@ -205,7 +206,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ orders, onNewOrderClick, o
                   >
                     <div className="flex flex-col md:flex-row gap-8 items-start md:items-center">
                       <div className="w-16 h-16 bg-primary/20 rounded-3xl flex items-center justify-center text-3xl flex-shrink-0">
-                        {JOURNEY_STEPS[selectedStepIndex].key}
+                        <LaundryIcon name={JOURNEY_STEPS[selectedStepIndex].key} alt="" className="h-14 w-14" />
                       </div>
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-2 flex-wrap">

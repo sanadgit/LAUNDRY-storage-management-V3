@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <!-- Meta, title, CSS, favicons, etc. -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Aipsoft - Price Change History</title>
+
+    <!-- Google Fonts: Urbanist (Brand Guideline) -->
+    <link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Original Plugin CSS -->
+    <link rel="stylesheet" href="css/jquery-confirm.min.css">
+
+    <!-- Tailwind CSS for ultra-fast, modern styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Lucide Icons for crisp, native-feeling vector icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Tailwind Configuration using Brand Colors -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Urbanist', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            navy: '#0A0045',
+                            purple: '#5334D1',
+                            pink: '#C5299D',
+                            light: '#8E80FF',
+                            bg: '#050514' /* Deep dark background */
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Global Styling for dynamically injected JS elements -->
+    <style type="text/css">
+        body {
+            font-family: 'Urbanist', sans-serif;
+            background-color: #050514;
+            margin: 0;
+            overflow-x: hidden;
+            -webkit-tap-highlight-color: transparent; 
+            user-select: none; 
+            color: #ffffff;
+        }
+        
+        /* Safe area handling for notched iOS devices */
+        .pt-safe { padding-top: env(safe-area-inset-top); }
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+
+        /* Dynamic Table Styling */
+        .grn_table {
+            overflow-y: auto;
+            overflow-x: hidden;
+            border-radius: 16px;
+        }
+        .grn_table::-webkit-scrollbar { display: none; }
+        .productList {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+        }
+        .productList th {
+            background-color: rgba(83, 52, 209, 0.15); /* Brand purple tinted */
+            color: #8E80FF;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 12px 8px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .productList td {
+            font-size: 13px;
+            font-weight: 500;
+            color: #ffffff;
+            padding: 12px 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            vertical-align: top;
+        }
+        .productList tr:last-child td { border-bottom: none; }
+        .productList tr.item_row:active { background-color: rgba(255,255,255,0.05); }
+
+        /* Loader Overlay Styling */
+        .loading {
+            position: fixed;
+            z-index: 999999;
+            height: 100%;
+            width: 100%;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: rgba(5, 5, 20, 0.8);
+            backdrop-filter: blur(4px);
+        }
+        img.loadingIco {
+            width: 60px; /* Scaled down for mobile */
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+    </style>
+
+    <!-- Original Dependencies -->
+    <script type="text/javascript" src="js/jquery-3.4.1.min.js"></script>
+    <script type="text/javascript" src="js/typeahead.bundle.js"></script>
+    <script src="js/jquery-confirm.min.js"></script>
+    <script src="js/config.js"></script>
+    
+    <!-- Original Logic untouched -->
+    <script type="text/javascript">
+    let api_user_id         = window.localStorage.getItem('api_user_id');
+    let api_url             = window.localStorage.getItem('api_url');
+    let client_identifier   = window.localStorage.getItem('client_identifier');
+    let branch_id           = window.localStorage.getItem('branch_id');
+    let currency_id         = window.localStorage.getItem('currency_id');
+    let tax_included        = window.localStorage.getItem('tax_included');
+    let order_id        = window.localStorage.getItem('order_id'); 
+
+    let request_id        = window.localStorage.getItem('request_id');
+    let request_from        = window.localStorage.getItem('request_from');
+    let request_to        = window.localStorage.getItem('request_to');
+    let module_settings;
+    let user_type;
+    var pos_settings;
+    console.log('tax_included - '+tax_included)
+
+    function loadItemRequestData(){
+        $.ajax({
+                url: api_url+'/purchase_api/PriceChangeHistory',
+                method: 'POST',
+                data: {'client_identifier':client_identifier, 'api_user_id':api_user_id, 'branch_id':branch_id},
+                success: function(response) {
+                    removeAjaxLoad();
+                    var data =JSON.parse(response);
+                    console.log(data);
+                    if(data.status==1)
+                    {
+                        let orderData  = data.data;
+                        user_type        = data.user_type;
+                        module_settings  = data.module_settings;
+                        pos_settings  = data.pos_settings;
+                        console.log('pos_settings', data.pos_settings)
+                        if(orderData.data_count > 0)
+                        {
+                            
+                            let orders = orderData.data_result;
+                            let tot_qty = 0;
+                            $('.productList tbody').html('');
+                            orders.forEach(function(order, index) {
+                                let sl_no = 1;
+                                let details_id = order.details_id;
+                                if($(".sl_no").length>0)
+                                {
+                                    sl_no = Number($(".sl_no").length)+1;
+                                }
+                                let sale_rate = order.sales_rate;
+                                let stock = order.stock?order.stock:0;
+                                let pack_desc = order.packing_description?order.packing_description:'';
+                                let eq_to_base = order.eq_to_base?order.eq_to_base:0;
+                                eq_to_base = eq_to_base;
+                                let order_date = new Date(order.date);
+                                let date = order_date.getDate()+'/'+order_date.getMonth()+'/'+order_date.getFullYear();
+                                if (pack_desc != "")
+                                    pack_desc = '- '+pack_desc;
+                                let tRow = '<tr class="item_row">\
+                                        <td class="sl_no print_details">'+sl_no+'</td>\
+                                        <td class="qty_td text-brand-light">'+date+'</td>\
+                                        <td >'+order.barcode+' '+pack_desc+' <br/> <span class="text-white/70 text-[11px] leading-tight block mt-1">'+order.product_name1+' - '+order.unitname_short+' ('+eq_to_base+' '+order.baseunit+')</span></td>\
+                                        <td class="stock_td text-rose-400 font-bold">'+order.oldprice+'</td>\
+                                        <td class="rate_td text-emerald-400 font-bold">'+order.price+'</td>\
+                                    </tr>';
+                                $('.productList tbody').append(tRow);
+                            })
+
+                        }
+                    }else if (data.status==3) {
+                        module_settings  = data.module_settings;
+                        pos_settings  = data.pos_settings;
+                    }
+
+                },
+                error:function (xhr, ajaxOptions, thrownError){
+                        removeAjaxLoad();
+                        $.alert('No vendor found..!');
+                        return false;                          
+                    }   
+            });
+    }
+    if((api_user_id == null || api_user_id == '' || api_url =='' || api_url == null)) {
+            window.location = "login.html";
+    }else{
+        $(document).ready(function() { 
+            loadAjax();
+            loadItemRequestData();
+        })
+    }
+    </script>
+</head>
+
+<body>
+
+    <!-- Mobile Wrapper -->
+    <div class="max-w-md mx-auto min-h-screen bg-brand-bg relative pb-safe overflow-hidden flex flex-col">
+
+        <!-- Abstract Glowing Gradients -->
+        <div class="absolute top-[-10%] left-[-20%] w-96 h-96 bg-brand-purple rounded-full mix-blend-screen filter blur-[120px] opacity-30 pointer-events-none z-0"></div>
+        <div class="absolute top-[30%] right-[-20%] w-80 h-80 bg-brand-pink rounded-full mix-blend-screen filter blur-[120px] opacity-20 pointer-events-none z-0"></div>
+        <div class="absolute bottom-[-10%] left-[10%] w-96 h-96 bg-brand-light rounded-full mix-blend-screen filter blur-[150px] opacity-20 pointer-events-none z-0"></div>
+
+        <!-- App Header with Back Button -->
+        <header class="fixed top-0 w-full max-w-md z-40 bg-brand-bg/80 backdrop-blur-xl border-b border-white/5 shadow-sm pt-safe nav_deader">
+            <div class="flex items-center px-4 py-3 h-16">
+                <!-- Back Button -->
+                <button id="backBtn" class="flex items-center justify-center w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 active:bg-white/15 transition-colors border border-white/10 shrink-0">
+                    <i data-lucide="chevron-left" class="w-6 h-6 text-white"></i>
+                </button>
+                
+                <!-- Title -->
+                <h1 class="flex-1 text-center text-[17px] font-bold text-white mr-10 leading-tight">
+                    Price Change History
+                </h1>
+            </div>
+        </header>
+
+        <!-- Search Popup Area (Kept original classes for JS triggers) -->
+        <div class="item_search hidden fixed inset-0 z-50 bg-[#050514]/95 backdrop-blur-md flex flex-col pt-safe max-w-md mx-auto">
+            <div class="item_padd p-4 flex flex-col h-full">
+                <!-- Popup Header -->
+                <div class="flex items-center justify-between border-b border-white/10 pb-4 mb-4">
+                    <h3 class="text-white font-bold text-lg">Search Item</h3>
+                    <div class="close_search_btn w-8 h-8 flex items-center justify-center rounded-full bg-white/10 text-white cursor-pointer hover:bg-white/20 transition-colors">
+                        <i data-lucide="x" class="w-5 h-5 close_icon"></i>
+                    </div>
+                </div>
+
+                <!-- Search Input -->
+                <div class="scanitem relative group">
+                    <input type="text" name="" class="prod_search w-full bg-[#0d0d26] border border-white/20 rounded-2xl py-4 pl-4 pr-12 text-white font-medium focus:outline-none focus:border-brand-pink/60 transition-colors shadow-inner" placeholder="Scan or type item...">
+                    <div class="search_btn absolute inset-y-0 right-4 flex items-center cursor-pointer text-white/50 hover:text-brand-pink transition-colors">
+                        <i data-lucide="search" class="w-5 h-5 scanitem_search"></i>
+                    </div>
+                </div>
+
+                <!-- Search Results -->
+                <div class="searchlisting_wrap flex-1 overflow-y-auto mt-4">
+                    <ul class="search_result_ul flex flex-col gap-2">
+                        <!-- Populated via JS -->
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="GRN_wrap"></div>
+
+        <!-- Main Content (Table) -->
+        <div class="pt-[88px] px-4 flex-1 relative z-10 flex flex-col pb-24">
+            <!-- Table Container -->
+            <div class="grn_table bg-white/5 backdrop-blur-md border border-white/10 shadow-xl w-full">
+                <table class="productList">
+                    <thead>
+                        <tr>
+                            <th width="8%">#</th>
+                            <th width="15%">Date</th>
+                            <th width="47%">Item</th>
+                            <th width="15%">Old</th>
+                            <th width="15%">New</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Rows populated by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Sticky Footer Close Button -->
+        <div class="footer fixed bottom-0 w-full max-w-md p-5 pb-8 relative z-10 mt-auto backdrop-blur-md bg-brand-bg/50 border-t border-white/5">
+            <button type="button" class="printCloseBtn w-full bg-gradient-to-r from-red-500/80 to-rose-600/80 hover:from-red-500 hover:to-rose-600 text-white font-bold text-lg py-4 rounded-[20px] shadow-[0_8px_20px_-6px_rgba(225,29,72,0.5)] active:scale-[0.98] transition-all flex justify-center items-center gap-2">
+                <i data-lucide="x-circle" class="w-5 h-5"></i>
+                Close History
+            </button>        
+        </div>
+
+    </div>
+
+<script>
+    // Initialize standard UI Icons
+    $(document).ready(function() {
+        lucide.createIcons();
+
+        // Native feel back button
+        $('#backBtn').click(function() {
+            if (window.history.length > 1) {
+                window.history.back();
+            } else {
+                window.location = "home.html";
+            }
+        });
+    });
+
+    // Original Utility Logic
+    function loadAjax()
+    {
+        $('body').append("<div class='loading'><img src='images/new_loader.gif' class='loadingIco'></div>");
+    }
+    
+    function removeAjaxLoad()
+    {
+        $('.loading').remove();
+    }
+    
+    $('.printCloseBtn').click(function(){
+            window.location = "home.html";
+    })
+
+    // Height calculation (Adjusted slightly to accommodate new glassmorphic padding without breaking layout)
+    let screenHeight = Number($(window).outerHeight());
+    let grn_table_height = screenHeight-210; // Adjusted from 250 to 210 for cleaner fit with new UI
+    $('.grn_table').css('height',grn_table_height+'px');
+
+</script>
+</body>
+</html>

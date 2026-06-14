@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Aipsoft Connect Dashboard</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="css/jquery-confirm.min.css">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Urbanist', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            navy: '#0A0045',
+                            purple: '#5334D1',
+                            pink: '#C5299D',
+                            light: '#8E80FF',
+                            bg: '#050514' /* Deep dark background */
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style type="text/css">
+        /* BUG FIX: Lock body height to exactly 100% to prevent viewport bounce on iOS */
+        html, body {
+            font-family: 'Urbanist', sans-serif;
+            background-color: #050514;
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            min-height: 100vh;
+            overflow: hidden;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+            color: #ffffff;
+        }
+
+        /* Hide scrollbar for a cleaner app look */
+        ::-webkit-scrollbar { display: none; }
+
+        /* Click animations */
+        .app-list-item {
+            transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+            -webkit-touch-callout: none; /* Disable iOS callout menu (copy/paste/magnifier) */
+            -webkit-user-select: none;   /* Disable text selection on iOS */
+            user-select: none;           /* Disable text selection everywhere else */
+        }
+        .app-list-item:active, .app-list-item.active-tap {
+            transform: scale(0.94);
+            background-color: rgba(255, 255, 255, 0.15);
+            opacity: 0.85;
+        }
+
+        /* Search Filter Override Class */
+        .hidden-by-search {
+            display: none !important;
+        }
+
+        /* Safe area handling for notched iOS devices */
+        .pt-safe { padding-top: env(safe-area-inset-top); }
+        .pb-safe { padding-bottom: calc(env(safe-area-inset-bottom) + 16px); }
+
+        /* BUG FIX: Enable iOS momentum scrolling for lists */
+        .scrollable-area {
+            -webkit-overflow-scrolling: touch;
+        }
+
+        /* Native iOS-style Page Exit Transition */
+        .page-exit {
+            opacity: 0 !important;
+            transform: scale(0.97) !important;
+            transition: all 0.25s ease-out !important;
+        }
+    </style>
+
+    <script type="text/javascript">
+        // ORIGINAL AUTHENTICATION LOGIC
+        let api_user_id         = window.localStorage.getItem('api_user_id');
+        let api_url             = window.localStorage.getItem('api_url');
+        let client_identifier   = window.localStorage.getItem('client_identifier');
+        let branch_id           = window.localStorage.getItem('branch_id');
+        let currency_id         = window.localStorage.getItem('currency_id');
+
+        if((api_user_id == null || api_user_id == '')) {
+                // window.location = "login.html";
+                // Uncomment above in production
+        }
+        let order_id = window.localStorage.getItem('order_id');
+    </script>
+</head>
+
+<body>
+
+<div class="max-w-md mx-auto h-full bg-brand-bg relative flex flex-col">
+
+    <div class="absolute top-[-10%] left-[-20%] w-96 h-96 bg-brand-purple rounded-full mix-blend-screen filter blur-[120px] opacity-30 pointer-events-none z-0"></div>
+    <div class="absolute top-[30%] right-[-20%] w-80 h-80 bg-brand-pink rounded-full mix-blend-screen filter blur-[120px] opacity-20 pointer-events-none z-0"></div>
+    <div class="absolute bottom-[-10%] left-[10%] w-96 h-96 bg-brand-light rounded-full mix-blend-screen filter blur-[150px] opacity-20 pointer-events-none z-0"></div>
+
+    <header class="w-full z-40 bg-brand-bg/80 backdrop-blur-xl border-b border-white/5 shadow-sm pt-safe shrink-0 relative">
+        <div class="flex justify-between items-center px-5 py-3 h-16">
+            <div class="flex flex-col">
+                    <span class="text-white font-bold text-xl tracking-tight leading-none">
+                        aipsoft<span class="text-brand-pink">.</span>
+                    </span>
+                <span class="text-[10px] uppercase tracking-widest text-brand-light font-bold mt-0.5">Connect</span>
+            </div>
+
+            <div class="flex items-center gap-4">
+                <button id="notificationBtn" class="relative text-white/70 hover:text-white transition-colors">
+                    <i data-lucide="bell" class="w-6 h-6"></i>
+                    <div class="absolute top-0 right-0.5 w-2.5 h-2.5 bg-brand-pink border-2 border-brand-bg rounded-full animate-pulse"></div>
+                </button>
+
+                <button id="profileTriggerBtn" class="relative group">
+                    <div class="h-10 w-10 rounded-full bg-gradient-to-tr from-brand-purple to-brand-pink text-white flex items-center justify-center font-bold text-sm shadow-lg border border-white/10 transition-transform active:scale-90">
+                        <span id="headerInitials">...</span>
+                    </div>
+                    <div class="absolute bottom-0 right-0 w-3 h-3 bg-emerald-400 border-2 border-brand-bg rounded-full"></div>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <div class="flex-1 overflow-y-auto scrollable-area px-4 pt-5 pb-safe relative z-10 w-full min-h-0">
+
+        <div id="notificationsArea" class="flex flex-col gap-3 mb-6">
+
+            <div class="notification-item relative bg-orange-500/10 border border-orange-500/20 rounded-2xl p-4 pl-12 shadow-lg backdrop-blur-md transition-all duration-300">
+                <div class="absolute left-4 top-4 text-orange-400">
+                    <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+                </div>
+                <p class="text-orange-100 text-[13px] leading-snug pr-6 font-medium">An authorization request came from branch - KCA -01</p>
+                <button class="close-notification absolute right-3 top-3 p-1.5 text-orange-400/50 hover:text-orange-400 transition-colors rounded-full hover:bg-orange-400/10 active:bg-orange-400/20">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <div class="notification-item relative bg-red-500/10 border border-red-500/20 rounded-2xl p-4 pl-12 shadow-lg backdrop-blur-md transition-all duration-300">
+                <div class="absolute left-4 top-4 text-red-400">
+                    <i data-lucide="x-circle" class="w-5 h-5"></i>
+                </div>
+                <p class="text-red-100 text-[13px] leading-snug pr-6 font-medium">your purchase order PO#2565 - is rejected and changed to request modifction from Admin-Salam MK</p>
+                <button class="close-notification absolute right-3 top-3 p-1.5 text-red-400/50 hover:text-red-400 transition-colors rounded-full hover:bg-red-400/10 active:bg-red-400/20">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+        </div>
+
+        <div class="flex justify-between items-center mb-4 ml-1">
+            <h2 class="text-white/90 text-2xl font-bold">Menu</h2>
+            <div class="relative group">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <i data-lucide="search" class="w-4 h-4 text-white/50 group-focus-within:text-brand-pink transition-colors"></i>
+                </div>
+                <input type="text" id="menuSearch" placeholder="Search..." class="bg-white/5 border border-white/10 rounded-full py-2 pl-9 pr-4 text-sm text-white placeholder-white/30 focus:outline-none focus:border-brand-pink/50 focus:bg-white/10 transition-all duration-300 w-32 focus:w-52 shadow-inner">
+            </div>
+        </div>
+
+        <div class="flex flex-col gap-3 pb-8">
+
+            <div class="column_list expence_dashboard" style="display: none;">
+                <div class="app-list-item bg-white/5 backdrop-blur-md rounded-2xl p-4 flex items-center gap-4 border border-white/10 cursor-pointer shadow-lg shadow-black/10">
+                    <div class="w-12 h-12 rounded-full bg-brand-purple/20 text-brand-light flex items-center justify-center shrink-0 border border-brand-purple/30">
+                        <i data-lucide="layout-dashboard"></i>
+                    </div>
+                    <div class="flex-1">
+                        <h4 class="text-white text-[15px] font-semibold leading-tight">Dashboard Expense</h4>
+                        <p class="text-white/50 text-xs mt-0.5">Overview & analytics</p>
+                    </div>
+                    <i data-lucide="chevron-right" class="text-white/30 w-5 h-5 shrink-0"></i>
+                </div>
+            </div>
+
+            <div class="column_list grn" style="display: none;">
+                <div class="app-list-item bg-white/5 backdrop-blur-md rounded-2xl p-4 flex items-center gap-4 border border-white/10 cursor-pointer shadow-lg shadow-black/10">
+                    <div class="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30">
+                        <i data-lucide="package-check"></i>
+                    </div>
+                    <div class="flex-1">
+                        <h4 class="text-white text-[15px] font-semibold leading-tight">Goods Received (GRN)</h4>
+                        <p class="text-white/50 text-xs mt-0.5">Manage inbound inventory</p>
+                    </div>
+                    <i data-lucide="chevron-right" class="text-white/30 w-5 h-5 shrink-0"></i>
+                </div>
+            </div>
+
+            <div class="column_list grv" style="display: none;">
+                <div class="app-list-item bg-white/5 backdrop-blur-md rounded-2xl p-4 flex items-center gap-4 border border-white/10 cursor-pointer shadow-lg shadow-black/10">
+                    <div class="w-12 h-12 rounded-full bg-red-500/20 text-red-400 flex items-center justify-center shrink-0 border border-red-500/30">
+                        <i data-lucide="package-x"></i>
+                    </div>
+                    <div class="flex-1">
+                        <h4 class="text-white text-[15px] font-semibold leading-tight">Goods Return (GRV)</h4>
+                        <p class="text-white/50 text-xs mt-0.5">Process returned items</p>
+                    </div>
+                    <i data-lucide="chevron-right" class="text-white/30 w-5 h-5 shrink-0"></i>
+                </div>
+            </div>
+
+            <div class="column_list sales_order lpo" style="display: none;">
+                <div class="app-list-item bg-white/5 backdrop-blur-md rounded-2xl p-4 flex items-center gap-4 border border-white/10 cursor-pointer shadow-lg shadow-black/10">
+                    <div class="w-12 h-12 rounded-full bg-brand-pink/20 text-brand-pink flex items-center justify-center shrink-0 border border-brand-pink/30">
+                        <i data-lucide="shopping-cart"></i>
+                    </div>
+                    <div class="flex-1">
+                        <h4 class="text-white text-[15px] font-semibold leading-tight">Sales Order</h4>
+                        <p class="text-white/50 text-xs mt-0.5">Create and manage LPOs</p>
+                    </div>
+                    <i data-lucide="chevron-right" class="text-white/30 w-5 h-5 shrink-0"></i>
+                </div>
+            </div>
+
+            <div class="column_list item_request" style="display: none;">
+                <div class="app-list-item bg-white/5 backdrop-blur-md rounded-2xl p-4 flex items-center gap-4 border border-white/10 cursor-pointer shadow-lg shadow-black/10">
+                    <div class="w-12 h-12 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/30">
+                        <i data-lucide="clipboard-list"></i>
+                    </div>
+                    <div class="flex-1">
+                        <h4 class="text-white text-[15px] font-semibold leading-tight">Item Request</h4>
+                        <p class="text-white/50 text-xs mt-0.5">Submit new stock requests</p>
+                    </div>
+                    <i data-lucide="chevron-right" class="text-white/30 w-5 h-5 shrink-0"></i>
+                </div>
+            </div>
+
+            <div class="column_list close_counter_entry" style="display: none;">
+                <div class="app-list-item bg-white/5 backdrop-blur-md rounded-2xl p-4 flex items-center gap-4 border border-white/10 cursor-pointer shadow-lg shadow-black/10">
+                    <div class="w-12 h-12 rounded-full bg-brand-light/20 text-brand-light flex items-center justify-center shrink-0 border border-brand-light/30">
+                        <i data-lucide="calculator"></i>
+                    </div>
+                    <div class="flex-1">
+                        <h4 class="text-white text-[15px] font-semibold leading-tight">Close Counter / Deposit</h4>
+                        <p class="text-white/50 text-xs mt-0.5">End of day reconciliations</p>
+                    </div>
+                    <i data-lucide="chevron-right" class="text-white/30 w-5 h-5 shrink-0"></i>
+                </div>
+            </div>
+
+            <div class="column_list stock_adj" style="display: none;">
+                <div class="app-list-item bg-white/5 backdrop-blur-md rounded-2xl p-4 flex items-center gap-4 border border-white/10 cursor-pointer shadow-lg shadow-black/10">
+                    <div class="w-12 h-12 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center shrink-0 border border-cyan-500/30">
+                        <i data-lucide="sliders-horizontal"></i>
+                    </div>
+                    <div class="flex-1">
+                        <h4 class="text-white text-[15px] font-semibold leading-tight">Stock Adjustment</h4>
+                        <p class="text-white/50 text-xs mt-0.5">Correct inventory levels</p>
+                    </div>
+                    <i data-lucide="chevron-right" class="text-white/30 w-5 h-5 shrink-0"></i>
+                </div>
+            </div>
+
+            <div class="column_list stock_transfer" style="display: none;">
+                <div class="app-list-item bg-white/5 backdrop-blur-md rounded-2xl p-4 flex items-center gap-4 border border-white/10 cursor-pointer shadow-lg shadow-black/10">
+                    <div class="w-12 h-12 rounded-full bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-500/30">
+                        <i data-lucide="arrow-right-left"></i>
+                    </div>
+                    <div class="flex-1">
+                        <h4 class="text-white text-[15px] font-semibold leading-tight">Stock Transfer</h4>
+                        <p class="text-white/50 text-xs mt-0.5">Move items between branches</p>
+                    </div>
+                    <i data-lucide="chevron-right" class="text-white/30 w-5 h-5 shrink-0"></i>
+                </div>
+            </div>
+
+            <div class="column_list expense" style="display: none;">
+                <div class="app-list-item bg-white/5 backdrop-blur-md rounded-2xl p-4 flex items-center gap-4 border border-white/10 cursor-pointer shadow-lg shadow-black/10">
+                    <div class="w-12 h-12 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0 border border-rose-500/30">
+                        <i data-lucide="wallet"></i>
+                    </div>
+                    <div class="flex-1">
+                        <h4 class="text-white text-[15px] font-semibold leading-tight">Expense Management</h4>
+                        <p class="text-white/50 text-xs mt-0.5">Record business expenses</p>
+                    </div>
+                    <i data-lucide="chevron-right" class="text-white/30 w-5 h-5 shrink-0"></i>
+                </div>
+            </div>
+
+            <div class="column_list product_bundle_creation" style="display: none;">
+                <div class="app-list-item bg-white/5 backdrop-blur-md rounded-2xl p-4 flex items-center gap-4 border border-white/10 cursor-pointer shadow-lg shadow-black/10">
+                    <div class="w-12 h-12 rounded-full bg-teal-500/20 text-teal-400 flex items-center justify-center shrink-0 border border-teal-500/30">
+                        <i data-lucide="layers"></i>
+                    </div>
+                    <div class="flex-1">
+                        <h4 class="text-white text-[15px] font-semibold leading-tight">Product Bundle Creation</h4>
+                        <p class="text-white/50 text-xs mt-0.5">Group items into packages</p>
+                    </div>
+                    <i data-lucide="chevron-right" class="text-white/30 w-5 h-5 shrink-0"></i>
+                </div>
+            </div>
+
+            <div class="column_list price_change_history" style="display: none;">
+                <div class="app-list-item bg-white/5 backdrop-blur-md rounded-2xl p-4 flex items-center gap-4 border border-white/10 cursor-pointer shadow-lg shadow-black/10">
+                    <div class="w-12 h-12 rounded-full bg-orange-500/20 text-orange-400 flex items-center justify-center shrink-0 border border-orange-500/30">
+                        <i data-lucide="history"></i>
+                    </div>
+                    <div class="flex-1">
+                        <h4 class="text-white text-[15px] font-semibold leading-tight">Price Change History</h4>
+                        <p class="text-white/50 text-xs mt-0.5">Audit item price edits</p>
+                    </div>
+                    <i data-lucide="chevron-right" class="text-white/30 w-5 h-5 shrink-0"></i>
+                </div>
+            </div>
+
+            <div class="column_list price_check_and_print" style="display: none;">
+                <div class="app-list-item bg-white/5 backdrop-blur-md rounded-2xl p-4 flex items-center gap-4 border border-white/10 cursor-pointer shadow-lg shadow-black/10">
+                    <div class="w-12 h-12 rounded-full bg-gray-400/20 text-gray-300 flex items-center justify-center shrink-0 border border-gray-400/30">
+                        <i data-lucide="printer"></i>
+                    </div>
+                    <div class="flex-1">
+                        <h4 class="text-white text-[15px] font-semibold leading-tight">Price Check & Print</h4>
+                        <p class="text-white/50 text-xs mt-0.5">Verify and print labels</p>
+                    </div>
+                    <i data-lucide="chevron-right" class="text-white/30 w-5 h-5 shrink-0"></i>
+                </div>
+            </div>
+
+            <div class="column_list scan_goods_receive" style="display: none;">
+                <div class="app-list-item bg-white/5 backdrop-blur-md rounded-2xl p-4 flex items-center gap-4 border border-white/10 cursor-pointer shadow-lg shadow-black/10">
+                    <div class="w-12 h-12 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0 border border-blue-500/30">
+                        <i data-lucide="scan-barcode"></i>
+                    </div>
+                    <div class="flex-1">
+                        <h4 class="text-white text-[15px] font-semibold leading-tight">Scan / Goods Receive</h4>
+                        <p class="text-white/50 text-xs mt-0.5">Barcode scanning utility</p>
+                    </div>
+                    <i data-lucide="chevron-right" class="text-white/30 w-5 h-5 shrink-0"></i>
+                </div>
+            </div>
+
+            <div class="column_list authenticate_option" style="display: none;">
+                <div class="app-list-item bg-white/5 backdrop-blur-md rounded-2xl p-4 flex items-center gap-4 border border-white/10 cursor-pointer shadow-lg shadow-black/10">
+                    <div class="w-12 h-12 rounded-full bg-violet-500/20 text-violet-400 flex items-center justify-center shrink-0 border border-violet-500/30">
+                        <i data-lucide="shield-check"></i>
+                    </div>
+                    <div class="flex-1">
+                        <h4 class="text-white text-[15px] font-semibold leading-tight">Authenticate</h4>
+                        <p class="text-white/50 text-xs mt-0.5">Secure system actions</p>
+                    </div>
+                    <i data-lucide="chevron-right" class="text-white/30 w-5 h-5 shrink-0"></i>
+                </div>
+            </div>
+
+            <div class="column_list sales_and_sales_return_report" style="display: none;">
+                <div class="app-list-item bg-white/5 backdrop-blur-md rounded-2xl p-4 flex items-center gap-4 border border-white/10 cursor-pointer shadow-lg shadow-black/10">
+                    <div class="w-12 h-12 rounded-full bg-fuchsia-500/20 text-fuchsia-400 flex items-center justify-center shrink-0 border border-fuchsia-500/30">
+                        <i data-lucide="bar-chart-3"></i>
+                    </div>
+                    <div class="flex-1">
+                        <h4 class="text-white text-[15px] font-semibold leading-tight">Sales & Return Report</h4>
+                        <p class="text-white/50 text-xs mt-0.5">View performance metrics</p>
+                    </div>
+                    <i data-lucide="chevron-right" class="text-white/30 w-5 h-5 shrink-0"></i>
+                </div>
+            </div>
+
+            <div class="column_list collection_entry" style="display: none;">
+                <div class="app-list-item bg-white/5 backdrop-blur-md rounded-2xl p-4 flex items-center gap-4 border border-white/10 cursor-pointer shadow-lg shadow-black/10">
+                    <div class="w-12 h-12 rounded-full bg-lime-500/20 text-lime-400 flex items-center justify-center shrink-0 border border-lime-500/30">
+                        <i data-lucide="shirt"></i>
+                    </div>
+                    <div class="flex-1">
+                        <h4 class="text-white text-[15px] font-semibold leading-tight">Collection Entry</h4>
+                        <p class="text-white/50 text-xs mt-0.5">Log collected items</p>
+                    </div>
+                    <i data-lucide="chevron-right" class="text-white/30 w-5 h-5 shrink-0"></i>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <div id="notificationSheetOverlay" class="fixed inset-0 bg-black/60 z-50 hidden opacity-0 transition-opacity duration-300 backdrop-blur-sm"></div>
+    <div id="notificationSheet" class="fixed bottom-0 left-0 right-0 z-50 bg-[#0d0d26] border-t border-white/10 rounded-t-[32px] transform translate-y-full transition-transform duration-300 max-w-md mx-auto shadow-[0_-10px_40px_rgba(0,0,0,0.5)] pb-safe flex flex-col h-[75vh]">
+        <div class="flex justify-center pt-4 pb-2 shrink-0">
+            <div class="w-12 h-1.5 bg-white/20 rounded-full"></div>
+        </div>
+
+        <div class="px-6 pb-4 pt-2 flex justify-between items-center shrink-0 border-b border-white/10">
+            <h3 class="text-lg font-bold text-white leading-tight">Notifications</h3>
+            <button class="text-brand-pink text-sm font-semibold hover:text-white transition-colors">Mark all read</button>
+        </div>
+
+        <div class="px-4 py-4 overflow-y-auto flex-1 flex flex-col gap-3 scrollable-area">
+
+            <div class="p-4 rounded-2xl bg-white/5 border border-brand-pink/30 flex gap-4 relative cursor-pointer hover:bg-white/10 transition-colors">
+                <div class="absolute top-5 left-3 w-2 h-2 rounded-full bg-brand-pink shadow-[0_0_8px_rgba(197,41,157,0.8)]"></div>
+                <div class="w-10 h-10 rounded-full bg-orange-500/20 text-orange-400 flex items-center justify-center shrink-0 ml-3">
+                    <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+                </div>
+                <div class="flex-1 pr-2">
+                    <h4 class="text-white text-sm font-semibold">Authorization Request</h4>
+                    <p class="text-white/70 text-xs mt-1 leading-snug">An authorization request came from branch - KCA -01.</p>
+                    <span class="text-brand-light text-[10px] mt-2 block font-medium">10 mins ago</span>
+                </div>
+            </div>
+
+            <div class="p-4 rounded-2xl bg-white/5 border border-brand-pink/30 flex gap-4 relative cursor-pointer hover:bg-white/10 transition-colors">
+                <div class="absolute top-5 left-3 w-2 h-2 rounded-full bg-brand-pink shadow-[0_0_8px_rgba(197,41,157,0.8)]"></div>
+                <div class="w-10 h-10 rounded-full bg-red-500/20 text-red-400 flex items-center justify-center shrink-0 ml-3">
+                    <i data-lucide="x-circle" class="w-5 h-5"></i>
+                </div>
+                <div class="flex-1 pr-2">
+                    <h4 class="text-white text-sm font-semibold">PO Rejected</h4>
+                    <p class="text-white/70 text-xs mt-1 leading-snug">Your purchase order PO#2565 is rejected and changed to request modification from Admin-Salam MK.</p>
+                    <span class="text-brand-light text-[10px] mt-2 block font-medium">1 hr ago</span>
+                </div>
+            </div>
+
+            <div class="p-4 rounded-2xl bg-transparent border border-white/5 flex gap-4 opacity-70 cursor-pointer hover:bg-white/5 transition-colors">
+                <div class="w-10 h-10 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0 ml-2">
+                    <i data-lucide="check-circle" class="w-5 h-5"></i>
+                </div>
+                <div class="flex-1 pr-2">
+                    <h4 class="text-white text-sm font-semibold">GRN Approved</h4>
+                    <p class="text-white/60 text-xs mt-1 leading-snug">Goods Received Note #4422 has been successfully verified.</p>
+                    <span class="text-white/40 text-[10px] mt-2 block">Yesterday</span>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <div id="profileSheetOverlay" class="fixed inset-0 bg-black/60 z-50 hidden opacity-0 transition-opacity duration-300 backdrop-blur-sm"></div>
+    <div id="profileSheet" class="fixed bottom-0 left-0 right-0 z-50 bg-[#0d0d26] border-t border-white/10 rounded-t-[32px] transform translate-y-full transition-transform duration-300 max-w-md mx-auto shadow-[0_-10px_40px_rgba(0,0,0,0.5)] pb-safe">
+        <div class="flex justify-center pt-4 pb-2">
+            <div class="w-12 h-1.5 bg-white/20 rounded-full"></div>
+        </div>
+
+        <div class="px-6 pb-6 pt-2">
+            <div class="flex items-center gap-4 mb-6 pb-6 border-b border-white/10">
+                <div class="w-14 h-14 rounded-full bg-gradient-to-tr from-brand-purple to-brand-pink text-white font-bold text-xl flex items-center justify-center shadow-lg border border-white/10">
+                    <span id="sheetInitials">..</span>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-white leading-tight" id="sheetName">Current User</h3>
+                    <p class="text-sm text-brand-light font-medium">Logged in</p>
+                </div>
+            </div>
+
+            <div class="flex flex-col gap-2">
+                <button class="settings w-full flex items-center gap-4 p-4 rounded-2xl bg-white/5 hover:bg-white/10 active:bg-white/15 border border-white/5 transition-colors text-white font-semibold text-left">
+                    <div class="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-gray-300 shadow-sm border border-white/5">
+                        <i data-lucide="settings" class="w-5 h-5"></i>
+                    </div>
+                    <span class="flex-1">System Settings</span>
+                    <i data-lucide="chevron-right" class="w-5 h-5 text-white/30"></i>
+                </button>
+
+                <button class="logout_btn w-full flex items-center gap-4 p-4 rounded-2xl bg-red-500/10 hover:bg-red-500/20 active:bg-red-500/30 border border-red-500/10 transition-colors text-red-400 font-semibold text-left mt-2">
+                    <div class="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center text-red-400 shadow-sm border border-red-500/20">
+                        <i data-lucide="log-out" class="w-5 h-5"></i>
+                    </div>
+                    <span class="flex-1">Logout Account</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script type="text/javascript" src="js/jquery-3.5.1.min.js"></script>
+<script>
+    $(document).ready(function() {
+
+        // Initialize Lucide Icons
+        lucide.createIcons();
+
+        // --- Profile & Initials Logic ---
+        function initializeProfile() {
+            let storedName = window.localStorage.getItem('user_full_name');
+            if(!storedName || storedName.trim() === '') storedName = 'Admin User';
+
+            $('#sheetName').text(storedName);
+
+            let names = storedName.trim().split(' ');
+            let initials = '';
+            if (names.length >= 2) {
+                initials = names[0].charAt(0) + names[names.length-1].charAt(0);
+            } else if (names.length === 1) {
+                initials = names[0].charAt(0) + (names[0].charAt(1) || '');
+            }
+            let finalInitials = initials.toUpperCase();
+            $('#headerInitials').text(finalInitials);
+            $('#sheetInitials').text(finalInitials);
+        }
+        initializeProfile();
+
+        // --- Profile Bottom Sheet Animation Logic ---
+        $('#profileTriggerBtn').click(function() {
+            $('#profileSheetOverlay').removeClass('hidden');
+            $('#profileSheetOverlay')[0].offsetHeight;
+            $('#profileSheetOverlay').removeClass('opacity-0');
+            $('#profileSheet').removeClass('translate-y-full');
+        });
+
+        function closeProfileSheet() {
+            $('#profileSheetOverlay').addClass('opacity-0');
+            $('#profileSheet').addClass('translate-y-full');
+            setTimeout(() => {
+                $('#profileSheetOverlay').addClass('hidden');
+            }, 300);
+        }
+
+        $('#profileSheetOverlay').click(closeProfileSheet);
+        $('.settings, .logout_btn').click(function() {
+            closeProfileSheet();
+        });
+
+
+        // --- Notification Bottom Sheet Animation Logic ---
+        $('#notificationBtn').click(function() {
+            $('#notificationSheetOverlay').removeClass('hidden');
+            $('#notificationSheetOverlay')[0].offsetHeight;
+            $('#notificationSheetOverlay').removeClass('opacity-0');
+            $('#notificationSheet').removeClass('translate-y-full');
+        });
+
+        function closeNotificationSheet() {
+            $('#notificationSheetOverlay').addClass('opacity-0');
+            $('#notificationSheet').addClass('translate-y-full');
+            setTimeout(() => {
+                $('#notificationSheetOverlay').addClass('hidden');
+            }, 300);
+        }
+
+        $('#notificationSheetOverlay').click(closeNotificationSheet);
+
+
+        // --- Inline Notification Dismiss Logic ---
+        $('.close-notification').click(function() {
+            $(this).closest('.notification-item').fadeOut(250, function() {
+                $(this).remove();
+            });
+        });
+
+        // --- Menu Search Filter Logic ---
+        $('#menuSearch').on('input', function() {
+            let searchTerm = $(this).val().toLowerCase();
+            $('.column_list').each(function() {
+                let itemText = $(this).text().toLowerCase();
+                if(itemText.includes(searchTerm)) {
+                    $(this).removeClass('hidden-by-search');
+                } else {
+                    $(this).addClass('hidden-by-search');
+                }
+            });
+        });
+
+        // --- NATIVE PAGE TRANSITION LOGIC ---
+        function navigateTo(url) {
+            // 1. Instantly trigger fade-out & scale-down animation
+            $('.max-w-md').addClass('page-exit');
+            // 2. Delay the actual redirect just enough for the animation to play
+            setTimeout(function() {
+                window.location = url;
+            }, 250);
+        }
+
+        // Fix for iOS Safari Back Button (BFCache) restoring the faded state if they swipe back
+        window.addEventListener('pageshow', function (event) {
+            if (event.persisted) {
+                $('.max-w-md').removeClass('page-exit');
+            }
+        });
+
+        // --- INSTANT TOUCH FEEDBACK ---
+        // iOS Safari delays the CSS :active state. This forces instant visual feedback.
+        $('.app-list-item').on('touchstart', function() {
+            $(this).addClass('active-tap');
+        }).on('touchend touchmove touchcancel', function() {
+            let $el = $(this);
+            setTimeout(function() { $el.removeClass('active-tap'); }, 150);
+        });
+
+        // --- ORIGINAL JS LOGIC (Updated to use animation) ---
+
+        $('.logout_btn').click(function(){
+             window.localStorage.setItem('api_user_id','');
+             window.localStorage.setItem('client_identifier','');
+             window.localStorage.setItem('branch_id','');
+             window.localStorage.setItem('currency_id','');
+             window.localStorage.setItem('branch_from','');
+             navigateTo("login.html");
+        });
+
+        $('.expence_dashboard').click(function(){ navigateTo("dashboard.html"); });
+        $('.grn').click(function(){ navigateTo("grn.html"); });
+        $('.scan_goods_receive').click(function(){ navigateTo("scan.html"); });
+        $('.grv').click(function(){ navigateTo("grv.html"); });
+        $('.stock_adj').click(function(){ navigateTo("stock_adjustment.html"); });
+        $('.stock_transfer').click(function(){ navigateTo("stock_transfer.html"); });
+        $('.price_check_and_print').click(function(){ navigateTo("print_type.html"); });
+        $('.product_bundle_creation').click(function(){ navigateTo("products.html"); });
+        $('.item_request').click(function(){ navigateTo("barcode_select.html"); });
+        $('.collection_entry').click(function(){ navigateTo("collection_start.html"); });
+        $('.close_counter_entry').click(function(){ navigateTo("close_counter_start.html"); });
+        $('.price_change_history').click(function(){ navigateTo("price_change_history.html"); });
+        $('.settings').click(function(){ navigateTo("settings.html"); });
+        $('.authenticate_option').click(function(){ navigateTo("authenticate.html"); });
+        $('.lpo').click(function(){ navigateTo("home.html"); });
+        $('.expense').click(function(){ navigateTo("expence_list.html"); });
+        $('.sales_order').click(function(){ navigateTo('sales_order.html'); });
+        $('.sales_and_sales_return_report').click(function(){ navigateTo('sales_and_sales_return_report_filter.html'); });
+
+        // AJAX Permission fetch logic
+        $.ajax({
+            url: api_url + '/purchase_api/GetAiPSoftModulePermission',
+            method: 'POST',
+            dataType: "json",
+            data: {
+                'client_identifier': client_identifier,
+                'branch_id': branch_id,
+                'user_id': api_user_id
+            },
+            success: function(response) {
+                if (response.status == "1") {
+                    if(response.UserInfo.user_type_id == 3 || response.UserInfo.user_type_id == 6) {
+                        $('.column_list').css('display','block');
+                    } else {
+                        $.each(response.data, function(key, value) {
+                            if (value == 1) {
+                                if($('.column_list').hasClass(key)){
+                                    $('.'+key).show();
+                                }
+                            }
+                        });
+                    }
+                } else {
+                    console.log("No data available");
+                }
+            },
+            error: function(xhr, ajaxOptions, thrownError) {
+                console.log('Cannot fetch server data. Showing default blocks for preview.');
+                $('.column_list').css('display', 'block');
+            }
+        });
+
+    });
+</script>
+</body>
+</html>

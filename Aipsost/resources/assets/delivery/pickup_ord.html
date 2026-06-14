@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.1.3/dist/css/bootstrap.min.css" integrity="sha384-MCw98/SFnGE8fJT3GXwEOngsV7Zt27NXFoaoApmYm81iuXoPkFOJwJ8ERdknLPMO" crossorigin="anonymous">
+    <link rel="stylesheet" type="text/css" href="css/style_2.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery-confirm/3.3.4/jquery-confirm.min.css">
+    <title>Pickup</title>
+    <style>
+      section.invoice_add_body section.sec_02{
+        margin-top: 350px;
+      }
+    </style>
+    <style type="text/css">
+        .choose_time ul li{width:13%;}
+          .dates_ul li{cursor: pointer;}
+          .dates_ul li.selected{background-color:#2261a4;color:#FFF;}
+          .dates_ul li.selected h5,.dates_ul li.selected p{color:#FFF;}
+        body {
+            overflow: auto;
+        }
+        .map_width_wrap {
+            margin-top: 108px;
+        }     
+        #map {
+            width: 100%;
+            height: calc(100vh - 109px);
+        }
+          .gm-svpc{display: none;}
+          .gmnoprint{display: none;}
+          .gm-fullscreen-control {display: none;}
+          .onclickbtn{display: none;}
+            #infowindow-content {
+            display: none;
+        }
+        .pac-container {
+            z-index: 9999;
+        }
+        .popup_close_btn{
+          top: 0;
+        }
+        a.shipping{
+            color: #2653a3;
+            font-size: 28px;
+            background: #e9f6fe;
+            /* padding: 10px 15px; */
+            border-radius: 100%;
+            height: 48px;
+            width: 48px;
+            text-align: center;
+            line-height: 48px;
+        }
+        .pull-right.btn-group-sm{
+            display: flex;
+        }
+    </style>
+  </head>
+  <body class="delivery_dashboard_body">
+    <div class="warning">
+      <p>Website only visible in Tablet & Mobile view</p>
+    </div>
+  <section class="add_new_sale new_sale_page invoice_add_body">
+    <header>
+
+
+        <nav class="navbar navbar-expand-lg navbar-dark fixed-top bg_navy_blue">
+      
+              <a href="pickup.html"><button class="close">
+                  <img src="DesignFiles/images/back.svg">
+                  </button>
+              </a>
+
+              <a class="navbar-brand" href="#" style="margin-right: 50px;">Pickup <span class="invoice_number"></span></a>
+              
+
+        </nav>
+    </header>
+    <section class="sec_01 invoice_add_item">
+        <div class="container">
+          <div class="row row_wrapper_date_time">
+            <div class="col-xs-6 col-sm-6 col-md-6 col_wrapper_left">
+              <label class="mt-2">Remarks</label>
+              <textarea placeholder="Enter Remarks"></textarea>
+
+            </div>
+            <div class="col-xs-6 col-sm-6 col-md-6 col_wrapper_right">
+               <label class="mt-2">Pickup Description</label>
+              <textarea placeholder="Enter Description"></textarea>
+
+            </div>
+            <div class="pickuplocation">
+              <label class="pickuplocation_url" style="margin-left: -115px;">Location URL</label>
+              <input type="text" placeholder="Enter Location URL" style="width: 174%;border-radius:6px;border-color: transparent;"></input>
+            </div>
+            <div class="pickuplocationMap">
+              <label class="pickuplocation_url" style="display: block;text-align: left;margin-left: 3px;">Location Map</label>
+              <a href="javascript:" class="update-loc update-map">Choose Location</a>
+              <span>*** current location will be stored by default</span>
+              <input type="hidden" name="location_map" class="location_map" value="" id="shipping_id">
+            </div>
+          </div>
+      </div>
+    </section>
+
+    <section class="sec_02 invoice_list_sec02">
+        <div class="container">
+          <div class="row ">
+            <div class="col-xs-12 col-md-12 col-lg-12 col_wrapper">
+            </div>
+            </div>
+            <div id="selectedCustomerContainer" style="margin-top: 15px;"></div>
+            <div class="row mt-3">
+                <div class="col-xs-12 col-md-12 col-lg-12 col_wrapper">
+                <a href="#" class="add_item_here_invoice">
+                <button type="button" data-toggle="modal" data-target="#chooseCustomerModal" id="chooseCustomerbtn" style="min-height: 50px;">
+                    Choose Customer
+                </button>
+            </a>
+          </div>
+        </div>
+    </section>
+    <footer class="add_pickup">
+            <ul class="submit_pickup">
+              <li><button>Submit</button></li>
+            </ul>
+    </footer>
+</section>
+
+<!-- Modal -->
+<div class="modal fade" id="chooseCustomerModal" tabindex="-1" role="dialog" aria-labelledby="chooseCustomerModalLabel" aria-hidden="true">
+  <div class="modal-dialog" role="document" style="max-width: 106%;">
+    <div class="modal-content" style="margin-left:-11px;">
+
+      <div class="modal-header">
+        <h5 class="modal-title" id="chooseCustomerModalLabel">Choose Customer</h5>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+
+      <div class="modal-body" style="max-height: 1000px; overflow-y: auto;">
+        <div class="modal-inner-content">
+          <!-- Put ALL your modal content here: header, form, containers etc. -->
+          <section class="add_new_sale new_sale_page" style="margin-top: 36px;">
+            <header>
+              <nav class="navbar navbar-expand-lg navbar-dark fixed-top bg_navy_blue">
+                <a href="pickup_ord.html">
+                  <button class="close">
+                    <img src="DesignFiles/images/close.svg">
+                  </button>
+                </a>
+                <a class="navbar-brand" href="#">Choose Customer</a>
+              </nav>
+            </header>
+
+            <div class="container">
+              <div class="row search_wrapper mb-4">
+                <div class="col-xs-12 col-sm-12 col-md-12 col_wrapper">
+                  <div class="input-group search-bar-sticky">
+                    <input type="text" class="form-control choosecustsearch" placeholder="Choose Customer" aria-label="Input group example" aria-describedby="basic-addon1">
+                    <span class="input-group-text" id="basic-addon1">
+                      <img src="DesignFiles/images/search.svg">
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <!-- You can append your search results here dynamically -->
+            </div>
+          </section>
+        </div>
+      </div>
+    <div class="modal-footer" style="position: sticky; bottom: 0; background: #f8f9fa; border-top: 1px solid #dee2e6; padding: 10px 20px; z-index: 20; display: flex; justify-content: center;">
+        <button type="button" class="btn btn-primary" id="addNewCustomerBtn">Add New Customer</button>
+    </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="addNewCustomerModal" tabindex="-1" role="dialog" aria-labelledby="addNewCustomerModalLabel" aria-hidden="true">
+  <div class="modal-dialog" role="document" style="max-width: 500px;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="addNewCustomerModalLabel">Add New Customer</h5>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="addCustomerForm">
+          <div class="form-group">
+            <label for="new_cust_mobile">Customer Mobile*</label>
+            <input type="text" class="form-control" id="new_cust_mobile" name="new_cust_mobile">
+          </div>
+          <div class="form-group">
+            <label for="new_cust_name1">Customer Name*</label>
+            <input type="text" class="form-control" id="new_cust_name1" name="new_cust_name1">
+          </div>
+          <div class="form-group">
+            <label for="new_cust_addr">Customer Address</label>
+            <textarea class="form-control" id="new_cust_addr" name="new_cust_addr"></textarea>
+          </div>
+          <!-- Add other fields here if needed like TRN, credit limit etc -->
+          <button type="submit" class="btn btn-primary custmr_save_btn">Save Customer</button>
+        </form>
+        <div id="addCustomerMsg" style="margin-top:10px;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+ <div class="modal fade" id="addNewShippingAddressModal" tabindex="-1" role="dialog" aria-labelledby="addNewShippingAddressLabel" aria-hidden="true">
+      <div class="modal-dialog" role="document" style="max-width: 500px;">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="addNewCustomerModalLabel">Add New Shipping Address</h5>
+            <button type="button" class="close" data-dismiss="modal" aria-label="Close" >&times;</button>
+          </div>
+          <div class="modal-body">
+            <form id="addShippingAddressForm">
+              <div class="form-group">
+                <label for="new_cust_shipping_mobile">Customer Shipping Mobile*</label>
+                <input type="text" class="form-control" id="new_cust_mobile" name="new_cust_mobile" required>
+              </div>
+              <div class="form-group">
+                <label for="new_cust_shipping_name1">Customer Shipping Name*</label>
+                <input type="text" class="form-control" id="new_cust_name1" name="new_cust_name1" required>
+              </div>
+              <div class="form-group">
+                <label for="new_cust_shipping_addr">Customer Shipping Address</label>
+                <textarea class="form-control" id="new_cust_addr" name="new_cust_addr" required></textarea>
+              </div>
+              <!-- Add other fields here if needed like TRN, credit limit etc -->
+              <button type="submit" class="btn btn-primary custmr_new_addr_save_btn">Save Address</button>
+            </form>
+            <div id="addCustomerMsg" style="margin-top:10px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal fade animate shedulepopup" id="add_address" tabindex="" role="dialog" aria-labelledby="myModalLabel">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content animate-bottom">
+                <div class="add_address_body">
+                    <header class="top_header">
+                        <div class="popup_close_btn pcursor google_map_close" data-dismiss="modal">
+                            <svg xmlns="https://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-x-lg" viewBox="0 0 16 16">
+                                <path d="M1.293 1.293a1 1 0 0 1 1.414 0L8 6.586l5.293-5.293a1 1 0 1 1 1.414 1.414L9.414 8l5.293 5.293a1 1 0 0 1-1.414 1.414L8 9.414l-5.293 5.293a1 1 0 0 1-1.414-1.414L6.586 8 1.293 2.707a1 1 0 0 1 0-1.414z" />
+                            </svg>
+                        </div>
+                        <div class="title text-center text-uppercase">
+                            <span class="popup_headertxt select_dlvry_loc_span">Select Delivery Location</span>
+                        </div>
+                        <div class="header_search">
+                            <svg xmlns="https://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" class="bi bi-search search_icon_style" viewBox="0 0 16 16">
+                                <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"></path>
+                            </svg>
+                            <div id="pac-container">
+                                <input id="pac-input" class="form-control" type="text" placeholder="Move the map or Type to Search" />
+                            </div>
+                        </div>
+                    </header>
+                    <div class="map_width_wrap">
+                        <div id="map">
+                            <p align="center">
+                                <br>
+                                <br>
+                                <br>
+                                <br>Please Wait 😊
+                                <br> Waiting for location map !
+                                <br>
+                                <br>If map not appeared,
+                                <br>you can continue without map,
+                                <br>we'll call you for the location
+                            </p>
+                        </div>
+                        <div style="display: none;">
+                            <input type="hidden" id="location_enabled" name="" value="">
+                            <p>On idle position: <span id="onIdlePositionView"></span></p>
+                            <p>On click position: <span id="onClickPositionView"></span></p>
+                        </div>
+                        <div id="infowindow-content">
+                            <span id="place-name" class="title"></span>
+                            <br />
+                            <span id="place-address"></span>
+                        </div>
+                    </div>
+
+                    <div id="confirmPosition" class="confirm_btn" data-toggle="modal" data-target="#address_confirm">
+                        <button id="confirmPosition" class="confirm_position" type="button">Confirm</button>
+                    </div>
+                    <div onclick="GetDeviceLocation();" class="locationfind_icon"><img src="images/findlocationIcon.svg"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade animate shedulepopup" id="address_confirm" tabindex="" role="dialog" aria-labelledby="myModalLabel">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content animate-bottom">
+                <div class="address_confirm_body">
+                    <header class="top_header">
+                        <div class="popup_close_btn pcursor address_popup_close" data-dismiss="modal">
+                            <svg xmlns="https://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-x-lg" viewBox="0 0 16 16">
+                                <path d="M1.293 1.293a1 1 0 0 1 1.414 0L8 6.586l5.293-5.293a1 1 0 1 1 1.414 1.414L9.414 8l5.293 5.293a1 1 0 0 1-1.414 1.414L8 9.414l-5.293 5.293a1 1 0 0 1-1.414-1.414L6.586 8 1.293 2.707a1 1 0 0 1 0-1.414z" />
+                            </svg>
+                        </div>
+                        <div class="title text-center text-uppercase">
+                            <span class="popup_headertxt setup_address">Setup your address</span>
+                        </div>
+                        <div class="header_check">
+                            <svg xmlns="https://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" class="bi bi-check setup_check" viewBox="0 0 16 16">
+                                <path d="M10.97 4.97a.75.75 0 0 1 1.07 1.05l-3.99 4.99a.75.75 0 0 1-1.08.02L4.324 8.384a.75.75 0 1 1 1.06-1.06l2.094 2.093 3.473-4.425a.267.267 0 0 1 .02-.022z" />
+                            </svg>
+                        </div>
+                    </header>
+                    <div class="address_form_wrap_skeleten" style="display:none;">
+                        <div class="address_form_skeleten"></div>
+                        <div class="address_form_skeleten"></div>
+                        <div class="address_form_skeleten"></div>
+                        <div class="address_form_skeleten bottom_zero_skln"></div>
+                        <div class="address_form_pgraph_skeleten"></div>
+                        <div class="save_address_btn_skeleten"></div>
+                    </div>
+                    <div class="address_form">
+                        <input required="" class="location_txt" type='text'>
+                        <label class="location_lbl" placeholder='Location (e.g. bulding name, Street #)'></label>
+                    </div>
+                    <div class="address_form">
+                        <input required="" class="apartment_txt" type='text'>
+                        <label class="apartment_lbl" placeholder='Appartment / House number'></label>
+                    </div>
+                    <div class="address_form">
+                        <input required="" class="name_txt" type='text'>
+                        <label class="name_lbl" placeholder='Name'></label>
+                    </div>
+                    <div class="address_form">
+                        <input required="" class="addr_spec_txt" type='text'>
+                        <label class="addr_spec_inst_lbl" placeholder='Address Specific Instructions (Optional)'></label>
+                        <p class="addr_spec_inst_eg_p">Eg. Please know the door instead of pressing the doorbell when you arrive at my address</p>
+                    </div>
+
+                    <button type="button" class="save_btn save_address_pickup">Save</button>
+
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- Optional JavaScript -->
+    <!-- jQuery first, then Popper.js, then Bootstrap JS -->
+    <!-- <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script> -->
+    <!-- <script src="https://cdn.jsdelivr.net/npm/popper.js@1.14.3/dist/umd/popper.min.js" integrity="sha384-ZMP7rVo3mIykV+2+9J3UJ46jBk0WLaUAdn689aCwoqbBJiSnjAK/l8WvCWPIPm49" crossorigin="anonymous"></script> -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.1.3/dist/js/bootstrap.min.js" integrity="sha384-ChfqqxuZUCnJSK3+MXmPNIyE6ZbWh2IMqE241rYiqJxyMiZ6OW/JmZQ5stwEULTy" crossorigin="anonymous"></script>
+    <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-confirm/3.3.4/jquery-confirm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.14.3/dist/umd/popper.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.1.3/dist/js/bootstrap.min.js"></script>
+    <script src="js/delivery_2.js"></script>
+    <script type = "text/javascript" >
+      var head = document.getElementsByTagName('head')[0];
+      var js = document.createElement("script");
+      let src = "";
+      if (window.localStorage.getItem('language') == 'arabic')
+        src = "https://maps.googleapis.com/maps/api/js?key=AIzaSyBv6a9-gl0FkDfgr_OqvsH5bfFCVott6gk&libraries=places&language=ar";
+      else
+        src = "https://maps.googleapis.com/maps/api/js?key=AIzaSyBv6a9-gl0FkDfgr_OqvsH5bfFCVott6gk&libraries=places";
+      js.src = src;
+      head.appendChild(js);
+      $(document).ready(function () {
+        // $('.choosedate_ul_scroll').mousewheel(function(e, delta) {
+        //  this.scrollLeft -= (delta * 40);
+        //  e.preventDefault();
+        // });
+      }); 
+    </script>
+     <script src="https://view.aiplink.net//assets/js/location-picker.min.js"></script>
+     <script type="text/javascript">
+      setTimeout(function () {
+      GetDeviceLocation()
+      // setCurrentPosition(0, 0); // dubai location for testing
+}, 600);
+$('body').on('click','.update-loc',function(){
+  let lat = $('#shipping_id').data('latitude');  
+  let lng = $('#shipping_id').data('longitude');
+  console.log(lat,lng)
+  if(lat!='' && lng!=''){
+    console.log(lat,lng,'I am clicked')
+    setCurrentPosition(lat, lng)
+  }
+  else
+    GetDeviceLocation()
+
+  $("#add_address").modal({
+        backdrop: 'static',
+        keyboard: false
+    });
+})
+function GetDeviceLocation() {
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(showPosition);
+    } else {
+        alert("Geolocation is not supported by this browser.");
+    }
+}
+function showPosition(position) {
+    $('#shipping_id').data('latitude',position.coords.latitude);
+    $('#shipping_id').data('longitude',position.coords.longitude);
+    setCurrentPosition(position.coords.latitude, position.coords.longitude, 0);
+}
+function setCurrentPosition(lat, lng, loc = 1) {
+  document.getElementById('pac-input').value = '';
+  // alert(lat+' - '+lng);
+  console.log('latitude',lat)
+  console.log('longitude',lng)
+  setTimeout(function () {
+      if (loc == 1) {
+          $('#location_enabled').val(1);
+      }
+      var confirmBtn = document.getElementById('confirmPosition');
+      var onClickPositionView = document.getElementById('onClickPositionView');
+      var onIdlePositionView = document.getElementById('onIdlePositionView');
+      var map = document.getElementById('map');
+      console.log('ok');
+
+      // console.log('inside1');
+      // var lat = position.coords.latitude;
+      // var lng = position.coords.longitude;
+      // Initialize LocationPicker plugin
+      var lp = new locationPicker(map, {
+          setCurrentPosition: true, // You can omit this, defaults to true
+          zoomControlOptions: {
+              style: google.maps.ZoomControlStyle.LARGE
+          },
+          lat: lat,
+          lng: lng
+      }, {
+          zoom: 17 // You can set any google map options here, zoom defaults to 15
+      });
+      const input = document.getElementById("pac-input");
+      const options = {
+          componentRestrictions: {
+              country: "ae"
+          },
+          fields: ["formatted_address", "geometry", "name"],
+          strictBounds: false,
+          //types: ["establishment"],
+      };
+      //map.controls[google.maps.ControlPosition.TOP_RIGHT].push(card);
+      const infowindow = new google.maps.InfoWindow();
+      const infowindowContent = document.getElementById("infowindow-content");
+      infowindow.setContent(infowindowContent);
+      const marker = new google.maps.Marker({
+          lp,
+          anchorPoint: new google.maps.Point(0, -29),
+      });
+      const autocomplete = new google.maps.places.Autocomplete(input, options);
+      console.log(autocomplete);
+      autocomplete.addListener("place_changed", () => {
+          infowindow.close();
+          marker.setVisible(false);
+          console.log('thne heree');
+          const place = autocomplete.getPlace();
+          //console.log(JSON.stringify(place.geometry.location));
+          if (!place.geometry || !place.geometry.location) {
+              // User entered the name of a Place that was not suggested and
+              // pressed the Enter key, or the Place Details request failed.
+              window.alert("No details available for input: '" + place.name + "'");
+              return;
+          } else {
+              var latlng_parse = JSON.stringify(place.geometry.location);
+              var latlng_p = JSON.parse(latlng_parse);
+              console.log(latlng_p);
+              console.log("latlng_p");
+              // window.localStorage.setItem('new_location_lat_lng',latlng_parse);
+              var new_location = lp.setSearchLocation(latlng_p.lat, latlng_p.lng);
+          }
+          // var point = new google.maps.LatLng(latlng_p.lat, latlng_p.lng);
+          // lp.setCenter(point);
+          //  // If the place has a geometry, then present it on a map.
+          // if (place.geometry.viewport) {
+          //   map.fitBounds(place.geometry.viewport);
+          // } else {
+          //   map.setCenter(place.geometry.location); 
+          //   map.setZoom(17);
+          // }
+      });
+      // Listen to button onclick event
+      confirmBtn.onclick = function () {
+          // Get current location and show it in HTML
+          var location = lp.getMarkerPosition();
+          onClickPositionView.innerHTML = 'The chosen location is ' + location.lat + ',' + location.lng;
+          $('#shipping_id').data('latitude',location.lat);
+          $('#shipping_id').data('longitude',location.lng);
+
+          $('.location_txt').val($('#shipping_id').data('loc_building'));  
+          $('.apartment_txt').val($('#shipping_id').data('loc_apartment'));  
+          $('.name_txt').val($('#shipping_id').data('loc_name'));  
+          $('.addr_spec_txt').val($('#shipping_id').data('loc_other'));  
+          
+          console.log('latitude',location.lat)
+          console.log('longitude',location.lng)
+          // window.localStorage.setItem('new_location_lat', location.lat);
+          // window.localStorage.setItem('new_location_lng', location.lng);
+      };
+      // Listen to map idle event, listening to idle event more accurate than listening to ondrag event
+      google.maps.event.addListener(lp.map, 'idle', function (event) {
+          // Get current location and show it in HTML
+          var location = lp.getMarkerPosition();
+          onIdlePositionView.innerHTML = 'The chosen location is ' + location.lat + ',' + location.lng;
+      });
+
+  }, 300);
+}
+$(document).on('click', '.save_address_pickup', function () {
+    $(".location_txt,.apartment_txt,.name_txt").removeClass('invalid');
+    let location_txt = $(".location_txt").val();
+    let apartment_txt = $(".apartment_txt").val();
+    let name_txt = $(".name_txt").val();
+    let addr_spec_txt = $(".addr_spec_txt").val();
+    let validForm = true;
+    if (location_txt == ""){ $(".location_txt").addClass('invalid'); validForm = false;}
+    if (apartment_txt == ""){ $(".apartment_txt").addClass('invalid'); validForm = false;}
+    if (name_txt == ""){ $(".name_txt").addClass('invalid'); validForm = false;}
+    let pm_id = '';
+    // if (!$(".location_txt").hasClass('invalid') && !$(".apartment_txt").hasClass('invalid') && !$(".name_txt").hasClass('invalid')) {
+        $('#shipping_id').data('loc_building',location_txt);  
+        $('#shipping_id').data('loc_apartment',apartment_txt);
+        $('#shipping_id').data('loc_name',name_txt);  
+        $('#shipping_id').data('loc_other',addr_spec_txt);
+        // $("#customerDetailsModal").modal('hide');
+        // $("#add_address").modal('hide');
+        
+        // processDelivery();
+        console.log('aaaaaaaaaaaaaaaaaaaa')
+        let pickupId = $('#pickup_id').val();
+        let lat = $('#shipping_id').data('latitude');  
+        let lng = $('#shipping_id').data('longitude');
+        if(validForm && pickupId > 0){
+          loadAjax();
+          $.ajax({
+              url: base_url+'/packing_api/updatePickupLocation',
+              method: 'POST',
+              data: {'client_identifier': client_identifier,'pickupId':pickupId,'lat':lat, 'lng':lng,'loc_building':location_txt,'loc_apartment':apartment_txt,'loc_name':name_txt,'loc_other':addr_spec_txt},
+              dataType : "JSON",
+              success: function(res) {
+                removeAjaxLoad();
+                if(res && res.success) {
+                  // showToaster(200, 'Pickup Location Updated!');
+                  $('.address_popup_close,.google_map_close').trigger('click')
+                  // LoadPendingPickups('');
+                } else {
+                  $.alert('Error saving changes');
+                }
+              },
+              error: function(xhr) {
+                removeAjaxLoad();
+                console.error(xhr);
+                $.alert('Error saving changes');
+              }
+            });
+        }
+        else{
+          $('.address_popup_close,.google_map_close').trigger('click')
+        }
+    // }
+});
+    </script>
+  </body>
+</html>

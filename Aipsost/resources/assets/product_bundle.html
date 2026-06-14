@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <!-- Meta, title, CSS, favicons, etc. -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0 viewport-fit=cover" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Aipsoft Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;300;400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/jquery-confirm.min.css">
+    <script type="text/javascript" src="js/jquery-3.5.1.min.js"></script>
+    <script src="js/jquery-confirm.min.js"></script>
+    <script type="text/javascript">
+    let api_user_id         = window.localStorage.getItem('api_user_id');
+    let api_url             = window.localStorage.getItem('api_url');
+    let client_identifier   = window.localStorage.getItem('client_identifier');
+    let branch_id           = window.localStorage.getItem('branch_id');
+    let product_id           = window.localStorage.getItem('product_id');
+    let barcode           = window.localStorage.getItem('barcode');
+    if((api_user_id == null || api_user_id == '' || api_url =='' || api_url == null)) {
+            window.location = "login.html";
+    } 
+    let bundle_id     = window.localStorage.getItem('bundle_id');
+    if(bundle_id!=0 && bundle_id!=undefined && bundle_id!=null && bundle_id!='')
+    {
+        window.location = "product_bundle_item.html";
+    }
+    if(product_id!='' || product_id!=null || product_id!='0')
+    {
+        $(document).ready(function() {
+            loadAjax();
+            $.ajax({
+                url: api_url+'/purchase_api/loadProduct',
+                method: 'POST',
+                data: {'barcode': barcode,'branch_id':branch_id,'client_identifier':client_identifier},
+                success: function(response) {
+                    removeAjaxLoad();
+                    var data =JSON.parse(response);
+                    console.log(data);
+                    if(data.status==1)
+                    {
+                        let productData  = data.data;
+                        proceedToAdd(productData,1);
+                        
+                    }
+                    else
+                    {
+                         let productsList = '<p>No details found</p>';
+                         $('.addressform').html('');
+                         $.alert(data.message);
+                         return false;
+                    }
+                },
+                error:function (xhr, ajaxOptions, thrownError){
+                        removeAjaxLoad();
+                        $.alert('No product found..!');
+                        return false;                          
+                    }   
+            });
+        })
+    }
+    </script>
+</head>
+
+<style type="text/css">
+
+    body {
+        font-family: 'Roboto', sans-serif;
+        margin: 0;
+    }
+    .nav_deader {
+        background-image: linear-gradient(to right, #305daf , #17a9ca);
+        /*background-image: linear-gradient(#252525, #070707);*/
+        padding: 8px;
+        color: #fff;
+        overflow: hidden;
+    }
+    .aiplogo {
+        float: left;
+        margin-right: 8px;
+    }
+    .nav_text p {
+        font-size: 14px;
+        margin: 0;
+        font-weight: 400;
+        margin-top: 2px;
+    }
+    .GRN_wrap{
+        padding: 8px 10px;
+        overflow: hidden;
+    }
+    .back_btn{
+        background-color: #2350a3;
+        font-size: 15px;
+        font-weight: 500;
+        color: #fff;
+        border: 0;
+        padding: 8px 30px;
+        float: left;
+        border-radius: 4px;
+        letter-spacing: 1px;
+    }
+    .footer button{
+        width: 100%;
+        padding: 15px;
+        font-weight: 600;
+        font-size: 16px;
+        background-color: #2451a6;
+        color: #fff;
+        position: fixed;
+        bottom: 0px;
+        border: 1px solid #686f8c;
+    }
+    .addressform{
+        width: 100%;
+        overflow: hidden;
+    }
+    .addressform p{
+        color: #2f2f2f;
+        font-size: 14px; 
+        font-weight: 400;
+        margin-bottom: 8px;
+
+    }
+    .imp{
+        color: #bd201b !important;
+    }
+    .loading {
+        position: fixed;
+        z-index: 999999;
+        height: 100%;
+        width: 100%;
+        overflow: show;
+        margin: auto;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        right: 0;
+        background: #000;
+        opacity: 0.5;
+    }
+    img.loadingIco {
+        width: 100%;
+        position: absolute;
+        top: 25%;
+    }
+    /*.form-row {
+        padding: 15px 0;
+        border-top: #040404 1px solid;
+    }*/
+    .form-row input {
+        padding: 10px;
+        border-radius: 5px;
+        border: 1px solid #c5c5c5;
+        font-size: 14px;
+        font-weight: 500;
+        color: #424242;
+    }
+    .form-row label {
+        font-size: 14px;
+        margin-bottom: 5px;
+        font-weight: 400;
+        color: #4e4e4e;
+    }
+    .invalid{
+        border-color: red;
+    }
+    .form-row {
+        padding: 12px 5px;
+        flex-direction: column;
+        display: flex;
+    }
+
+    /* CSS specific to iOS devices */ 
+
+    @supports (-webkit-touch-callout: none) {
+    .nav_deader {
+        padding-top: 50px;
+    }
+
+    }
+
+    
+</style>
+
+<body>
+
+    <div class="nav_deader">
+        <div class="aiplogo">
+            <img src="images/aipsoft.png">
+        </div>
+        <div class="nav_text">
+            <p>AipSoft - Product - Bundle</p>
+        </div>
+    </div>
+
+    <div class="GRN_wrap">  
+        <div class="content">
+            <button type="button" class="back_btn">Back</button>
+        </div>
+        <div class="addressform">
+            <!-- <p>Supplier Name</p>
+            <p class="imp">City Name</p>
+            <p>Address</p>
+            <p>Contact Name</p>
+            <p>Other Details</p>
+            <p>Other Details</p>
+            <p>Other Details</p> -->
+        </div>
+        <hr/>
+        <div class="form-row">
+            <label>Date :</label>
+            <input type="date" class="date" name="date">
+        </div> 
+        <div class="form-row">
+
+            <label>Bundle Stock Count :</label>
+            <input type="text" class="stock_count" name="stock_count" value="">
+
+        </div> 
+        <div class="form-row">
+            <label>Remark :</label>
+            <input type="text" class="remark" name="remark" value="">
+        </div>    
+    </div>
+    <div class="footer">
+        <button type="button" class="startBtn">Save & Start ></button>        
+    </div>
+<script type="text/javascript">
+function currentDate(){
+    let date = new Date();
+    let day = date.getDate();
+    let month = date.getMonth() + 1;
+    let year = date.getFullYear();
+
+    if (month < 10) month = "0" + month;
+    if (day < 10) day = "0" + day;
+
+    let today = year + "-" + month + "-" + day;
+    return today;
+}
+$(document).ready(function(){
+    $('.back_btn').click(function(){
+        window.localStorage.setItem('product_id','0');
+        window.localStorage.setItem('barcode','');
+        window.location = "products.html";
+    })
+    setTimeout(function(){
+        let today = currentDate();
+        $('.stock_count').select();
+        $('.date').val(today);
+
+    },100)
+})  
+$(document).on('keyup','.stock_count',function(e){
+    let val = $(this).val();
+    if((e.which == 13  || e.keyCode == 13))
+    {
+        $('.startBtn').click()
+    }
+})  
+$(document).on('click','.startBtn',function(e){
+    let branch_id             = window.localStorage.getItem('branch_id');
+    let currency_id           = window.localStorage.getItem('currency_id');
+
+    let unit_id                = $('.p_unit_id').attr('data-unit_id')?$('.p_unit_id').attr('data-unit_id'):'';
+    let sale_price                = $('.p_sale_price').html()?$('.p_sale_price').html():'';
+    let sale_price_with_tax                = $('.p_sale_price_with_tax').html()?$('.p_sale_price_with_tax').html():'';
+    let date                = $('.date').val()?$('.date').val():"";
+    let stock_count                = $('.stock_count').val()?$('.stock_count').val():0;
+    let remark                = $('.remark').val()?$('.remark').val():'';
+    let flag = true;
+    console.log('product_id - '+product_id)
+
+    $('.stock_count').removeClass('invalid');
+    if (stock_count == 0){
+        $('.stock_count').addClass('invalid');
+        flag = false;
+    }
+    $('.date').removeClass('invalid');
+    if (date == ""){
+        $('.date').addClass('invalid');
+        flag = false;
+    }
+
+    if(product_id!=null && product_id!='' && product_id!=0 && flag == true)
+    {
+        $('.startBtn').attr('disabled', 'disabled');
+        loadAjax();
+        $.ajax({
+                url: api_url+'/purchase_api/startBundleProcess',
+                method: 'POST',
+                data: {
+                    'user_id':api_user_id,
+                    'product_id':product_id,
+                    'branch_id': branch_id,
+                    'currency_id': currency_id,
+                    'client_identifier':client_identifier,
+                    'unit_id':unit_id,
+                    'sale_price':sale_price,
+                    'sale_price_with_tax':sale_price_with_tax,
+                    'date':date,
+                    'stock_count':stock_count,
+                    'remark':remark
+                },
+                success: function(response) {
+                    $('.startBtn').removeAttr("disabled");
+                    var data =JSON.parse(response);
+                    console.log(data);
+                    if(data.status==1)
+                    {
+                        window.localStorage.setItem('bundle_id',data.bundle_id);
+                        window.localStorage.setItem('product_id',product_id);
+                        window.location = "product_bundle_item.html";
+                    }
+                    else
+                    {
+                        removeAjaxLoad();
+                        window.localStorage.setItem('bundle_id','0');
+                        window.localStorage.setItem('product_id','0');
+                        $.alert(data.message);
+                        return false;
+                    }
+                },
+                error:function (xhr, ajaxOptions, thrownError){
+                        removeAjaxLoad();
+                        $('.startBtn').removeAttr("disabled");
+                        $.alert('Server error.Please Contact Aipsoft Support!');
+                        return false;                          
+                    }   
+        });
+    }
+})
+function loadAjax()
+{
+    $('body').append("<div class='loading'><img src='images/new_loader.gif' class='loadingIco'></div>");
+    // $('.loading').removeClass('invisibl');
+}
+function removeAjaxLoad()
+{
+    $('.loading').remove();
+    // setTimeout(function(){ $('.loading').remove();},100);
+}
+function proceedToAdd(productData,mode=0)
+{
+    let productsList = '';
+    if(productData.data_count > 0)
+    {
+        let products = productData.data_result;
+
+        productsList += `<p>Product Name : <span class="p_product_name">${products[0].product_name}</span></p>`;
+        productsList += `<p class="imp">Barcode : <span class="p_barcode">${products[0].barcode}</span></p>`;
+        productsList += `<p>Unit : <span class="p_unit_id" data-unit_id=${products[0].unit_id}>${products[0].avail_units}</span></p>`;
+        productsList += `<p>Purchase Rate : <span class="p_purchase_rate">${products[0].purchase_rate}</span></p>`;
+        productsList += `<p>Sale Price: <span class="p_sale_price">${products[0].rsp_with_tax}</span></p>`;
+        productsList += `<p>Sale Price with Tax : <span class="p_sale_price_with_tax">${products[0].sale_price}</span></p>`
+    }
+    else
+    {
+        productsList = '<p>No details found</p>';
+    }
+    $('.addressform').html(productsList);
+       
+}
+</script>
+</body>
+
+</html>

@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { Search, MapPin, Calendar, Layers, Clock, CheckCircle, Package } from 'lucide-react';
 import { Order, OrderStatus } from '../types';
 import { ORDER_STATUS_LABEL_AR } from '../lib/orders';
+import { LaundryIcon } from './LaundryIcon';
 
 interface TrackingPanelProps {
   order: Order | null;
@@ -13,17 +14,23 @@ export const TrackingPanel: React.FC<TrackingPanelProps> = ({ order, onSearch })
   const [searchValue, setSearchValue] = React.useState('');
 
   const statusStages = [
-    { label: 'تم الاستلام', icon: '📦' },
-    { label: 'تم إدخال البيانات في النظام', icon: '💻' },
-    { label: 'الغسيل والكوي جارٍ الآن', icon: '🫧', active: true },
-    { label: 'الفرز والتغليف', icon: '🗂️' },
-    { label: 'التخزين المؤقت', icon: '🏷️' },
-    { label: 'التسليم للعميل', icon: '🚗' }
+    { label: 'تم الاستلام', icon: 'pickup_van' },
+    { label: 'تم إدخال البيانات في النظام', icon: 'garment_tag' },
+    { label: 'الغسيل والكوي جارٍ الآن', icon: 'washing_machine', active: true },
+    { label: 'الفرز والتغليف', icon: 'sorting_rack' },
+    { label: 'التخزين المؤقت', icon: 'laundry_bag' },
+    { label: 'التسليم للعميل', icon: 'delivery_scooter' }
   ];
 
   return (
     <div className="w-full max-w-4xl mx-auto px-6 py-12 text-right">
       <div className="text-center mb-12">
+        <LaundryIcon
+          name="outty-tracking-phone"
+          alt=""
+          className="mx-auto mb-4 h-28 w-28 rounded-[2rem] bg-white/70 p-2 shadow-2xl shadow-primary/10"
+          imageClassName="h-full w-full rounded-3xl object-contain"
+        />
         <h1 className="text-3xl md:text-5xl font-extrabold mb-4 italic">تتبع <span className="text-primary italic">طلبك</span></h1>
         <p className="text-gray-500 font-medium max-w-lg mx-auto">ادخل رقم الطلب لمعرفة مرحلته الحالية في رحلة العناية بملابسك.</p>
       </div>
@@ -87,7 +94,12 @@ export const TrackingPanel: React.FC<TrackingPanelProps> = ({ order, onSearch })
             <div className="glass p-8 md:p-12 rounded-[3rem] relative overflow-hidden">
                <div className="mb-8 p-4 bg-primary/5 rounded-2xl border border-primary/10">
                   <div className="flex items-center gap-3">
-                    <span className="text-2xl animate-pulse">⚙️</span>
+                    <LaundryIcon
+                      name="outty-washing-machine"
+                      alt=""
+                      className="h-14 w-14 animate-pulse rounded-2xl bg-white/70 p-1"
+                      imageClassName="h-full w-full rounded-xl object-contain"
+                    />
                     <p className="text-primary font-bold text-lg italic">ملابسك حالياً في مرحلة {ORDER_STATUS_LABEL_AR[order.status] ?? order.status}</p>
                   </div>
                </div>
@@ -113,7 +125,7 @@ export const TrackingPanel: React.FC<TrackingPanelProps> = ({ order, onSearch })
                         {/* Info Column */}
                         <div className={`pb-8 flex-1 ${isActive ? 'scale-105' : ''} transition-all`}>
                           <div className="flex items-center gap-2 mb-1">
-                            <span className="text-lg">{stage.icon}</span>
+                            <LaundryIcon name={stage.icon} alt="" className="h-8 w-8" />
                             <h4 className={`text-sm font-bold ${isActive ? 'text-primary' : isDone ? 'text-gray-900' : 'text-gray-400'}`}>
                               {stage.label}
                             </h4>
@@ -146,9 +158,12 @@ export const TrackingPanel: React.FC<TrackingPanelProps> = ({ order, onSearch })
           </motion.div>
         ) : searchValue && (
            <div className="text-center py-20">
-             <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Search size={32} className="text-gray-300" />
-             </div>
+             <LaundryIcon
+               name="outty-empty-state"
+               alt=""
+               className="mx-auto mb-4 h-28 w-28 rounded-[2rem] bg-white/70 p-2 shadow-xl shadow-primary/10"
+               imageClassName="h-full w-full rounded-3xl object-contain"
+             />
              <p className="text-gray-500 font-bold">عذراً، لم نجد طلب بهذا الرقم {searchValue}</p>
            </div>
         )}

@@ -33,6 +33,11 @@ export const canAccessManagement = (role: unknown) => {
   return value === 'super-admin' || value === 'admin' || value === 'manager' || value === 'branch-manager';
 };
 
+export const canAccessBranches = (role: unknown) => {
+  const value = toRole(role);
+  return value === 'super-admin' || value === 'admin' || value === 'manager' || value === 'branch-manager';
+};
+
 export const canManageUsers = (role: unknown) => {
   const value = toRole(role);
   return value === 'super-admin' || value === 'admin' || value === 'manager';
@@ -100,6 +105,30 @@ export const canAccessAchievements = (role: unknown) => {
   );
 };
 
+export const canAccessCustomerAlerts = (role: unknown) => {
+  const value = toRole(role);
+  return (
+    value === 'super-admin' ||
+    value === 'admin' ||
+    value === 'manager' ||
+    value === 'branch-manager' ||
+    value === 'cashier'
+  );
+};
+
+export const canAccessTrainingAcademy = (role: unknown) => {
+  const value = toRole(role);
+  return (
+    value === 'super-admin' ||
+    value === 'admin' ||
+    value === 'manager' ||
+    value === 'branch-manager' ||
+    value === 'cashier' ||
+    value === 'sorter' ||
+    value === 'packer'
+  );
+};
+
 export const allowedSortingTabs = (role: unknown): Array<'sorting' | 'packing' | 'blanket_packing'> => {
   const value = toRole(role);
   if (value === 'sorter') return ['sorting'];
@@ -109,7 +138,8 @@ export const allowedSortingTabs = (role: unknown): Array<'sorting' | 'packing' |
 
 export const defaultRouteForRole = (role: unknown) => {
   const value = toRole(role);
-  if (value === 'sorter' || value === 'packer') return '/sorting';
-  if (value === 'cashier') return '/search';
+  if (value === 'sorter') return '/sorting';
+  if (value === 'packer') return '/ironing';
+  if (value === 'cashier') return '/cashier-search';
   return '/';
 };

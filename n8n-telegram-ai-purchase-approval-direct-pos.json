@@ -1,0 +1,1199 @@
+{
+  "name": "Telegram AI Purchase Approval - Credentials Direct POS",
+  "active": false,
+  "nodes": [
+    {
+      "id": "purchase-setup-note",
+      "name": "Purchase Setup Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1080,
+        -600
+      ],
+      "parameters": {
+        "content": "## Telegram AI Purchase Workflow\nVersion 1 registers CREDIT purchases (Paid=0, Balance=Grand Total).\nIt supports text, image, PDF, multiple products, VAT, branch selection, edit, approval, and attachment upload.\n\nTelegram allows one webhook per Bot. Use a separate Purchase Bot, or disable the Expense workflow while testing.\n\nSelect Credentials in every Telegram node and OpenAI node.\n\nRequired n8n Variables:\nTELEGRAM_ALLOWED_CHAT_ID\nPOS_USERNAME\nPOS_PASSWORD\n\nOptional:\nOPENAI_MODEL, AIPSOFT_API_BASE_URL, AIPSOFT_CLIENT_IDENTIFIER, POS_LOGIN_ENDPOINT, POS_PURCHASE_REFERER, POS_ORIGIN\n\nConfirmed POS constants:\nPurchase Account=11, AED Currency=2, VAT 5%=1\nBranches: AL FALAH=1, MBZ=2, Musaffah=3"
+      }
+    },
+    {
+      "id": "telegram-trigger-purchase",
+      "name": "Telegram Trigger - Purchase",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1040,
+        0
+      ],
+      "parameters": {
+        "updates": [
+          "message",
+          "callback_query"
+        ],
+        "additionalFields": {
+          "download": true,
+          "imageSize": "large",
+          "chatIds": "={{$vars.TELEGRAM_ALLOWED_CHAT_ID}}"
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "purchase-normalize",
+      "name": "Telegram - Normalize Purchase Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -800,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst trim = (v, f = '') => String(v ?? f).trim();\nconst update = $json;\nconst callback = update.callback_query;\nconst message = update.message || update.edited_message || callback?.message || update;\nconst text = trim(callback?.data || message.text || message.caption || '');\nconst chatId = trim(message.chat?.id);\nconst allowed = trim(vars.TELEGRAM_ALLOWED_CHAT_ID).split(',').map((v) => v.trim()).filter(Boolean);\nif (!chatId || (allowed.length && !allowed.includes(chatId))) return [];\n\nlet action = 'intake';\nlet draft_id = '';\nlet edit_text = '';\nlet branch_id = '';\nlet branch_name = '';\n\nif (text.startsWith('purchase_approve:')) {\n  action = 'approve';\n  draft_id = trim(text.slice('purchase_approve:'.length));\n} else if (text.startsWith('purchase_cancel:')) {\n  action = 'cancel';\n  draft_id = trim(text.slice('purchase_cancel:'.length));\n} else if (text.startsWith('purchase_edit_request:')) {\n  action = 'edit_request';\n  draft_id = trim(text.slice('purchase_edit_request:'.length));\n} else if (text.startsWith('purchase_branch:')) {\n  const parts = text.split(':');\n  action = 'branch';\n  draft_id = trim(parts[1]);\n  branch_id = trim(parts[2]);\n  branch_name = trim(parts.slice(3).join(':'));\n} else {\n  let match = text.match(/^(موافق|approve|ok)\\s+(PUR-[A-Z0-9-]+)/i);\n  if (match) {\n    action = 'approve';\n    draft_id = match[2];\n  }\n  match = text.match(/^(إلغاء|الغاء|cancel)\\s+(PUR-[A-Z0-9-]+)/i);\n  if (match) {\n    action = 'cancel';\n    draft_id = match[2];\n  }\n  match = text.match(/^(تعديل|edit)\\s+(PUR-[A-Z0-9-]+)\\s*([\\s\\S]*)/i);\n  if (match) {\n    action = 'edit';\n    draft_id = match[2];\n    edit_text = trim(match[3]);\n  }\n}\n\nlet input_type = 'text';\nlet telegram_file_id = '';\nlet telegram_file_name = '';\nlet telegram_mime_type = '';\nif (Array.isArray(message.photo) && message.photo.length) {\n  input_type = 'image';\n  telegram_file_id = trim(message.photo[message.photo.length - 1]?.file_id);\n  telegram_file_name = 'purchase-invoice.jpg';\n  telegram_mime_type = 'image/jpeg';\n}\nif (message.document?.file_id) {\n  const mime = trim(message.document.mime_type);\n  telegram_file_id = trim(message.document.file_id);\n  telegram_file_name = trim(message.document.file_name, 'purchase-invoice');\n  telegram_mime_type = mime || 'application/octet-stream';\n  input_type = mime === 'application/pdf' || /\\.pdf$/i.test(telegram_file_name) ? 'pdf' : 'document';\n}\n\nconst store = $getWorkflowStaticData('global');\nif (!store.purchaseEditSessions || typeof store.purchaseEditSessions !== 'object') store.purchaseEditSessions = {};\nconst editSession = store.purchaseEditSessions[chatId];\nif (action === 'edit_request' && draft_id) {\n  store.purchaseEditSessions[chatId] = {\n    draft_id,\n    expires_at: Date.now() + (30 * 60 * 1000),\n  };\n} else if (\n  action === 'intake'\n  && text\n  && !telegram_file_id\n  && editSession?.draft_id\n  && Number(editSession.expires_at || 0) > Date.now()\n) {\n  action = 'edit';\n  draft_id = trim(editSession.draft_id);\n  edit_text = trim(message.text || message.caption || text);\n  delete store.purchaseEditSessions[chatId];\n} else if (action === 'approve' || action === 'cancel') {\n  delete store.purchaseEditSessions[chatId];\n} else if (editSession && Number(editSession.expires_at || 0) <= Date.now()) {\n  delete store.purchaseEditSessions[chatId];\n}\n\nreturn [{\n  json: {\n    action,\n    draft_id,\n    edit_text,\n    branch_id,\n    branch_name,\n    input_type,\n    telegram_file_id,\n    telegram_file_name,\n    telegram_mime_type,\n    message_text: trim(message.text || message.caption || ''),\n    chat_id: chatId,\n    message_id: message.message_id,\n    callback_query_id: trim(callback?.id),\n    from_name: trim(message.from?.username || callback?.from?.username || message.from?.first_name || callback?.from?.first_name, 'manager'),\n  },\n  binary: $input.item.binary,\n}];"
+      }
+    },
+    {
+      "id": "purchase-intake",
+      "name": "Intake - Prepare Purchase Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -540,
+        -300
+      ],
+      "parameters": {
+        "jsCode": "const vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst trim = (v, f = '') => String(v ?? f).trim();\nif ($json.action !== 'intake') return [];\nconst hasBinary = Object.keys($input.item.binary || {}).length > 0;\nif ($json.telegram_file_id && !hasBinary) {\n  return [{\n    json: {\n      ...$json,\n      stop: true,\n      telegram_text: 'وصلت الفاتورة إلى البوت لكن Telegram Trigger لم ينزل الملف. افتح العقدة وفعّل Download Images/Files ثم أعد تفعيل Workflow.',\n    },\n  }];\n}\nif (!$json.message_text && !hasBinary) {\n  return [{ json: { ...$json, stop: true, telegram_text: 'أرسل فاتورة مشتريات كنص أو صورة أو PDF.' } }];\n}\nconst today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dubai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());\nconst itemSchema = {\n  type: 'object',\n  additionalProperties: false,\n  properties: {\n    description: { type: 'string' },\n    barcode: { type: 'string' },\n    quantity: { type: 'number' },\n    unit_text: { type: 'string' },\n    unit_price: { type: 'number' },\n    amount: { type: 'number' },\n    vat_rate: { type: 'number' },\n    tax_amount: { type: 'number' },\n    net_amount: { type: 'number' },\n    price_includes_tax: { type: 'boolean' },\n  },\n  required: ['description','barcode','quantity','unit_text','unit_price','amount','vat_rate','tax_amount','net_amount','price_includes_tax'],\n};\nconst schema = {\n  type: 'object',\n  additionalProperties: false,\n  properties: {\n    supplier_name: { type: 'string' },\n    supplier_invoice_no: { type: 'string' },\n    supplier_invoice_date: { type: 'string' },\n    purchase_date: { type: 'string' },\n    currency: { type: 'string' },\n    tax_billing: { type: 'boolean' },\n    items: { type: 'array', minItems: 1, items: itemSchema },\n    discount: { type: 'number' },\n    adjustment: { type: 'number' },\n    round_off: { type: 'number' },\n    invoice_total: { type: 'number' },\n    notes: { type: 'string' },\n    confidence: { type: 'number' },\n    warnings: { type: 'array', items: { type: 'string' } },\n  },\n  required: ['supplier_name','supplier_invoice_no','supplier_invoice_date','purchase_date','currency','tax_billing','items','discount','adjustment','round_off','invoice_total','notes','confidence','warnings'],\n};\nconst prompt = [\n  'You extract UAE purchase invoices for IN AND OUT LAUNDRY.',\n  'Return JSON only and preserve every purchased line item.',\n  'Dates must be YYYY-MM-DD. Use ' + today + ' only when a date is missing and add a warning.',\n  'Use AED unless another currency is printed.',\n  'Never invent a barcode, supplier invoice number, quantity, or price.',\n  'For labeled Telegram text, the value always comes after the label. Example: \"المنتج items\" means description=\"items\", never description=\"المنتج\".',\n  'Support labels with or without a colon, including الفرع, المورد, رقم فاتورة المورد, تاريخ الفاتورة, المبلغ قبل الضريبة, الضريبة, الاجمالي, and المنتج.',\n  'When Telegram text contains one product plus invoice subtotal/VAT/total but no quantity, use quantity=1 and assign the invoice subtotal/VAT/total to that product.',\n  'For images and PDFs, perform careful OCR and read the supplier header, invoice number/date, every product row, subtotal, VAT, discounts, and grand total.',\n  'Do not treat table headings such as Item, Product, Description, Qty, Amount, VAT, or Total as purchased product names.',\n  'When a value is unreadable or ambiguous, preserve the readable values, use zero or an empty string for the uncertain value, and explain it in warnings.',\n  'Check arithmetic: each line net_amount should equal amount + tax_amount, and invoice_total should match the visible grand total.',\n  'For each item determine whether unit_price includes VAT.',\n  'If VAT is printed, preserve subtotal, VAT, and total values exactly as closely as possible.',\n  'If only a VAT-inclusive total is shown, set price_includes_tax=true.',\n  'Telegram text or caption: ' + trim($json.message_text).slice(0, 3000),\n].join('\\n');\nconst content = [{ type: 'input_text', text: prompt }];\nconst binaryKey = Object.keys($input.item.binary || {})[0];\nconst binary = binaryKey ? $input.item.binary[binaryKey] : null;\nlet source_attachment = null;\nif (binaryKey && binary) {\n  const buffer = this.helpers?.getBinaryDataBuffer\n    ? await this.helpers.getBinaryDataBuffer(0, binaryKey)\n    : Buffer.from(binary.data || '', 'base64');\n  if (!buffer?.length) throw new Error('Could not read Telegram purchase invoice binary.');\n  const mime = $json.input_type === 'pdf'\n    ? 'application/pdf'\n    : String(binary.mimeType || $json.telegram_mime_type || 'image/jpeg');\n  const fileName = binary.fileName || $json.telegram_file_name || (mime === 'application/pdf' ? 'purchase.pdf' : 'purchase.jpg');\n  const dataUrl = 'data:' + mime + ';base64,' + Buffer.from(buffer).toString('base64');\n  source_attachment = {\n    telegram_file_id: trim($json.telegram_file_id),\n    file_name: fileName,\n    mime_type: mime,\n    input_type: $json.input_type,\n  };\n  if (mime === 'application/pdf') content.push({ type: 'input_file', filename: fileName, file_data: dataUrl });\n  else content.push({ type: 'input_image', image_url: dataUrl });\n}\nconst intake_key = [trim($json.chat_id, 'chat'), trim($json.message_id, Date.now()), Math.random().toString(36).slice(2, 8)].join('-');\nconst prepared = { ...$json, intake_key, source_attachment, telegram_text: 'استلمت فاتورة المشتريات. جاري التحليل والمطابقة مع POS...' };\nconst store = $getWorkflowStaticData('global');\nif (!store.purchaseIntakes || typeof store.purchaseIntakes !== 'object') store.purchaseIntakes = {};\nstore.purchaseIntakes[intake_key] = prepared;\nreturn [{\n  json: {\n    ...prepared,\n    openaiBody: {\n      model: trim(vars.OPENAI_MODEL, 'gpt-4.1-mini'),\n      metadata: { intake_key },\n      input: [{ role: 'user', content }],\n      text: { format: { type: 'json_schema', name: 'purchase_invoice_extraction', strict: true, schema } },\n    },\n  },\n}];"
+      }
+    },
+    {
+      "id": "purchase-intake-notice",
+      "name": "Telegram - Send Purchase Analysis Notice",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -280,
+        -470
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.chat_id}}",
+        "text": "={{$json.telegram_text}}",
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "purchase-gate",
+      "name": "Intake - Continue Purchase Analysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -280,
+        -300
+      ],
+      "parameters": {
+        "jsCode": "if ($json.stop) return [];\nreturn items;"
+      }
+    },
+    {
+      "id": "purchase-openai-extract",
+      "name": "OpenAI - Extract Purchase Invoice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -20,
+        -300
+      ],
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json.openaiBody}}",
+        "options": {}
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "id": "purchase-openai-parse",
+      "name": "OpenAI - Parse Purchase JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        -300
+      ],
+      "parameters": {
+        "jsCode": "const trim = (v) => String(v ?? '').trim();\nfunction outputText(response) {\n  if (typeof response?.output_text === 'string') return response.output_text;\n  const out = [];\n  for (const row of response?.output || []) for (const part of row?.content || []) if (typeof part?.text === 'string') out.push(part.text);\n  return out.join('\\n');\n}\nfunction parse(text) {\n  const fence = String.fromCharCode(96).repeat(3);\n  let raw = trim(text);\n  if (raw.toLowerCase().startsWith(fence + 'json')) raw = raw.slice(7);\n  else if (raw.startsWith(fence)) raw = raw.slice(3);\n  if (raw.endsWith(fence)) raw = raw.slice(0, -3);\n  return JSON.parse(raw.trim());\n}\nconst intake_key = trim($json.metadata?.intake_key);\nconst store = $getWorkflowStaticData('global');\nconst prepared = store.purchaseIntakes?.[intake_key];\nif (!prepared) throw new Error('Purchase intake context not found. Run from Telegram Trigger.');\ndelete store.purchaseIntakes[intake_key];\nconst extracted = parse(outputText($json));\nconst sourceText = trim(prepared.message_text);\nconst lines = sourceText.split(/\\r?\\n/).map((line) => line.trim()).filter(Boolean);\nconst valueAfterLabel = (labels) => {\n  for (const line of lines) {\n    for (const label of labels) {\n      const escaped = label.replace(/[\\\\^$.*+?()[\\]{}|]/g, '\\\\$&');\n      const match = line.match(new RegExp('^' + escaped + '\\\\s*[:：]?\\\\s*(.+)$', 'i'));\n      if (match) return trim(match[1]);\n    }\n  }\n  return '';\n};\nconst amount = (value) => {\n  const match = String(value || '').replace(/,/g, '').match(/-?\\d+(?:\\.\\d+)?/);\n  return match ? Number(match[0]) : 0;\n};\nconst splitNameId = (value) => {\n  const raw = trim(value);\n  const match = raw.match(/^(.*?)\\s*\\/\\s*(\\d+)\\s*$/);\n  return match ? { name: trim(match[1]), id: trim(match[2]) } : { name: raw, id: '' };\n};\nconst branch = splitNameId(valueAfterLabel(['الفرع', 'branch']));\nconst supplier = splitNameId(valueAfterLabel(['المورد', 'vendor', 'supplier']));\nconst invoiceNo = valueAfterLabel(['رقم فاتورة المورد', 'رقم الفاتورة', 'supplier invoice no', 'invoice no']);\nconst invoiceDate = valueAfterLabel(['تاريخ الفاتورة', 'supplier invoice date', 'invoice date']);\nconst productValue = valueAfterLabel(['المنتج', 'الصنف', 'product', 'item']);\nconst product = splitNameId(productValue);\nconst quantity = amount(valueAfterLabel(['الكمية', 'quantity', 'qty'])) || 1;\nconst subtotal = amount(valueAfterLabel(['المبلغ قبل الضريبة', 'قبل الضريبة', 'subtotal', 'gross']));\nconst tax = amount(valueAfterLabel(['قيمة الضريبة', 'الضريبة', 'vat', 'tax']));\nconst total = amount(valueAfterLabel(['الإجمالي', 'الاجمالي', 'grand total', 'total']));\n\nif (supplier.name) extracted.supplier_name = supplier.name;\nif (invoiceNo) extracted.supplier_invoice_no = invoiceNo;\nif (/^\\d{4}-\\d{2}-\\d{2}$/.test(invoiceDate)) {\n  extracted.supplier_invoice_date = invoiceDate;\n  extracted.purchase_date = invoiceDate;\n}\nif (total > 0) extracted.invoice_total = total;\nif (product.name) {\n  const net = total || (subtotal + tax);\n  const beforeTax = subtotal || (tax > 0 && net > 0 ? net - tax : net);\n  extracted.items = [{\n    description: product.name,\n    barcode: product.id,\n    quantity,\n    unit_text: 'item',\n    unit_price: quantity > 0 ? beforeTax / quantity : beforeTax,\n    amount: beforeTax,\n    vat_rate: tax > 0 && beforeTax > 0 ? Number(((tax / beforeTax) * 100).toFixed(4)) : 0,\n    tax_amount: tax,\n    net_amount: net,\n    price_includes_tax: false,\n  }];\n}\nreturn [{\n  json: {\n    ...prepared,\n    extracted,\n    branch_id: branch.id || prepared.branch_id || '',\n    branch_name: branch.name || prepared.branch_name || '',\n    supplied_vendor_id: supplier.id,\n  },\n}];"
+      }
+    },
+    {
+      "id": "purchase-pos-match",
+      "name": "POS - Match Vendor And Products",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        -300
+      ],
+      "parameters": {
+        "jsCode": "const trim = (v, f = '') => String(v ?? f).trim();\nconst number = (v, f = 0) => {\n  const parsed = Number(String(v ?? '').replace(/,/g, ''));\n  return Number.isFinite(parsed) ? parsed : f;\n};\nconst vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst POS_USERNAME = trim(vars.POS_USERNAME);\nconst POS_PASSWORD = trim(vars.POS_PASSWORD);\nconst CLIENT_IDENTIFIER = trim(vars.AIPSOFT_CLIENT_IDENTIFIER, 'inout') || 'inout';\nconst POS_BASE_URL = trim(vars.AIPSOFT_API_BASE_URL, 'https://beta.aipsoft.com/inout').replace(/\\/$/, '');\nconst POS_LOGIN_ENDPOINT = trim(vars.POS_LOGIN_ENDPOINT, POS_BASE_URL + '/login/check');\nconst POS_REFERER = trim(vars.POS_PURCHASE_REFERER, POS_BASE_URL + '/transaction/purchase');\nconst POS_ORIGIN = trim(vars.POS_ORIGIN, 'https://beta.aipsoft.com');\nif (!POS_USERNAME || !POS_PASSWORD) throw new Error('Missing POS_USERNAME or POS_PASSWORD n8n Variables.');\nconst formEncode = (params) => {\n  const pairs = [];\n  const add = (key, value) => pairs.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(value ?? '')));\n  const build = (prefix, value) => {\n    if (Array.isArray(value)) {\n      value.forEach((entry, index) => build(prefix + '[' + index + ']', entry));\n      return;\n    }\n    if (value && typeof value === 'object') {\n      for (const [key, child] of Object.entries(value)) build(prefix + '[' + key + ']', child);\n      return;\n    }\n    add(prefix, value);\n  };\n  for (const [key, value] of Object.entries(params || {})) build(key, value);\n  return pairs.join('&');\n};\nconst cookieMap = (header) => {\n  const map = new Map();\n  for (const part of String(header || '').split(';')) {\n    const item = part.trim();\n    const eq = item.indexOf('=');\n    if (eq > 0) map.set(item.slice(0, eq), item.slice(eq + 1));\n  }\n  return map;\n};\nconst normalizeHeaders = (headers = {}) => {\n  const out = {};\n  if (headers?.forEach) headers.forEach((value, key) => { out[String(key).toLowerCase()] = value; });\n  else for (const [key, value] of Object.entries(headers || {})) out[String(key).toLowerCase()] = value;\n  if (headers?.getSetCookie) out['set-cookie'] = headers.getSetCookie();\n  return out;\n};\nconst setCookies = (headers) => {\n  const raw = normalizeHeaders(headers)['set-cookie'];\n  if (!raw) return [];\n  if (Array.isArray(raw)) return raw;\n  return String(raw).split(/,(?=\\s*[^;,\\s]+=)/g);\n};\nconst mergeCookies = (base, incoming) => {\n  const map = cookieMap(base);\n  for (const value of incoming || []) {\n    const first = String(value).split(';')[0];\n    const eq = first.indexOf('=');\n    if (eq > 0) map.set(first.slice(0, eq).trim(), first.slice(eq + 1).trim());\n  }\n  return Array.from(map.entries()).map(([key, value]) => key + '=' + value).join('; ');\n};\nconst isLogin = (text) => /login\\/check|name=[\"']password|::\\s*login/i.test(String(text || ''));\nasync function rawRequest(options) {\n  const response = await this.helpers.httpRequest({\n    method: options.method || 'POST',\n    url: options.url,\n    headers: options.headers || {},\n    body: options.body,\n    json: false,\n    returnFullResponse: true,\n    resolveWithFullResponse: true,\n    simple: false,\n    timeout: 120000,\n  });\n  if (response && typeof response === 'object' && (response.headers || Object.prototype.hasOwnProperty.call(response, 'body'))) {\n    return {\n      statusCode: response.statusCode || response.status || 0,\n      headers: response.headers || {},\n      body: typeof response.body === 'string' ? response.body : JSON.stringify(response.body ?? ''),\n    };\n  }\n  return { statusCode: 0, headers: {}, body: typeof response === 'string' ? response : JSON.stringify(response ?? '') };\n}\nfunction headers(cookie, contentType = true) {\n  const value = {\n    Accept: 'application/json, text/javascript, */*; q=0.01',\n    'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ar;q=0.7',\n    Origin: POS_ORIGIN,\n    Referer: POS_REFERER,\n    'X-Requested-With': 'XMLHttpRequest',\n    Cookie: cookie,\n  };\n  if (contentType) value['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';\n  return value;\n}\nasync function createPosSession() {\n  let cookie = 'language=english; direction=ltr; dont_show_today=true';\n  try {\n    const start = await rawRequest.call(this, { method: 'GET', url: POS_REFERER, headers: headers(cookie, false) });\n    cookie = mergeCookies(cookie, setCookies(start.headers));\n  } catch {}\n  const short = POS_USERNAME.includes('@') ? POS_USERNAME.split('@')[0].trim() : POS_USERNAME;\n  const candidates = Array.from(new Set([POS_USERNAME, POS_USERNAME.toLowerCase(), short, short.toLowerCase(), short + '@' + CLIENT_IDENTIFIER].filter(Boolean)));\n  let authed = false;\n  for (const username of candidates) {\n    const login = await rawRequest.call(this, {\n      method: 'POST',\n      url: POS_LOGIN_ENDPOINT,\n      headers: headers(cookie),\n      body: formEncode({ username, password: POS_PASSWORD, client_identifier: CLIENT_IDENTIFIER, auto_login: 'null', connection_path: 'null' }),\n    });\n    cookie = mergeCookies(cookie, setCookies(login.headers));\n    if ((/login_success|password_ok/i.test(login.body) || !isLogin(login.body)) && /ci_session_/i.test(cookie) && /\\binout=/i.test(cookie)) {\n      authed = true;\n      break;\n    }\n  }\n  if (!authed) throw new Error('POS login failed.');\n  async function post(path, data, label) {\n    const response = await rawRequest.call(this, { method: 'POST', url: POS_BASE_URL + path, headers: headers(cookie), body: formEncode(data || {}) });\n    cookie = mergeCookies(cookie, setCookies(response.headers));\n    if (isLogin(response.body)) throw new Error(label + ' returned POS login page.');\n    try { return JSON.parse(response.body); }\n    catch { throw new Error(label + ' returned invalid JSON: ' + response.body.slice(0, 250)); }\n  }\n  async function get(path, label) {\n    const response = await rawRequest.call(this, { method: 'GET', url: POS_BASE_URL + path, headers: headers(cookie, false) });\n    cookie = mergeCookies(cookie, setCookies(response.headers));\n    if (isLogin(response.body)) throw new Error(label + ' returned POS login page.');\n    try { return JSON.parse(response.body); }\n    catch { throw new Error(label + ' returned invalid JSON: ' + response.body.slice(0, 250)); }\n  }\n  return { post: post.bind(this), get: get.bind(this), cookie: () => cookie };\n}\n\nconst vendors = [{\"id\":\"33961\",\"text\":\"magnus world\",\"branch_id\":\"1\"},{\"id\":\"33991\",\"text\":\"UmmAlNar\",\"branch_id\":\"1\"},{\"id\":\"33992\",\"text\":\"abu al abiyad automatic modern l\",\"branch_id\":\"1\"},{\"id\":\"33993\",\"text\":\"poineer trading establishment\",\"branch_id\":\"1\"},{\"id\":\"33994\",\"text\":\"fast track laundry\",\"branch_id\":\"1\"},{\"id\":\"33995\",\"text\":\"magnus world it solution\",\"branch_id\":\"1\"},{\"id\":\"33996\",\"text\":\"globe chemicals company\",\"branch_id\":\"1\"},{\"id\":\"33997\",\"text\":\"al salam plastic factory\",\"branch_id\":\"1\"},{\"id\":\"33998\",\"text\":\"spring water\",\"branch_id\":\"1\"},{\"id\":\"33999\",\"text\":\"the magic touch bldg cleaning\",\"branch_id\":\"1\"},{\"id\":\"34000\",\"text\":\"soft touch cleaning services\",\"branch_id\":\"1\"},{\"id\":\"34001\",\"text\":\"green olive ready made garments\",\"branch_id\":\"1\"},{\"id\":\"34002\",\"text\":\"alminaplastic products factory\",\"branch_id\":\"1\"},{\"id\":\"34003\",\"text\":\"foilack foiling materials tradin\",\"branch_id\":\"1\"},{\"id\":\"34004\",\"text\":\"najma stationery\",\"branch_id\":\"1\"},{\"id\":\"34005\",\"text\":\"najma stationery llc\",\"branch_id\":\"1\"},{\"id\":\"34006\",\"text\":\"x pert industrial materials trad\",\"branch_id\":\"1\"},{\"id\":\"34007\",\"text\":\"bohec middle east\",\"branch_id\":\"1\"},{\"id\":\"34008\",\"text\":\"hidayath trading co. llc\",\"branch_id\":\"1\"},{\"id\":\"34009\",\"text\":\"skyway\",\"branch_id\":\"1\"},{\"id\":\"34010\",\"text\":\"daman\",\"branch_id\":\"1\"},{\"id\":\"34011\",\"text\":\"adnoc distribution\",\"branch_id\":\"1\"},{\"id\":\"34012\",\"text\":\"ADDC\",\"branch_id\":\"1\"},{\"id\":\"34013\",\"text\":\"harvest stationery est\",\"branch_id\":\"1\"},{\"id\":\"34014\",\"text\":\"etisalat\",\"branch_id\":\"1\"},{\"id\":\"34015\",\"text\":\"alamal printing press\",\"branch_id\":\"1\"},{\"id\":\"34016\",\"text\":\"royal electronic wheel balance\",\"branch_id\":\"1\"},{\"id\":\"34017\",\"text\":\"musaffah stationery\",\"branch_id\":\"1\"},{\"id\":\"34018\",\"text\":\"royal electronic balance\",\"branch_id\":\"1\"},{\"id\":\"34019\",\"text\":\"wear mart\",\"branch_id\":\"1\"},{\"id\":\"34020\",\"text\":\"musaffah stationary\",\"branch_id\":\"1\"},{\"id\":\"34042\",\"text\":\"royal city market\",\"branch_id\":\"1\"},{\"id\":\"34232\",\"text\":\"NEWMATIC\",\"branch_id\":\"1\"},{\"id\":\"34234\",\"text\":\"al jazeerah\",\"branch_id\":\"1\"},{\"id\":\"34242\",\"text\":\"lulu haypermarket\",\"branch_id\":\"1\"},{\"id\":\"34243\",\"text\":\"university bookshop\",\"branch_id\":\"1\"},{\"id\":\"34244\",\"text\":\"SAE SHELL\",\"branch_id\":\"1\"},{\"id\":\"34245\",\"text\":\"farook stationery\",\"branch_id\":\"1\"},{\"id\":\"34246\",\"text\":\"carrefour\",\"branch_id\":\"1\"},{\"id\":\"34250\",\"text\":\"SALARY\",\"branch_id\":\"1\"},{\"id\":\"34251\",\"text\":\"CASH\",\"branch_id\":\"1\"},{\"id\":\"34252\",\"text\":\"GIFT PALACE\",\"branch_id\":\"1\"},{\"id\":\"34253\",\"text\":\"AL FAYA\",\"branch_id\":\"1\"},{\"id\":\"34254\",\"text\":\"WORLD GREEN\",\"branch_id\":\"1\"},{\"id\":\"34256\",\"text\":\"smooth\",\"branch_id\":\"1\"},{\"id\":\"34257\",\"text\":\"primefire\",\"branch_id\":\"1\"},{\"id\":\"34258\",\"text\":\"muslim brothers decore\",\"branch_id\":\"1\"},{\"id\":\"34259\",\"text\":\"runway\",\"branch_id\":\"1\"},{\"id\":\"34260\",\"text\":\"best buy textile llc\",\"branch_id\":\"1\"},{\"id\":\"34261\",\"text\":\"grace land\",\"branch_id\":\"1\"},{\"id\":\"34262\",\"text\":\"LIGHT FOLLOW\",\"branch_id\":\"1\"},{\"id\":\"34263\",\"text\":\"BETEX UNIFORMS TRADING\",\"branch_id\":\"1\"},{\"id\":\"34264\",\"text\":\"SHABAB DRAA TAYERS\",\"branch_id\":\"1\"},{\"id\":\"34265\",\"text\":\"ADIB\",\"branch_id\":\"1\"},{\"id\":\"34521\",\"text\":\"Loan\",\"branch_id\":\"1\"},{\"id\":\"34522\",\"text\":\"m. SAOOD CASH\",\"branch_id\":\"1\"},{\"id\":\"34628\",\"text\":\"target point\",\"branch_id\":\"1\"},{\"id\":\"34873\",\"text\":\"al mahtah al mutmayth\",\"branch_id\":\"1\"},{\"id\":\"34881\",\"text\":\"Golden Home Paints\",\"branch_id\":\"1\"},{\"id\":\"34887\",\"text\":\"fox\",\"branch_id\":\"1\"},{\"id\":\"34896\",\"text\":\"RAMZ\",\"branch_id\":\"1\"},{\"id\":\"34897\",\"text\":\"DAR\",\"branch_id\":\"1\"},{\"id\":\"35143\",\"text\":\"commission\",\"branch_id\":\"1\"},{\"id\":\"35179\",\"text\":\"AL ETHAD\",\"branch_id\":\"1\"},{\"id\":\"35180\",\"text\":\"SEVEN STARS\",\"branch_id\":\"1\"},{\"id\":\"35181\",\"text\":\"CARCE LAND\",\"branch_id\":\"1\"},{\"id\":\"35182\",\"text\":\"FLASH ELECTRICAL\",\"branch_id\":\"1\"},{\"id\":\"35195\",\"text\":\"JAYNAB AUTO\",\"branch_id\":\"1\"},{\"id\":\"35196\",\"text\":\"WORLD CURTAINS EST\",\"branch_id\":\"1\"},{\"id\":\"35197\",\"text\":\"REGONAL TECHNLOGY\",\"branch_id\":\"1\"},{\"id\":\"35199\",\"text\":\"Fast CLean\",\"branch_id\":\"1\"},{\"id\":\"35850\",\"text\":\"TAW\",\"branch_id\":\"1\"},{\"id\":\"35851\",\"text\":\"AL Amrat\",\"branch_id\":\"1\"},{\"id\":\"35861\",\"text\":\"Poular\",\"branch_id\":\"1\"},{\"id\":\"35868\",\"text\":\"fast cool\",\"branch_id\":\"1\"},{\"id\":\"35869\",\"text\":\"AL GHOWAS\",\"branch_id\":\"1\"},{\"id\":\"35871\",\"text\":\"LIBERTY TYRE\",\"branch_id\":\"1\"},{\"id\":\"36069\",\"text\":\"Coffe Shop\",\"branch_id\":\"1\"},{\"id\":\"36070\",\"text\":\"carlit\",\"branch_id\":\"1\"},{\"id\":\"36071\",\"text\":\"AL Mussafah\",\"branch_id\":\"1\"},{\"id\":\"36226\",\"text\":\"CAR WASH\",\"branch_id\":\"1\"},{\"id\":\"36229\",\"text\":\"AL FALAH PLAZA\",\"branch_id\":\"1\"},{\"id\":\"36234\",\"text\":\"sumer way\",\"branch_id\":\"1\"},{\"id\":\"36235\",\"text\":\"AL Futtaim Motors\",\"branch_id\":\"1\"},{\"id\":\"38333\",\"text\":\"Abu Dhabi Distrbution Co.\",\"branch_id\":\"0\"},{\"id\":\"38334\",\"text\":\"Abu Dhabi Distrbution\",\"branch_id\":\"0\"},{\"id\":\"38335\",\"text\":\"Sultaco\",\"branch_id\":\"0\"},{\"id\":\"43562\",\"text\":\"GREEN SAVER A/C MAINTENANCE\",\"branch_id\":\"0\"},{\"id\":\"43649\",\"text\":\"CULF TAYER COMPANY\",\"branch_id\":\"0\"},{\"id\":\"44318\",\"text\":\"LINSHA BUILDING\",\"branch_id\":\"0\"},{\"id\":\"44320\",\"text\":\"BEST\",\"branch_id\":\"0\"},{\"id\":\"44321\",\"text\":\"GREEN  LINE\",\"branch_id\":\"0\"},{\"id\":\"44322\",\"text\":\"COOP 1\",\"branch_id\":\"0\"},{\"id\":\"44323\",\"text\":\"AL Raieh\",\"branch_id\":\"1\"},{\"id\":\"44324\",\"text\":\"NAS GIFT\",\"branch_id\":\"0\"},{\"id\":\"44496\",\"text\":\"DAR AL HARAMIN\",\"branch_id\":\"0\"},{\"id\":\"44548\",\"text\":\"AMAZON DELIVEERY\",\"branch_id\":\"0\"},{\"id\":\"44550\",\"text\":\"M.AKTER SUPERMARKET L.L.C\",\"branch_id\":\"0\"},{\"id\":\"44655\",\"text\":\"Bagala\",\"branch_id\":\"0\"},{\"id\":\"44768\",\"text\":\"Phoneix\",\"branch_id\":\"0\"},{\"id\":\"44769\",\"text\":\"Perfect ZN\",\"branch_id\":\"0\"},{\"id\":\"44774\",\"text\":\"SIlver Base\",\"branch_id\":\"1\"},{\"id\":\"44789\",\"text\":\"UNIFORMATY\",\"branch_id\":\"0\"},{\"id\":\"44792\",\"text\":\"ETIHAD\",\"branch_id\":\"0\"},{\"id\":\"44800\",\"text\":\"TAMOUH FIRE & SAFETY\",\"branch_id\":\"0\"},{\"id\":\"44838\",\"text\":\"STILLBOW\",\"branch_id\":\"0\"},{\"id\":\"45373\",\"text\":\"AL RAHA TEA\",\"branch_id\":\"0\"},{\"id\":\"45374\",\"text\":\"MODREN CASTLE BULDING MATRLALS TRADING\",\"branch_id\":\"0\"},{\"id\":\"45375\",\"text\":\"maintenance\",\"branch_id\":\"0\"},{\"id\":\"45377\",\"text\":\"MUSSAFHA SKY MANTENINCE\",\"branch_id\":\"0\"},{\"id\":\"45557\",\"text\":\"DECENT AUTO\",\"branch_id\":\"0\"},{\"id\":\"45619\",\"text\":\"AHMED MUSTHAFA SUPER MARKET\",\"branch_id\":\"0\"},{\"id\":\"45627\",\"text\":\"PREMIUM\",\"branch_id\":\"0\"},{\"id\":\"45657\",\"text\":\"DEPARTMENT OF ECONOMIC DEVELOPMENT\",\"branch_id\":\"0\"},{\"id\":\"45977\",\"text\":\"Spring Field\",\"branch_id\":\"0\"},{\"id\":\"46127\",\"text\":\"CARD CUTTERS COMPUTER EQU\",\"branch_id\":\"0\"},{\"id\":\"46280\",\"text\":\"LIBERTY\",\"branch_id\":\"0\"},{\"id\":\"46283\",\"text\":\"AL AKRAMAIN\",\"branch_id\":\"0\"},{\"id\":\"46285\",\"text\":\"GOOD MATERIAL\",\"branch_id\":\"0\"},{\"id\":\"46293\",\"text\":\"AL NOUFAL\",\"branch_id\":\"0\"},{\"id\":\"46294\",\"text\":\"TYERPLUS\",\"branch_id\":\"0\"},{\"id\":\"46300\",\"text\":\"PIECE OF TOWN GENERAL CONTRACTING\",\"branch_id\":\"0\"},{\"id\":\"46358\",\"text\":\"High Quality\",\"branch_id\":\"0\"},{\"id\":\"46451\",\"text\":\"Abul HASHEM SHOP\",\"branch_id\":\"0\"},{\"id\":\"46453\",\"text\":\"BENGAL AUTO PARTS\",\"branch_id\":\"0\"},{\"id\":\"46758\",\"text\":\"MICROLESS GENERAL TRADING\",\"branch_id\":\"0\"},{\"id\":\"46922\",\"text\":\"JUMAIRAH TEAM FIR\",\"branch_id\":\"0\"},{\"id\":\"46946\",\"text\":\"THREE STAR\",\"branch_id\":\"0\"},{\"id\":\"47371\",\"text\":\"APX TRANDING\",\"branch_id\":\"0\"},{\"id\":\"47908\",\"text\":\"Al ANSARI\",\"branch_id\":\"0\"},{\"id\":\"48092\",\"text\":\"JABAL AL NOOR TYER\",\"branch_id\":\"0\"},{\"id\":\"48398\",\"text\":\"ROYAL JUNCTION\",\"branch_id\":\"0\"},{\"id\":\"49211\",\"text\":\"NOOR AHMED ELECTRONICS\",\"branch_id\":\"0\"},{\"id\":\"49212\",\"text\":\"CAR ONE AUTO ACCESSORIES\",\"branch_id\":\"0\"},{\"id\":\"49811\",\"text\":\"AL-AHMED MECHANICAL WORKSHOP\",\"branch_id\":\"0\"},{\"id\":\"49919\",\"text\":\"THAMARA ELECTRONICS EST\",\"branch_id\":\"1\"},{\"id\":\"49934\",\"text\":\"Federal Tax Authority\",\"branch_id\":\"0\"},{\"id\":\"50080\",\"text\":\"FEX LORD TYER\",\"branch_id\":\"0\"},{\"id\":\"50160\",\"text\":\"INDEX STATIONERY TRADING\",\"branch_id\":\"0\"},{\"id\":\"50161\",\"text\":\"ALNAKHIL ALSHAM REPAIR\",\"branch_id\":\"0\"},{\"id\":\"50247\",\"text\":\"BOOKSHOP\",\"branch_id\":\"0\"},{\"id\":\"50450\",\"text\":\"network\",\"branch_id\":\"0\"},{\"id\":\"50492\",\"text\":\"evertrust\",\"branch_id\":\"0\"},{\"id\":\"50520\",\"text\":\"RED STAR GIFT\",\"branch_id\":\"0\"},{\"id\":\"50652\",\"text\":\"FLIGHT\",\"branch_id\":\"0\"},{\"id\":\"51055\",\"text\":\"HIGH POWER\",\"branch_id\":\"0\"},{\"id\":\"51056\",\"text\":\"SUNGLOW\",\"branch_id\":\"0\"},{\"id\":\"51090\",\"text\":\"RAJAB TRADING CO\",\"branch_id\":\"0\"},{\"id\":\"51385\",\"text\":\"etisalat + internet\",\"branch_id\":\"0\"},{\"id\":\"51725\",\"text\":\"ARABIAN AQSA BULDING\",\"branch_id\":\"0\"},{\"id\":\"51856\",\"text\":\"Chaos Auto Repair Workshop\",\"branch_id\":\"0\"},{\"id\":\"52049\",\"text\":\"gulf tyer company w.l.l\",\"branch_id\":\"0\"},{\"id\":\"52429\",\"text\":\"Employee benefits\",\"branch_id\":\"0\"},{\"id\":\"52770\",\"text\":\"HBC\",\"branch_id\":\"0\"},{\"id\":\"52771\",\"text\":\"Car insurance\",\"branch_id\":\"0\"},{\"id\":\"53179\",\"text\":\"Focus\",\"branch_id\":\"0\"},{\"id\":\"53439\",\"text\":\"Al Khutot Al Thahabia Tourism\",\"branch_id\":\"0\"},{\"id\":\"53868\",\"text\":\"DREAM FIR\",\"branch_id\":\"0\"},{\"id\":\"54303\",\"text\":\"GRAND GIFTS\",\"branch_id\":\"0\"},{\"id\":\"54770\",\"text\":\"Top sensor Auto\",\"branch_id\":\"0\"},{\"id\":\"54839\",\"text\":\"MARK  & SAVE\",\"branch_id\":\"0\"},{\"id\":\"55045\",\"text\":\"Triple\",\"branch_id\":\"0\"},{\"id\":\"55080\",\"text\":\"AL ALYA OFFICAL DRESSES\",\"branch_id\":\"0\"},{\"id\":\"55136\",\"text\":\"Al falah Land Mark\",\"branch_id\":\"0\"},{\"id\":\"55204\",\"text\":\"Sana Electronic Wheel Balance\",\"branch_id\":\"0\"},{\"id\":\"55399\",\"text\":\"Golden Printer\",\"branch_id\":\"0\"},{\"id\":\"55407\",\"text\":\"Car fines\",\"branch_id\":\"0\"},{\"id\":\"55432\",\"text\":\"rent\",\"branch_id\":\"0\"},{\"id\":\"55655\",\"text\":\"PREMIER AUTO PARTS L.L.C\",\"branch_id\":\"0\"},{\"id\":\"55882\",\"text\":\"sweet shine\",\"branch_id\":\"0\"},{\"id\":\"56258\",\"text\":\"red palace restrant\",\"branch_id\":\"0\"},{\"id\":\"56361\",\"text\":\"In&Out Advertisment\",\"branch_id\":\"0\"},{\"id\":\"56608\",\"text\":\"THREE STAR FASHIONS\",\"branch_id\":\"0\"},{\"id\":\"57409\",\"text\":\"VisaFit2\",\"branch_id\":\"0\"},{\"id\":\"57939\",\"text\":\"aman\",\"branch_id\":\"0\"},{\"id\":\"57953\",\"text\":\"jabel al noor cafeteria\",\"branch_id\":\"0\"},{\"id\":\"58123\",\"text\":\"WADI AL DIAB AUTO\",\"branch_id\":\"0\"},{\"id\":\"58222\",\"text\":\"fatima international transaction\",\"branch_id\":\"0\"},{\"id\":\"58350\",\"text\":\"MOHIYADDIN ALI NEW CAR\",\"branch_id\":\"0\"},{\"id\":\"58443\",\"text\":\"gulfaco statinery.llc\",\"branch_id\":\"0\"},{\"id\":\"58447\",\"text\":\"TAXI DELEVERY\",\"branch_id\":\"0\"},{\"id\":\"58484\",\"text\":\"Emirat Tools EST\",\"branch_id\":\"0\"},{\"id\":\"58485\",\"text\":\"On light Electrical\",\"branch_id\":\"0\"},{\"id\":\"58546\",\"text\":\"OMEIR TRAVEL\",\"branch_id\":\"0\"},{\"id\":\"58580\",\"text\":\"NEW LIFE\",\"branch_id\":\"0\"},{\"id\":\"58581\",\"text\":\"MASTER FIT\",\"branch_id\":\"0\"},{\"id\":\"58583\",\"text\":\"OCEAN PLASTIC FACTORY\",\"branch_id\":\"0\"},{\"id\":\"58584\",\"text\":\"OCEAN PLASTIC FACTORY\",\"branch_id\":\"1\"},{\"id\":\"58748\",\"text\":\"AL HADHOUDH TRADING & CONT EST\",\"branch_id\":\"0\"},{\"id\":\"59156\",\"text\":\"POLYCON GULF\",\"branch_id\":\"0\"},{\"id\":\"59163\",\"text\":\"THE PRINCE OF KEYS\",\"branch_id\":\"0\"},{\"id\":\"59490\",\"text\":\"IBY AUTO WHEEL BALANCE\",\"branch_id\":\"0\"},{\"id\":\"59562\",\"text\":\"A AND 0 ELECTROMECHAICAL WORK L.L.C.\",\"branch_id\":\"0\"},{\"id\":\"59730\",\"text\":\"SPECIAL BELT TRADING-L.L.C\",\"branch_id\":\"0\"},{\"id\":\"60390\",\"text\":\"midway\",\"branch_id\":\"0\"},{\"id\":\"60391\",\"text\":\"MOHAMED ALAM AMZU MEHA WELD\",\"branch_id\":\"0\"},{\"id\":\"60392\",\"text\":\"AL TAWHID AUTO REPAIR\",\"branch_id\":\"0\"},{\"id\":\"60393\",\"text\":\"BEACH STAR NEW AUTO SPARE\",\"branch_id\":\"0\"},{\"id\":\"60394\",\"text\":\"AFREEN BULDING\",\"branch_id\":\"0\"},{\"id\":\"60795\",\"text\":\"RECOVERY\",\"branch_id\":\"0\"},{\"id\":\"61326\",\"text\":\"super royal cars spare parts\",\"branch_id\":\"0\"},{\"id\":\"61409\",\"text\":\"city car new\",\"branch_id\":\"0\"},{\"id\":\"61605\",\"text\":\"TAQA\",\"branch_id\":\"0\"},{\"id\":\"61951\",\"text\":\"MAGNATECH THECHNICAL\",\"branch_id\":\"0\"},{\"id\":\"61954\",\"text\":\"Alif Laam Typing\",\"branch_id\":\"0\"},{\"id\":\"61967\",\"text\":\"AL RUMZ WHEEL BALANCE\",\"branch_id\":\"0\"},{\"id\":\"61969\",\"text\":\"FALAK ADANTAGE\",\"branch_id\":\"0\"},{\"id\":\"62288\",\"text\":\"Famous\",\"branch_id\":\"0\"},{\"id\":\"62289\",\"text\":\"BRIHT MARK\",\"branch_id\":\"0\"},{\"id\":\"62646\",\"text\":\"Transaction Fees\",\"branch_id\":\"0\"},{\"id\":\"62648\",\"text\":\"ALLIANCE TRANSACTIONS SERVICES\",\"branch_id\":\"0\"},{\"id\":\"62914\",\"text\":\"ZAMAM AUTO\",\"branch_id\":\"0\"},{\"id\":\"62915\",\"text\":\"COLDEN PRINTER SYSTEM\",\"branch_id\":\"0\"},{\"id\":\"63282\",\"text\":\"GT9 AUTOCARE\",\"branch_id\":\"0\"},{\"id\":\"63286\",\"text\":\"KABUL 3B\",\"branch_id\":\"0\"},{\"id\":\"63287\",\"text\":\"BRILLIANT\",\"branch_id\":\"0\"},{\"id\":\"63513\",\"text\":\"Smart Eagle\",\"branch_id\":\"0\"},{\"id\":\"63517\",\"text\":\"AL AMANI TRADING L.L.C\",\"branch_id\":\"0\"},{\"id\":\"63945\",\"text\":\"Smart\",\"branch_id\":\"0\"},{\"id\":\"63947\",\"text\":\"CAPITAL TYRES\",\"branch_id\":\"0\"},{\"id\":\"63948\",\"text\":\"JOIN S GENERAL\",\"branch_id\":\"0\"},{\"id\":\"63950\",\"text\":\"TAHRAGA\",\"branch_id\":\"0\"},{\"id\":\"64181\",\"text\":\"Mr uniform\",\"branch_id\":\"1\"},{\"id\":\"64465\",\"text\":\"MOHAMMAD ROBEL ALUMINIUM\",\"branch_id\":\"0\"},{\"id\":\"64467\",\"text\":\"DYNO\",\"branch_id\":\"0\"},{\"id\":\"64468\",\"text\":\"ADCOOP\",\"branch_id\":\"0\"},{\"id\":\"64629\",\"text\":\"MINISTRY OF HUMAN RESOURC\",\"branch_id\":\"0\"},{\"id\":\"64630\",\"text\":\"Amazon\",\"branch_id\":\"1\"},{\"id\":\"64633\",\"text\":\"AL ATHOOZ PROPERTY MANAGEMENT- L.L.C - O.P.C\",\"branch_id\":\"0\"},{\"id\":\"65044\",\"text\":\"DEFENSE POINT\",\"branch_id\":\"0\"},{\"id\":\"65045\",\"text\":\"ABDUL HALRRM CAR-NEW\",\"branch_id\":\"0\"},{\"id\":\"65046\",\"text\":\"AL MEZAN AUTO\",\"branch_id\":\"0\"},{\"id\":\"65860\",\"text\":\"GEMINI MOTOR CYCLE REPAIR SHOP\",\"branch_id\":\"0\"},{\"id\":\"65861\",\"text\":\"SEAPACK\",\"branch_id\":\"0\"},{\"id\":\"65862\",\"text\":\"TADKEER\",\"branch_id\":\"0\"},{\"id\":\"66260\",\"text\":\"Gulf Protek L.L.C\",\"branch_id\":\"0\"},{\"id\":\"66265\",\"text\":\"DEFENSE MATRIC\",\"branch_id\":\"0\"},{\"id\":\"66268\",\"text\":\"Aramex\",\"branch_id\":\"0\"},{\"id\":\"66284\",\"text\":\"Takaful\",\"branch_id\":\"0\"},{\"id\":\"66286\",\"text\":\"ِAbu Dhabi Police G.H.Q\",\"branch_id\":\"0\"},{\"id\":\"67082\",\"text\":\"TYER PLUS\",\"branch_id\":\"0\"},{\"id\":\"67083\",\"text\":\"ZAHRAT ALKHAZAN\",\"branch_id\":\"0\"}];\nconst normalize = (value) => trim(value).toLowerCase()\n  .normalize('NFKD').replace(/[\\u0300-\\u036f]/g, '')\n  .replace(/[^a-z0-9\\u0600-\\u06ff]+/g, ' ')\n  .replace(/\\b(llc|l l c|est|establishment|company|co|trading|general)\\b/g, ' ')\n  .replace(/\\s+/g, ' ').trim();\nconst similarity = (left, right) => {\n  const a = normalize(left);\n  const b = normalize(right);\n  if (!a || !b) return 0;\n  if (a === b) return 1;\n  if (a.includes(b) || b.includes(a)) return 0.92;\n  const aa = new Set(a.split(' '));\n  const bb = new Set(b.split(' '));\n  const intersection = [...aa].filter((word) => bb.has(word)).length;\n  return intersection / Math.max(aa.size, bb.size, 1);\n};\nconst productAliases = {\n  items: { product_id: '211', barcode: '95343' },\n};\nconst branchId = trim($json.branch_id, '1');\nconst supplier = trim($json.extracted?.supplier_name);\nconst suppliedVendorId = trim($json.supplied_vendor_id);\nconst vendorMatches = vendors\n  .map((vendor) => ({ ...vendor, score: similarity(supplier, vendor.text) + ((vendor.branch_id === branchId || vendor.branch_id === '0') ? 0.03 : 0) }))\n  .sort((a, b) => b.score - a.score);\nconst exactVendor = suppliedVendorId ? vendors.find((vendor) => vendor.id === suppliedVendorId) : null;\nconst vendor = exactVendor\n  ? { ...exactVendor, score: 1 }\n  : (vendorMatches[0] && vendorMatches[0].score >= 0.45 ? vendorMatches[0] : null);\nif (!vendor) {\n  return [{ json: { ...$json, match_error: 'لم يتم العثور على مورد مطابق في حسابات POS: ' + supplier, vendor_candidates: vendorMatches.slice(0, 5) } }];\n}\nconst session = await createPosSession.call(this);\nlet vendorInfo = {};\ntry {\n  vendorInfo = await session.post('/transaction/check_taxable', { type: '', id: vendor.id, branch: branchId, mode: 'PURCHASE' }, 'check_taxable');\n} catch {}\n\nconst matchedItems = [];\nfor (let index = 0; index < ($json.extracted?.items || []).length; index++) {\n  const source = $json.extracted.items[index];\n  const query = trim(source.barcode || source.description);\n  const alias = productAliases[normalize(source.description)] || null;\n  const expectedBarcode = trim(source.barcode || alias?.barcode);\n  if (!query) {\n    matchedItems.push({ source, index, matched: false, error: 'اسم المنتج أو Barcode مفقود' });\n    continue;\n  }\n  let search = [];\n  const searchTerms = Array.from(new Set([query, expectedBarcode].filter(Boolean)));\n  for (const term of searchTerms) {\n    try {\n      const response = await session.get('/transaction/fetch_product_with_name_hinds/new_search_2/?search_text=' + encodeURIComponent(term), 'product search');\n      if (Array.isArray(response)) search.push(...response);\n    } catch {}\n    if (search.length) break;\n  }\n  if (!search.length && alias?.product_id) {\n    search = [{ id: alias.product_id, customer_input: alias.barcode || source.description }];\n  }\n  if (!Array.isArray(search) || !search.length) {\n    matchedItems.push({ source, index, matched: false, error: 'المنتج غير موجود في POS: ' + query });\n    continue;\n  }\n  const ranked = search\n    .map((row) => ({\n      ...row,\n      score: similarity(source.description, row.customer_input)\n        + (expectedBarcode && trim(row.customer_input) === expectedBarcode ? 1 : 0)\n        + (alias?.product_id && trim(row.id) === alias.product_id ? 1 : 0),\n    }))\n    .sort((a, b) => b.score - a.score)\n    .slice(0, 5);\n  let selected = null;\n  for (const candidate of ranked) {\n    let details;\n    try {\n      details = await session.post('/transaction/fetch_product_complete_details', {\n        product_id: candidate.id,\n        selected_txt: candidate.id,\n        search_type: '',\n        branch_id: branchId,\n        last_sale_price_flag: '0',\n        cust_id: vendor.id,\n        mode: 'PURCHASE',\n      }, 'fetch_product_complete_details');\n    } catch {\n      continue;\n    }\n    const product = Array.isArray(details?.[0]) ? details[0][0] : null;\n    const taxes = Array.isArray(details?.[1]) ? details[1] : [];\n    if (!product) continue;\n    const score = similarity(source.description, product.product_name1_long || product.product_name)\n      + (expectedBarcode && expectedBarcode === trim(product.barcode) ? 1.5 : 0)\n      + (alias?.product_id && alias.product_id === trim(product.id) ? 1 : 0);\n    if (!selected || score > selected.score) selected = { product, taxes, score };\n  }\n  if (!selected || selected.score < 0.35) {\n    matchedItems.push({ source, index, matched: false, error: 'تعذر تأكيد المنتج: ' + query, candidates: ranked });\n    continue;\n  }\n  matchedItems.push({ source, index, matched: true, product: selected.product, taxes: selected.taxes, match_score: selected.score });\n}\nreturn [{ json: { ...$json, vendor: { id: vendor.id, text: vendor.text, branch_id: vendor.branch_id, score: vendor.score, taxable: String(vendorInfo.taxable ?? '') }, matched_items: matchedItems } }];"
+      }
+    },
+    {
+      "id": "purchase-save-draft",
+      "name": "Draft - Calculate And Save Purchase",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        -300
+      ],
+      "parameters": {
+        "jsCode": "const trim = (v, f = '') => String(v ?? f).trim();\nconst num = (v, f = 0) => {\n  const parsed = Number(String(v ?? '').replace(/,/g, ''));\n  return Number.isFinite(parsed) ? parsed : f;\n};\nconst round = (v, digits = 12) => Number(num(v).toFixed(digits));\nconst money = (v) => num(v).toFixed(2);\nconst dateOnly = (value) => {\n  const raw = trim(value);\n  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(raw)) return raw;\n  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dubai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());\n};\nconst review = (id, draft) => {\n  const lines = [\n    'فاتورة مشتريات جاهزة للمراجعة',\n    '',\n    'Draft: ' + id,\n    'الفرع: ' + draft.branch.name + ' / ' + draft.branch.id,\n    'المورد: ' + draft.vendor.text + ' / ' + draft.vendor.id,\n    'رقم فاتورة المورد: ' + (draft.header.party_invoice_no || '-'),\n    'تاريخ الفاتورة: ' + draft.header.party_invoice_date,\n    'طريقة الدفع: آجل',\n    '',\n  ];\n  draft.items.forEach((item, index) => {\n    lines.push(\n      (index + 1) + '. ' + item.product_name,\n      'Product ID: ' + item.product_id + ' | Barcode: ' + (item.barcode || '-'),\n      'Qty: ' + item.quantity + ' ' + item.unit_name,\n      'Before VAT: AED ' + money(item.amount),\n      'VAT ' + item.vat_rate + '%: AED ' + money(item.tax_amount),\n      'Net: AED ' + money(item.net_amount),\n      ''\n    );\n  });\n  lines.push(\n    'Gross: AED ' + money(draft.totals.gross),\n    'VAT: AED ' + money(draft.totals.tax),\n    'Grand Total: AED ' + money(draft.totals.grand_total),\n    'Balance: AED ' + money(draft.totals.balance),\n    'Difference: AED ' + money(draft.totals.difference)\n  );\n  if (draft.errors.length) lines.push('', 'لا يمكن الحفظ:', ...draft.errors.map((value) => '- ' + value));\n  return lines.join('\\n');\n};\n\nconst errors = $json.match_error ? [$json.match_error] : [];\nconst items = [];\nfor (const row of $json.matched_items || []) {\n  if (!row.matched) {\n    errors.push(row.error || 'يوجد منتج غير مطابق');\n    continue;\n  }\n  const source = row.source || {};\n  const product = row.product || {};\n  const quantity = Math.max(num(source.quantity, 1), 0);\n  const vatRate = Math.max(num(source.vat_rate, row.taxes?.length ? 5 : 0), 0);\n  let amount = num(source.amount);\n  let tax = num(source.tax_amount);\n  let net = num(source.net_amount);\n  const unitPrice = num(source.unit_price);\n  if (source.price_includes_tax) {\n    if (!net) net = round(quantity * unitPrice);\n    if (!amount) amount = vatRate > 0 ? round(net / (1 + vatRate / 100)) : net;\n    if (!tax) tax = round(net - amount);\n  } else {\n    if (!amount) amount = round(quantity * unitPrice);\n    if (!tax && vatRate > 0) tax = round(amount * vatRate / 100);\n    if (!net) net = round(amount + tax);\n  }\n  if (quantity <= 0) errors.push('كمية غير صحيحة للمنتج: ' + trim(product.product_name));\n  const taxRow = (row.taxes || []).find((value) => String(value.tax_id) === '1') || (row.taxes || [])[0] || null;\n  const purchaseRate = quantity > 0 ? round(amount / quantity) : 0;\n  const inclusiveRate = quantity > 0 ? round(net / quantity) : 0;\n  const salePrice = num(product.sale_price);\n  const margin = salePrice ? round(((salePrice - purchaseRate) / salePrice) * 100, 2) : 0;\n  items.push({\n    product_id: trim(product.id),\n    product_name: trim(product.product_name1_long || product.product_name),\n    barcode: trim(product.barcode || source.barcode),\n    unit_id: trim(product.purchase_unit_id || product.unit_id),\n    unit_name: trim(product.purchase_unit || product.avail_units || product.baseunit),\n    quantity,\n    base_qty: round(quantity * num(product.purchase_eq_to_base, 1)),\n    purchase_rate: purchaseRate,\n    amount: round(amount),\n    total_tax: round(tax),\n    net_amount: round(net),\n    inc_rate: inclusiveRate,\n    net_rate: purchaseRate,\n    item_note: trim(product.category_name || source.description),\n    sale_price: salePrice,\n    margin_per: margin,\n    tax_id: vatRate > 0 ? trim(taxRow?.tax_id, '1') : '',\n    tax_value: vatRate > 0 ? trim(taxRow?.tax_value, String(vatRate) + '%') : '',\n    vat_rate: vatRate,\n    unique_record: Array.from({ length: 64 }, () => 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 62)]).join(''),\n  });\n}\nif (!items.length) errors.push('لم تتم مطابقة أي منتج مع POS.');\nconst gross = round(items.reduce((sum, item) => sum + item.amount, 0));\nconst totalTax = round(items.reduce((sum, item) => sum + item.total_tax, 0));\nconst totalNet = round(items.reduce((sum, item) => sum + item.net_amount, 0));\nconst discount = num($json.extracted?.discount);\nconst adjustment = num($json.extracted?.adjustment);\nconst roundOff = num($json.extracted?.round_off);\nconst grandTotal = round(totalNet - discount + adjustment + roundOff);\nconst invoiceTotal = num($json.extracted?.invoice_total, grandTotal);\nconst difference = round(invoiceTotal - grandTotal);\nif (Math.abs(difference) > 0.01) errors.push('فرق الإجمالي AED ' + money(difference));\nif (!$json.vendor?.id) errors.push('المورد غير محدد.');\nconst existingId = trim($json.draft_id);\nconst draftId = existingId || ('PUR-' + new Date().toISOString().replace(/\\D/g, '').slice(0, 14) + '-' + Math.random().toString(36).slice(2, 6).toUpperCase());\nconst branch = { id: trim($json.branch_id, '1'), name: trim($json.branch_name, 'AL FALAH') };\nconst vendor = $json.vendor || {\n  id: '',\n  text: trim($json.extracted?.supplier_name, 'غير مطابق'),\n  branch_id: branch.id,\n  score: 0,\n  taxable: '',\n};\nconst draft = {\n  draft_id: draftId,\n  status: errors.length ? 'needs_review' : 'pending_approval',\n  chat_id: trim($json.chat_id),\n  message_id: trim($json.message_id),\n  source_attachment: $json.source_attachment || null,\n  extracted: $json.extracted,\n  branch,\n  vendor,\n  items,\n  header: {\n    party_invoice_no: trim($json.extracted?.supplier_invoice_no),\n    party_invoice_date: dateOnly($json.extracted?.supplier_invoice_date),\n    purchase_date: dateOnly($json.extracted?.purchase_date || $json.extracted?.supplier_invoice_date),\n    notes: trim($json.extracted?.notes),\n  },\n  totals: {\n    quantity: round(items.reduce((sum, item) => sum + item.quantity, 0)),\n    gross,\n    tax: totalTax,\n    net: totalNet,\n    discount,\n    adjustment,\n    round_off: roundOff,\n    grand_total: grandTotal,\n    paid: 0,\n    balance: grandTotal,\n    invoice_total: invoiceTotal,\n    difference,\n  },\n  errors,\n  updated_at: new Date().toISOString(),\n  created_at: new Date().toISOString(),\n};\nconst store = $getWorkflowStaticData('global');\nif (!store.purchaseDrafts || typeof store.purchaseDrafts !== 'object') store.purchaseDrafts = {};\nif (store.purchaseDrafts[draftId]?.created_at) draft.created_at = store.purchaseDrafts[draftId].created_at;\nstore.purchaseDrafts[draftId] = draft;\nreturn [{ json: { ...$json, draft_id: draftId, draft, telegram_text: review(draftId, draft) } }];"
+      }
+    },
+    {
+      "id": "purchase-send-review",
+      "name": "Telegram - Send Purchase Review",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1020,
+        -300
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.chat_id}}",
+        "text": "={{$json.telegram_text}}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "AL FALAH / 1",
+                    "additionalFields": {
+                      "callback_data": "={{'purchase_branch:' + $json.draft_id + ':1:AL FALAH'}}"
+                    }
+                  },
+                  {
+                    "text": "MBZ / 2",
+                    "additionalFields": {
+                      "callback_data": "={{'purchase_branch:' + $json.draft_id + ':2:MBZ'}}"
+                    }
+                  },
+                  {
+                    "text": "Musaffah / 3",
+                    "additionalFields": {
+                      "callback_data": "={{'purchase_branch:' + $json.draft_id + ':3:Musaffah'}}"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "موافق",
+                    "additionalFields": {
+                      "callback_data": "={{'purchase_approve:' + $json.draft_id}}"
+                    }
+                  },
+                  {
+                    "text": "تعديل",
+                    "additionalFields": {
+                      "callback_data": "={{'purchase_edit_request:' + $json.draft_id}}"
+                    }
+                  },
+                  {
+                    "text": "إلغاء",
+                    "additionalFields": {
+                      "callback_data": "={{'purchase_cancel:' + $json.draft_id}}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "purchase-approve-load",
+      "name": "Approve - Load Purchase Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -540,
+        40
+      ],
+      "parameters": {
+        "jsCode": "if ($json.action !== 'approve') return [];\nconst store = $getWorkflowStaticData('global');\nconst draft = store.purchaseDrafts?.[$json.draft_id];\nif (!draft) return [{ json: { ...$json, stop: true, telegram_text: 'لم أجد مسودة المشتريات: ' + $json.draft_id } }];\nif (draft.status === 'registered') return [{ json: { ...$json, stop: true, telegram_text: 'تم تسجيل هذه المسودة سابقاً. Purchase ID: ' + (draft.result?.purchase_id || '') } }];\nif (draft.errors?.length) return [{ json: { ...$json, stop: true, telegram_text: 'لا يمكن التسجيل قبل حل الأخطاء:\\n' + draft.errors.map((v) => '- ' + v).join('\\n') } }];\ndraft.status = 'registering';\ndraft.registering_at = new Date().toISOString();\nreturn [{ json: { ...$json, draft } }];"
+      }
+    },
+    {
+      "id": "purchase-register",
+      "name": "POS - Create And Finalize Purchase",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -280,
+        40
+      ],
+      "parameters": {
+        "jsCode": "const trim = (v, f = '') => String(v ?? f).trim();\nconst number = (v, f = 0) => {\n  const parsed = Number(String(v ?? '').replace(/,/g, ''));\n  return Number.isFinite(parsed) ? parsed : f;\n};\nconst vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst POS_USERNAME = trim(vars.POS_USERNAME);\nconst POS_PASSWORD = trim(vars.POS_PASSWORD);\nconst CLIENT_IDENTIFIER = trim(vars.AIPSOFT_CLIENT_IDENTIFIER, 'inout') || 'inout';\nconst POS_BASE_URL = trim(vars.AIPSOFT_API_BASE_URL, 'https://beta.aipsoft.com/inout').replace(/\\/$/, '');\nconst POS_LOGIN_ENDPOINT = trim(vars.POS_LOGIN_ENDPOINT, POS_BASE_URL + '/login/check');\nconst POS_REFERER = trim(vars.POS_PURCHASE_REFERER, POS_BASE_URL + '/transaction/purchase');\nconst POS_ORIGIN = trim(vars.POS_ORIGIN, 'https://beta.aipsoft.com');\nif (!POS_USERNAME || !POS_PASSWORD) throw new Error('Missing POS_USERNAME or POS_PASSWORD n8n Variables.');\nconst formEncode = (params) => {\n  const pairs = [];\n  const add = (key, value) => pairs.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(value ?? '')));\n  const build = (prefix, value) => {\n    if (Array.isArray(value)) {\n      value.forEach((entry, index) => build(prefix + '[' + index + ']', entry));\n      return;\n    }\n    if (value && typeof value === 'object') {\n      for (const [key, child] of Object.entries(value)) build(prefix + '[' + key + ']', child);\n      return;\n    }\n    add(prefix, value);\n  };\n  for (const [key, value] of Object.entries(params || {})) build(key, value);\n  return pairs.join('&');\n};\nconst cookieMap = (header) => {\n  const map = new Map();\n  for (const part of String(header || '').split(';')) {\n    const item = part.trim();\n    const eq = item.indexOf('=');\n    if (eq > 0) map.set(item.slice(0, eq), item.slice(eq + 1));\n  }\n  return map;\n};\nconst normalizeHeaders = (headers = {}) => {\n  const out = {};\n  if (headers?.forEach) headers.forEach((value, key) => { out[String(key).toLowerCase()] = value; });\n  else for (const [key, value] of Object.entries(headers || {})) out[String(key).toLowerCase()] = value;\n  if (headers?.getSetCookie) out['set-cookie'] = headers.getSetCookie();\n  return out;\n};\nconst setCookies = (headers) => {\n  const raw = normalizeHeaders(headers)['set-cookie'];\n  if (!raw) return [];\n  if (Array.isArray(raw)) return raw;\n  return String(raw).split(/,(?=\\s*[^;,\\s]+=)/g);\n};\nconst mergeCookies = (base, incoming) => {\n  const map = cookieMap(base);\n  for (const value of incoming || []) {\n    const first = String(value).split(';')[0];\n    const eq = first.indexOf('=');\n    if (eq > 0) map.set(first.slice(0, eq).trim(), first.slice(eq + 1).trim());\n  }\n  return Array.from(map.entries()).map(([key, value]) => key + '=' + value).join('; ');\n};\nconst isLogin = (text) => /login\\/check|name=[\"']password|::\\s*login/i.test(String(text || ''));\nasync function rawRequest(options) {\n  const response = await this.helpers.httpRequest({\n    method: options.method || 'POST',\n    url: options.url,\n    headers: options.headers || {},\n    body: options.body,\n    json: false,\n    returnFullResponse: true,\n    resolveWithFullResponse: true,\n    simple: false,\n    timeout: 120000,\n  });\n  if (response && typeof response === 'object' && (response.headers || Object.prototype.hasOwnProperty.call(response, 'body'))) {\n    return {\n      statusCode: response.statusCode || response.status || 0,\n      headers: response.headers || {},\n      body: typeof response.body === 'string' ? response.body : JSON.stringify(response.body ?? ''),\n    };\n  }\n  return { statusCode: 0, headers: {}, body: typeof response === 'string' ? response : JSON.stringify(response ?? '') };\n}\nfunction headers(cookie, contentType = true) {\n  const value = {\n    Accept: 'application/json, text/javascript, */*; q=0.01',\n    'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ar;q=0.7',\n    Origin: POS_ORIGIN,\n    Referer: POS_REFERER,\n    'X-Requested-With': 'XMLHttpRequest',\n    Cookie: cookie,\n  };\n  if (contentType) value['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';\n  return value;\n}\nasync function createPosSession() {\n  let cookie = 'language=english; direction=ltr; dont_show_today=true';\n  try {\n    const start = await rawRequest.call(this, { method: 'GET', url: POS_REFERER, headers: headers(cookie, false) });\n    cookie = mergeCookies(cookie, setCookies(start.headers));\n  } catch {}\n  const short = POS_USERNAME.includes('@') ? POS_USERNAME.split('@')[0].trim() : POS_USERNAME;\n  const candidates = Array.from(new Set([POS_USERNAME, POS_USERNAME.toLowerCase(), short, short.toLowerCase(), short + '@' + CLIENT_IDENTIFIER].filter(Boolean)));\n  let authed = false;\n  for (const username of candidates) {\n    const login = await rawRequest.call(this, {\n      method: 'POST',\n      url: POS_LOGIN_ENDPOINT,\n      headers: headers(cookie),\n      body: formEncode({ username, password: POS_PASSWORD, client_identifier: CLIENT_IDENTIFIER, auto_login: 'null', connection_path: 'null' }),\n    });\n    cookie = mergeCookies(cookie, setCookies(login.headers));\n    if ((/login_success|password_ok/i.test(login.body) || !isLogin(login.body)) && /ci_session_/i.test(cookie) && /\\binout=/i.test(cookie)) {\n      authed = true;\n      break;\n    }\n  }\n  if (!authed) throw new Error('POS login failed.');\n  async function post(path, data, label) {\n    const response = await rawRequest.call(this, { method: 'POST', url: POS_BASE_URL + path, headers: headers(cookie), body: formEncode(data || {}) });\n    cookie = mergeCookies(cookie, setCookies(response.headers));\n    if (isLogin(response.body)) throw new Error(label + ' returned POS login page.');\n    try { return JSON.parse(response.body); }\n    catch { throw new Error(label + ' returned invalid JSON: ' + response.body.slice(0, 250)); }\n  }\n  async function get(path, label) {\n    const response = await rawRequest.call(this, { method: 'GET', url: POS_BASE_URL + path, headers: headers(cookie, false) });\n    cookie = mergeCookies(cookie, setCookies(response.headers));\n    if (isLogin(response.body)) throw new Error(label + ' returned POS login page.');\n    try { return JSON.parse(response.body); }\n    catch { throw new Error(label + ' returned invalid JSON: ' + response.body.slice(0, 250)); }\n  }\n  return { post: post.bind(this), get: get.bind(this), cookie: () => cookie };\n}\n\nif ($json.stop) return [{ json: $json }];\nconst draft = $json.draft;\nif (!draft) throw new Error('Purchase draft is missing.');\nconst toPosDate = (value) => {\n  const raw = trim(value);\n  const match = raw.match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);\n  return match ? match[3] + '-' + match[2] + '-' + match[1] : raw;\n};\nconst normalizeName = (value) => trim(value).toLowerCase()\n  .replace(/[^a-z0-9\\u0600-\\u06ff]+/g, ' ')\n  .replace(/\\s+/g, ' ')\n  .trim();\nconst session = await createPosSession.call(this);\nconst latest = await session.post('/transaction/latest_invoice_number', { mode: 'PURCHASE' }, 'latest_invoice_number');\nconst invoiceNo = trim(typeof latest === 'string' || typeof latest === 'number' ? latest : (latest.invoice_no || latest.id || latest.data));\nif (!invoiceNo) throw new Error('POS did not return latest purchase invoice number.');\nconst dueDate = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Dubai', day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date()).replace(/\\//g, '-');\nconst common = {\n  invoice_no: invoiceNo,\n  branch_id: draft.branch.id,\n  vendors: draft.vendor.id,\n  purchase_account: '11',\n  currencies: '2',\n  purchase_date: toPosDate(draft.header.purchase_date),\n  due_date: dueDate,\n  partys_name: '',\n  partys_no: draft.header.party_invoice_no,\n  partys_inv_date: toPosDate(draft.header.party_invoice_date),\n  remark1: '',\n  remark2: '',\n  purchase_order_no: '',\n  grn_no: '',\n  total_quantity: draft.totals.quantity,\n  total_gross: draft.totals.gross,\n  total_net_amount: draft.totals.net,\n  final_total_tax: draft.totals.tax,\n  total_disc: draft.totals.discount,\n  total_additional_discount_per: '',\n  total_additional_discount: '0',\n  round_off: draft.totals.round_off || '',\n  adjustment: draft.totals.adjustment || '',\n  grand_total: draft.totals.grand_total.toFixed(2),\n  paid_amount: '0',\n  balance_amount: draft.totals.balance,\n  project_id: '',\n  disable_tax: '1',\n  manual_total: '',\n};\nconst toProductRow = (item) => ({\n  details_id: '',\n  barcode: item.barcode,\n  product_id: item.product_id,\n  unit_id: item.unit_id,\n  quantity: item.quantity,\n  purchase_rate: item.purchase_rate,\n  amount: item.amount,\n  total_tax: item.total_tax,\n  net_amount: item.net_amount,\n  mr_no: '0',\n  spl_discount: '0',\n  spl_disc_percentage: '0',\n  add_discount: '0',\n  discount: '0',\n  free: '0',\n  inc_rate: item.inc_rate,\n  item_note: item.item_note,\n  net_rate: item.net_rate,\n  foc_link_id: '0',\n  sale_price: item.sale_price,\n  margin_per: item.margin_per,\n  base_qty: item.base_qty,\n  unique_record: item.unique_record,\n  multi_rate_id: '',\n});\nconst toTaxRow = (item) => ({\n  tax_id: item.tax_id,\n  tax_amount: item.total_tax,\n  tax_value: item.tax_value || (item.vat_rate + '%'),\n  product_id: item.product_id,\n});\nlet purchaseId = '';\nconst lineResponses = [];\nlet cumulativeQuantity = 0;\nlet cumulativeGross = 0;\nlet cumulativeTax = 0;\nlet cumulativeNet = 0;\n\n// POS auto-saves one product row at a time. The returned p_id must be chained\n// into invoice_id for every following row before the final save_type=2 request.\nfor (let index = 0; index < draft.items.length; index += 1) {\n  const item = draft.items[index];\n  cumulativeQuantity += Number(item.quantity || 0);\n  cumulativeGross += Number(item.amount || 0);\n  cumulativeTax += Number(item.total_tax || 0);\n  cumulativeNet += Number(item.net_amount || 0);\n  const rowPayload = {\n    hold: '1',\n    ...common,\n    total_quantity: cumulativeQuantity,\n    total_gross: cumulativeGross,\n    total_net_amount: cumulativeNet,\n    final_total_tax: cumulativeTax,\n    total_disc: '0',\n    round_off: '',\n    adjustment: '',\n    grand_total: cumulativeNet.toFixed(2),\n    balance_amount: cumulativeNet,\n    final_purchase_product_list: [toProductRow(item)],\n    purchase_tax_values: item.tax_id && Number(item.total_tax) > 0 ? [toTaxRow(item)] : [],\n    update_purchase_rate: '0',\n    invoice_id: purchaseId,\n    save_type: '1',\n    product_custom_fields: { form_validation: 'true' },\n  };\n  const rowResponse = await session.post(\n    '/transaction/save_purchase_details_2',\n    rowPayload,\n    'create purchase line ' + (index + 1),\n  );\n  if (\n    Number(rowResponse.response_code) !== 200\n    || Number(rowResponse.status) !== 1\n    || !rowResponse.p_id\n    || !rowResponse.details_id\n  ) {\n    throw new Error(\n      'Purchase line ' + (index + 1) + ' was not saved correctly: ' + JSON.stringify(rowResponse),\n    );\n  }\n  const returnedPurchaseId = trim(rowResponse.p_id);\n  if (purchaseId && returnedPurchaseId !== purchaseId) {\n    throw new Error(\n      'POS returned a different Purchase ID for line ' + (index + 1)\n      + '. Expected ' + purchaseId + ', received ' + returnedPurchaseId,\n    );\n  }\n  purchaseId = returnedPurchaseId;\n  lineResponses.push({\n    line: index + 1,\n    product_id: item.product_id,\n    details_id: trim(rowResponse.details_id),\n    response: rowResponse,\n  });\n}\nif (!purchaseId) throw new Error('POS did not create a Purchase ID.');\nconst finalizePayload = {\n  hold: '0',\n  ...common,\n  update_purchase_rate: '1',\n  invoice_id: purchaseId,\n  adjustment_details: [{\n    adjustment_id: '',\n    add_or_less: '',\n    adjust_account: '',\n    adjust_narration: '',\n    adjust_amount: '0',\n  }],\n  new_misc_fields: [{ field_name: '', field_type: '' }],\n  payment_details: [],\n  removed_payment_details: [],\n  save_type: '2',\n  page_custom_fields: { form_validation: 'true' },\n};\nconst finalize = await session.post('/transaction/save_purchase_details_2', finalizePayload, 'finalize purchase');\nif (Number(finalize.response_code) !== 200 || Number(finalize.status) !== 2) {\n  throw new Error('Purchase Finalize failed after creating Purchase ID ' + purchaseId + ': ' + JSON.stringify(finalize));\n}\nconst verification = {\n  checked: false,\n  ok: false,\n  status: 'not_checked',\n  warnings: [],\n  errors: [],\n  journal_checked: false,\n  journal_ok: false,\n  details_checked: false,\n  details_ok: false,\n  journal_entries: [],\n  purchase_details: [],\n};\ntry {\n  const journalErrorStart = verification.errors.length;\n  const journal = await session.post('/transaction/journalEntryData', {\n    draw: '1',\n    'columns[0][data]': '0',\n    'columns[0][name]': '',\n    'columns[0][searchable]': 'false',\n    'columns[0][orderable]': 'false',\n    'columns[0][search][value]': '',\n    'columns[0][search][regex]': 'false',\n    'columns[1][data]': '1',\n    'columns[1][name]': '',\n    'columns[1][searchable]': 'false',\n    'columns[1][orderable]': 'false',\n    'columns[1][search][value]': '',\n    'columns[1][search][regex]': 'false',\n    'columns[2][data]': '2',\n    'columns[2][name]': '',\n    'columns[2][searchable]': 'false',\n    'columns[2][orderable]': 'false',\n    'columns[2][search][value]': '',\n    'columns[2][search][regex]': 'false',\n    'order[0][column]': '0',\n    'order[0][dir]': 'ASC',\n    start: '0',\n    length: '10',\n    'search[value]': '',\n    'search[regex]': 'false',\n    from_date: 'undefined-undefined-',\n    from_time: '',\n    to_date: 'undefined-undefined-',\n    to_time: '',\n    vendor: '',\n    order_id: purchaseId,\n    order_type: 'PI',\n  }, 'purchase journalEntryData');\n  const rows = Array.isArray(journal?.data) ? journal.data : [];\n  const entries = rows.map((row) => ({\n    account_name: trim(Array.isArray(row) ? row[0] : row.acc_name1),\n    debit: number(Array.isArray(row) ? row[1] : row.db_amount),\n    credit: number(Array.isArray(row) ? row[2] : row.cr_amount),\n  }));\n  const debit = number(journal?.db_total, entries.reduce((sum, row) => sum + row.debit, 0));\n  const credit = number(journal?.cr_total, entries.reduce((sum, row) => sum + row.credit, 0));\n  const purchaseDebit = entries\n    .filter((row) => /purchase account/i.test(row.account_name))\n    .reduce((sum, row) => sum + row.debit, 0);\n  const vatDebit = entries\n    .filter((row) => /vat on purchase/i.test(row.account_name))\n    .reduce((sum, row) => sum + row.debit, 0);\n  const vendorCredit = entries\n    .filter((row) => row.credit > 0 && !/purchase account|vat on purchase/i.test(row.account_name))\n    .reduce((sum, row) => sum + row.credit, 0);\n  const compare = (label, expected, actual) => {\n    if (Math.abs(number(expected) - number(actual)) > 0.01) {\n      verification.errors.push(\n        label + ' expected AED ' + number(expected).toFixed(2)\n        + ', journal returned AED ' + number(actual).toFixed(2),\n      );\n    }\n  };\n  verification.journal_checked = true;\n  verification.journal_response = journal;\n  verification.journal_entries = entries;\n  verification.journal_actual = {\n    purchase_account_debit: number(purchaseDebit),\n    vat_on_purchase_debit: number(vatDebit),\n    vendor_credit: number(vendorCredit),\n    debit_total: number(debit),\n    credit_total: number(credit),\n    balanced: Math.abs(number(debit) - number(credit)) <= 0.01,\n  };\n  if (!entries.length) verification.errors.push('POS returned no purchase journal entries.');\n  compare('Purchase Account', draft.totals.gross, purchaseDebit);\n  compare('VAT on Purchase', draft.totals.tax, vatDebit);\n  compare('Vendor Credit', draft.totals.grand_total, vendorCredit);\n  if (Math.abs(number(debit) - number(credit)) > 0.01) {\n    verification.errors.push(\n      'Purchase journal is not balanced: debit AED ' + number(debit).toFixed(2)\n      + ', credit AED ' + number(credit).toFixed(2),\n    );\n  }\n  const vendorEntry = entries.find((row) => row.credit > 0 && row.account_name);\n  if (vendorEntry && normalizeName(vendorEntry.account_name) !== normalizeName(draft.vendor.text)) {\n    verification.warnings.push(\n      'Journal vendor name \"' + vendorEntry.account_name\n      + '\" differs from selected vendor \"' + draft.vendor.text + '\".',\n    );\n  }\n  verification.journal_ok = verification.errors.length === journalErrorStart;\n} catch (error) {\n  verification.journal_error = String(error?.message || error);\n  verification.warnings.push('تعذر جلب القيد المحاسبي بعد الحفظ.');\n}\ntry {\n  const detailsErrorStart = verification.errors.length;\n  const detailsResponse = await session.post('/transaction/fetch_purchase_details', {\n    purchase_id: purchaseId,\n    purchase_id_counter: '',\n    counter_mode: '',\n    hold: '0',\n    type: '0',\n    mode: 'PURCHASE',\n  }, 'purchase fetch_purchase_details');\n  const invoice = Array.isArray(detailsResponse?.purchase_invoice)\n    ? detailsResponse.purchase_invoice[0]\n    : detailsResponse?.purchase_invoice;\n  if (!invoice || typeof invoice !== 'object') {\n    throw new Error('POS returned no purchase_invoice record for Purchase ID ' + purchaseId + '.');\n  }\n  const detailRows = Array.isArray(invoice.purchase_details) ? invoice.purchase_details : [];\n  const compareId = (label, expected, actual) => {\n    if (trim(expected) !== trim(actual)) {\n      verification.errors.push(\n        label + ' expected \"' + trim(expected) + '\", POS returned \"' + trim(actual) + '\".',\n      );\n    }\n  };\n  const compareAmount = (label, expected, actual) => {\n    if (Math.abs(number(expected) - number(actual)) > 0.01) {\n      verification.errors.push(\n        label + ' expected AED ' + number(expected).toFixed(2)\n        + ', POS returned AED ' + number(actual).toFixed(2),\n      );\n    }\n  };\n  verification.details_checked = true;\n  verification.details_response_code = number(detailsResponse?.response_code);\n  verification.purchase_header = {\n    id: trim(invoice.id),\n    invoice_no: trim(invoice.invoice_no),\n    branch_id: trim(invoice.branch_id),\n    vendor_id: trim(invoice.vendor_id),\n    vendor_name: trim(invoice.customer_name),\n    purchase_account: trim(invoice.purchase_account),\n    currency_id: trim(invoice.currency_id),\n    party_invoice_no: trim(invoice.party_no),\n    purchase_date: trim(invoice.date),\n    party_invoice_date: trim(invoice.party_invoice_date),\n    total_quantity: number(invoice.total_quantity),\n    total_gross: number(invoice.total_gross),\n    total_tax: number(invoice.total_tax),\n    grand_total: number(invoice.grand_total),\n    paid_amount: number(invoice.paid_amount),\n    balance_amount: number(invoice.balance_amount),\n    status: trim(invoice.status),\n    hold: trim(invoice.hold),\n  };\n  if (number(detailsResponse?.response_code) !== 200) {\n    verification.errors.push(\n      'fetch_purchase_details response_code expected 200, POS returned '\n      + trim(detailsResponse?.response_code) + '.',\n    );\n  }\n  compareId('Purchase ID', purchaseId, invoice.id);\n  compareId('Purchase number', invoiceNo, invoice.invoice_no);\n  compareId('Branch ID', draft.branch.id, invoice.branch_id);\n  compareId('Vendor ID', draft.vendor.id, invoice.vendor_id);\n  compareId('Purchase Account', '11', invoice.purchase_account);\n  compareId('Currency ID', '2', invoice.currency_id);\n  compareId('Party invoice number', draft.header.party_invoice_no, invoice.party_no);\n  compareId('Purchase date', draft.header.purchase_date, invoice.date);\n  compareId('Party invoice date', draft.header.party_invoice_date, invoice.party_invoice_date);\n  compareId('Purchase status', '1', invoice.status);\n  compareId('Purchase hold', '0', invoice.hold);\n  compareAmount('Total quantity', draft.totals.quantity, invoice.total_quantity);\n  compareAmount('Purchase Gross', draft.totals.gross, invoice.total_gross);\n  compareAmount('Purchase VAT', draft.totals.tax, invoice.total_tax);\n  compareAmount('Purchase Net', draft.totals.net, invoice.total_net_amount);\n  compareAmount('Purchase Grand Total', draft.totals.grand_total, invoice.grand_total);\n  compareAmount('Purchase Paid', draft.totals.paid, invoice.paid_amount);\n  compareAmount('Purchase Balance', draft.totals.balance, invoice.balance_amount);\n  if (detailRows.length !== draft.items.length) {\n    verification.errors.push(\n      'Product row count expected ' + draft.items.length + ', POS returned ' + detailRows.length + '.',\n    );\n  }\n  const usedDetails = new Set();\n  for (let index = 0; index < draft.items.length; index += 1) {\n    const expected = draft.items[index];\n    let detailIndex = detailRows.findIndex((row, rowIndex) => (\n      !usedDetails.has(rowIndex)\n      && trim(row.product_id) === trim(expected.product_id)\n      && (!trim(expected.barcode) || trim(row.barcode) === trim(expected.barcode))\n    ));\n    if (detailIndex < 0) {\n      detailIndex = detailRows.findIndex((row, rowIndex) => (\n        !usedDetails.has(rowIndex) && trim(row.product_id) === trim(expected.product_id)\n      ));\n    }\n    if (detailIndex < 0) {\n      verification.errors.push(\n        'Product row not found in POS: ' + trim(expected.product_name, expected.product_id) + '.',\n      );\n      continue;\n    }\n    usedDetails.add(detailIndex);\n    const actual = detailRows[detailIndex];\n    const savedLine = lineResponses[index] || {};\n    const rowLabel = 'Product ' + (index + 1) + ' (' + trim(expected.product_name, expected.product_id) + ')';\n    if (!trim(actual.id)) verification.errors.push(rowLabel + ' has no details_id in POS.');\n    if (savedLine.details_id) compareId(rowLabel + ' details_id', savedLine.details_id, actual.id);\n    compareId(rowLabel + ' product_id', expected.product_id, actual.product_id);\n    compareId(rowLabel + ' barcode', expected.barcode, actual.barcode);\n    compareId(rowLabel + ' unit_id', expected.unit_id, actual.unit_id);\n    compareAmount(rowLabel + ' quantity', expected.quantity, actual.quantity);\n    compareAmount(rowLabel + ' base quantity', expected.base_qty, actual.base_qty);\n    compareAmount(rowLabel + ' amount', expected.amount, actual.amount);\n    compareAmount(rowLabel + ' VAT', expected.total_tax, actual.total_tax);\n    compareAmount(rowLabel + ' net amount', expected.net_amount, actual.net_amount);\n    if (\n      normalizeName(expected.product_name)\n      && normalizeName(expected.product_name) !== normalizeName(actual.product_name1_long || actual.product_name)\n    ) {\n      verification.warnings.push(\n        rowLabel + ' name differs from POS \"' + trim(actual.product_name1_long || actual.product_name) + '\".',\n      );\n    }\n    const taxes = Array.isArray(actual.purchase_taxes) ? actual.purchase_taxes : [];\n    if (number(expected.total_tax) > 0 && !taxes.some((tax) => trim(tax.tax_id) === trim(expected.tax_id, '1'))) {\n      verification.errors.push(rowLabel + ' is missing VAT tax_id ' + trim(expected.tax_id, '1') + '.');\n    }\n    verification.purchase_details.push({\n      details_id: trim(actual.id),\n      product_id: trim(actual.product_id),\n      product_name: trim(actual.product_name1_long || actual.product_name),\n      barcode: trim(actual.barcode),\n      unit_id: trim(actual.unit_id),\n      quantity: number(actual.quantity),\n      amount: number(actual.amount),\n      total_tax: number(actual.total_tax),\n      net_amount: number(actual.net_amount),\n      tax_ids: taxes.map((tax) => trim(tax.tax_id)).filter(Boolean),\n    });\n  }\n  verification.details_ok = verification.errors.length === detailsErrorStart;\n} catch (error) {\n  verification.details_error = String(error?.message || error);\n  verification.warnings.push('تعذر إعادة فتح تفاصيل المشتريات بعد الحفظ.');\n}\nverification.checked = verification.journal_checked || verification.details_checked;\nverification.ok = verification.journal_ok && verification.details_ok && verification.errors.length === 0;\nverification.status = verification.errors.length\n  ? 'mismatch'\n  : verification.journal_ok && verification.details_ok\n    ? 'verified'\n    : verification.journal_ok || verification.details_ok\n      ? 'partial'\n      : 'unavailable';\nconst result = {\n  purchase_id: trim(finalize.p_id, purchaseId),\n  invoice_no: invoiceNo,\n  line_responses: lineResponses,\n  finalize_response: finalize,\n  verification,\n  attachment_status: draft.source_attachment?.telegram_file_id ? 'pending' : 'not_available',\n  attachment_source: draft.source_attachment || null,\n};\nconst store = $getWorkflowStaticData('global');\nstore.purchaseDrafts[$json.draft_id].status = 'registered';\nstore.purchaseDrafts[$json.draft_id].result = result;\nstore.purchaseDrafts[$json.draft_id].registered_at = new Date().toISOString();\nreturn [{ json: { ...$json, draft, result } }];"
+      }
+    },
+    {
+      "id": "purchase-result",
+      "name": "Telegram - Prepare Purchase Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -20,
+        40
+      ],
+      "parameters": {
+        "jsCode": "const money = (v) => Number(v || 0).toFixed(2);\nif ($json.stop) return [{ json: $json }];\nconst result = $json.result || {};\nconst draft = $json.draft || {};\nconst verification = result.verification || {};\nconst verificationLine = verification.status === 'verified'\n  ? 'التحقق: القيد والمنتجات متطابقة مع POS'\n  : verification.status === 'mismatch'\n    ? 'التحقق: توجد فروقات - ' + (verification.errors || []).join(' | ').slice(0, 350)\n    : verification.status === 'partial'\n      ? 'التحقق: جزئي - تعذر فحص القيد أو تفاصيل المنتجات'\n    : verification.status === 'unavailable'\n      ? 'التحقق: تعذر إعادة فحص الشراء بعد الحفظ'\n      : 'التحقق: لم يتم';\nconst attachment = result.attachment_status === 'pending'\n  ? 'المرفق: جاري رفعه إلى POS'\n  : result.attachment_status === 'not_available' ? 'المرفق: لا يوجد' : '';\nreturn [{\n  json: {\n    ...$json,\n    telegram_text: [\n      'تم تسجيل فاتورة المشتريات بنجاح',\n      'Purchase ID: ' + (result.purchase_id || ''),\n      'Purchase #: ' + (result.invoice_no || ''),\n      'المورد: ' + (draft.vendor?.text || ''),\n      'الفرع: ' + (draft.branch?.name || ''),\n      'الإجمالي: AED ' + money(draft.totals?.grand_total),\n      'الرصيد: AED ' + money(draft.totals?.balance),\n      verificationLine,\n      attachment,\n    ].filter(Boolean).join('\\n'),\n  },\n}];"
+      }
+    },
+    {
+      "id": "purchase-send-result",
+      "name": "Telegram - Send Purchase Result",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        40
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.chat_id}}",
+        "text": "={{$json.telegram_text}}",
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "purchase-attachment-job",
+      "name": "Attachment - Prepare Purchase Upload Job",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -20,
+        220
+      ],
+      "parameters": {
+        "jsCode": "if ($json.stop || $json.result?.attachment_status !== 'pending') return [];\nconst source = $json.result?.attachment_source || {};\nconst fileId = String(source.telegram_file_id || '').trim();\nif (!fileId) return [];\nconst store = $getWorkflowStaticData('global');\nif (!store.purchaseAttachmentJobs || typeof store.purchaseAttachmentJobs !== 'object') store.purchaseAttachmentJobs = {};\nstore.purchaseAttachmentJobs[fileId] = {\n  draft_id: $json.draft_id,\n  chat_id: $json.chat_id,\n  purchase_id: $json.result.purchase_id,\n  invoice_no: $json.result.invoice_no,\n  telegram_file_id: fileId,\n  file_name: source.file_name || 'purchase-attachment',\n  mime_type: source.mime_type || 'application/octet-stream',\n};\nreturn [{ json: { telegram_file_id: fileId, chat_id: $json.chat_id, purchase_id: $json.result.purchase_id } }];"
+      }
+    },
+    {
+      "id": "purchase-download-file",
+      "name": "Telegram - Download Registered Purchase File",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        220
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "get",
+        "fileId": "={{$json.telegram_file_id}}",
+        "binaryProperty": "data",
+        "download": true
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "purchase-attachment-session",
+      "name": "POS - Prepare Purchase Attachment Session",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        220
+      ],
+      "parameters": {
+        "jsCode": "const trim = (v, f = '') => String(v ?? f).trim();\nconst number = (v, f = 0) => {\n  const parsed = Number(String(v ?? '').replace(/,/g, ''));\n  return Number.isFinite(parsed) ? parsed : f;\n};\nconst vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst POS_USERNAME = trim(vars.POS_USERNAME);\nconst POS_PASSWORD = trim(vars.POS_PASSWORD);\nconst CLIENT_IDENTIFIER = trim(vars.AIPSOFT_CLIENT_IDENTIFIER, 'inout') || 'inout';\nconst POS_BASE_URL = trim(vars.AIPSOFT_API_BASE_URL, 'https://beta.aipsoft.com/inout').replace(/\\/$/, '');\nconst POS_LOGIN_ENDPOINT = trim(vars.POS_LOGIN_ENDPOINT, POS_BASE_URL + '/login/check');\nconst POS_REFERER = trim(vars.POS_PURCHASE_REFERER, POS_BASE_URL + '/transaction/purchase');\nconst POS_ORIGIN = trim(vars.POS_ORIGIN, 'https://beta.aipsoft.com');\nif (!POS_USERNAME || !POS_PASSWORD) throw new Error('Missing POS_USERNAME or POS_PASSWORD n8n Variables.');\nconst formEncode = (params) => {\n  const pairs = [];\n  const add = (key, value) => pairs.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(value ?? '')));\n  const build = (prefix, value) => {\n    if (Array.isArray(value)) {\n      value.forEach((entry, index) => build(prefix + '[' + index + ']', entry));\n      return;\n    }\n    if (value && typeof value === 'object') {\n      for (const [key, child] of Object.entries(value)) build(prefix + '[' + key + ']', child);\n      return;\n    }\n    add(prefix, value);\n  };\n  for (const [key, value] of Object.entries(params || {})) build(key, value);\n  return pairs.join('&');\n};\nconst cookieMap = (header) => {\n  const map = new Map();\n  for (const part of String(header || '').split(';')) {\n    const item = part.trim();\n    const eq = item.indexOf('=');\n    if (eq > 0) map.set(item.slice(0, eq), item.slice(eq + 1));\n  }\n  return map;\n};\nconst normalizeHeaders = (headers = {}) => {\n  const out = {};\n  if (headers?.forEach) headers.forEach((value, key) => { out[String(key).toLowerCase()] = value; });\n  else for (const [key, value] of Object.entries(headers || {})) out[String(key).toLowerCase()] = value;\n  if (headers?.getSetCookie) out['set-cookie'] = headers.getSetCookie();\n  return out;\n};\nconst setCookies = (headers) => {\n  const raw = normalizeHeaders(headers)['set-cookie'];\n  if (!raw) return [];\n  if (Array.isArray(raw)) return raw;\n  return String(raw).split(/,(?=\\s*[^;,\\s]+=)/g);\n};\nconst mergeCookies = (base, incoming) => {\n  const map = cookieMap(base);\n  for (const value of incoming || []) {\n    const first = String(value).split(';')[0];\n    const eq = first.indexOf('=');\n    if (eq > 0) map.set(first.slice(0, eq).trim(), first.slice(eq + 1).trim());\n  }\n  return Array.from(map.entries()).map(([key, value]) => key + '=' + value).join('; ');\n};\nconst isLogin = (text) => /login\\/check|name=[\"']password|::\\s*login/i.test(String(text || ''));\nasync function rawRequest(options) {\n  const response = await this.helpers.httpRequest({\n    method: options.method || 'POST',\n    url: options.url,\n    headers: options.headers || {},\n    body: options.body,\n    json: false,\n    returnFullResponse: true,\n    resolveWithFullResponse: true,\n    simple: false,\n    timeout: 120000,\n  });\n  if (response && typeof response === 'object' && (response.headers || Object.prototype.hasOwnProperty.call(response, 'body'))) {\n    return {\n      statusCode: response.statusCode || response.status || 0,\n      headers: response.headers || {},\n      body: typeof response.body === 'string' ? response.body : JSON.stringify(response.body ?? ''),\n    };\n  }\n  return { statusCode: 0, headers: {}, body: typeof response === 'string' ? response : JSON.stringify(response ?? '') };\n}\nfunction headers(cookie, contentType = true) {\n  const value = {\n    Accept: 'application/json, text/javascript, */*; q=0.01',\n    'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ar;q=0.7',\n    Origin: POS_ORIGIN,\n    Referer: POS_REFERER,\n    'X-Requested-With': 'XMLHttpRequest',\n    Cookie: cookie,\n  };\n  if (contentType) value['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';\n  return value;\n}\nasync function createPosSession() {\n  let cookie = 'language=english; direction=ltr; dont_show_today=true';\n  try {\n    const start = await rawRequest.call(this, { method: 'GET', url: POS_REFERER, headers: headers(cookie, false) });\n    cookie = mergeCookies(cookie, setCookies(start.headers));\n  } catch {}\n  const short = POS_USERNAME.includes('@') ? POS_USERNAME.split('@')[0].trim() : POS_USERNAME;\n  const candidates = Array.from(new Set([POS_USERNAME, POS_USERNAME.toLowerCase(), short, short.toLowerCase(), short + '@' + CLIENT_IDENTIFIER].filter(Boolean)));\n  let authed = false;\n  for (const username of candidates) {\n    const login = await rawRequest.call(this, {\n      method: 'POST',\n      url: POS_LOGIN_ENDPOINT,\n      headers: headers(cookie),\n      body: formEncode({ username, password: POS_PASSWORD, client_identifier: CLIENT_IDENTIFIER, auto_login: 'null', connection_path: 'null' }),\n    });\n    cookie = mergeCookies(cookie, setCookies(login.headers));\n    if ((/login_success|password_ok/i.test(login.body) || !isLogin(login.body)) && /ci_session_/i.test(cookie) && /\\binout=/i.test(cookie)) {\n      authed = true;\n      break;\n    }\n  }\n  if (!authed) throw new Error('POS login failed.');\n  async function post(path, data, label) {\n    const response = await rawRequest.call(this, { method: 'POST', url: POS_BASE_URL + path, headers: headers(cookie), body: formEncode(data || {}) });\n    cookie = mergeCookies(cookie, setCookies(response.headers));\n    if (isLogin(response.body)) throw new Error(label + ' returned POS login page.');\n    try { return JSON.parse(response.body); }\n    catch { throw new Error(label + ' returned invalid JSON: ' + response.body.slice(0, 250)); }\n  }\n  async function get(path, label) {\n    const response = await rawRequest.call(this, { method: 'GET', url: POS_BASE_URL + path, headers: headers(cookie, false) });\n    cookie = mergeCookies(cookie, setCookies(response.headers));\n    if (isLogin(response.body)) throw new Error(label + ' returned POS login page.');\n    try { return JSON.parse(response.body); }\n    catch { throw new Error(label + ' returned invalid JSON: ' + response.body.slice(0, 250)); }\n  }\n  return { post: post.bind(this), get: get.bind(this), cookie: () => cookie };\n}\n\nconst fileId = trim($json.result?.file_id || $json.file_id || $json.telegram_file_id);\nconst store = $getWorkflowStaticData('global');\nconst job = store.purchaseAttachmentJobs?.[fileId];\nif (!job) throw new Error('Purchase attachment job not found.');\nconst binaryKey = Object.keys($input.item.binary || {})[0];\nif (!binaryKey) throw new Error('Telegram purchase file was not returned as binary data.');\nconst session = await createPosSession.call(this);\nreturn [{\n  json: {\n    ...job,\n    upload_url: POS_BASE_URL + '/transaction/save_attachments',\n    pos_cookie: session.cookie(),\n  },\n  binary: { data: $input.item.binary[binaryKey] },\n}];"
+      }
+    },
+    {
+      "id": "purchase-attachment-http",
+      "name": "POS HTTP - Upload Purchase Attachment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1240,
+        220
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{$json.upload_url}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Cookie",
+              "value": "={{$json.pos_cookie}}"
+            },
+            {
+              "name": "X-Requested-With",
+              "value": "XMLHttpRequest"
+            },
+            {
+              "name": "Origin",
+              "value": "https://beta.aipsoft.com"
+            },
+            {
+              "name": "Referer",
+              "value": "https://beta.aipsoft.com/inout/transaction/purchase"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json, text/javascript, */*; q=0.01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formData",
+              "name": "module_id",
+              "value": "={{$json.purchase_id}}"
+            },
+            {
+              "parameterType": "formData",
+              "name": "attach_module",
+              "value": "purchase"
+            },
+            {
+              "parameterType": "formBinaryData",
+              "name": "attachments[]",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "purchase-attachment-finalize",
+      "name": "Purchase - Finalize Attachment Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        220
+      ],
+      "parameters": {
+        "jsCode": "const prepared = $('POS - Prepare Purchase Attachment Session').first().json;\nconst raw = Object.prototype.hasOwnProperty.call($json, 'body') ? $json.body : $json;\nlet response = raw;\nif (typeof raw === 'string') {\n  try { response = JSON.parse(raw); }\n  catch { response = { message: raw, status_code: $json.statusCode || 0 }; }\n}\nconst ok = Number(response?.response_code) === 200 || Number(response?.['response code']) === 200 || Number(response?.status) === 1 || /success/i.test(String(response?.message || ''));\nconst store = $getWorkflowStaticData('global');\nif (ok) {\n  if (store.purchaseDrafts?.[prepared.draft_id]?.result) {\n    store.purchaseDrafts[prepared.draft_id].result.attachment_status = 'uploaded';\n    store.purchaseDrafts[prepared.draft_id].result.attachment_response = response;\n  }\n  delete store.purchaseAttachmentJobs[prepared.telegram_file_id];\n  return [{ json: { ...prepared, telegram_text: ['تم رفع مرفق المشتريات بنجاح', 'Purchase ID: ' + prepared.purchase_id, 'Purchase #: ' + prepared.invoice_no].join('\\n') } }];\n}\nlet error;\ntry { error = JSON.stringify(response); } catch { error = String(response); }\nreturn [{ json: { ...prepared, telegram_text: ['تم تسجيل المشتريات ولكن تعذر رفع المرفق', 'Purchase ID: ' + prepared.purchase_id, 'السبب: ' + error.slice(0, 300)].join('\\n') } }];"
+      }
+    },
+    {
+      "id": "purchase-attachment-result",
+      "name": "Telegram - Send Purchase Attachment Result",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1760,
+        220
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.chat_id}}",
+        "text": "={{$json.telegram_text}}",
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "purchase-branch",
+      "name": "Branch - Update Purchase Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -540,
+        460
+      ],
+      "parameters": {
+        "jsCode": "if ($json.action !== 'branch') return [];\nconst store = $getWorkflowStaticData('global');\nconst draft = store.purchaseDrafts?.[$json.draft_id];\nif (!draft) return [{ json: { ...$json, telegram_text: 'لم أجد مسودة المشتريات: ' + $json.draft_id } }];\ndraft.branch = { id: String($json.branch_id), name: String($json.branch_name) };\ndraft.status = 'pending_rematch';\nreturn [{ json: { ...$json, extracted: draft.extracted, source_attachment: draft.source_attachment, branch_id: draft.branch.id, branch_name: draft.branch.name } }];"
+      }
+    },
+    {
+      "id": "purchase-branch-rematch",
+      "name": "POS - Rematch Purchase After Branch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -280,
+        460
+      ],
+      "parameters": {
+        "jsCode": "const trim = (v, f = '') => String(v ?? f).trim();\nconst number = (v, f = 0) => {\n  const parsed = Number(String(v ?? '').replace(/,/g, ''));\n  return Number.isFinite(parsed) ? parsed : f;\n};\nconst vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst POS_USERNAME = trim(vars.POS_USERNAME);\nconst POS_PASSWORD = trim(vars.POS_PASSWORD);\nconst CLIENT_IDENTIFIER = trim(vars.AIPSOFT_CLIENT_IDENTIFIER, 'inout') || 'inout';\nconst POS_BASE_URL = trim(vars.AIPSOFT_API_BASE_URL, 'https://beta.aipsoft.com/inout').replace(/\\/$/, '');\nconst POS_LOGIN_ENDPOINT = trim(vars.POS_LOGIN_ENDPOINT, POS_BASE_URL + '/login/check');\nconst POS_REFERER = trim(vars.POS_PURCHASE_REFERER, POS_BASE_URL + '/transaction/purchase');\nconst POS_ORIGIN = trim(vars.POS_ORIGIN, 'https://beta.aipsoft.com');\nif (!POS_USERNAME || !POS_PASSWORD) throw new Error('Missing POS_USERNAME or POS_PASSWORD n8n Variables.');\nconst formEncode = (params) => {\n  const pairs = [];\n  const add = (key, value) => pairs.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(value ?? '')));\n  const build = (prefix, value) => {\n    if (Array.isArray(value)) {\n      value.forEach((entry, index) => build(prefix + '[' + index + ']', entry));\n      return;\n    }\n    if (value && typeof value === 'object') {\n      for (const [key, child] of Object.entries(value)) build(prefix + '[' + key + ']', child);\n      return;\n    }\n    add(prefix, value);\n  };\n  for (const [key, value] of Object.entries(params || {})) build(key, value);\n  return pairs.join('&');\n};\nconst cookieMap = (header) => {\n  const map = new Map();\n  for (const part of String(header || '').split(';')) {\n    const item = part.trim();\n    const eq = item.indexOf('=');\n    if (eq > 0) map.set(item.slice(0, eq), item.slice(eq + 1));\n  }\n  return map;\n};\nconst normalizeHeaders = (headers = {}) => {\n  const out = {};\n  if (headers?.forEach) headers.forEach((value, key) => { out[String(key).toLowerCase()] = value; });\n  else for (const [key, value] of Object.entries(headers || {})) out[String(key).toLowerCase()] = value;\n  if (headers?.getSetCookie) out['set-cookie'] = headers.getSetCookie();\n  return out;\n};\nconst setCookies = (headers) => {\n  const raw = normalizeHeaders(headers)['set-cookie'];\n  if (!raw) return [];\n  if (Array.isArray(raw)) return raw;\n  return String(raw).split(/,(?=\\s*[^;,\\s]+=)/g);\n};\nconst mergeCookies = (base, incoming) => {\n  const map = cookieMap(base);\n  for (const value of incoming || []) {\n    const first = String(value).split(';')[0];\n    const eq = first.indexOf('=');\n    if (eq > 0) map.set(first.slice(0, eq).trim(), first.slice(eq + 1).trim());\n  }\n  return Array.from(map.entries()).map(([key, value]) => key + '=' + value).join('; ');\n};\nconst isLogin = (text) => /login\\/check|name=[\"']password|::\\s*login/i.test(String(text || ''));\nasync function rawRequest(options) {\n  const response = await this.helpers.httpRequest({\n    method: options.method || 'POST',\n    url: options.url,\n    headers: options.headers || {},\n    body: options.body,\n    json: false,\n    returnFullResponse: true,\n    resolveWithFullResponse: true,\n    simple: false,\n    timeout: 120000,\n  });\n  if (response && typeof response === 'object' && (response.headers || Object.prototype.hasOwnProperty.call(response, 'body'))) {\n    return {\n      statusCode: response.statusCode || response.status || 0,\n      headers: response.headers || {},\n      body: typeof response.body === 'string' ? response.body : JSON.stringify(response.body ?? ''),\n    };\n  }\n  return { statusCode: 0, headers: {}, body: typeof response === 'string' ? response : JSON.stringify(response ?? '') };\n}\nfunction headers(cookie, contentType = true) {\n  const value = {\n    Accept: 'application/json, text/javascript, */*; q=0.01',\n    'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ar;q=0.7',\n    Origin: POS_ORIGIN,\n    Referer: POS_REFERER,\n    'X-Requested-With': 'XMLHttpRequest',\n    Cookie: cookie,\n  };\n  if (contentType) value['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';\n  return value;\n}\nasync function createPosSession() {\n  let cookie = 'language=english; direction=ltr; dont_show_today=true';\n  try {\n    const start = await rawRequest.call(this, { method: 'GET', url: POS_REFERER, headers: headers(cookie, false) });\n    cookie = mergeCookies(cookie, setCookies(start.headers));\n  } catch {}\n  const short = POS_USERNAME.includes('@') ? POS_USERNAME.split('@')[0].trim() : POS_USERNAME;\n  const candidates = Array.from(new Set([POS_USERNAME, POS_USERNAME.toLowerCase(), short, short.toLowerCase(), short + '@' + CLIENT_IDENTIFIER].filter(Boolean)));\n  let authed = false;\n  for (const username of candidates) {\n    const login = await rawRequest.call(this, {\n      method: 'POST',\n      url: POS_LOGIN_ENDPOINT,\n      headers: headers(cookie),\n      body: formEncode({ username, password: POS_PASSWORD, client_identifier: CLIENT_IDENTIFIER, auto_login: 'null', connection_path: 'null' }),\n    });\n    cookie = mergeCookies(cookie, setCookies(login.headers));\n    if ((/login_success|password_ok/i.test(login.body) || !isLogin(login.body)) && /ci_session_/i.test(cookie) && /\\binout=/i.test(cookie)) {\n      authed = true;\n      break;\n    }\n  }\n  if (!authed) throw new Error('POS login failed.');\n  async function post(path, data, label) {\n    const response = await rawRequest.call(this, { method: 'POST', url: POS_BASE_URL + path, headers: headers(cookie), body: formEncode(data || {}) });\n    cookie = mergeCookies(cookie, setCookies(response.headers));\n    if (isLogin(response.body)) throw new Error(label + ' returned POS login page.');\n    try { return JSON.parse(response.body); }\n    catch { throw new Error(label + ' returned invalid JSON: ' + response.body.slice(0, 250)); }\n  }\n  async function get(path, label) {\n    const response = await rawRequest.call(this, { method: 'GET', url: POS_BASE_URL + path, headers: headers(cookie, false) });\n    cookie = mergeCookies(cookie, setCookies(response.headers));\n    if (isLogin(response.body)) throw new Error(label + ' returned POS login page.');\n    try { return JSON.parse(response.body); }\n    catch { throw new Error(label + ' returned invalid JSON: ' + response.body.slice(0, 250)); }\n  }\n  return { post: post.bind(this), get: get.bind(this), cookie: () => cookie };\n}\n\nconst vendors = [{\"id\":\"33961\",\"text\":\"magnus world\",\"branch_id\":\"1\"},{\"id\":\"33991\",\"text\":\"UmmAlNar\",\"branch_id\":\"1\"},{\"id\":\"33992\",\"text\":\"abu al abiyad automatic modern l\",\"branch_id\":\"1\"},{\"id\":\"33993\",\"text\":\"poineer trading establishment\",\"branch_id\":\"1\"},{\"id\":\"33994\",\"text\":\"fast track laundry\",\"branch_id\":\"1\"},{\"id\":\"33995\",\"text\":\"magnus world it solution\",\"branch_id\":\"1\"},{\"id\":\"33996\",\"text\":\"globe chemicals company\",\"branch_id\":\"1\"},{\"id\":\"33997\",\"text\":\"al salam plastic factory\",\"branch_id\":\"1\"},{\"id\":\"33998\",\"text\":\"spring water\",\"branch_id\":\"1\"},{\"id\":\"33999\",\"text\":\"the magic touch bldg cleaning\",\"branch_id\":\"1\"},{\"id\":\"34000\",\"text\":\"soft touch cleaning services\",\"branch_id\":\"1\"},{\"id\":\"34001\",\"text\":\"green olive ready made garments\",\"branch_id\":\"1\"},{\"id\":\"34002\",\"text\":\"alminaplastic products factory\",\"branch_id\":\"1\"},{\"id\":\"34003\",\"text\":\"foilack foiling materials tradin\",\"branch_id\":\"1\"},{\"id\":\"34004\",\"text\":\"najma stationery\",\"branch_id\":\"1\"},{\"id\":\"34005\",\"text\":\"najma stationery llc\",\"branch_id\":\"1\"},{\"id\":\"34006\",\"text\":\"x pert industrial materials trad\",\"branch_id\":\"1\"},{\"id\":\"34007\",\"text\":\"bohec middle east\",\"branch_id\":\"1\"},{\"id\":\"34008\",\"text\":\"hidayath trading co. llc\",\"branch_id\":\"1\"},{\"id\":\"34009\",\"text\":\"skyway\",\"branch_id\":\"1\"},{\"id\":\"34010\",\"text\":\"daman\",\"branch_id\":\"1\"},{\"id\":\"34011\",\"text\":\"adnoc distribution\",\"branch_id\":\"1\"},{\"id\":\"34012\",\"text\":\"ADDC\",\"branch_id\":\"1\"},{\"id\":\"34013\",\"text\":\"harvest stationery est\",\"branch_id\":\"1\"},{\"id\":\"34014\",\"text\":\"etisalat\",\"branch_id\":\"1\"},{\"id\":\"34015\",\"text\":\"alamal printing press\",\"branch_id\":\"1\"},{\"id\":\"34016\",\"text\":\"royal electronic wheel balance\",\"branch_id\":\"1\"},{\"id\":\"34017\",\"text\":\"musaffah stationery\",\"branch_id\":\"1\"},{\"id\":\"34018\",\"text\":\"royal electronic balance\",\"branch_id\":\"1\"},{\"id\":\"34019\",\"text\":\"wear mart\",\"branch_id\":\"1\"},{\"id\":\"34020\",\"text\":\"musaffah stationary\",\"branch_id\":\"1\"},{\"id\":\"34042\",\"text\":\"royal city market\",\"branch_id\":\"1\"},{\"id\":\"34232\",\"text\":\"NEWMATIC\",\"branch_id\":\"1\"},{\"id\":\"34234\",\"text\":\"al jazeerah\",\"branch_id\":\"1\"},{\"id\":\"34242\",\"text\":\"lulu haypermarket\",\"branch_id\":\"1\"},{\"id\":\"34243\",\"text\":\"university bookshop\",\"branch_id\":\"1\"},{\"id\":\"34244\",\"text\":\"SAE SHELL\",\"branch_id\":\"1\"},{\"id\":\"34245\",\"text\":\"farook stationery\",\"branch_id\":\"1\"},{\"id\":\"34246\",\"text\":\"carrefour\",\"branch_id\":\"1\"},{\"id\":\"34250\",\"text\":\"SALARY\",\"branch_id\":\"1\"},{\"id\":\"34251\",\"text\":\"CASH\",\"branch_id\":\"1\"},{\"id\":\"34252\",\"text\":\"GIFT PALACE\",\"branch_id\":\"1\"},{\"id\":\"34253\",\"text\":\"AL FAYA\",\"branch_id\":\"1\"},{\"id\":\"34254\",\"text\":\"WORLD GREEN\",\"branch_id\":\"1\"},{\"id\":\"34256\",\"text\":\"smooth\",\"branch_id\":\"1\"},{\"id\":\"34257\",\"text\":\"primefire\",\"branch_id\":\"1\"},{\"id\":\"34258\",\"text\":\"muslim brothers decore\",\"branch_id\":\"1\"},{\"id\":\"34259\",\"text\":\"runway\",\"branch_id\":\"1\"},{\"id\":\"34260\",\"text\":\"best buy textile llc\",\"branch_id\":\"1\"},{\"id\":\"34261\",\"text\":\"grace land\",\"branch_id\":\"1\"},{\"id\":\"34262\",\"text\":\"LIGHT FOLLOW\",\"branch_id\":\"1\"},{\"id\":\"34263\",\"text\":\"BETEX UNIFORMS TRADING\",\"branch_id\":\"1\"},{\"id\":\"34264\",\"text\":\"SHABAB DRAA TAYERS\",\"branch_id\":\"1\"},{\"id\":\"34265\",\"text\":\"ADIB\",\"branch_id\":\"1\"},{\"id\":\"34521\",\"text\":\"Loan\",\"branch_id\":\"1\"},{\"id\":\"34522\",\"text\":\"m. SAOOD CASH\",\"branch_id\":\"1\"},{\"id\":\"34628\",\"text\":\"target point\",\"branch_id\":\"1\"},{\"id\":\"34873\",\"text\":\"al mahtah al mutmayth\",\"branch_id\":\"1\"},{\"id\":\"34881\",\"text\":\"Golden Home Paints\",\"branch_id\":\"1\"},{\"id\":\"34887\",\"text\":\"fox\",\"branch_id\":\"1\"},{\"id\":\"34896\",\"text\":\"RAMZ\",\"branch_id\":\"1\"},{\"id\":\"34897\",\"text\":\"DAR\",\"branch_id\":\"1\"},{\"id\":\"35143\",\"text\":\"commission\",\"branch_id\":\"1\"},{\"id\":\"35179\",\"text\":\"AL ETHAD\",\"branch_id\":\"1\"},{\"id\":\"35180\",\"text\":\"SEVEN STARS\",\"branch_id\":\"1\"},{\"id\":\"35181\",\"text\":\"CARCE LAND\",\"branch_id\":\"1\"},{\"id\":\"35182\",\"text\":\"FLASH ELECTRICAL\",\"branch_id\":\"1\"},{\"id\":\"35195\",\"text\":\"JAYNAB AUTO\",\"branch_id\":\"1\"},{\"id\":\"35196\",\"text\":\"WORLD CURTAINS EST\",\"branch_id\":\"1\"},{\"id\":\"35197\",\"text\":\"REGONAL TECHNLOGY\",\"branch_id\":\"1\"},{\"id\":\"35199\",\"text\":\"Fast CLean\",\"branch_id\":\"1\"},{\"id\":\"35850\",\"text\":\"TAW\",\"branch_id\":\"1\"},{\"id\":\"35851\",\"text\":\"AL Amrat\",\"branch_id\":\"1\"},{\"id\":\"35861\",\"text\":\"Poular\",\"branch_id\":\"1\"},{\"id\":\"35868\",\"text\":\"fast cool\",\"branch_id\":\"1\"},{\"id\":\"35869\",\"text\":\"AL GHOWAS\",\"branch_id\":\"1\"},{\"id\":\"35871\",\"text\":\"LIBERTY TYRE\",\"branch_id\":\"1\"},{\"id\":\"36069\",\"text\":\"Coffe Shop\",\"branch_id\":\"1\"},{\"id\":\"36070\",\"text\":\"carlit\",\"branch_id\":\"1\"},{\"id\":\"36071\",\"text\":\"AL Mussafah\",\"branch_id\":\"1\"},{\"id\":\"36226\",\"text\":\"CAR WASH\",\"branch_id\":\"1\"},{\"id\":\"36229\",\"text\":\"AL FALAH PLAZA\",\"branch_id\":\"1\"},{\"id\":\"36234\",\"text\":\"sumer way\",\"branch_id\":\"1\"},{\"id\":\"36235\",\"text\":\"AL Futtaim Motors\",\"branch_id\":\"1\"},{\"id\":\"38333\",\"text\":\"Abu Dhabi Distrbution Co.\",\"branch_id\":\"0\"},{\"id\":\"38334\",\"text\":\"Abu Dhabi Distrbution\",\"branch_id\":\"0\"},{\"id\":\"38335\",\"text\":\"Sultaco\",\"branch_id\":\"0\"},{\"id\":\"43562\",\"text\":\"GREEN SAVER A/C MAINTENANCE\",\"branch_id\":\"0\"},{\"id\":\"43649\",\"text\":\"CULF TAYER COMPANY\",\"branch_id\":\"0\"},{\"id\":\"44318\",\"text\":\"LINSHA BUILDING\",\"branch_id\":\"0\"},{\"id\":\"44320\",\"text\":\"BEST\",\"branch_id\":\"0\"},{\"id\":\"44321\",\"text\":\"GREEN  LINE\",\"branch_id\":\"0\"},{\"id\":\"44322\",\"text\":\"COOP 1\",\"branch_id\":\"0\"},{\"id\":\"44323\",\"text\":\"AL Raieh\",\"branch_id\":\"1\"},{\"id\":\"44324\",\"text\":\"NAS GIFT\",\"branch_id\":\"0\"},{\"id\":\"44496\",\"text\":\"DAR AL HARAMIN\",\"branch_id\":\"0\"},{\"id\":\"44548\",\"text\":\"AMAZON DELIVEERY\",\"branch_id\":\"0\"},{\"id\":\"44550\",\"text\":\"M.AKTER SUPERMARKET L.L.C\",\"branch_id\":\"0\"},{\"id\":\"44655\",\"text\":\"Bagala\",\"branch_id\":\"0\"},{\"id\":\"44768\",\"text\":\"Phoneix\",\"branch_id\":\"0\"},{\"id\":\"44769\",\"text\":\"Perfect ZN\",\"branch_id\":\"0\"},{\"id\":\"44774\",\"text\":\"SIlver Base\",\"branch_id\":\"1\"},{\"id\":\"44789\",\"text\":\"UNIFORMATY\",\"branch_id\":\"0\"},{\"id\":\"44792\",\"text\":\"ETIHAD\",\"branch_id\":\"0\"},{\"id\":\"44800\",\"text\":\"TAMOUH FIRE & SAFETY\",\"branch_id\":\"0\"},{\"id\":\"44838\",\"text\":\"STILLBOW\",\"branch_id\":\"0\"},{\"id\":\"45373\",\"text\":\"AL RAHA TEA\",\"branch_id\":\"0\"},{\"id\":\"45374\",\"text\":\"MODREN CASTLE BULDING MATRLALS TRADING\",\"branch_id\":\"0\"},{\"id\":\"45375\",\"text\":\"maintenance\",\"branch_id\":\"0\"},{\"id\":\"45377\",\"text\":\"MUSSAFHA SKY MANTENINCE\",\"branch_id\":\"0\"},{\"id\":\"45557\",\"text\":\"DECENT AUTO\",\"branch_id\":\"0\"},{\"id\":\"45619\",\"text\":\"AHMED MUSTHAFA SUPER MARKET\",\"branch_id\":\"0\"},{\"id\":\"45627\",\"text\":\"PREMIUM\",\"branch_id\":\"0\"},{\"id\":\"45657\",\"text\":\"DEPARTMENT OF ECONOMIC DEVELOPMENT\",\"branch_id\":\"0\"},{\"id\":\"45977\",\"text\":\"Spring Field\",\"branch_id\":\"0\"},{\"id\":\"46127\",\"text\":\"CARD CUTTERS COMPUTER EQU\",\"branch_id\":\"0\"},{\"id\":\"46280\",\"text\":\"LIBERTY\",\"branch_id\":\"0\"},{\"id\":\"46283\",\"text\":\"AL AKRAMAIN\",\"branch_id\":\"0\"},{\"id\":\"46285\",\"text\":\"GOOD MATERIAL\",\"branch_id\":\"0\"},{\"id\":\"46293\",\"text\":\"AL NOUFAL\",\"branch_id\":\"0\"},{\"id\":\"46294\",\"text\":\"TYERPLUS\",\"branch_id\":\"0\"},{\"id\":\"46300\",\"text\":\"PIECE OF TOWN GENERAL CONTRACTING\",\"branch_id\":\"0\"},{\"id\":\"46358\",\"text\":\"High Quality\",\"branch_id\":\"0\"},{\"id\":\"46451\",\"text\":\"Abul HASHEM SHOP\",\"branch_id\":\"0\"},{\"id\":\"46453\",\"text\":\"BENGAL AUTO PARTS\",\"branch_id\":\"0\"},{\"id\":\"46758\",\"text\":\"MICROLESS GENERAL TRADING\",\"branch_id\":\"0\"},{\"id\":\"46922\",\"text\":\"JUMAIRAH TEAM FIR\",\"branch_id\":\"0\"},{\"id\":\"46946\",\"text\":\"THREE STAR\",\"branch_id\":\"0\"},{\"id\":\"47371\",\"text\":\"APX TRANDING\",\"branch_id\":\"0\"},{\"id\":\"47908\",\"text\":\"Al ANSARI\",\"branch_id\":\"0\"},{\"id\":\"48092\",\"text\":\"JABAL AL NOOR TYER\",\"branch_id\":\"0\"},{\"id\":\"48398\",\"text\":\"ROYAL JUNCTION\",\"branch_id\":\"0\"},{\"id\":\"49211\",\"text\":\"NOOR AHMED ELECTRONICS\",\"branch_id\":\"0\"},{\"id\":\"49212\",\"text\":\"CAR ONE AUTO ACCESSORIES\",\"branch_id\":\"0\"},{\"id\":\"49811\",\"text\":\"AL-AHMED MECHANICAL WORKSHOP\",\"branch_id\":\"0\"},{\"id\":\"49919\",\"text\":\"THAMARA ELECTRONICS EST\",\"branch_id\":\"1\"},{\"id\":\"49934\",\"text\":\"Federal Tax Authority\",\"branch_id\":\"0\"},{\"id\":\"50080\",\"text\":\"FEX LORD TYER\",\"branch_id\":\"0\"},{\"id\":\"50160\",\"text\":\"INDEX STATIONERY TRADING\",\"branch_id\":\"0\"},{\"id\":\"50161\",\"text\":\"ALNAKHIL ALSHAM REPAIR\",\"branch_id\":\"0\"},{\"id\":\"50247\",\"text\":\"BOOKSHOP\",\"branch_id\":\"0\"},{\"id\":\"50450\",\"text\":\"network\",\"branch_id\":\"0\"},{\"id\":\"50492\",\"text\":\"evertrust\",\"branch_id\":\"0\"},{\"id\":\"50520\",\"text\":\"RED STAR GIFT\",\"branch_id\":\"0\"},{\"id\":\"50652\",\"text\":\"FLIGHT\",\"branch_id\":\"0\"},{\"id\":\"51055\",\"text\":\"HIGH POWER\",\"branch_id\":\"0\"},{\"id\":\"51056\",\"text\":\"SUNGLOW\",\"branch_id\":\"0\"},{\"id\":\"51090\",\"text\":\"RAJAB TRADING CO\",\"branch_id\":\"0\"},{\"id\":\"51385\",\"text\":\"etisalat + internet\",\"branch_id\":\"0\"},{\"id\":\"51725\",\"text\":\"ARABIAN AQSA BULDING\",\"branch_id\":\"0\"},{\"id\":\"51856\",\"text\":\"Chaos Auto Repair Workshop\",\"branch_id\":\"0\"},{\"id\":\"52049\",\"text\":\"gulf tyer company w.l.l\",\"branch_id\":\"0\"},{\"id\":\"52429\",\"text\":\"Employee benefits\",\"branch_id\":\"0\"},{\"id\":\"52770\",\"text\":\"HBC\",\"branch_id\":\"0\"},{\"id\":\"52771\",\"text\":\"Car insurance\",\"branch_id\":\"0\"},{\"id\":\"53179\",\"text\":\"Focus\",\"branch_id\":\"0\"},{\"id\":\"53439\",\"text\":\"Al Khutot Al Thahabia Tourism\",\"branch_id\":\"0\"},{\"id\":\"53868\",\"text\":\"DREAM FIR\",\"branch_id\":\"0\"},{\"id\":\"54303\",\"text\":\"GRAND GIFTS\",\"branch_id\":\"0\"},{\"id\":\"54770\",\"text\":\"Top sensor Auto\",\"branch_id\":\"0\"},{\"id\":\"54839\",\"text\":\"MARK  & SAVE\",\"branch_id\":\"0\"},{\"id\":\"55045\",\"text\":\"Triple\",\"branch_id\":\"0\"},{\"id\":\"55080\",\"text\":\"AL ALYA OFFICAL DRESSES\",\"branch_id\":\"0\"},{\"id\":\"55136\",\"text\":\"Al falah Land Mark\",\"branch_id\":\"0\"},{\"id\":\"55204\",\"text\":\"Sana Electronic Wheel Balance\",\"branch_id\":\"0\"},{\"id\":\"55399\",\"text\":\"Golden Printer\",\"branch_id\":\"0\"},{\"id\":\"55407\",\"text\":\"Car fines\",\"branch_id\":\"0\"},{\"id\":\"55432\",\"text\":\"rent\",\"branch_id\":\"0\"},{\"id\":\"55655\",\"text\":\"PREMIER AUTO PARTS L.L.C\",\"branch_id\":\"0\"},{\"id\":\"55882\",\"text\":\"sweet shine\",\"branch_id\":\"0\"},{\"id\":\"56258\",\"text\":\"red palace restrant\",\"branch_id\":\"0\"},{\"id\":\"56361\",\"text\":\"In&Out Advertisment\",\"branch_id\":\"0\"},{\"id\":\"56608\",\"text\":\"THREE STAR FASHIONS\",\"branch_id\":\"0\"},{\"id\":\"57409\",\"text\":\"VisaFit2\",\"branch_id\":\"0\"},{\"id\":\"57939\",\"text\":\"aman\",\"branch_id\":\"0\"},{\"id\":\"57953\",\"text\":\"jabel al noor cafeteria\",\"branch_id\":\"0\"},{\"id\":\"58123\",\"text\":\"WADI AL DIAB AUTO\",\"branch_id\":\"0\"},{\"id\":\"58222\",\"text\":\"fatima international transaction\",\"branch_id\":\"0\"},{\"id\":\"58350\",\"text\":\"MOHIYADDIN ALI NEW CAR\",\"branch_id\":\"0\"},{\"id\":\"58443\",\"text\":\"gulfaco statinery.llc\",\"branch_id\":\"0\"},{\"id\":\"58447\",\"text\":\"TAXI DELEVERY\",\"branch_id\":\"0\"},{\"id\":\"58484\",\"text\":\"Emirat Tools EST\",\"branch_id\":\"0\"},{\"id\":\"58485\",\"text\":\"On light Electrical\",\"branch_id\":\"0\"},{\"id\":\"58546\",\"text\":\"OMEIR TRAVEL\",\"branch_id\":\"0\"},{\"id\":\"58580\",\"text\":\"NEW LIFE\",\"branch_id\":\"0\"},{\"id\":\"58581\",\"text\":\"MASTER FIT\",\"branch_id\":\"0\"},{\"id\":\"58583\",\"text\":\"OCEAN PLASTIC FACTORY\",\"branch_id\":\"0\"},{\"id\":\"58584\",\"text\":\"OCEAN PLASTIC FACTORY\",\"branch_id\":\"1\"},{\"id\":\"58748\",\"text\":\"AL HADHOUDH TRADING & CONT EST\",\"branch_id\":\"0\"},{\"id\":\"59156\",\"text\":\"POLYCON GULF\",\"branch_id\":\"0\"},{\"id\":\"59163\",\"text\":\"THE PRINCE OF KEYS\",\"branch_id\":\"0\"},{\"id\":\"59490\",\"text\":\"IBY AUTO WHEEL BALANCE\",\"branch_id\":\"0\"},{\"id\":\"59562\",\"text\":\"A AND 0 ELECTROMECHAICAL WORK L.L.C.\",\"branch_id\":\"0\"},{\"id\":\"59730\",\"text\":\"SPECIAL BELT TRADING-L.L.C\",\"branch_id\":\"0\"},{\"id\":\"60390\",\"text\":\"midway\",\"branch_id\":\"0\"},{\"id\":\"60391\",\"text\":\"MOHAMED ALAM AMZU MEHA WELD\",\"branch_id\":\"0\"},{\"id\":\"60392\",\"text\":\"AL TAWHID AUTO REPAIR\",\"branch_id\":\"0\"},{\"id\":\"60393\",\"text\":\"BEACH STAR NEW AUTO SPARE\",\"branch_id\":\"0\"},{\"id\":\"60394\",\"text\":\"AFREEN BULDING\",\"branch_id\":\"0\"},{\"id\":\"60795\",\"text\":\"RECOVERY\",\"branch_id\":\"0\"},{\"id\":\"61326\",\"text\":\"super royal cars spare parts\",\"branch_id\":\"0\"},{\"id\":\"61409\",\"text\":\"city car new\",\"branch_id\":\"0\"},{\"id\":\"61605\",\"text\":\"TAQA\",\"branch_id\":\"0\"},{\"id\":\"61951\",\"text\":\"MAGNATECH THECHNICAL\",\"branch_id\":\"0\"},{\"id\":\"61954\",\"text\":\"Alif Laam Typing\",\"branch_id\":\"0\"},{\"id\":\"61967\",\"text\":\"AL RUMZ WHEEL BALANCE\",\"branch_id\":\"0\"},{\"id\":\"61969\",\"text\":\"FALAK ADANTAGE\",\"branch_id\":\"0\"},{\"id\":\"62288\",\"text\":\"Famous\",\"branch_id\":\"0\"},{\"id\":\"62289\",\"text\":\"BRIHT MARK\",\"branch_id\":\"0\"},{\"id\":\"62646\",\"text\":\"Transaction Fees\",\"branch_id\":\"0\"},{\"id\":\"62648\",\"text\":\"ALLIANCE TRANSACTIONS SERVICES\",\"branch_id\":\"0\"},{\"id\":\"62914\",\"text\":\"ZAMAM AUTO\",\"branch_id\":\"0\"},{\"id\":\"62915\",\"text\":\"COLDEN PRINTER SYSTEM\",\"branch_id\":\"0\"},{\"id\":\"63282\",\"text\":\"GT9 AUTOCARE\",\"branch_id\":\"0\"},{\"id\":\"63286\",\"text\":\"KABUL 3B\",\"branch_id\":\"0\"},{\"id\":\"63287\",\"text\":\"BRILLIANT\",\"branch_id\":\"0\"},{\"id\":\"63513\",\"text\":\"Smart Eagle\",\"branch_id\":\"0\"},{\"id\":\"63517\",\"text\":\"AL AMANI TRADING L.L.C\",\"branch_id\":\"0\"},{\"id\":\"63945\",\"text\":\"Smart\",\"branch_id\":\"0\"},{\"id\":\"63947\",\"text\":\"CAPITAL TYRES\",\"branch_id\":\"0\"},{\"id\":\"63948\",\"text\":\"JOIN S GENERAL\",\"branch_id\":\"0\"},{\"id\":\"63950\",\"text\":\"TAHRAGA\",\"branch_id\":\"0\"},{\"id\":\"64181\",\"text\":\"Mr uniform\",\"branch_id\":\"1\"},{\"id\":\"64465\",\"text\":\"MOHAMMAD ROBEL ALUMINIUM\",\"branch_id\":\"0\"},{\"id\":\"64467\",\"text\":\"DYNO\",\"branch_id\":\"0\"},{\"id\":\"64468\",\"text\":\"ADCOOP\",\"branch_id\":\"0\"},{\"id\":\"64629\",\"text\":\"MINISTRY OF HUMAN RESOURC\",\"branch_id\":\"0\"},{\"id\":\"64630\",\"text\":\"Amazon\",\"branch_id\":\"1\"},{\"id\":\"64633\",\"text\":\"AL ATHOOZ PROPERTY MANAGEMENT- L.L.C - O.P.C\",\"branch_id\":\"0\"},{\"id\":\"65044\",\"text\":\"DEFENSE POINT\",\"branch_id\":\"0\"},{\"id\":\"65045\",\"text\":\"ABDUL HALRRM CAR-NEW\",\"branch_id\":\"0\"},{\"id\":\"65046\",\"text\":\"AL MEZAN AUTO\",\"branch_id\":\"0\"},{\"id\":\"65860\",\"text\":\"GEMINI MOTOR CYCLE REPAIR SHOP\",\"branch_id\":\"0\"},{\"id\":\"65861\",\"text\":\"SEAPACK\",\"branch_id\":\"0\"},{\"id\":\"65862\",\"text\":\"TADKEER\",\"branch_id\":\"0\"},{\"id\":\"66260\",\"text\":\"Gulf Protek L.L.C\",\"branch_id\":\"0\"},{\"id\":\"66265\",\"text\":\"DEFENSE MATRIC\",\"branch_id\":\"0\"},{\"id\":\"66268\",\"text\":\"Aramex\",\"branch_id\":\"0\"},{\"id\":\"66284\",\"text\":\"Takaful\",\"branch_id\":\"0\"},{\"id\":\"66286\",\"text\":\"ِAbu Dhabi Police G.H.Q\",\"branch_id\":\"0\"},{\"id\":\"67082\",\"text\":\"TYER PLUS\",\"branch_id\":\"0\"},{\"id\":\"67083\",\"text\":\"ZAHRAT ALKHAZAN\",\"branch_id\":\"0\"}];\nconst normalize = (value) => trim(value).toLowerCase()\n  .normalize('NFKD').replace(/[\\u0300-\\u036f]/g, '')\n  .replace(/[^a-z0-9\\u0600-\\u06ff]+/g, ' ')\n  .replace(/\\b(llc|l l c|est|establishment|company|co|trading|general)\\b/g, ' ')\n  .replace(/\\s+/g, ' ').trim();\nconst similarity = (left, right) => {\n  const a = normalize(left);\n  const b = normalize(right);\n  if (!a || !b) return 0;\n  if (a === b) return 1;\n  if (a.includes(b) || b.includes(a)) return 0.92;\n  const aa = new Set(a.split(' '));\n  const bb = new Set(b.split(' '));\n  const intersection = [...aa].filter((word) => bb.has(word)).length;\n  return intersection / Math.max(aa.size, bb.size, 1);\n};\nconst productAliases = {\n  items: { product_id: '211', barcode: '95343' },\n};\nconst branchId = trim($json.branch_id, '1');\nconst supplier = trim($json.extracted?.supplier_name);\nconst suppliedVendorId = trim($json.supplied_vendor_id);\nconst vendorMatches = vendors\n  .map((vendor) => ({ ...vendor, score: similarity(supplier, vendor.text) + ((vendor.branch_id === branchId || vendor.branch_id === '0') ? 0.03 : 0) }))\n  .sort((a, b) => b.score - a.score);\nconst exactVendor = suppliedVendorId ? vendors.find((vendor) => vendor.id === suppliedVendorId) : null;\nconst vendor = exactVendor\n  ? { ...exactVendor, score: 1 }\n  : (vendorMatches[0] && vendorMatches[0].score >= 0.45 ? vendorMatches[0] : null);\nif (!vendor) {\n  return [{ json: { ...$json, match_error: 'لم يتم العثور على مورد مطابق في حسابات POS: ' + supplier, vendor_candidates: vendorMatches.slice(0, 5) } }];\n}\nconst session = await createPosSession.call(this);\nlet vendorInfo = {};\ntry {\n  vendorInfo = await session.post('/transaction/check_taxable', { type: '', id: vendor.id, branch: branchId, mode: 'PURCHASE' }, 'check_taxable');\n} catch {}\n\nconst matchedItems = [];\nfor (let index = 0; index < ($json.extracted?.items || []).length; index++) {\n  const source = $json.extracted.items[index];\n  const query = trim(source.barcode || source.description);\n  const alias = productAliases[normalize(source.description)] || null;\n  const expectedBarcode = trim(source.barcode || alias?.barcode);\n  if (!query) {\n    matchedItems.push({ source, index, matched: false, error: 'اسم المنتج أو Barcode مفقود' });\n    continue;\n  }\n  let search = [];\n  const searchTerms = Array.from(new Set([query, expectedBarcode].filter(Boolean)));\n  for (const term of searchTerms) {\n    try {\n      const response = await session.get('/transaction/fetch_product_with_name_hinds/new_search_2/?search_text=' + encodeURIComponent(term), 'product search');\n      if (Array.isArray(response)) search.push(...response);\n    } catch {}\n    if (search.length) break;\n  }\n  if (!search.length && alias?.product_id) {\n    search = [{ id: alias.product_id, customer_input: alias.barcode || source.description }];\n  }\n  if (!Array.isArray(search) || !search.length) {\n    matchedItems.push({ source, index, matched: false, error: 'المنتج غير موجود في POS: ' + query });\n    continue;\n  }\n  const ranked = search\n    .map((row) => ({\n      ...row,\n      score: similarity(source.description, row.customer_input)\n        + (expectedBarcode && trim(row.customer_input) === expectedBarcode ? 1 : 0)\n        + (alias?.product_id && trim(row.id) === alias.product_id ? 1 : 0),\n    }))\n    .sort((a, b) => b.score - a.score)\n    .slice(0, 5);\n  let selected = null;\n  for (const candidate of ranked) {\n    let details;\n    try {\n      details = await session.post('/transaction/fetch_product_complete_details', {\n        product_id: candidate.id,\n        selected_txt: candidate.id,\n        search_type: '',\n        branch_id: branchId,\n        last_sale_price_flag: '0',\n        cust_id: vendor.id,\n        mode: 'PURCHASE',\n      }, 'fetch_product_complete_details');\n    } catch {\n      continue;\n    }\n    const product = Array.isArray(details?.[0]) ? details[0][0] : null;\n    const taxes = Array.isArray(details?.[1]) ? details[1] : [];\n    if (!product) continue;\n    const score = similarity(source.description, product.product_name1_long || product.product_name)\n      + (expectedBarcode && expectedBarcode === trim(product.barcode) ? 1.5 : 0)\n      + (alias?.product_id && alias.product_id === trim(product.id) ? 1 : 0);\n    if (!selected || score > selected.score) selected = { product, taxes, score };\n  }\n  if (!selected || selected.score < 0.35) {\n    matchedItems.push({ source, index, matched: false, error: 'تعذر تأكيد المنتج: ' + query, candidates: ranked });\n    continue;\n  }\n  matchedItems.push({ source, index, matched: true, product: selected.product, taxes: selected.taxes, match_score: selected.score });\n}\nreturn [{ json: { ...$json, vendor: { id: vendor.id, text: vendor.text, branch_id: vendor.branch_id, score: vendor.score, taxable: String(vendorInfo.taxable ?? '') }, matched_items: matchedItems } }];"
+      }
+    },
+    {
+      "id": "purchase-branch-save",
+      "name": "Draft - Save Purchase After Branch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -20,
+        460
+      ],
+      "parameters": {
+        "jsCode": "const trim = (v, f = '') => String(v ?? f).trim();\nconst num = (v, f = 0) => {\n  const parsed = Number(String(v ?? '').replace(/,/g, ''));\n  return Number.isFinite(parsed) ? parsed : f;\n};\nconst round = (v, digits = 12) => Number(num(v).toFixed(digits));\nconst money = (v) => num(v).toFixed(2);\nconst dateOnly = (value) => {\n  const raw = trim(value);\n  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(raw)) return raw;\n  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dubai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());\n};\nconst review = (id, draft) => {\n  const lines = [\n    'فاتورة مشتريات جاهزة للمراجعة',\n    '',\n    'Draft: ' + id,\n    'الفرع: ' + draft.branch.name + ' / ' + draft.branch.id,\n    'المورد: ' + draft.vendor.text + ' / ' + draft.vendor.id,\n    'رقم فاتورة المورد: ' + (draft.header.party_invoice_no || '-'),\n    'تاريخ الفاتورة: ' + draft.header.party_invoice_date,\n    'طريقة الدفع: آجل',\n    '',\n  ];\n  draft.items.forEach((item, index) => {\n    lines.push(\n      (index + 1) + '. ' + item.product_name,\n      'Product ID: ' + item.product_id + ' | Barcode: ' + (item.barcode || '-'),\n      'Qty: ' + item.quantity + ' ' + item.unit_name,\n      'Before VAT: AED ' + money(item.amount),\n      'VAT ' + item.vat_rate + '%: AED ' + money(item.tax_amount),\n      'Net: AED ' + money(item.net_amount),\n      ''\n    );\n  });\n  lines.push(\n    'Gross: AED ' + money(draft.totals.gross),\n    'VAT: AED ' + money(draft.totals.tax),\n    'Grand Total: AED ' + money(draft.totals.grand_total),\n    'Balance: AED ' + money(draft.totals.balance),\n    'Difference: AED ' + money(draft.totals.difference)\n  );\n  if (draft.errors.length) lines.push('', 'لا يمكن الحفظ:', ...draft.errors.map((value) => '- ' + value));\n  return lines.join('\\n');\n};\n\nconst errors = $json.match_error ? [$json.match_error] : [];\nconst items = [];\nfor (const row of $json.matched_items || []) {\n  if (!row.matched) {\n    errors.push(row.error || 'يوجد منتج غير مطابق');\n    continue;\n  }\n  const source = row.source || {};\n  const product = row.product || {};\n  const quantity = Math.max(num(source.quantity, 1), 0);\n  const vatRate = Math.max(num(source.vat_rate, row.taxes?.length ? 5 : 0), 0);\n  let amount = num(source.amount);\n  let tax = num(source.tax_amount);\n  let net = num(source.net_amount);\n  const unitPrice = num(source.unit_price);\n  if (source.price_includes_tax) {\n    if (!net) net = round(quantity * unitPrice);\n    if (!amount) amount = vatRate > 0 ? round(net / (1 + vatRate / 100)) : net;\n    if (!tax) tax = round(net - amount);\n  } else {\n    if (!amount) amount = round(quantity * unitPrice);\n    if (!tax && vatRate > 0) tax = round(amount * vatRate / 100);\n    if (!net) net = round(amount + tax);\n  }\n  if (quantity <= 0) errors.push('كمية غير صحيحة للمنتج: ' + trim(product.product_name));\n  const taxRow = (row.taxes || []).find((value) => String(value.tax_id) === '1') || (row.taxes || [])[0] || null;\n  const purchaseRate = quantity > 0 ? round(amount / quantity) : 0;\n  const inclusiveRate = quantity > 0 ? round(net / quantity) : 0;\n  const salePrice = num(product.sale_price);\n  const margin = salePrice ? round(((salePrice - purchaseRate) / salePrice) * 100, 2) : 0;\n  items.push({\n    product_id: trim(product.id),\n    product_name: trim(product.product_name1_long || product.product_name),\n    barcode: trim(product.barcode || source.barcode),\n    unit_id: trim(product.purchase_unit_id || product.unit_id),\n    unit_name: trim(product.purchase_unit || product.avail_units || product.baseunit),\n    quantity,\n    base_qty: round(quantity * num(product.purchase_eq_to_base, 1)),\n    purchase_rate: purchaseRate,\n    amount: round(amount),\n    total_tax: round(tax),\n    net_amount: round(net),\n    inc_rate: inclusiveRate,\n    net_rate: purchaseRate,\n    item_note: trim(product.category_name || source.description),\n    sale_price: salePrice,\n    margin_per: margin,\n    tax_id: vatRate > 0 ? trim(taxRow?.tax_id, '1') : '',\n    tax_value: vatRate > 0 ? trim(taxRow?.tax_value, String(vatRate) + '%') : '',\n    vat_rate: vatRate,\n    unique_record: Array.from({ length: 64 }, () => 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 62)]).join(''),\n  });\n}\nif (!items.length) errors.push('لم تتم مطابقة أي منتج مع POS.');\nconst gross = round(items.reduce((sum, item) => sum + item.amount, 0));\nconst totalTax = round(items.reduce((sum, item) => sum + item.total_tax, 0));\nconst totalNet = round(items.reduce((sum, item) => sum + item.net_amount, 0));\nconst discount = num($json.extracted?.discount);\nconst adjustment = num($json.extracted?.adjustment);\nconst roundOff = num($json.extracted?.round_off);\nconst grandTotal = round(totalNet - discount + adjustment + roundOff);\nconst invoiceTotal = num($json.extracted?.invoice_total, grandTotal);\nconst difference = round(invoiceTotal - grandTotal);\nif (Math.abs(difference) > 0.01) errors.push('فرق الإجمالي AED ' + money(difference));\nif (!$json.vendor?.id) errors.push('المورد غير محدد.');\nconst existingId = trim($json.draft_id);\nconst draftId = existingId || ('PUR-' + new Date().toISOString().replace(/\\D/g, '').slice(0, 14) + '-' + Math.random().toString(36).slice(2, 6).toUpperCase());\nconst branch = { id: trim($json.branch_id, '1'), name: trim($json.branch_name, 'AL FALAH') };\nconst vendor = $json.vendor || {\n  id: '',\n  text: trim($json.extracted?.supplier_name, 'غير مطابق'),\n  branch_id: branch.id,\n  score: 0,\n  taxable: '',\n};\nconst draft = {\n  draft_id: draftId,\n  status: errors.length ? 'needs_review' : 'pending_approval',\n  chat_id: trim($json.chat_id),\n  message_id: trim($json.message_id),\n  source_attachment: $json.source_attachment || null,\n  extracted: $json.extracted,\n  branch,\n  vendor,\n  items,\n  header: {\n    party_invoice_no: trim($json.extracted?.supplier_invoice_no),\n    party_invoice_date: dateOnly($json.extracted?.supplier_invoice_date),\n    purchase_date: dateOnly($json.extracted?.purchase_date || $json.extracted?.supplier_invoice_date),\n    notes: trim($json.extracted?.notes),\n  },\n  totals: {\n    quantity: round(items.reduce((sum, item) => sum + item.quantity, 0)),\n    gross,\n    tax: totalTax,\n    net: totalNet,\n    discount,\n    adjustment,\n    round_off: roundOff,\n    grand_total: grandTotal,\n    paid: 0,\n    balance: grandTotal,\n    invoice_total: invoiceTotal,\n    difference,\n  },\n  errors,\n  updated_at: new Date().toISOString(),\n  created_at: new Date().toISOString(),\n};\nconst store = $getWorkflowStaticData('global');\nif (!store.purchaseDrafts || typeof store.purchaseDrafts !== 'object') store.purchaseDrafts = {};\nif (store.purchaseDrafts[draftId]?.created_at) draft.created_at = store.purchaseDrafts[draftId].created_at;\nstore.purchaseDrafts[draftId] = draft;\nreturn [{ json: { ...$json, draft_id: draftId, draft, telegram_text: review(draftId, draft) } }];"
+      }
+    },
+    {
+      "id": "purchase-branch-review",
+      "name": "Telegram - Send Purchase Branch Review",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        460
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.chat_id}}",
+        "text": "={{$json.telegram_text}}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "AL FALAH / 1",
+                    "additionalFields": {
+                      "callback_data": "={{'purchase_branch:' + $json.draft_id + ':1:AL FALAH'}}"
+                    }
+                  },
+                  {
+                    "text": "MBZ / 2",
+                    "additionalFields": {
+                      "callback_data": "={{'purchase_branch:' + $json.draft_id + ':2:MBZ'}}"
+                    }
+                  },
+                  {
+                    "text": "Musaffah / 3",
+                    "additionalFields": {
+                      "callback_data": "={{'purchase_branch:' + $json.draft_id + ':3:Musaffah'}}"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "موافق",
+                    "additionalFields": {
+                      "callback_data": "={{'purchase_approve:' + $json.draft_id}}"
+                    }
+                  },
+                  {
+                    "text": "تعديل",
+                    "additionalFields": {
+                      "callback_data": "={{'purchase_edit_request:' + $json.draft_id}}"
+                    }
+                  },
+                  {
+                    "text": "إلغاء",
+                    "additionalFields": {
+                      "callback_data": "={{'purchase_cancel:' + $json.draft_id}}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "purchase-edit-request",
+      "name": "Edit Button - Ask Purchase Details",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -540,
+        700
+      ],
+      "parameters": {
+        "jsCode": "if ($json.action !== 'edit_request') return [];\nconst store = $getWorkflowStaticData('global');\nconst draft = store.purchaseDrafts?.[$json.draft_id];\nconst issues = Array.isArray(draft?.errors) && draft.errors.length\n  ? ['', 'الملاحظات الحالية:', ...draft.errors.map((value) => '- ' + value)]\n  : [];\nreturn [{\n  json: {\n    ...$json,\n    telegram_text: [\n      'أرسل التعديل الآن في رسالة عادية.',\n      'لا تحتاج لكتابة رقم Draft أو كلمة تعديل.',\n      '',\n      'مثال: غيّر المنتج إلى items والكمية 2، والمبلغ قبل الضريبة 200 والضريبة 10.',\n      'يمكنك أيضاً القول: احذف المنتج الثاني، أضف منتجاً، غيّر المورد، أو غيّر تاريخ الفاتورة.',\n      ...issues,\n      '',\n      'جلسة التعديل متاحة لمدة 30 دقيقة.',\n    ].join('\\n'),\n  },\n}];"
+      }
+    },
+    {
+      "id": "purchase-edit-instructions",
+      "name": "Telegram - Send Purchase Edit Instructions",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -280,
+        700
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.chat_id}}",
+        "text": "={{$json.telegram_text}}",
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "purchase-edit-prepare",
+      "name": "Edit - Prepare Purchase Change",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -540,
+        920
+      ],
+      "parameters": {
+        "jsCode": "if ($json.action !== 'edit') return [];\nconst store = $getWorkflowStaticData('global');\nconst draft = store.purchaseDrafts?.[$json.draft_id];\nif (!draft) return [{ json: { ...$json, stop: true, telegram_text: 'لم أجد مسودة المشتريات: ' + $json.draft_id } }];\nconst itemSchema = {\n  type: 'object',\n  additionalProperties: false,\n  properties: {\n    description: { type: 'string' }, barcode: { type: 'string' }, quantity: { type: 'number' }, unit_text: { type: 'string' },\n    unit_price: { type: 'number' }, amount: { type: 'number' }, vat_rate: { type: 'number' }, tax_amount: { type: 'number' },\n    net_amount: { type: 'number' }, price_includes_tax: { type: 'boolean' },\n  },\n  required: ['description','barcode','quantity','unit_text','unit_price','amount','vat_rate','tax_amount','net_amount','price_includes_tax'],\n};\nconst schema = {\n  type: 'object',\n  additionalProperties: false,\n  properties: {\n    supplier_name: { type: 'string' }, supplier_invoice_no: { type: 'string' }, supplier_invoice_date: { type: 'string' },\n    purchase_date: { type: 'string' }, currency: { type: 'string' }, tax_billing: { type: 'boolean' },\n    items: { type: 'array', minItems: 1, items: itemSchema }, discount: { type: 'number' }, adjustment: { type: 'number' },\n    round_off: { type: 'number' }, invoice_total: { type: 'number' }, notes: { type: 'string' }, confidence: { type: 'number' },\n    warnings: { type: 'array', items: { type: 'string' } },\n  },\n  required: ['supplier_name','supplier_invoice_no','supplier_invoice_date','purchase_date','currency','tax_billing','items','discount','adjustment','round_off','invoice_total','notes','confidence','warnings'],\n};\nconst prompt = [\n  'You are an Arabic/English purchase invoice editing assistant for a UAE laundry POS.',\n  'Apply only the manager requested changes to the current purchase invoice.',\n  'Return the complete updated JSON, never a patch and never explanatory prose.',\n  'Preserve every existing value that the manager did not ask to change.',\n  'Understand natural Arabic, Gulf Arabic, English, spelling mistakes, and short instructions.',\n  'Examples: \"خلي الكمية 2\", \"غير المنتج إلى items\", \"احذف الصنف الثاني\", \"أضف صنف chemicals بسعر 100 وضريبة 5%\", \"المبلغ شامل الضريبة\".',\n  'A value after labels المنتج or الصنف is the product description; never use the label itself as a product name.',\n  'If one product exists and the manager gives subtotal, VAT, and total, apply those values to that product unless another product is explicitly named.',\n  'When quantity or unit price changes, recalculate amount, tax_amount, and net_amount consistently.',\n  'When subtotal or tax changes, recalculate line and invoice totals consistently.',\n  'VAT in UAE is normally 5%, but preserve a different explicit rate.',\n  'Never invent a barcode. Keep an existing barcode only when the same product remains; clear it when the product name changes.',\n  'If the instruction is ambiguous, make the smallest safe change and add a clear Arabic warning.',\n  'Current JSON:', JSON.stringify(draft.extracted),\n  'Current branch:', JSON.stringify(draft.branch),\n  'Current validation issues:', JSON.stringify(draft.errors || []),\n  'Instruction:', $json.edit_text,\n].join('\\n');\nreturn [{ json: { ...$json, draft, openaiBody: { model: String($vars.OPENAI_MODEL || 'gpt-4.1-mini'), input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }], text: { format: { type: 'json_schema', name: 'purchase_invoice_edit', strict: true, schema } } } } }];"
+      }
+    },
+    {
+      "id": "purchase-edit-openai",
+      "name": "OpenAI - Parse Purchase Edit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -280,
+        920
+      ],
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json.openaiBody}}",
+        "options": {}
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "id": "purchase-edit-apply",
+      "name": "Edit - Apply Purchase Change",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -20,
+        920
+      ],
+      "parameters": {
+        "jsCode": "if ($json.stop) return [];\nconst trim = (v) => String(v ?? '').trim();\nconst prepared = $('Edit - Prepare Purchase Change').first().json;\nfunction outputText(response) {\n  if (typeof response?.output_text === 'string') return response.output_text;\n  const out = [];\n  for (const row of response?.output || []) for (const part of row?.content || []) if (typeof part?.text === 'string') out.push(part.text);\n  return out.join('\\n');\n}\nlet raw = trim(outputText($json));\nconst fence = String.fromCharCode(96).repeat(3);\nif (raw.toLowerCase().startsWith(fence + 'json')) raw = raw.slice(7);\nelse if (raw.startsWith(fence)) raw = raw.slice(3);\nif (raw.endsWith(fence)) raw = raw.slice(0, -3);\nconst extracted = JSON.parse(raw.trim());\nconst instruction = trim(prepared.edit_text);\nlet branchId = prepared.draft.branch.id;\nlet branchName = prepared.draft.branch.name;\nif (/(al\\s*falah|الفلاح)(?:\\s*\\/\\s*1|\\s+1)?/i.test(instruction)) {\n  branchId = '1';\n  branchName = 'AL FALAH';\n} else if (/(mbz|محمد\\s*بن\\s*زايد)(?:\\s*\\/\\s*2|\\s+2)?/i.test(instruction)) {\n  branchId = '2';\n  branchName = 'MBZ';\n} else if (/(musaffah|مصفح)(?:\\s*\\/\\s*3|\\s+3)?/i.test(instruction)) {\n  branchId = '3';\n  branchName = 'Musaffah';\n}\nconst vendorMatch = instruction.match(/(?:المورد|vendor|supplier)\\s*[:：]?\\s*([^/\\n]+?)\\s*\\/\\s*(\\d+)/i);\nreturn [{\n  json: {\n    ...prepared,\n    extracted,\n    source_attachment: prepared.draft.source_attachment,\n    branch_id: branchId,\n    branch_name: branchName,\n    supplied_vendor_id: vendorMatch ? vendorMatch[2] : '',\n  },\n}];"
+      }
+    },
+    {
+      "id": "purchase-edit-rematch",
+      "name": "POS - Rematch Edited Purchase",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        920
+      ],
+      "parameters": {
+        "jsCode": "const trim = (v, f = '') => String(v ?? f).trim();\nconst number = (v, f = 0) => {\n  const parsed = Number(String(v ?? '').replace(/,/g, ''));\n  return Number.isFinite(parsed) ? parsed : f;\n};\nconst vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst POS_USERNAME = trim(vars.POS_USERNAME);\nconst POS_PASSWORD = trim(vars.POS_PASSWORD);\nconst CLIENT_IDENTIFIER = trim(vars.AIPSOFT_CLIENT_IDENTIFIER, 'inout') || 'inout';\nconst POS_BASE_URL = trim(vars.AIPSOFT_API_BASE_URL, 'https://beta.aipsoft.com/inout').replace(/\\/$/, '');\nconst POS_LOGIN_ENDPOINT = trim(vars.POS_LOGIN_ENDPOINT, POS_BASE_URL + '/login/check');\nconst POS_REFERER = trim(vars.POS_PURCHASE_REFERER, POS_BASE_URL + '/transaction/purchase');\nconst POS_ORIGIN = trim(vars.POS_ORIGIN, 'https://beta.aipsoft.com');\nif (!POS_USERNAME || !POS_PASSWORD) throw new Error('Missing POS_USERNAME or POS_PASSWORD n8n Variables.');\nconst formEncode = (params) => {\n  const pairs = [];\n  const add = (key, value) => pairs.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(value ?? '')));\n  const build = (prefix, value) => {\n    if (Array.isArray(value)) {\n      value.forEach((entry, index) => build(prefix + '[' + index + ']', entry));\n      return;\n    }\n    if (value && typeof value === 'object') {\n      for (const [key, child] of Object.entries(value)) build(prefix + '[' + key + ']', child);\n      return;\n    }\n    add(prefix, value);\n  };\n  for (const [key, value] of Object.entries(params || {})) build(key, value);\n  return pairs.join('&');\n};\nconst cookieMap = (header) => {\n  const map = new Map();\n  for (const part of String(header || '').split(';')) {\n    const item = part.trim();\n    const eq = item.indexOf('=');\n    if (eq > 0) map.set(item.slice(0, eq), item.slice(eq + 1));\n  }\n  return map;\n};\nconst normalizeHeaders = (headers = {}) => {\n  const out = {};\n  if (headers?.forEach) headers.forEach((value, key) => { out[String(key).toLowerCase()] = value; });\n  else for (const [key, value] of Object.entries(headers || {})) out[String(key).toLowerCase()] = value;\n  if (headers?.getSetCookie) out['set-cookie'] = headers.getSetCookie();\n  return out;\n};\nconst setCookies = (headers) => {\n  const raw = normalizeHeaders(headers)['set-cookie'];\n  if (!raw) return [];\n  if (Array.isArray(raw)) return raw;\n  return String(raw).split(/,(?=\\s*[^;,\\s]+=)/g);\n};\nconst mergeCookies = (base, incoming) => {\n  const map = cookieMap(base);\n  for (const value of incoming || []) {\n    const first = String(value).split(';')[0];\n    const eq = first.indexOf('=');\n    if (eq > 0) map.set(first.slice(0, eq).trim(), first.slice(eq + 1).trim());\n  }\n  return Array.from(map.entries()).map(([key, value]) => key + '=' + value).join('; ');\n};\nconst isLogin = (text) => /login\\/check|name=[\"']password|::\\s*login/i.test(String(text || ''));\nasync function rawRequest(options) {\n  const response = await this.helpers.httpRequest({\n    method: options.method || 'POST',\n    url: options.url,\n    headers: options.headers || {},\n    body: options.body,\n    json: false,\n    returnFullResponse: true,\n    resolveWithFullResponse: true,\n    simple: false,\n    timeout: 120000,\n  });\n  if (response && typeof response === 'object' && (response.headers || Object.prototype.hasOwnProperty.call(response, 'body'))) {\n    return {\n      statusCode: response.statusCode || response.status || 0,\n      headers: response.headers || {},\n      body: typeof response.body === 'string' ? response.body : JSON.stringify(response.body ?? ''),\n    };\n  }\n  return { statusCode: 0, headers: {}, body: typeof response === 'string' ? response : JSON.stringify(response ?? '') };\n}\nfunction headers(cookie, contentType = true) {\n  const value = {\n    Accept: 'application/json, text/javascript, */*; q=0.01',\n    'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ar;q=0.7',\n    Origin: POS_ORIGIN,\n    Referer: POS_REFERER,\n    'X-Requested-With': 'XMLHttpRequest',\n    Cookie: cookie,\n  };\n  if (contentType) value['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';\n  return value;\n}\nasync function createPosSession() {\n  let cookie = 'language=english; direction=ltr; dont_show_today=true';\n  try {\n    const start = await rawRequest.call(this, { method: 'GET', url: POS_REFERER, headers: headers(cookie, false) });\n    cookie = mergeCookies(cookie, setCookies(start.headers));\n  } catch {}\n  const short = POS_USERNAME.includes('@') ? POS_USERNAME.split('@')[0].trim() : POS_USERNAME;\n  const candidates = Array.from(new Set([POS_USERNAME, POS_USERNAME.toLowerCase(), short, short.toLowerCase(), short + '@' + CLIENT_IDENTIFIER].filter(Boolean)));\n  let authed = false;\n  for (const username of candidates) {\n    const login = await rawRequest.call(this, {\n      method: 'POST',\n      url: POS_LOGIN_ENDPOINT,\n      headers: headers(cookie),\n      body: formEncode({ username, password: POS_PASSWORD, client_identifier: CLIENT_IDENTIFIER, auto_login: 'null', connection_path: 'null' }),\n    });\n    cookie = mergeCookies(cookie, setCookies(login.headers));\n    if ((/login_success|password_ok/i.test(login.body) || !isLogin(login.body)) && /ci_session_/i.test(cookie) && /\\binout=/i.test(cookie)) {\n      authed = true;\n      break;\n    }\n  }\n  if (!authed) throw new Error('POS login failed.');\n  async function post(path, data, label) {\n    const response = await rawRequest.call(this, { method: 'POST', url: POS_BASE_URL + path, headers: headers(cookie), body: formEncode(data || {}) });\n    cookie = mergeCookies(cookie, setCookies(response.headers));\n    if (isLogin(response.body)) throw new Error(label + ' returned POS login page.');\n    try { return JSON.parse(response.body); }\n    catch { throw new Error(label + ' returned invalid JSON: ' + response.body.slice(0, 250)); }\n  }\n  async function get(path, label) {\n    const response = await rawRequest.call(this, { method: 'GET', url: POS_BASE_URL + path, headers: headers(cookie, false) });\n    cookie = mergeCookies(cookie, setCookies(response.headers));\n    if (isLogin(response.body)) throw new Error(label + ' returned POS login page.');\n    try { return JSON.parse(response.body); }\n    catch { throw new Error(label + ' returned invalid JSON: ' + response.body.slice(0, 250)); }\n  }\n  return { post: post.bind(this), get: get.bind(this), cookie: () => cookie };\n}\n\nconst vendors = [{\"id\":\"33961\",\"text\":\"magnus world\",\"branch_id\":\"1\"},{\"id\":\"33991\",\"text\":\"UmmAlNar\",\"branch_id\":\"1\"},{\"id\":\"33992\",\"text\":\"abu al abiyad automatic modern l\",\"branch_id\":\"1\"},{\"id\":\"33993\",\"text\":\"poineer trading establishment\",\"branch_id\":\"1\"},{\"id\":\"33994\",\"text\":\"fast track laundry\",\"branch_id\":\"1\"},{\"id\":\"33995\",\"text\":\"magnus world it solution\",\"branch_id\":\"1\"},{\"id\":\"33996\",\"text\":\"globe chemicals company\",\"branch_id\":\"1\"},{\"id\":\"33997\",\"text\":\"al salam plastic factory\",\"branch_id\":\"1\"},{\"id\":\"33998\",\"text\":\"spring water\",\"branch_id\":\"1\"},{\"id\":\"33999\",\"text\":\"the magic touch bldg cleaning\",\"branch_id\":\"1\"},{\"id\":\"34000\",\"text\":\"soft touch cleaning services\",\"branch_id\":\"1\"},{\"id\":\"34001\",\"text\":\"green olive ready made garments\",\"branch_id\":\"1\"},{\"id\":\"34002\",\"text\":\"alminaplastic products factory\",\"branch_id\":\"1\"},{\"id\":\"34003\",\"text\":\"foilack foiling materials tradin\",\"branch_id\":\"1\"},{\"id\":\"34004\",\"text\":\"najma stationery\",\"branch_id\":\"1\"},{\"id\":\"34005\",\"text\":\"najma stationery llc\",\"branch_id\":\"1\"},{\"id\":\"34006\",\"text\":\"x pert industrial materials trad\",\"branch_id\":\"1\"},{\"id\":\"34007\",\"text\":\"bohec middle east\",\"branch_id\":\"1\"},{\"id\":\"34008\",\"text\":\"hidayath trading co. llc\",\"branch_id\":\"1\"},{\"id\":\"34009\",\"text\":\"skyway\",\"branch_id\":\"1\"},{\"id\":\"34010\",\"text\":\"daman\",\"branch_id\":\"1\"},{\"id\":\"34011\",\"text\":\"adnoc distribution\",\"branch_id\":\"1\"},{\"id\":\"34012\",\"text\":\"ADDC\",\"branch_id\":\"1\"},{\"id\":\"34013\",\"text\":\"harvest stationery est\",\"branch_id\":\"1\"},{\"id\":\"34014\",\"text\":\"etisalat\",\"branch_id\":\"1\"},{\"id\":\"34015\",\"text\":\"alamal printing press\",\"branch_id\":\"1\"},{\"id\":\"34016\",\"text\":\"royal electronic wheel balance\",\"branch_id\":\"1\"},{\"id\":\"34017\",\"text\":\"musaffah stationery\",\"branch_id\":\"1\"},{\"id\":\"34018\",\"text\":\"royal electronic balance\",\"branch_id\":\"1\"},{\"id\":\"34019\",\"text\":\"wear mart\",\"branch_id\":\"1\"},{\"id\":\"34020\",\"text\":\"musaffah stationary\",\"branch_id\":\"1\"},{\"id\":\"34042\",\"text\":\"royal city market\",\"branch_id\":\"1\"},{\"id\":\"34232\",\"text\":\"NEWMATIC\",\"branch_id\":\"1\"},{\"id\":\"34234\",\"text\":\"al jazeerah\",\"branch_id\":\"1\"},{\"id\":\"34242\",\"text\":\"lulu haypermarket\",\"branch_id\":\"1\"},{\"id\":\"34243\",\"text\":\"university bookshop\",\"branch_id\":\"1\"},{\"id\":\"34244\",\"text\":\"SAE SHELL\",\"branch_id\":\"1\"},{\"id\":\"34245\",\"text\":\"farook stationery\",\"branch_id\":\"1\"},{\"id\":\"34246\",\"text\":\"carrefour\",\"branch_id\":\"1\"},{\"id\":\"34250\",\"text\":\"SALARY\",\"branch_id\":\"1\"},{\"id\":\"34251\",\"text\":\"CASH\",\"branch_id\":\"1\"},{\"id\":\"34252\",\"text\":\"GIFT PALACE\",\"branch_id\":\"1\"},{\"id\":\"34253\",\"text\":\"AL FAYA\",\"branch_id\":\"1\"},{\"id\":\"34254\",\"text\":\"WORLD GREEN\",\"branch_id\":\"1\"},{\"id\":\"34256\",\"text\":\"smooth\",\"branch_id\":\"1\"},{\"id\":\"34257\",\"text\":\"primefire\",\"branch_id\":\"1\"},{\"id\":\"34258\",\"text\":\"muslim brothers decore\",\"branch_id\":\"1\"},{\"id\":\"34259\",\"text\":\"runway\",\"branch_id\":\"1\"},{\"id\":\"34260\",\"text\":\"best buy textile llc\",\"branch_id\":\"1\"},{\"id\":\"34261\",\"text\":\"grace land\",\"branch_id\":\"1\"},{\"id\":\"34262\",\"text\":\"LIGHT FOLLOW\",\"branch_id\":\"1\"},{\"id\":\"34263\",\"text\":\"BETEX UNIFORMS TRADING\",\"branch_id\":\"1\"},{\"id\":\"34264\",\"text\":\"SHABAB DRAA TAYERS\",\"branch_id\":\"1\"},{\"id\":\"34265\",\"text\":\"ADIB\",\"branch_id\":\"1\"},{\"id\":\"34521\",\"text\":\"Loan\",\"branch_id\":\"1\"},{\"id\":\"34522\",\"text\":\"m. SAOOD CASH\",\"branch_id\":\"1\"},{\"id\":\"34628\",\"text\":\"target point\",\"branch_id\":\"1\"},{\"id\":\"34873\",\"text\":\"al mahtah al mutmayth\",\"branch_id\":\"1\"},{\"id\":\"34881\",\"text\":\"Golden Home Paints\",\"branch_id\":\"1\"},{\"id\":\"34887\",\"text\":\"fox\",\"branch_id\":\"1\"},{\"id\":\"34896\",\"text\":\"RAMZ\",\"branch_id\":\"1\"},{\"id\":\"34897\",\"text\":\"DAR\",\"branch_id\":\"1\"},{\"id\":\"35143\",\"text\":\"commission\",\"branch_id\":\"1\"},{\"id\":\"35179\",\"text\":\"AL ETHAD\",\"branch_id\":\"1\"},{\"id\":\"35180\",\"text\":\"SEVEN STARS\",\"branch_id\":\"1\"},{\"id\":\"35181\",\"text\":\"CARCE LAND\",\"branch_id\":\"1\"},{\"id\":\"35182\",\"text\":\"FLASH ELECTRICAL\",\"branch_id\":\"1\"},{\"id\":\"35195\",\"text\":\"JAYNAB AUTO\",\"branch_id\":\"1\"},{\"id\":\"35196\",\"text\":\"WORLD CURTAINS EST\",\"branch_id\":\"1\"},{\"id\":\"35197\",\"text\":\"REGONAL TECHNLOGY\",\"branch_id\":\"1\"},{\"id\":\"35199\",\"text\":\"Fast CLean\",\"branch_id\":\"1\"},{\"id\":\"35850\",\"text\":\"TAW\",\"branch_id\":\"1\"},{\"id\":\"35851\",\"text\":\"AL Amrat\",\"branch_id\":\"1\"},{\"id\":\"35861\",\"text\":\"Poular\",\"branch_id\":\"1\"},{\"id\":\"35868\",\"text\":\"fast cool\",\"branch_id\":\"1\"},{\"id\":\"35869\",\"text\":\"AL GHOWAS\",\"branch_id\":\"1\"},{\"id\":\"35871\",\"text\":\"LIBERTY TYRE\",\"branch_id\":\"1\"},{\"id\":\"36069\",\"text\":\"Coffe Shop\",\"branch_id\":\"1\"},{\"id\":\"36070\",\"text\":\"carlit\",\"branch_id\":\"1\"},{\"id\":\"36071\",\"text\":\"AL Mussafah\",\"branch_id\":\"1\"},{\"id\":\"36226\",\"text\":\"CAR WASH\",\"branch_id\":\"1\"},{\"id\":\"36229\",\"text\":\"AL FALAH PLAZA\",\"branch_id\":\"1\"},{\"id\":\"36234\",\"text\":\"sumer way\",\"branch_id\":\"1\"},{\"id\":\"36235\",\"text\":\"AL Futtaim Motors\",\"branch_id\":\"1\"},{\"id\":\"38333\",\"text\":\"Abu Dhabi Distrbution Co.\",\"branch_id\":\"0\"},{\"id\":\"38334\",\"text\":\"Abu Dhabi Distrbution\",\"branch_id\":\"0\"},{\"id\":\"38335\",\"text\":\"Sultaco\",\"branch_id\":\"0\"},{\"id\":\"43562\",\"text\":\"GREEN SAVER A/C MAINTENANCE\",\"branch_id\":\"0\"},{\"id\":\"43649\",\"text\":\"CULF TAYER COMPANY\",\"branch_id\":\"0\"},{\"id\":\"44318\",\"text\":\"LINSHA BUILDING\",\"branch_id\":\"0\"},{\"id\":\"44320\",\"text\":\"BEST\",\"branch_id\":\"0\"},{\"id\":\"44321\",\"text\":\"GREEN  LINE\",\"branch_id\":\"0\"},{\"id\":\"44322\",\"text\":\"COOP 1\",\"branch_id\":\"0\"},{\"id\":\"44323\",\"text\":\"AL Raieh\",\"branch_id\":\"1\"},{\"id\":\"44324\",\"text\":\"NAS GIFT\",\"branch_id\":\"0\"},{\"id\":\"44496\",\"text\":\"DAR AL HARAMIN\",\"branch_id\":\"0\"},{\"id\":\"44548\",\"text\":\"AMAZON DELIVEERY\",\"branch_id\":\"0\"},{\"id\":\"44550\",\"text\":\"M.AKTER SUPERMARKET L.L.C\",\"branch_id\":\"0\"},{\"id\":\"44655\",\"text\":\"Bagala\",\"branch_id\":\"0\"},{\"id\":\"44768\",\"text\":\"Phoneix\",\"branch_id\":\"0\"},{\"id\":\"44769\",\"text\":\"Perfect ZN\",\"branch_id\":\"0\"},{\"id\":\"44774\",\"text\":\"SIlver Base\",\"branch_id\":\"1\"},{\"id\":\"44789\",\"text\":\"UNIFORMATY\",\"branch_id\":\"0\"},{\"id\":\"44792\",\"text\":\"ETIHAD\",\"branch_id\":\"0\"},{\"id\":\"44800\",\"text\":\"TAMOUH FIRE & SAFETY\",\"branch_id\":\"0\"},{\"id\":\"44838\",\"text\":\"STILLBOW\",\"branch_id\":\"0\"},{\"id\":\"45373\",\"text\":\"AL RAHA TEA\",\"branch_id\":\"0\"},{\"id\":\"45374\",\"text\":\"MODREN CASTLE BULDING MATRLALS TRADING\",\"branch_id\":\"0\"},{\"id\":\"45375\",\"text\":\"maintenance\",\"branch_id\":\"0\"},{\"id\":\"45377\",\"text\":\"MUSSAFHA SKY MANTENINCE\",\"branch_id\":\"0\"},{\"id\":\"45557\",\"text\":\"DECENT AUTO\",\"branch_id\":\"0\"},{\"id\":\"45619\",\"text\":\"AHMED MUSTHAFA SUPER MARKET\",\"branch_id\":\"0\"},{\"id\":\"45627\",\"text\":\"PREMIUM\",\"branch_id\":\"0\"},{\"id\":\"45657\",\"text\":\"DEPARTMENT OF ECONOMIC DEVELOPMENT\",\"branch_id\":\"0\"},{\"id\":\"45977\",\"text\":\"Spring Field\",\"branch_id\":\"0\"},{\"id\":\"46127\",\"text\":\"CARD CUTTERS COMPUTER EQU\",\"branch_id\":\"0\"},{\"id\":\"46280\",\"text\":\"LIBERTY\",\"branch_id\":\"0\"},{\"id\":\"46283\",\"text\":\"AL AKRAMAIN\",\"branch_id\":\"0\"},{\"id\":\"46285\",\"text\":\"GOOD MATERIAL\",\"branch_id\":\"0\"},{\"id\":\"46293\",\"text\":\"AL NOUFAL\",\"branch_id\":\"0\"},{\"id\":\"46294\",\"text\":\"TYERPLUS\",\"branch_id\":\"0\"},{\"id\":\"46300\",\"text\":\"PIECE OF TOWN GENERAL CONTRACTING\",\"branch_id\":\"0\"},{\"id\":\"46358\",\"text\":\"High Quality\",\"branch_id\":\"0\"},{\"id\":\"46451\",\"text\":\"Abul HASHEM SHOP\",\"branch_id\":\"0\"},{\"id\":\"46453\",\"text\":\"BENGAL AUTO PARTS\",\"branch_id\":\"0\"},{\"id\":\"46758\",\"text\":\"MICROLESS GENERAL TRADING\",\"branch_id\":\"0\"},{\"id\":\"46922\",\"text\":\"JUMAIRAH TEAM FIR\",\"branch_id\":\"0\"},{\"id\":\"46946\",\"text\":\"THREE STAR\",\"branch_id\":\"0\"},{\"id\":\"47371\",\"text\":\"APX TRANDING\",\"branch_id\":\"0\"},{\"id\":\"47908\",\"text\":\"Al ANSARI\",\"branch_id\":\"0\"},{\"id\":\"48092\",\"text\":\"JABAL AL NOOR TYER\",\"branch_id\":\"0\"},{\"id\":\"48398\",\"text\":\"ROYAL JUNCTION\",\"branch_id\":\"0\"},{\"id\":\"49211\",\"text\":\"NOOR AHMED ELECTRONICS\",\"branch_id\":\"0\"},{\"id\":\"49212\",\"text\":\"CAR ONE AUTO ACCESSORIES\",\"branch_id\":\"0\"},{\"id\":\"49811\",\"text\":\"AL-AHMED MECHANICAL WORKSHOP\",\"branch_id\":\"0\"},{\"id\":\"49919\",\"text\":\"THAMARA ELECTRONICS EST\",\"branch_id\":\"1\"},{\"id\":\"49934\",\"text\":\"Federal Tax Authority\",\"branch_id\":\"0\"},{\"id\":\"50080\",\"text\":\"FEX LORD TYER\",\"branch_id\":\"0\"},{\"id\":\"50160\",\"text\":\"INDEX STATIONERY TRADING\",\"branch_id\":\"0\"},{\"id\":\"50161\",\"text\":\"ALNAKHIL ALSHAM REPAIR\",\"branch_id\":\"0\"},{\"id\":\"50247\",\"text\":\"BOOKSHOP\",\"branch_id\":\"0\"},{\"id\":\"50450\",\"text\":\"network\",\"branch_id\":\"0\"},{\"id\":\"50492\",\"text\":\"evertrust\",\"branch_id\":\"0\"},{\"id\":\"50520\",\"text\":\"RED STAR GIFT\",\"branch_id\":\"0\"},{\"id\":\"50652\",\"text\":\"FLIGHT\",\"branch_id\":\"0\"},{\"id\":\"51055\",\"text\":\"HIGH POWER\",\"branch_id\":\"0\"},{\"id\":\"51056\",\"text\":\"SUNGLOW\",\"branch_id\":\"0\"},{\"id\":\"51090\",\"text\":\"RAJAB TRADING CO\",\"branch_id\":\"0\"},{\"id\":\"51385\",\"text\":\"etisalat + internet\",\"branch_id\":\"0\"},{\"id\":\"51725\",\"text\":\"ARABIAN AQSA BULDING\",\"branch_id\":\"0\"},{\"id\":\"51856\",\"text\":\"Chaos Auto Repair Workshop\",\"branch_id\":\"0\"},{\"id\":\"52049\",\"text\":\"gulf tyer company w.l.l\",\"branch_id\":\"0\"},{\"id\":\"52429\",\"text\":\"Employee benefits\",\"branch_id\":\"0\"},{\"id\":\"52770\",\"text\":\"HBC\",\"branch_id\":\"0\"},{\"id\":\"52771\",\"text\":\"Car insurance\",\"branch_id\":\"0\"},{\"id\":\"53179\",\"text\":\"Focus\",\"branch_id\":\"0\"},{\"id\":\"53439\",\"text\":\"Al Khutot Al Thahabia Tourism\",\"branch_id\":\"0\"},{\"id\":\"53868\",\"text\":\"DREAM FIR\",\"branch_id\":\"0\"},{\"id\":\"54303\",\"text\":\"GRAND GIFTS\",\"branch_id\":\"0\"},{\"id\":\"54770\",\"text\":\"Top sensor Auto\",\"branch_id\":\"0\"},{\"id\":\"54839\",\"text\":\"MARK  & SAVE\",\"branch_id\":\"0\"},{\"id\":\"55045\",\"text\":\"Triple\",\"branch_id\":\"0\"},{\"id\":\"55080\",\"text\":\"AL ALYA OFFICAL DRESSES\",\"branch_id\":\"0\"},{\"id\":\"55136\",\"text\":\"Al falah Land Mark\",\"branch_id\":\"0\"},{\"id\":\"55204\",\"text\":\"Sana Electronic Wheel Balance\",\"branch_id\":\"0\"},{\"id\":\"55399\",\"text\":\"Golden Printer\",\"branch_id\":\"0\"},{\"id\":\"55407\",\"text\":\"Car fines\",\"branch_id\":\"0\"},{\"id\":\"55432\",\"text\":\"rent\",\"branch_id\":\"0\"},{\"id\":\"55655\",\"text\":\"PREMIER AUTO PARTS L.L.C\",\"branch_id\":\"0\"},{\"id\":\"55882\",\"text\":\"sweet shine\",\"branch_id\":\"0\"},{\"id\":\"56258\",\"text\":\"red palace restrant\",\"branch_id\":\"0\"},{\"id\":\"56361\",\"text\":\"In&Out Advertisment\",\"branch_id\":\"0\"},{\"id\":\"56608\",\"text\":\"THREE STAR FASHIONS\",\"branch_id\":\"0\"},{\"id\":\"57409\",\"text\":\"VisaFit2\",\"branch_id\":\"0\"},{\"id\":\"57939\",\"text\":\"aman\",\"branch_id\":\"0\"},{\"id\":\"57953\",\"text\":\"jabel al noor cafeteria\",\"branch_id\":\"0\"},{\"id\":\"58123\",\"text\":\"WADI AL DIAB AUTO\",\"branch_id\":\"0\"},{\"id\":\"58222\",\"text\":\"fatima international transaction\",\"branch_id\":\"0\"},{\"id\":\"58350\",\"text\":\"MOHIYADDIN ALI NEW CAR\",\"branch_id\":\"0\"},{\"id\":\"58443\",\"text\":\"gulfaco statinery.llc\",\"branch_id\":\"0\"},{\"id\":\"58447\",\"text\":\"TAXI DELEVERY\",\"branch_id\":\"0\"},{\"id\":\"58484\",\"text\":\"Emirat Tools EST\",\"branch_id\":\"0\"},{\"id\":\"58485\",\"text\":\"On light Electrical\",\"branch_id\":\"0\"},{\"id\":\"58546\",\"text\":\"OMEIR TRAVEL\",\"branch_id\":\"0\"},{\"id\":\"58580\",\"text\":\"NEW LIFE\",\"branch_id\":\"0\"},{\"id\":\"58581\",\"text\":\"MASTER FIT\",\"branch_id\":\"0\"},{\"id\":\"58583\",\"text\":\"OCEAN PLASTIC FACTORY\",\"branch_id\":\"0\"},{\"id\":\"58584\",\"text\":\"OCEAN PLASTIC FACTORY\",\"branch_id\":\"1\"},{\"id\":\"58748\",\"text\":\"AL HADHOUDH TRADING & CONT EST\",\"branch_id\":\"0\"},{\"id\":\"59156\",\"text\":\"POLYCON GULF\",\"branch_id\":\"0\"},{\"id\":\"59163\",\"text\":\"THE PRINCE OF KEYS\",\"branch_id\":\"0\"},{\"id\":\"59490\",\"text\":\"IBY AUTO WHEEL BALANCE\",\"branch_id\":\"0\"},{\"id\":\"59562\",\"text\":\"A AND 0 ELECTROMECHAICAL WORK L.L.C.\",\"branch_id\":\"0\"},{\"id\":\"59730\",\"text\":\"SPECIAL BELT TRADING-L.L.C\",\"branch_id\":\"0\"},{\"id\":\"60390\",\"text\":\"midway\",\"branch_id\":\"0\"},{\"id\":\"60391\",\"text\":\"MOHAMED ALAM AMZU MEHA WELD\",\"branch_id\":\"0\"},{\"id\":\"60392\",\"text\":\"AL TAWHID AUTO REPAIR\",\"branch_id\":\"0\"},{\"id\":\"60393\",\"text\":\"BEACH STAR NEW AUTO SPARE\",\"branch_id\":\"0\"},{\"id\":\"60394\",\"text\":\"AFREEN BULDING\",\"branch_id\":\"0\"},{\"id\":\"60795\",\"text\":\"RECOVERY\",\"branch_id\":\"0\"},{\"id\":\"61326\",\"text\":\"super royal cars spare parts\",\"branch_id\":\"0\"},{\"id\":\"61409\",\"text\":\"city car new\",\"branch_id\":\"0\"},{\"id\":\"61605\",\"text\":\"TAQA\",\"branch_id\":\"0\"},{\"id\":\"61951\",\"text\":\"MAGNATECH THECHNICAL\",\"branch_id\":\"0\"},{\"id\":\"61954\",\"text\":\"Alif Laam Typing\",\"branch_id\":\"0\"},{\"id\":\"61967\",\"text\":\"AL RUMZ WHEEL BALANCE\",\"branch_id\":\"0\"},{\"id\":\"61969\",\"text\":\"FALAK ADANTAGE\",\"branch_id\":\"0\"},{\"id\":\"62288\",\"text\":\"Famous\",\"branch_id\":\"0\"},{\"id\":\"62289\",\"text\":\"BRIHT MARK\",\"branch_id\":\"0\"},{\"id\":\"62646\",\"text\":\"Transaction Fees\",\"branch_id\":\"0\"},{\"id\":\"62648\",\"text\":\"ALLIANCE TRANSACTIONS SERVICES\",\"branch_id\":\"0\"},{\"id\":\"62914\",\"text\":\"ZAMAM AUTO\",\"branch_id\":\"0\"},{\"id\":\"62915\",\"text\":\"COLDEN PRINTER SYSTEM\",\"branch_id\":\"0\"},{\"id\":\"63282\",\"text\":\"GT9 AUTOCARE\",\"branch_id\":\"0\"},{\"id\":\"63286\",\"text\":\"KABUL 3B\",\"branch_id\":\"0\"},{\"id\":\"63287\",\"text\":\"BRILLIANT\",\"branch_id\":\"0\"},{\"id\":\"63513\",\"text\":\"Smart Eagle\",\"branch_id\":\"0\"},{\"id\":\"63517\",\"text\":\"AL AMANI TRADING L.L.C\",\"branch_id\":\"0\"},{\"id\":\"63945\",\"text\":\"Smart\",\"branch_id\":\"0\"},{\"id\":\"63947\",\"text\":\"CAPITAL TYRES\",\"branch_id\":\"0\"},{\"id\":\"63948\",\"text\":\"JOIN S GENERAL\",\"branch_id\":\"0\"},{\"id\":\"63950\",\"text\":\"TAHRAGA\",\"branch_id\":\"0\"},{\"id\":\"64181\",\"text\":\"Mr uniform\",\"branch_id\":\"1\"},{\"id\":\"64465\",\"text\":\"MOHAMMAD ROBEL ALUMINIUM\",\"branch_id\":\"0\"},{\"id\":\"64467\",\"text\":\"DYNO\",\"branch_id\":\"0\"},{\"id\":\"64468\",\"text\":\"ADCOOP\",\"branch_id\":\"0\"},{\"id\":\"64629\",\"text\":\"MINISTRY OF HUMAN RESOURC\",\"branch_id\":\"0\"},{\"id\":\"64630\",\"text\":\"Amazon\",\"branch_id\":\"1\"},{\"id\":\"64633\",\"text\":\"AL ATHOOZ PROPERTY MANAGEMENT- L.L.C - O.P.C\",\"branch_id\":\"0\"},{\"id\":\"65044\",\"text\":\"DEFENSE POINT\",\"branch_id\":\"0\"},{\"id\":\"65045\",\"text\":\"ABDUL HALRRM CAR-NEW\",\"branch_id\":\"0\"},{\"id\":\"65046\",\"text\":\"AL MEZAN AUTO\",\"branch_id\":\"0\"},{\"id\":\"65860\",\"text\":\"GEMINI MOTOR CYCLE REPAIR SHOP\",\"branch_id\":\"0\"},{\"id\":\"65861\",\"text\":\"SEAPACK\",\"branch_id\":\"0\"},{\"id\":\"65862\",\"text\":\"TADKEER\",\"branch_id\":\"0\"},{\"id\":\"66260\",\"text\":\"Gulf Protek L.L.C\",\"branch_id\":\"0\"},{\"id\":\"66265\",\"text\":\"DEFENSE MATRIC\",\"branch_id\":\"0\"},{\"id\":\"66268\",\"text\":\"Aramex\",\"branch_id\":\"0\"},{\"id\":\"66284\",\"text\":\"Takaful\",\"branch_id\":\"0\"},{\"id\":\"66286\",\"text\":\"ِAbu Dhabi Police G.H.Q\",\"branch_id\":\"0\"},{\"id\":\"67082\",\"text\":\"TYER PLUS\",\"branch_id\":\"0\"},{\"id\":\"67083\",\"text\":\"ZAHRAT ALKHAZAN\",\"branch_id\":\"0\"}];\nconst normalize = (value) => trim(value).toLowerCase()\n  .normalize('NFKD').replace(/[\\u0300-\\u036f]/g, '')\n  .replace(/[^a-z0-9\\u0600-\\u06ff]+/g, ' ')\n  .replace(/\\b(llc|l l c|est|establishment|company|co|trading|general)\\b/g, ' ')\n  .replace(/\\s+/g, ' ').trim();\nconst similarity = (left, right) => {\n  const a = normalize(left);\n  const b = normalize(right);\n  if (!a || !b) return 0;\n  if (a === b) return 1;\n  if (a.includes(b) || b.includes(a)) return 0.92;\n  const aa = new Set(a.split(' '));\n  const bb = new Set(b.split(' '));\n  const intersection = [...aa].filter((word) => bb.has(word)).length;\n  return intersection / Math.max(aa.size, bb.size, 1);\n};\nconst productAliases = {\n  items: { product_id: '211', barcode: '95343' },\n};\nconst branchId = trim($json.branch_id, '1');\nconst supplier = trim($json.extracted?.supplier_name);\nconst suppliedVendorId = trim($json.supplied_vendor_id);\nconst vendorMatches = vendors\n  .map((vendor) => ({ ...vendor, score: similarity(supplier, vendor.text) + ((vendor.branch_id === branchId || vendor.branch_id === '0') ? 0.03 : 0) }))\n  .sort((a, b) => b.score - a.score);\nconst exactVendor = suppliedVendorId ? vendors.find((vendor) => vendor.id === suppliedVendorId) : null;\nconst vendor = exactVendor\n  ? { ...exactVendor, score: 1 }\n  : (vendorMatches[0] && vendorMatches[0].score >= 0.45 ? vendorMatches[0] : null);\nif (!vendor) {\n  return [{ json: { ...$json, match_error: 'لم يتم العثور على مورد مطابق في حسابات POS: ' + supplier, vendor_candidates: vendorMatches.slice(0, 5) } }];\n}\nconst session = await createPosSession.call(this);\nlet vendorInfo = {};\ntry {\n  vendorInfo = await session.post('/transaction/check_taxable', { type: '', id: vendor.id, branch: branchId, mode: 'PURCHASE' }, 'check_taxable');\n} catch {}\n\nconst matchedItems = [];\nfor (let index = 0; index < ($json.extracted?.items || []).length; index++) {\n  const source = $json.extracted.items[index];\n  const query = trim(source.barcode || source.description);\n  const alias = productAliases[normalize(source.description)] || null;\n  const expectedBarcode = trim(source.barcode || alias?.barcode);\n  if (!query) {\n    matchedItems.push({ source, index, matched: false, error: 'اسم المنتج أو Barcode مفقود' });\n    continue;\n  }\n  let search = [];\n  const searchTerms = Array.from(new Set([query, expectedBarcode].filter(Boolean)));\n  for (const term of searchTerms) {\n    try {\n      const response = await session.get('/transaction/fetch_product_with_name_hinds/new_search_2/?search_text=' + encodeURIComponent(term), 'product search');\n      if (Array.isArray(response)) search.push(...response);\n    } catch {}\n    if (search.length) break;\n  }\n  if (!search.length && alias?.product_id) {\n    search = [{ id: alias.product_id, customer_input: alias.barcode || source.description }];\n  }\n  if (!Array.isArray(search) || !search.length) {\n    matchedItems.push({ source, index, matched: false, error: 'المنتج غير موجود في POS: ' + query });\n    continue;\n  }\n  const ranked = search\n    .map((row) => ({\n      ...row,\n      score: similarity(source.description, row.customer_input)\n        + (expectedBarcode && trim(row.customer_input) === expectedBarcode ? 1 : 0)\n        + (alias?.product_id && trim(row.id) === alias.product_id ? 1 : 0),\n    }))\n    .sort((a, b) => b.score - a.score)\n    .slice(0, 5);\n  let selected = null;\n  for (const candidate of ranked) {\n    let details;\n    try {\n      details = await session.post('/transaction/fetch_product_complete_details', {\n        product_id: candidate.id,\n        selected_txt: candidate.id,\n        search_type: '',\n        branch_id: branchId,\n        last_sale_price_flag: '0',\n        cust_id: vendor.id,\n        mode: 'PURCHASE',\n      }, 'fetch_product_complete_details');\n    } catch {\n      continue;\n    }\n    const product = Array.isArray(details?.[0]) ? details[0][0] : null;\n    const taxes = Array.isArray(details?.[1]) ? details[1] : [];\n    if (!product) continue;\n    const score = similarity(source.description, product.product_name1_long || product.product_name)\n      + (expectedBarcode && expectedBarcode === trim(product.barcode) ? 1.5 : 0)\n      + (alias?.product_id && alias.product_id === trim(product.id) ? 1 : 0);\n    if (!selected || score > selected.score) selected = { product, taxes, score };\n  }\n  if (!selected || selected.score < 0.35) {\n    matchedItems.push({ source, index, matched: false, error: 'تعذر تأكيد المنتج: ' + query, candidates: ranked });\n    continue;\n  }\n  matchedItems.push({ source, index, matched: true, product: selected.product, taxes: selected.taxes, match_score: selected.score });\n}\nreturn [{ json: { ...$json, vendor: { id: vendor.id, text: vendor.text, branch_id: vendor.branch_id, score: vendor.score, taxable: String(vendorInfo.taxable ?? '') }, matched_items: matchedItems } }];"
+      }
+    },
+    {
+      "id": "purchase-edit-save",
+      "name": "Draft - Save Edited Purchase",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        920
+      ],
+      "parameters": {
+        "jsCode": "const trim = (v, f = '') => String(v ?? f).trim();\nconst num = (v, f = 0) => {\n  const parsed = Number(String(v ?? '').replace(/,/g, ''));\n  return Number.isFinite(parsed) ? parsed : f;\n};\nconst round = (v, digits = 12) => Number(num(v).toFixed(digits));\nconst money = (v) => num(v).toFixed(2);\nconst dateOnly = (value) => {\n  const raw = trim(value);\n  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(raw)) return raw;\n  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dubai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());\n};\nconst review = (id, draft) => {\n  const lines = [\n    'فاتورة مشتريات جاهزة للمراجعة',\n    '',\n    'Draft: ' + id,\n    'الفرع: ' + draft.branch.name + ' / ' + draft.branch.id,\n    'المورد: ' + draft.vendor.text + ' / ' + draft.vendor.id,\n    'رقم فاتورة المورد: ' + (draft.header.party_invoice_no || '-'),\n    'تاريخ الفاتورة: ' + draft.header.party_invoice_date,\n    'طريقة الدفع: آجل',\n    '',\n  ];\n  draft.items.forEach((item, index) => {\n    lines.push(\n      (index + 1) + '. ' + item.product_name,\n      'Product ID: ' + item.product_id + ' | Barcode: ' + (item.barcode || '-'),\n      'Qty: ' + item.quantity + ' ' + item.unit_name,\n      'Before VAT: AED ' + money(item.amount),\n      'VAT ' + item.vat_rate + '%: AED ' + money(item.tax_amount),\n      'Net: AED ' + money(item.net_amount),\n      ''\n    );\n  });\n  lines.push(\n    'Gross: AED ' + money(draft.totals.gross),\n    'VAT: AED ' + money(draft.totals.tax),\n    'Grand Total: AED ' + money(draft.totals.grand_total),\n    'Balance: AED ' + money(draft.totals.balance),\n    'Difference: AED ' + money(draft.totals.difference)\n  );\n  if (draft.errors.length) lines.push('', 'لا يمكن الحفظ:', ...draft.errors.map((value) => '- ' + value));\n  return lines.join('\\n');\n};\n\nconst errors = $json.match_error ? [$json.match_error] : [];\nconst items = [];\nfor (const row of $json.matched_items || []) {\n  if (!row.matched) {\n    errors.push(row.error || 'يوجد منتج غير مطابق');\n    continue;\n  }\n  const source = row.source || {};\n  const product = row.product || {};\n  const quantity = Math.max(num(source.quantity, 1), 0);\n  const vatRate = Math.max(num(source.vat_rate, row.taxes?.length ? 5 : 0), 0);\n  let amount = num(source.amount);\n  let tax = num(source.tax_amount);\n  let net = num(source.net_amount);\n  const unitPrice = num(source.unit_price);\n  if (source.price_includes_tax) {\n    if (!net) net = round(quantity * unitPrice);\n    if (!amount) amount = vatRate > 0 ? round(net / (1 + vatRate / 100)) : net;\n    if (!tax) tax = round(net - amount);\n  } else {\n    if (!amount) amount = round(quantity * unitPrice);\n    if (!tax && vatRate > 0) tax = round(amount * vatRate / 100);\n    if (!net) net = round(amount + tax);\n  }\n  if (quantity <= 0) errors.push('كمية غير صحيحة للمنتج: ' + trim(product.product_name));\n  const taxRow = (row.taxes || []).find((value) => String(value.tax_id) === '1') || (row.taxes || [])[0] || null;\n  const purchaseRate = quantity > 0 ? round(amount / quantity) : 0;\n  const inclusiveRate = quantity > 0 ? round(net / quantity) : 0;\n  const salePrice = num(product.sale_price);\n  const margin = salePrice ? round(((salePrice - purchaseRate) / salePrice) * 100, 2) : 0;\n  items.push({\n    product_id: trim(product.id),\n    product_name: trim(product.product_name1_long || product.product_name),\n    barcode: trim(product.barcode || source.barcode),\n    unit_id: trim(product.purchase_unit_id || product.unit_id),\n    unit_name: trim(product.purchase_unit || product.avail_units || product.baseunit),\n    quantity,\n    base_qty: round(quantity * num(product.purchase_eq_to_base, 1)),\n    purchase_rate: purchaseRate,\n    amount: round(amount),\n    total_tax: round(tax),\n    net_amount: round(net),\n    inc_rate: inclusiveRate,\n    net_rate: purchaseRate,\n    item_note: trim(product.category_name || source.description),\n    sale_price: salePrice,\n    margin_per: margin,\n    tax_id: vatRate > 0 ? trim(taxRow?.tax_id, '1') : '',\n    tax_value: vatRate > 0 ? trim(taxRow?.tax_value, String(vatRate) + '%') : '',\n    vat_rate: vatRate,\n    unique_record: Array.from({ length: 64 }, () => 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 62)]).join(''),\n  });\n}\nif (!items.length) errors.push('لم تتم مطابقة أي منتج مع POS.');\nconst gross = round(items.reduce((sum, item) => sum + item.amount, 0));\nconst totalTax = round(items.reduce((sum, item) => sum + item.total_tax, 0));\nconst totalNet = round(items.reduce((sum, item) => sum + item.net_amount, 0));\nconst discount = num($json.extracted?.discount);\nconst adjustment = num($json.extracted?.adjustment);\nconst roundOff = num($json.extracted?.round_off);\nconst grandTotal = round(totalNet - discount + adjustment + roundOff);\nconst invoiceTotal = num($json.extracted?.invoice_total, grandTotal);\nconst difference = round(invoiceTotal - grandTotal);\nif (Math.abs(difference) > 0.01) errors.push('فرق الإجمالي AED ' + money(difference));\nif (!$json.vendor?.id) errors.push('المورد غير محدد.');\nconst existingId = trim($json.draft_id);\nconst draftId = existingId || ('PUR-' + new Date().toISOString().replace(/\\D/g, '').slice(0, 14) + '-' + Math.random().toString(36).slice(2, 6).toUpperCase());\nconst branch = { id: trim($json.branch_id, '1'), name: trim($json.branch_name, 'AL FALAH') };\nconst vendor = $json.vendor || {\n  id: '',\n  text: trim($json.extracted?.supplier_name, 'غير مطابق'),\n  branch_id: branch.id,\n  score: 0,\n  taxable: '',\n};\nconst draft = {\n  draft_id: draftId,\n  status: errors.length ? 'needs_review' : 'pending_approval',\n  chat_id: trim($json.chat_id),\n  message_id: trim($json.message_id),\n  source_attachment: $json.source_attachment || null,\n  extracted: $json.extracted,\n  branch,\n  vendor,\n  items,\n  header: {\n    party_invoice_no: trim($json.extracted?.supplier_invoice_no),\n    party_invoice_date: dateOnly($json.extracted?.supplier_invoice_date),\n    purchase_date: dateOnly($json.extracted?.purchase_date || $json.extracted?.supplier_invoice_date),\n    notes: trim($json.extracted?.notes),\n  },\n  totals: {\n    quantity: round(items.reduce((sum, item) => sum + item.quantity, 0)),\n    gross,\n    tax: totalTax,\n    net: totalNet,\n    discount,\n    adjustment,\n    round_off: roundOff,\n    grand_total: grandTotal,\n    paid: 0,\n    balance: grandTotal,\n    invoice_total: invoiceTotal,\n    difference,\n  },\n  errors,\n  updated_at: new Date().toISOString(),\n  created_at: new Date().toISOString(),\n};\nconst store = $getWorkflowStaticData('global');\nif (!store.purchaseDrafts || typeof store.purchaseDrafts !== 'object') store.purchaseDrafts = {};\nif (store.purchaseDrafts[draftId]?.created_at) draft.created_at = store.purchaseDrafts[draftId].created_at;\nstore.purchaseDrafts[draftId] = draft;\nreturn [{ json: { ...$json, draft_id: draftId, draft, telegram_text: review(draftId, draft) } }];"
+      }
+    },
+    {
+      "id": "purchase-edit-review",
+      "name": "Telegram - Send Edited Purchase Review",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        760,
+        920
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.chat_id}}",
+        "text": "={{$json.telegram_text}}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "AL FALAH / 1",
+                    "additionalFields": {
+                      "callback_data": "={{'purchase_branch:' + $json.draft_id + ':1:AL FALAH'}}"
+                    }
+                  },
+                  {
+                    "text": "MBZ / 2",
+                    "additionalFields": {
+                      "callback_data": "={{'purchase_branch:' + $json.draft_id + ':2:MBZ'}}"
+                    }
+                  },
+                  {
+                    "text": "Musaffah / 3",
+                    "additionalFields": {
+                      "callback_data": "={{'purchase_branch:' + $json.draft_id + ':3:Musaffah'}}"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "موافق",
+                    "additionalFields": {
+                      "callback_data": "={{'purchase_approve:' + $json.draft_id}}"
+                    }
+                  },
+                  {
+                    "text": "تعديل",
+                    "additionalFields": {
+                      "callback_data": "={{'purchase_edit_request:' + $json.draft_id}}"
+                    }
+                  },
+                  {
+                    "text": "إلغاء",
+                    "additionalFields": {
+                      "callback_data": "={{'purchase_cancel:' + $json.draft_id}}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "purchase-cancel",
+      "name": "Cancel - Mark Purchase Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -540,
+        1160
+      ],
+      "parameters": {
+        "jsCode": "if ($json.action !== 'cancel') return [];\nconst store = $getWorkflowStaticData('global');\nif (store.purchaseDrafts?.[$json.draft_id]) {\n  store.purchaseDrafts[$json.draft_id].status = 'cancelled';\n  store.purchaseDrafts[$json.draft_id].cancelled_at = new Date().toISOString();\n}\nreturn [{ json: { ...$json, telegram_text: 'تم إلغاء مسودة المشتريات.\\nDraft: ' + $json.draft_id } }];"
+      }
+    },
+    {
+      "id": "purchase-cancel-send",
+      "name": "Telegram - Send Purchase Cancelled",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -280,
+        1160
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.chat_id}}",
+        "text": "={{$json.telegram_text}}",
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger - Purchase": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Normalize Purchase Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Normalize Purchase Input": {
+      "main": [
+        [
+          {
+            "node": "Intake - Prepare Purchase Prompt",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Approve - Load Purchase Draft",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Branch - Update Purchase Draft",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Edit Button - Ask Purchase Details",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Edit - Prepare Purchase Change",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Cancel - Mark Purchase Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intake - Prepare Purchase Prompt": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Send Purchase Analysis Notice",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Intake - Continue Purchase Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intake - Continue Purchase Analysis": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Extract Purchase Invoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Extract Purchase Invoice": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Parse Purchase JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Parse Purchase JSON": {
+      "main": [
+        [
+          {
+            "node": "POS - Match Vendor And Products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POS - Match Vendor And Products": {
+      "main": [
+        [
+          {
+            "node": "Draft - Calculate And Save Purchase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft - Calculate And Save Purchase": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Send Purchase Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approve - Load Purchase Draft": {
+      "main": [
+        [
+          {
+            "node": "POS - Create And Finalize Purchase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POS - Create And Finalize Purchase": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Prepare Purchase Result",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Attachment - Prepare Purchase Upload Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Prepare Purchase Result": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Send Purchase Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attachment - Prepare Purchase Upload Job": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Download Registered Purchase File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Download Registered Purchase File": {
+      "main": [
+        [
+          {
+            "node": "POS - Prepare Purchase Attachment Session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POS - Prepare Purchase Attachment Session": {
+      "main": [
+        [
+          {
+            "node": "POS HTTP - Upload Purchase Attachment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POS HTTP - Upload Purchase Attachment": {
+      "main": [
+        [
+          {
+            "node": "Purchase - Finalize Attachment Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Purchase - Finalize Attachment Result": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Send Purchase Attachment Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Branch - Update Purchase Draft": {
+      "main": [
+        [
+          {
+            "node": "POS - Rematch Purchase After Branch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POS - Rematch Purchase After Branch": {
+      "main": [
+        [
+          {
+            "node": "Draft - Save Purchase After Branch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft - Save Purchase After Branch": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Send Purchase Branch Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Button - Ask Purchase Details": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Send Purchase Edit Instructions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit - Prepare Purchase Change": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Parse Purchase Edit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Parse Purchase Edit": {
+      "main": [
+        [
+          {
+            "node": "Edit - Apply Purchase Change",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit - Apply Purchase Change": {
+      "main": [
+        [
+          {
+            "node": "POS - Rematch Edited Purchase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POS - Rematch Edited Purchase": {
+      "main": [
+        [
+          {
+            "node": "Draft - Save Edited Purchase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft - Save Edited Purchase": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Send Edited Purchase Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancel - Mark Purchase Draft": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Send Purchase Cancelled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "laundry"
+    },
+    {
+      "name": "telegram"
+    },
+    {
+      "name": "ai"
+    },
+    {
+      "name": "purchase"
+    },
+    {
+      "name": "direct-pos"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2026-06-13T00:00:00.000Z",
+  "versionId": "telegram-ai-purchase-direct-pos-v1"
+}

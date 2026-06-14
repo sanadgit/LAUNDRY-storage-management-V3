@@ -1,0 +1,110 @@
+Attached Element Context from Integrated Browser
+
+Element: div.bottom-store-bar.flex-none.border-t.border-slate-800.bg-slate-900/70.p-3.flex.justify-center.items-center
+
+URL: http://localhost:3002/search
+
+HTML Path: div#root > div.flex.w-full.overflow-x-hidden.min-h-screen.font-sans.bg-slate-900.text-slate-100 > div.flex-1.min-w-0.flex.flex-col.h-screen > main.flex-1.overflow-y-auto.overflow-x-hidden > div.warehouse-search-ui.h-full.w-full.min-w-0.flex.flex-col.bg-slate-900.text-white.overflow-hidden > div.warehouse-main-content.flex-1.relative.flex.min-w-0.overflow-hidden > div.flex-1.flex.flex-col.min-w-0.h-full.overflow-hidden.bg-slate-950 > div.bottom-store-bar.flex-none.border-t.border-slate-800.bg-slate-900/70.p-3.flex.justify-center.items-center
+
+Outer HTML:
+```html
+<div class="bottom-store-bar flex-none border-t border-slate-800 bg-slate-900/70 p-3 flex justify-center items-center"><div dir="ltr" class="warehouse-store-tabs flex items-center justify-start gap-1.5 overflow-x-auto no-scrollbar [direction:ltr] min-h-11 max-w-[95%]"><button type="button" class="warehouse-store-tab px-3 sm:px-4 lg:px-5 min-h-11 py-2 rounded-xl sm:rounded-2xl font-bold whitespace-nowrap transition-all text-[11px] sm:text-[13px] lg:text-[15px] inline-flex items-center gap-2 leading-none warehouse-store-tab--active bg-[#2F7DFF] text-white shadow-[0_0_16px_rgba(47,125,255,0.45)] border border-blue-300/25" title="B1-back"><span>B1-back</span><span role="button" tabindex="0" class="ml-0.5 rounded-lg p-0.5 bg-white/10 hover:bg-white/20" title="Store actions"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-ellipsis-vertical" aria-hidden="true"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg></span></button><button type="button" class="warehouse-store-tab px-3 sm:px-4 lg:px-5 min-h-11 py-2 rounded-xl sm:rounded-2xl font-bold whitespace-nowrap transition-all text-[11px] sm:text-[13px] lg:text-[15px] inline-flex items-center gap-2 leading-none text-slate-400 hover:text-white hover:bg-slate-800 border border-transparent" title="B1-front"><span>B1-front</span></button><button type="button" class="warehouse-store-tab px-3 sm:px-4 lg:px-5 min-h-11 py-2 rounded-xl sm:rounded-2xl font-bold whitespace-nowrap transition-all text-[11px] sm:text-[13px] lg:text-[15px] inline-flex items-center gap-2 leading-none text-slate-400 hover:text-white hover:bg-slate-800 border border-transparent" title="B2-back"><span>B2-back</span></button><button type="button" class="warehouse-store-tab px-3 sm:px-4 lg:px-5 min-h-11 py-2 rounded-xl sm:rounded-2xl font-bold whitespace-nowrap transition-all text-[11px] sm:text-[13px] lg:text-[15px] inline-flex items-center gap-2 leading-none text-slate-400 hover:text-white hover:bg-slate-800 border border-transparent" title="B2-front"><span>B2-front</span></button><button type="button" class="warehouse-store-tab px-3 sm:px-4 lg:px-5 min-h-11 py-2 rounded-xl sm:rounded-2xl font-bold whitespace-nowrap transition-all text-[11px] sm:text-[13px] lg:text-[15px] inline-flex items-center gap-2 leading-none text-slate-400 hover:text-white hover:bg-slate-800 border border-transparent" title="B3-back"><span>B3-back</span></button><button type="button" class="warehouse-store-tab px-3 sm:px-4 lg:px-5 min-h-11 py-2 rounded-xl sm:rounded-2xl font-bold whitespace-nowrap transition-all text-[11px] sm:text-[13px] lg:text-[15px] inline-flex items-center gap-2 leading-none text-slate-400 hover:text-white hover:bg-slate-800 border border-transparent" title="B3-front"><span>B3-front</span></button><button type="button" class="warehouse-store-tab px-3 sm:px-4 lg:px-5 min-h-11 py-2 rounded-xl sm:rounded-2xl font-bold whitespace-nowrap transition-all text-[11px] sm:text-[13px] lg:text-[15px] inline-flex items-center gap-2 leading-none text-slate-400 hover:text-white hover:bg-slate-800 border border-transparent" title="B4"><span>B4</span></button><button type="button" class="warehouse-store-tab px-3 sm:px-4 lg:px-5 min-h-11 py-2 rounded-xl sm:rounded-2xl font-bold whitespace-nowrap transition-all text-[11px] sm:text-[13px] lg:text-[15px] inline-flex items-center gap-2 leading-none text-slate-400 hover:text-white hover:bg-slate-800 border border-transparent" title="FA"><span>FA</span></button><button type="button" class="warehouse-store-tab px-3 sm:px-4 lg:px-5 min-h-11 py-2 rounded-xl sm:rounded-2xl font-bold whitespace-nowrap transition-all text-[11px] sm:text-[13px] lg:text-[15px] inline-flex items-center gap-2 leading-none text-slate-400 hover:text-white hover:bg-slate-800 border border-transparent" title="Folding 3"><span>Folding 3</span></button><button type="button" class="warehouse-store-tab px-3 sm:px-4 lg:px-5 min-h-11 py-2 rounded-xl sm:rounded-2xl font-bold whitespace-nowrap transition-all text-[11px] sm:text-[13px] lg:text-[15px] inline-flex items-center gap-2 leading-none text-slate-400 hover:text-white hover:bg-slate-800 border border-transparent" title="conveyer  "><span>conveyer  </span></button><button type="button" class="warehouse-store-tab px-3 sm:px-4 lg:px-5 min-h-11 py-2 rounded-xl sm:rounded-2xl font-bold whitespace-nowrap transition-all text-[11px] sm:text-[13px] lg:text-[15px] inline-flex items-center gap-2 leading-none text-slate-400 hover:text-white hover:bg-slate-800 border border-transparent" title="folding 2"><span>folding 2</span></button></div></div>
+```
+
+Dimensions:
+- top: 760px
+- left: 512px
+- width: 757px
+- height: 69px
+
+CSS:
+```css
+*, ::after, ::before, ::backdrop, ::file-selector-button { box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    border: 0 solid; }
+.flex { display: flex; }
+.flex-none { flex: none; }
+.items-center { align-items: center; }
+.justify-center { justify-content: center; }
+.border-t { border-top-style: var(--tw-border-style);
+    border-top-width: 1px; }
+.border-slate-800 { border-color: var(--color-slate-800); }
+.bg-slate-900\/70 { background-color: color-mix(in srgb, oklch(20.8% 0.042 265.755) 70%, transparent); }
+ { background-color: color-mix(in oklab, var(--color-slate-900) 70%, transparent); }
+.p-3 { padding: calc(var(--spacing) * 3); }
+.warehouse-search-ui .bottom-store-bar { background: var(--wh-bg-card) !important;
+  border-top: 1px solid var(--wh-border) !important;
+  padding: 0.75rem 1.25rem;
+  z-index: 10;
+  width: 100%; }
+
+/* Pseudo-elements */
+::-webkit-scrollbar { width: 8px;
+  height: 8px; }
+::-webkit-scrollbar-thumb { border-radius: calc(infinity * 1px);
+  background-color: var(--color-slate-700);
+  transition-property: color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to;
+  transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
+  transition-duration: var(--tw-duration, var(--default-transition-duration)); }
+::-webkit-scrollbar-track { background-color: var(--color-slate-900); }
+
+/* Inherited */
+.text-white { color: var(--color-white) }
+.warehouse-search-ui { color: var(--wh-text-primary) }
+.font-sans { font-family: var(--font-sans) }
+.text-slate-100 { color: var(--color-slate-100) }
+html, :host { line-height: 1.5; tab-size: 4; font-family: var(--default-font-family, ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"); font-feature-settings: var(--default-font-feature-settings, normal) }
+
+/* Resolved values */
+margin: 0px;
+padding: 12px 20px;
+border-radius: 0px;
+border-width: 1.11111px 0px 0px;
+border-style: solid;
+border-color: rgb(38, 59, 91) oklch(0.279 0.041 260.031) oklch(0.279 0.041 260.031);
+align-items: center;
+background-attachment: scroll;
+background-clip: border-box;
+background-color: rgb(16, 29, 48);
+background-image: none;
+background-origin: padding-box;
+background-position-x: 0%;
+background-position-y: 0%;
+background-repeat: repeat;
+background-size: auto;
+box-sizing: border-box;
+color: rgb(255, 255, 255);
+display: flex;
+flex-basis: auto;
+flex-grow: 0;
+flex-shrink: 0;
+font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+font-feature-settings: normal;
+height: 69.0972px;
+justify-content: center;
+line-height: 24px;
+tab-size: 4;
+transition-duration: 0s;
+transition-property: all;
+transition-timing-function: ease;
+unicode-bidi: isolate /*UA*/;
+width: 756.892px;
+z-index: 10;
+
+/* CSS variables */
+--wh-bg-card: #101d30;
+--wh-border: #263b5b;
+--color-white: #fff;
+--default-transition-duration: 150ms;
+--wh-text-primary: #ffffff;
+--default-transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+--color-slate-800: oklch(27.9% 0.041 260.031);
+--spacing: 0.25rem;
+--tw-border-style: solid;
+--color-slate-700: oklch(37.2% 0.044 257.287);
+--color-slate-900: oklch(20.8% 0.042 265.755);
+--font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+--default-font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+--color-slate-100: oklch(96.8% 0.007 247.896);
+```

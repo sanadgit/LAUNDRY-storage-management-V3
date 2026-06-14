@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <!-- Meta, title, CSS, favicons, etc. -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0 viewport-fit=cover" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Aipsoft Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;300;400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/jquery-confirm.min.css">
+    <script type="text/javascript" src="js/jquery-3.5.1.min.js"></script>
+    <script src="js/jquery-confirm.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.datatables.net/2.1.8/css/dataTables.dataTables.min.css">
+    <script type="text/javascript" src="https://cdn.datatables.net/2.1.8/js/dataTables.min.js"></script>
+    <script type="text/javascript">
+    let api_user_id         = window.localStorage.getItem('api_user_id');
+    let api_url             = window.localStorage.getItem('api_url');
+    let client_identifier   = window.localStorage.getItem('client_identifier');
+    let branch_id           = window.localStorage.getItem('branch_id');
+    let currency_id         = window.localStorage.getItem('currency_id');
+    if((api_user_id == null || api_user_id == '' || api_url =='' || api_url == null)) {
+        window.location = "login.html";
+    } 
+    </script>
+</head>
+
+<style type="text/css">
+
+        body {
+            font-family: 'Roboto', sans-serif;
+            margin: 0;
+            background-color: #f5f7fa;
+        }
+        .loading {
+        position: fixed;
+        z-index: 999999;
+        height: 100%;
+        width: 100%;
+        overflow: show;
+        margin: auto;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        right: 0;
+        background: #000;
+        opacity: 0.5;
+    }
+    img.loadingIco {
+        width: 15%;
+        position: absolute;
+        top: 44%;
+        left: 44%;
+    }
+        .nav_deader {
+            background-image: linear-gradient(to right, #305daf , #17a9ca);
+            padding: 8px;
+            color: #fff;
+            overflow: hidden;
+            text-align: center;
+        }
+        .aiplogo img {
+            height: 30px;
+        }
+        .nav_text p {
+            font-size: 14px;
+            margin: 0;
+            font-weight: 400;
+        }
+        .GRN_wrap {
+            padding: 10px;
+        }
+        .button_container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .back_btn,.add_new {
+            background-color: #2350a3;
+            font-size: 15px;
+            font-weight: 500;
+            color: #fff;
+            border: 0;
+            padding: 8px 30px;
+            border-radius: 4px;
+            letter-spacing: 1px;
+            display: block;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        .add_new{
+            float: right;
+            background-color: #1aa0c7 !important;
+        }
+        .header_type p {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 500;
+            text-align: center;
+            color: #333;
+            padding: 5px 0;
+        }
+        .content_body {
+            border: 1px solid #d6d6d6;
+            height: 75vh;
+            overflow-y: auto;
+            border-radius: 5px;
+            background-color: #fbfbfb;
+        }
+        .content_body table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        .content_body thead {
+            background-color: #d9e6f2;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .content_body th, .content_body td {
+            padding: 10px;
+            text-align: left;
+            font-size: 14px;
+            border-bottom: 1px solid #e0e0e0;
+            color: #333;
+        }
+        .content_body tbody tr:nth-child(even) {
+            background-color: #f2f9ff;
+        }
+        .content_body tbody tr {
+            cursor: pointer;
+        }
+        .footer {
+            padding: 10px 0;
+            background-color: #2451a6;
+            text-align: center;
+            position: fixed;
+            width: 100%;
+            bottom: 0;
+            left: 0;
+        }
+        .footer button {
+            width: 90%;
+            padding: 15px;
+            font-weight: 600;
+            font-size: 16px;
+            background-color: #2451a6;
+            color: #fff;
+            border: 0;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .load-more {
+            display: block;
+            width: 100%;
+            text-align: center;
+            padding: 10px;
+            background-color: #17a9ca;
+            color: #fff;
+            border: 0;
+            cursor: pointer;
+            font-weight: 500;
+            border-radius: 5px;
+            margin-top: 10px;
+        }
+        .status-icon {
+    width: 16px;
+    height: 16px;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+
+        @media only screen and (max-width: 400px) {
+            .back_btn {
+                padding: 8px 20px;
+            }
+            .content_body th, .content_body td {
+                font-size: 12px;
+            }
+        }
+    </style>
+
+<body>
+
+    <div class="nav_deader">
+        <div class="aiplogo">
+            <img src="images/aipsoft.png">
+        </div>
+        <div class="nav_text">
+            <p>AipSoft - Expense List</p>
+        </div>
+    </div>
+
+    
+    <div class="GRN_wrap">  
+        <div class="button_container">
+            <button type="button" class="back_btn">Back</button>
+            <button type="button" class="add_new">Add New +</button>    
+        </div>
+        
+        <div class="header_type">
+            <p>Expense List</p>
+        </div>
+
+        <div class="content_body">
+            <table id="expense_list_table">
+                <thead>
+                    <tr>
+                        <th width="10%">S#</th>
+                        <th width="20%">Expence#</th>
+                        <th width="15%">Plate#</th>
+                        <th width="25%">Bill Date</th>
+                        <th width="20%">Amount</th>
+                        <th width="10%"></th>
+                    </tr>    
+                </thead>
+                <tbody>
+                </tbody>
+            </table>
+        </div>
+
+        <button class="load-more">Load More</button>
+    
+    </div>    
+
+<script>
+var response_length = 0;
+$(document).ready(function() {
+    let table = $('#expense_list_table').DataTable({
+        "dom": 'rt',
+        "ordering": false,
+        serverSide: true,
+        lengthMenu:[[30]],
+        ajax: {
+            url: api_url + '/purchase_api/list_expense',
+            type: 'POST',
+            dataType : "JSON",
+            data: {
+                'client_identifier':client_identifier,
+            },
+            beforeSend: function (request) {
+                loadAjax();
+            },
+            complete: function(request) {
+                response = request.responseJSON;
+                response_length = response.data.length;
+                removeAjaxLoad();
+            }
+        }
+    })
+
+    $('.back_btn').click(function(){
+        window.location = "home.html";
+    })
+
+    $('.add_new').click(function(){
+        window.localStorage.removeItem('expense_id');
+        window.location = "expense.html";
+    })
+
+    $('.load-more').click(function(){
+        let expense_table_length = response_length + 30;
+        table.page.len(expense_table_length).draw();
+    })
+
+    $('#expense_list_table').on('click', 'tbody tr', function () {
+        expense_id = $(this).find('.expense_id').attr('data-id');
+        window.localStorage.setItem('expense_id',expense_id);
+        window.location = "expense.html";
+    })
+})
+
+function loadAjax()
+{
+    $('body').append("<div class='loading'><img src='images/new_loader.gif' class='loadingIco'></div>");
+}
+function removeAjaxLoad()
+{
+    $('.loading').remove();
+}
+</script>
+</body>
+
+</html>

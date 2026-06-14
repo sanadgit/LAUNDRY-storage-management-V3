@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <!-- Meta, title, CSS, favicons, etc. -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0 viewport-fit=cover" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Aipsoft Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;300;400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/jquery-confirm.min.css">
+    <script type="text/javascript">
+    let api_user_id         = window.localStorage.getItem('api_user_id');
+    let api_url             = window.localStorage.getItem('api_url');
+    let client_identifier   = window.localStorage.getItem('client_identifier');
+    let branch_id           = window.localStorage.getItem('branch_id');
+    let currency_id         = window.localStorage.getItem('currency_id');
+    if((api_user_id == null || api_user_id == '' || api_url =='' || api_url == null)) {
+            window.location = "login.html";
+    } 
+    // let order_id     = window.localStorage.getItem('order_id');
+    // if(order_id!=0 && order_id!=undefined && order_id!=null && order_id!='')
+    // {
+    //     window.location = "grn_item.html";
+    // }
+    </script>
+</head>
+
+<style type="text/css">
+     body {
+            font-family: 'Roboto', sans-serif;
+            margin: 0;
+            background-color: #f5f7fa;
+        }
+        .loading {
+        position: fixed;
+        z-index: 999999;
+        height: 100%;
+        width: 100%;
+        overflow: show;
+        margin: auto;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        right: 0;
+        background: #000;
+        opacity: 0.5;
+    }
+    img.loadingIco {
+        width: 15%;
+        position: absolute;
+        top: 44%;
+        left: 44%;
+    }
+        .nav_deader {
+            background-image: linear-gradient(to right, #305daf , #17a9ca);
+            padding: 8px;
+            color: #fff;
+            overflow: hidden;
+            text-align: center;
+        }
+        .aiplogo img {
+            height: 30px;
+        }
+        .nav_text p {
+            font-size: 14px;
+            margin: 0;
+            font-weight: 400;
+        }
+        .GRN_wrap {
+            padding: 10px;
+        }
+        .button_container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .back_btn, .add_new {
+            background-color: #2350a3;
+            font-size: 15px;
+            font-weight: 500;
+            color: #fff;
+            border: 0;
+            padding: 8px 30px;
+            border-radius: 4px;
+            letter-spacing: 1px;
+            cursor: pointer;
+        }
+        .header_type {
+            text-align: center;
+            padding: 5px 0;
+            margin-bottom: 15px;
+        }
+        .header_type p {
+            font-size: 18px;
+            font-weight: 500;
+            color: #333;
+            margin: 0;
+        }
+        .dashboard_container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: #fff;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            position: relative; /* Ensures it can be moved */
+            transition: transform 0.3s ease-out, opacity 0.3s ease-out; /* Smooth animation */
+            transform: translateY(0); /* Initial position */
+        }
+        .dashboard_container.move-down {
+            transform: translateY(50px); /* Moves down */
+            opacity: 1; /* Ensures visibility */
+        }
+        .header {
+        display: flex;
+        justify-content: space-between; /* Ensures items are pushed to the ends */
+        align-items: center; /* Centers items vertically */
+        padding-bottom: 15px;
+        border-bottom: 1px solid #e0e0e0;
+        margin-bottom: 20px;
+        }
+        .header .user_info {
+        text-align: left;
+        flex: 1; /* Allows the user_info to take up remaining space */
+        }
+        .header .user_info h2 {
+            margin: 0;
+            font-size: 20px;
+            font-weight: 500;
+            color: #333;
+        }
+        .header .user_info p {
+            margin: 5px 0;
+            font-size: 14px;
+            color: #666;
+        }
+        .header .user_icon {
+        background-color: #2350a3;
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        color: #fff;
+        font-size: 18px;
+        font-weight: 600;
+        margin-left: 20px; /* Adds space between user_info and icon */
+        flex-shrink: 0; /* Prevents the icon from shrinking */
+    }
+        .section {
+            padding: 15px;
+            background-color: #fbfbfb;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        .section h3 {
+            font-size: 16px;
+            font-weight: 500;
+            color: #2350a3;
+            margin-bottom: 10px;
+        }
+        .section p {
+            font-size: 14px;
+            color: #333;
+            margin: 5px 0;
+        }
+          .balance_header {
+        display: flex;
+        justify-content: space-between; /* Aligns the title on the left and button on the right */
+        align-items: center; /* Centers items vertically */
+        margin-bottom: 10px;
+    }
+    .balance_header h3 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 500;
+        color: #2350a3;
+    }
+    .balance_header button {
+        background-color: #17a9ca;
+        color: #fff;
+        padding: 8px 15px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+    }
+    .balance_header button svg {
+        width: 20px;
+        height: 20px;
+        margin-right: 5px;
+    }
+        .balance_section {
+            display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 15px;
+        }
+        .balance_info {
+        font-size: 16px;
+        font-weight: 500;
+        color: #2350a3; /* Dark blue color for text */
+        margin: 10px 0;
+    }
+    .balance_amount {
+        font-size: 20px; /* Larger font size for the balance amount */
+        font-weight: 700; /* Bold weight for emphasis */
+        color: #004d80; /* Darker blue color for stronger emphasis */
+    }
+        .balance_section .balance_info {
+            font-size: 14px;
+            color: #666;
+        }
+        .balance_section button {
+            background-color: #17a9ca;
+            color: #fff;
+            padding: 8px 15px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            text-align: center;
+            width: 40%;
+        }
+        .balance_section button svg {
+            width: 20px;
+            height: 20px;
+            margin-right: 5px;
+        }
+        .expense_section {
+            margin-top: 20px;
+        }
+        .select_period {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 15px;
+        }
+        .select_period select {
+            padding: 8px;
+            border: 1px solid #d6d6d6;
+            border-radius: 5px;
+            font-size: 14px;
+            color: #333;
+        }
+        .buttons_group {
+            margin-top: 15px;
+        }
+        .buttons_group button {
+            background-color: #2350a3;
+            color: #fff;
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            width: 100%;
+            font-size: 15px;
+            margin-top: 10px;
+        }
+
+       .expense_highlight {
+        padding: 10px;
+        background-color: #e6f7ff; /* Light blue background for highlighting */
+        border-radius: 8px;
+        margin-top: 10px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    .expense_highlight p {
+        margin: 15px 0;
+    }
+    .highlight_title {
+        font-size: 14px; /* Smaller font for the text */
+        font-weight: 500;
+        color: #2350a3; /* Dark blue color */
+    }
+    .highlight_amount {
+        font-size: 24px; /* Larger font for the amount */
+        font-weight: 700;
+        color: #004d80; /* Darker shade for amounts */
+    }
+
+      /*  @media only screen and (max-width: 400px) {
+            .header {
+                flex-direction: column;
+                align-items: center;
+                text-align: center;
+            }
+            .header .user_info {
+                margin-bottom: 10px;
+            }
+            .balance_section {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .balance_section button {
+                width: 100%;
+                margin-top: 10px;
+            }
+        }*/
+    </style>
+
+<body>
+    
+    <div class="nav_deader">
+        <div class="aiplogo">
+            <img src="images/aipsoft.png">
+        </div>
+        <div class="nav_text">
+            <p>AipSoft - Dashboard</p>
+        </div>
+    </div>
+
+    <div class="GRN_wrap">  
+        <div class="button_container">
+            <button type="button" class="back_btn">Menu</button>
+        </div>
+
+        <!-- Dashboard Container -->
+        <div class="dashboard_container">
+            <!-- User Information -->
+           <div class="header">
+                <div class="user_info">
+                    <h2 class="user_fullname"> </h2>
+                    <p class="user_usertype"> </p>
+                    <p class="user_selected_achead"> </p>
+                </div>
+                <!-- <div class="user_icon">AH</div> -->
+            </div>
+
+            <!-- Balance Amount Section -->
+            <div class="section">
+                <div class="balance_header">
+                    <h3>Balance Amount</h3>
+                    <button onclick="call_refresh()">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="23 4 23 10 17 10"></polyline>
+                            <polyline points="1 20 1 14 7 14"></polyline>
+                            <path d="M3.51 9a9 9 0 0115.88-3"></path>
+                            <path d="M20.49 15a9 9 0 01-15.88 3"></path>
+                        </svg>
+                        Refresh
+                    </button>
+                </div>
+                <p>Last Refresh: <span id="lastRefreshTime">2024-10-21 10:30 AM</span></p>
+                <div class="balance_section">
+                    <p class="balance_info">Current Balance:<br><span class="balance_amount">AED 2,500.00</span></p>
+                    <br>
+                    <button>View Approved Transactions</button>
+                </div>
+            </div>
+
+            <div class="section expense_section">
+                <h3>Expense Details</h3>
+                <div class="select_period">
+                    <label for="period">Select Period:</label>
+                    <select id="period">
+                        
+                    </select>
+                </div>
+                <div class="expense_highlight">
+                    <p><span class="highlight_title">Expense Posted Amount:</span><br>
+                    <span class="highlight_amount expence_total">AED 1,500.00</span></p>
+                    
+                    <p><span class="highlight_title">Expense Approved Amount:</span><br>
+                    <span class="highlight_amount expence_active">AED 1,200.00</span></p>
+                </div>
+            </div>
+
+    
+<script type="text/javascript" src="js/jquery-3.5.1.min.js"></script>
+<script src="js/jquery-confirm.min.js"></script>
+<script>
+$(document).ready(function() {
+    loadAjax();
+    $('.logout_btn').click(function(){
+         window.localStorage.setItem('api_user_id','');
+         window.location = "login.html";
+    })
+    $('.back_btn').click(function(){
+        window.location = "home.html";
+    })
+    $('.add_new').click(function(){
+        window.location = "home.html";
+    })
+    $('.balance_section button').click(function(){
+        window.location = "zoho_ac_transactions.html";
+    })
+
+     // Add event listeners for both scroll and touchmove
+    let isScrolling;
+    $(window).on('scroll touchmove', function() {
+        // Clear timeout to debounce
+        clearTimeout(isScrolling);
+
+        // Set a timeout to run after scroll event is completed
+        isScrolling = setTimeout(function() {
+            // Check if the user has scrolled to the bottom of the page
+            if ($(window).scrollTop() + $(window).height() >= $(document).height() - 50) {
+                // Call the load_dashboard_info function
+                 window.location.reload();
+
+                // Apply the translateY animation
+                $('.dashboard_container').css({
+                    transform: 'translateY(50px)', // Adjust the value for the desired effect
+                    opacity: 1
+                });
+            }
+        }, 200); // 200ms debounce time, adjust as needed
+    });
+    
+})
+
+
+function loadAjax()
+{
+    $('body').append("<div class='loading'><img src='images/new_loader.gif' class='loadingIco'></div>");
+    // $('.loading').removeClass('invisibl');
+}
+function removeAjaxLoad()
+{
+    $('.loading').remove();
+    // setTimeout(function(){ $('.loading').remove();},100);
+}
+
+function load_dashboard_info(request_data)
+{
+    let period = $('#period').val();
+
+    $.ajax({
+            url: api_url + '/purchase_api/LoadDashExpenceBoardInfo',
+            method: 'POST',
+            dataType: "json",
+            data: {
+                'request_data': request_data,
+                'client_identifier': client_identifier,
+                'branch_id': branch_id,
+                'period': period,
+                'user_id': api_user_id
+            },
+            success: function(response) {
+                if(request_data == 'period_exp')
+                {
+                    $('.expence_active').text('AED '+response.data.expence_active);
+                    $('.expence_total').text('AED '+response.data.expence_total);
+                } else
+                if (response.status === "1") {
+                        
+                    $('#period').empty();
+        
+                    // Get the months_selector object from the response
+                    var monthsSelector = response.months_selector;
+                    
+                    // Loop through the monthsSelector and add each option to the select element
+                    $.each(monthsSelector, function(key, value) {
+                        $('#period').append('<option value="' + key + '">' + value + '</option>');
+                    });    
+
+                    $('.expence_active').text('AED '+response.data.expence_active);
+                    $('.expence_total').text('AED '+response.data.expence_total);
+
+                    $('.user_fullname').text(response.UserInfo.acc_name1);
+                    $('.user_usertype').text('User Type: '+response.UserInfo.type);
+                    $('.user_selected_achead').html('Selected Account Head:<br>'+response.UserInfo.selected_ac_head);
+
+                    if (response.zoho_total && Object.keys(response.zoho_total).length > 0) {
+                        $('#lastRefreshTime').text(response.zoho_total.curr_time);
+                        $('.balance_amount').text('AED '+response.zoho_total.balance_total);
+                        window.localStorage.setItem('lastRefreshTime',response.zoho_total.curr_time);
+                        window.localStorage.setItem('balance_amount',response.zoho_total.balance_total);
+                        
+                    } else {
+                        console.log("No Zoho Total data available.");
+                        let lastRefreshTime = window.localStorage.getItem('lastRefreshTime');
+                        let balance_amount = window.localStorage.getItem('balance_amount');
+                        $('#lastRefreshTime').text(lastRefreshTime);
+                        $('.balance_amount').text('AED '+balance_amount);
+                    }
+
+                        removeAjaxLoad();
+
+                } else {
+                    console.log("No data available");
+                }
+        
+            },
+            error: function(xhr, ajaxOptions, thrownError) {
+                alert('Cannot fetch server data!');
+                $('.column_list').css('display', 'block');
+            }
+        });
+}
+
+$('#period').on('change', function() {
+    load_dashboard_info('period_exp')
+});
+
+function setCookie(name, value, minutes) {
+    var date = new Date();
+    date.setTime(date.getTime() + (minutes * 60 * 1000)); // Convert minutes to milliseconds
+    var expires = "expires=" + date.toUTCString();
+    document.cookie = name + "=" + value + ";" + expires + ";path=/";
+}
+
+function getCookie(name) {
+    var cookies = document.cookie.split(';');
+    for (var i = 0; i < cookies.length; i++) {
+        var cookie = cookies[i].trim();
+        
+        // Check if the cookie starts with the desired name
+        if (cookie.indexOf(name + "=") === 0) {
+            return cookie.substring((name + "=").length, cookie.length);
+        }
+    }
+    return null; // Return null if the cookie is not found
+}
+
+function deleteCookie(name) {
+    document.cookie = name + "=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+}
+
+let ask_for = getCookie('ask_for_rpt'); 
+if(ask_for == '' || ask_for == null || ask_for == undefined)
+{
+    setCookie("ask_for_rpt", "dashboardinfo", 5);
+    ask_for = 'zoho_Balance';
+}
+
+load_dashboard_info(ask_for);
+
+function call_refresh() {
+    loadAjax();
+    deleteCookie('ask_for_rpt');
+    setTimeout(function() {
+        window.location.reload();
+    }, 2000); // Refreshes the page after 2000 milliseconds (2 seconds)
+}
+
+function loadAjax()
+{
+    $('body').append("<div class='loading'><img src='images/new_loader.gif' class='loadingIco'></div>");
+}
+function removeAjaxLoad()
+{
+    $('.loading').remove();
+}
+</script>
+</body>
+
+</html>

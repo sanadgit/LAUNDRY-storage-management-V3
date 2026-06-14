@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <!-- Meta, title, CSS, favicons, etc. -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0 viewport-fit=cover" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Aipsoft Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;300;400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/jquery-confirm.min.css">
+    <script type="text/javascript">
+    let api_user_id         = window.localStorage.getItem('api_user_id');
+    let api_url             = window.localStorage.getItem('api_url');
+    let client_identifier   = window.localStorage.getItem('client_identifier');
+    let branch_id           = window.localStorage.getItem('branch_id');
+    let currency_id         = window.localStorage.getItem('currency_id');
+    if((api_user_id == null || api_user_id == '' || api_url =='' || api_url == null)) {
+            window.location = "login.html";
+    } 
+    // api_url = 'http://localhost/develop/sabash/';
+    // client_identifier = 'sabash';
+    // let order_id     = window.localStorage.getItem('order_id');
+    // if(order_id!=0 && order_id!=undefined && order_id!=null && order_id!='')
+    // {
+    //     window.location = "grn_item.html";
+    // }
+    </script>
+</head>
+<style type="text/css">
+    .uploaded_images {
+    position: relative;
+}
+.uploaded_images ul{
+    padding: 0;
+    list-style: none;
+    margin: 0;
+    height: 10vh;
+    overflow: auto;
+}
+.uploaded_images ul li {
+    width: 15%;
+    float: left;
+    border-radius: 5px;
+    margin: 5px;
+    position: relative;
+    padding-bottom: 10px;
+}
+.uploaded_images ul li img{
+    width: 100%;
+    border-radius: 5px;
+}
+.uploaded_images ul li{width:20%;}
+.uploaded_images .deletIco {
+    position: absolute;
+    right: -5px;
+    top: -5px;
+    background-color: #e30d39;
+    border-radius: 30px;
+    width: 30px;
+    height: 30px;
+    text-align: center;
+    line-height: 30px;
+    color: #fff;
+}
+.imagelist_img {
+    background-repeat: no-repeat !important;
+    background-size: auto !important;
+    height: 60px;
+    width: 100%;
+    background-position: center !important;
+    border-radius: 8px;
+    border: 1px solid #325caa45;
+    box-shadow: 0px 2px 9px -2px rgb(133 133 133 / 75%);
+    -webkit-box-shadow: 0px 2px 9px -2px rgb(133 133 133 / 75%);
+    -moz-box-shadow: 0px 2px 9px -2px rgb(133 133 133 / 75%);
+}
+</style>
+<style type="text/css">
+
+    body {
+        font-family: 'Roboto', sans-serif;
+        margin: 0;
+        height: 100vh;
+    }
+    .nav_deader {
+        background-image: linear-gradient(to right, #305daf , #17a9ca);
+        /*background-image: linear-gradient(#252525, #070707);*/
+        padding: 8px;
+        color: #fff;
+        overflow: hidden;
+    }
+    .aiplogo {
+        float: left;
+        margin-right: 8px;
+    }
+    .nav_text p {
+        font-size: 14px;
+        margin: 0;
+        font-weight: 400;
+        margin-top: 2px;
+    }
+    .GRN_wrap{
+        padding: 8px 10px;
+        overflow: hidden;
+    }
+    .back_btn{
+        background-color: #2350a3;
+        font-size: 15px;
+        font-weight: 500;
+        color: #fff;
+        border: 0;
+        padding: 8px 30px;
+        float: left;
+        border-radius: 4px;
+        letter-spacing: 1px;
+    }
+    .content{
+        margin-bottom: 5px;
+        overflow: hidden;
+    }
+    .content p {
+        text-align: right;
+        margin: 0;
+        position: relative;
+        top: 12px;
+        color: #3b3b3b;
+        font-weight: 400;
+        font-size: 16px;
+        display: inline;
+        float: right;
+    }
+    .search{
+        position: relative;
+        margin-bottom: 6px;
+        display: flex;
+    }
+    .search input {
+        width: 100%;
+        padding: 10px;
+        padding-right: 40px;
+        color: #3b3b3b;
+        border: 1px solid #989898;
+        border-radius: 4px;
+    }
+    .search img {
+        position: absolute;
+        right: 8px;
+        overflow: hidden;
+        top: 6px;
+        color: #5d5d5d;
+    }
+    .content_body {
+        border: 1px solid #d6d6d6;
+        padding: 10px;
+        height: 44vh;
+        overflow-y: auto;
+        border-radius: 5px;
+        background-color: #fbfbfb;
+    }
+    .content_body::-webkit-scrollbar-track {
+        border-radius: 0px;
+        background-color: #fff;
+    }
+
+    .content_body::-webkit-scrollbar {
+        width: 6px;
+        background-color: #717171;
+    }
+
+    .content_body::-webkit-scrollbar-thumb {
+        border-radius: 6px;
+        background-color: #717171;
+    }    
+    .content_body ul{
+        padding: 0;
+        list-style-type: none;
+        margin: 0;
+    }
+    .content_body ul li {
+        background-color: #e9e9e9;
+        padding: 6px;
+        border: 1px solid #717171;
+        color: #3a3a3a;
+        margin-bottom: 6px;
+        font-size: 14px;
+    }    
+    .content_body ul li.active {
+        background-color: #2350a3;
+        color: #fff;
+    }
+    .footer{
+        width: 100%;
+        position: fixed; 
+        bottom: 0 !important;
+    }
+    .footer button{
+        width: 100%;
+        padding: 20px;
+        height: 75px;
+        font-weight: 600;
+        font-size: 16px;
+        background-color: #2451a6;
+        color: #fff;
+        border: 0;
+        left: 0;
+    }
+    .loadingIco{ display: none; }
+    .loading {
+        position: fixed;
+        z-index: 999999;
+        height: 100%;
+        width: 100%;
+        overflow: show;
+        margin: auto;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        right: 0;
+        background: #000;
+        opacity: 0.5;
+    }
+    img.loadingIco {
+        width: 100%;
+        position: absolute;
+        top: 25%;
+    }
+     .itemForm{
+        width: 50%;
+        float: left;
+        margin-bottom: 6px;
+    }
+    .itemForm label {
+        color: #3e3e3e;
+        font-size: 15px;
+        font-weight: 500;
+        margin-bottom: 5px;
+        display: block;
+    }
+    .itemForm select {
+        border: 1px solid #bfbfbf;
+        font-size: 14px;
+        color: #333;
+        padding: 8px;
+        width: 90%;
+        font-weight: 500;
+        border-radius: 5px;
+    }
+    .itemForm input {
+        border: 1px solid #bfbfbf;
+        font-size: 14px;
+        color: #333;
+        padding: 8px;
+        width: 40%;
+        float: left;
+        font-weight: 500;
+        border-radius: 5px;
+    }
+    .payment_current_balance{
+        float: right !important;
+        margin-left: 5%;
+        color: green !important;
+        text-align: right;
+        font-weight: bold !important;
+    }
+    .head_balance{
+        width: 50%;
+        float: right;
+        text-align: right;
+    }
+    .head_label{
+        width: 50%;
+        float: left;
+    }
+    .search.header_type {
+        padding: 12px 0;
+    }    
+    .header_type p {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 400;
+    }
+
+    @media only screen and (max-width: 400px) {
+        .itemForm {
+            width: 100%;
+            margin-bottom: 12px;
+        }    
+        .itemForm select {
+            width: 100%;
+        }         
+    }
+
+
+    /* CSS specific to iOS devices */ 
+
+    @supports (-webkit-touch-callout: none) {
+    .nav_deader {
+        padding-top: 50px;
+    }
+
+    }
+
+
+
+    .content_body_img_upload {
+        margin-top: 15px;
+        margin-bottom: 15px;
+        border: 1px solid #d6d6d6;
+        padding: 10px;
+        height: 10vh;
+        /*overflow-y: auto;*/
+        overflow: hidden;
+        border-radius: 5px;
+        background-color: #fbfbfb;
+    }
+    .content_body_img_upload::-webkit-scrollbar-track {
+        border-radius: 0px;
+        background-color: #fff;
+    }
+
+    .content_body_img_upload::-webkit-scrollbar {
+        width: 6px;
+        background-color: #717171;
+    }
+
+    .content_body_img_upload::-webkit-scrollbar-thumb {
+        border-radius: 6px;
+        background-color: #717171;
+    }  
+    .uploaded_images{
+        float: left;
+        width: 70%;
+    }
+    .image_upload_btns{
+        border-left: 1px solid #d6d6d6;
+        float: right;
+        width: 28%;
+    }
+    .image_upload_btns button{
+        float: right;
+        margin: 6px;
+    }
+    .upload_img{
+        background-image: url('images/file_upload.png');
+        background-color: transparent;
+        background-repeat: no-repeat;
+        background-size: cover;
+        border: none;
+        height: 70px;
+        width: 70px;
+    }
+    .delete_all_uploaded{
+        color: red;
+    }
+</style>
+
+<body>
+
+    <div class="nav_deader">
+        <div class="aiplogo">
+            <img src="images/aipsoft.png">
+        </div>
+        <div class="nav_text">
+            <p>AipSoft - Close Counter Entry-02</p>
+        </div>
+    </div>
+
+    <div class="GRN_wrap">  
+        <div class="content">
+            <button type="button" class="back_btn">Back</button>
+        </div>
+        <div class="search header_type">
+            <p>Enter Amount To Deposit/Collection</p>
+        </div>
+
+        <div class="content_body payment_methods">
+                        
+        </div>
+        <div class="content_body_img_upload">
+            <div class="uploaded_images">
+                <ul class="image_list_ul">
+
+                </ul>
+            </div>
+            <div class="image_upload_btns">
+                <input id="file-input" class="file-input" type="file" style="display:none;" accept="image/*">
+                <button class="upload_img"> </button>
+                
+            </div>
+
+        </div>
+        <span class="reset delete_all_uploaded"><img src="images/delete_img.png" height="15px" width="15px"> Delete all images</span>
+    
+    </div>
+    <div class="footer">
+        <button type="button" class="startBtn">Save & Complete</button>        
+    </div>
+<script type="text/javascript" src="js/jquery-3.5.1.min.js"></script>
+<script src="js/jquery-confirm.min.js"></script>
+<script>
+
+function save_msg()
+{
+     $.confirm({
+            title:'Saved & Completed !',
+            content: 'Data saved successfully !',
+            buttons: {
+                Okay: function () {
+                        loadAjax()
+                       window.location = "close_counter_start.html"; 
+                },
+                Cancel: function () {
+                        
+                }
+            },
+            onOpen: function () {
+            // after the modal is displayed.
+               
+            },
+
+        });
+}
+
+$(document).ready(function() {
+    $('.upload_img').click(function(){
+        $(".file-input").trigger('click');
+    });
+    var formData = '';
+    $('.reset').click(function(){
+        // api_url = 'http://localhost/develop/freshfruitmart';
+        $.confirm({
+            title:'Confirmation!',
+            content: 'Are you sure to remove all the uploaded images?',
+            buttons: {
+                Okay: function () {
+                    let upload_api_link = api_url + '/purchase_api/DeleteImg';
+                    let img_urls = [];
+                    $(".img").each(function(){
+                        img_urls.push($(this).data('img_file_name'));
+                    });
+                    
+                    // console.log(img_urls);
+                    // return false;
+                    $.ajax({
+                        url: upload_api_link,
+                        type:'POST',
+                        data:{'img_urls':img_urls,'client_identifier':client_identifier},
+                        success:function(data){
+                            $(".image_list_ul").empty();
+                            formData = new FormData();
+                        }
+
+                    })
+                },
+                Cancel: function () {
+                        
+                }
+            },
+            onOpen: function () {
+            // after the modal is displayed.
+               
+            },
+
+        });
+    });
+    let image_upload = function()
+    {
+        loadAjax();
+        let upload_api_link = api_url + '/purchase_api/UploadImg'
+        let api_url_arr = api_url.split('/');
+        api_url_arr.pop();
+        let img_url = api_url_arr.join('/');
+        $.ajax({
+           url: upload_api_link,
+           data: formData,
+           contentType: false,
+           processData: false,
+           type: 'POST',
+           dataType:'JSON',
+           success: function(data)
+           {
+                if(data['img_sts'] == 0 || data['img_sts'] == '0')
+                {
+                    $(".image_list_ul").append(`<li>
+                            <div class="imagelist_img">
+                            <img class="img">
+                            </div>
+                        </li>`);
+                    console.log(data);
+                    console.log(api_url);
+                    let img_show_url = api_url.replace(client_identifier.toLowerCase(),'');
+                    $('.img').eq($(".imagelist_img").length - 1).attr('src', img_show_url+data['file_name_with_path']);
+                    $('.img').eq($(".imagelist_img").length - 1).data('img_file_name',data['file_name']);
+                    console.log($('.img').eq($(".imagelist_img").length - 1).data('img_file_name'));    
+                }
+                else
+                {
+                    $.alert('<b>Photo/Image Only Acceptable !</b><br>Please take photo with Camera Or Choose image from gallary');
+                }
+                removeAjaxLoad();
+            // console.log(data);
+           }
+        });   
+    }
+    $("body").on('change','.file-input',function(){
+        formData = new FormData();
+        let imei_id = window.localStorage.getItem('imei_id');
+        let that = this;
+        let len  = $(".imagelist_img").length;
+        console.log(len);
+        formData.append('images',$('.file-input')[0].files[0]);
+        formData.append('client_identifier',client_identifier);
+        formData.append('imei_id',imei_id);
+        let url   = this.value;
+        let ext   = url.substring(url.lastIndexOf('.') + 1).toLowerCase();
+        console.log(ext);
+        var reader = new FileReader();
+        reader.onload = function (e) {
+            image_upload();
+        }
+        reader.readAsDataURL(this.files[0]);
+    });   
+    $('.logout_btn').click(function(){
+         window.localStorage.setItem('api_user_id','');
+         window.location = "login.html";
+    })
+    $('.back_btn').click(function(){
+        
+        let remittance_id = window.localStorage.getItem('counter_close_remittance_id');
+         $.confirm({
+            title:'Confirmation!',
+            content: 'Are you sure to abort this transaction ?',
+            buttons: {
+                Okay: function () {
+                        loadAjax()
+                        $.ajax({
+                                url: api_url+'/purchase_api/DeleteBranchRemittance',
+                                method: 'POST',
+                                data: {'remittance_id': remittance_id,'client_identifier':client_identifier},
+                                success: function(response) {
+                                    var data =JSON.parse(response);
+                                    removeAjaxLoad();
+                                    if(data.status == '1')
+                                   window.location = "home.html"; 
+                                    else
+                                    $.alert('Somthing went wrong..!');  
+                                    
+                                    window.localStorage.setItem('counter_close_remittance_update_id','');
+                                    window.localStorage.setItem('counter_close_remittance_id','');
+                                    window.localStorage.setItem('counter_close_branch_from','');
+                                    window.localStorage.setItem('counter_close_branch_to','');  
+
+                                },
+                                error:function (xhr, ajaxOptions, thrownError){
+                                        removeAjaxLoad();
+                                        $.alert('Somthing went wrong..!');
+                                        return false;                          
+                                    }   
+                            });
+                },
+                Cancel: function () {
+                        
+                }
+            },
+            onOpen: function () {
+            // after the modal is displayed.
+               
+            },
+
+        });
+    })
+    loadAjax();
+
+    let remittance_id = window.localStorage.getItem('counter_close_remittance_id');
+    let branch_from   = window.localStorage.getItem('counter_close_branch_from');
+    let branch_to   = window.localStorage.getItem('counter_close_branch_to');
+
+    if(remittance_id == null || remittance_id == '' || branch_from == null || branch_from == '' || branch_to == null || branch_to == '')
+    {
+        window.location = "home.html";
+    }
+
+    let from_branch_id = window.localStorage.getItem('counter_close_branch_from');
+    $.ajax({
+        url: api_url+'/purchase_api/loadPaymentMethods',
+        method: 'POST',
+        data: {'from_branch_id': from_branch_id,'client_identifier':client_identifier, 'type': 'closing_counter'},
+        success: function(response) {
+            removeAjaxLoad();
+            var data =JSON.parse(response);
+            let payment_types = data.payment_types;
+            let brHTML  =  ``;
+            if(data.status==1)
+            {
+                if(payment_types.length > 0)
+                {
+                    payment_types.forEach(function(types, index) {
+                        brHTML += `<div style="width:100%; margin-bottom:30px" class="itemForm">
+                                        <label class="head_label">${types.name}</label><label class="head_balance">${types.name} Balance</label>
+                                        <input class="payment_type_inputs" data-account_head_id="${types.linked_head_id}" type="number" name="">
+                                        <input class="payment_current_balance" data-account_head_id="${types.linked_head_id}" type="text" disabled="disabled" value="${types.balance}" name="">
+                                    </div>`;
+                    })
+
+                }
+                else
+                {
+                    brHTML = '<h3>No Destination Branches Found !</h3>';
+                }
+
+            }
+            else
+            {
+                 let brHTML = '<h3>No item found</h3>';
+                 $.alert(data.message);
+                 return false;
+            }
+            $('.payment_methods').html(brHTML);
+        },
+        error:function (xhr, ajaxOptions, thrownError){
+                removeAjaxLoad();
+                $.alert('No Branch found..!');
+                return false;                          
+            }   
+    });
+})
+
+$(document).on('click','.vendors_list li.item',function(e){
+    $('.vendors_list li.item').removeClass('active');
+    $(this).addClass('active');
+})
+$(document).on('click','.startBtn',function(e){
+    let continew_flag = true;
+    let remittance_id = window.localStorage.getItem('counter_close_remittance_id');
+    let branch_from   = window.localStorage.getItem('counter_close_branch_from');
+    let branch_to   = window.localStorage.getItem('counter_close_branch_to');
+
+     let img_urls = [];
+        $(".img").each(function(){
+            img_urls.push($(this).data('img_file_name'));
+        });
+
+    let account_heads = [];
+    $(".payment_type_inputs").each(function() {
+        let ac = {};
+       ac['payment_method'] = $(this).prev().prev().text();
+       ac['ac_head_id'] = $(this).data('account_head_id');
+       ac['amount'] = $(this).val();
+       ac['balance'] = $(this).next().val();
+       if(ac['amount'] == null || ac['amount'] == '' || ac['amount'] == ' ')
+       {
+        $.alert('Please fill all the fileds !<br>'+ac['payment_method']+' is: '+ac['amount']);
+        return false;
+        continew_flag = false;
+       }
+       
+       if(Number(ac['amount']) > Number(ac['balance']) && Number(ac['balance']) > 0)
+       {
+        $.alert('Amount larger than balance<br>'+ac['payment_method']+' is: '+ac['amount']+'<br><br><i>Please check your all sales data is syncronzied to the server or check the amount !</i>');
+        continew_flag = false;
+       }
+       account_heads.push(ac);
+    });
+   
+    if((remittance_id!=null && remittance_id!='' && remittance_id!=0) && (branch_from!=null && branch_from!='' && branch_from!=0) && (branch_to!=null && branch_to!='' && branch_to!=0))
+    {
+        if(continew_flag)
+        {
+             $('.startBtn').attr('disabled', 'disabled');
+                loadAjax();
+                $.ajax({
+                        url: api_url+'/purchase_api/CompleteCounterDepositDestinationProcess',
+                        method: 'POST',
+                        data: {'user_id':api_user_id,'remittance_id':remittance_id,'branch_from': branch_from,'branch_to': branch_to,'account_heads': account_heads,'currency_id': currency_id,'images':img_urls, 'client_identifier':client_identifier},
+                        success: function(response) {
+                            $('.startBtn').removeAttr("disabled");
+                            var data =JSON.parse(response);
+                            console.log(data);
+                            if(data.status==1)
+                            {
+                                window.localStorage.setItem('counter_close_remittance_id','');
+                                window.localStorage.setItem('counter_close_branch_from','');
+                                window.localStorage.setItem('counter_close_branch_to','');
+                                $('.payment_methods').html('');
+                                $(".image_list_ul").empty();
+                                save_msg();
+                                
+                            }
+                            else
+                            {
+                                removeAjaxLoad();
+                                $.alert(data.message);
+                                return false;
+                            }
+                        },
+                        error:function (xhr, ajaxOptions, thrownError){
+                                removeAjaxLoad();
+                                $('.startBtn').removeAttr("disabled");
+                                $.alert('Server error.Please Contact Aipsoft Support!');
+                                return false;                          
+                            }   
+                });
+        }
+        // window.localStorage.setItem('stockType_id',stockTypes_id);
+        // window.location = "inventory.html";
+    }
+    else
+    {
+        $.alert('Check all fields !');
+    }
+})
+function loadAjax()
+{
+    $('body').append("<div class='loading'><img src='images/new_loader.gif' class='loadingIco'></div>");
+    // $('.loading').removeClass('invisibl');
+}
+function removeAjaxLoad()
+{
+    $('.loading').remove();
+    // setTimeout(function(){ $('.loading').remove();},100);
+}
+</script>
+</body>
+
+</html>

@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <!-- Meta, title, CSS, favicons, etc. -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Aipsoft - Print Type</title>
+
+    <!-- Google Fonts: Urbanist (Brand Guideline) -->
+    <link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Original Plugin CSS -->
+    <link rel="stylesheet" href="css/jquery-confirm.min.css">
+
+    <!-- Tailwind CSS for ultra-fast, modern styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Lucide Icons for crisp, native-feeling vector icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Tailwind Configuration using Brand Colors -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Urbanist', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            navy: '#0A0045',
+                            purple: '#5334D1',
+                            pink: '#C5299D',
+                            light: '#8E80FF',
+                            bg: '#050514' /* Deep dark background */
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style type="text/css">
+        body {
+            font-family: 'Urbanist', sans-serif;
+            background-color: #050514;
+            margin: 0;
+            overflow-x: hidden;
+            -webkit-tap-highlight-color: transparent; 
+            user-select: none; 
+            color: #ffffff;
+        }
+        
+        /* Safe area handling for notched iOS devices */
+        .pt-safe { padding-top: env(safe-area-inset-top); }
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+
+        /* Custom styling for the select dropdown arrow to match theme */
+        select {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+        }
+        select option {
+            background-color: #0d0d26; /* Dark bg for options */
+            color: #ffffff;
+        }
+        select optgroup {
+            background-color: #050514;
+            color: #8E80FF;
+            font-weight: bold;
+        }
+    </style>
+
+    <!-- Original Dependencies -->
+    <script type="text/javascript" src="js/jquery-3.5.1.min.js"></script>
+    <script src="js/jquery-confirm.min.js"></script>
+    <script src="js/config.js"></script>
+    
+    <!-- Original Auth & Redirect Logic -->
+    <script type="text/javascript">
+    let api_user_id  = window.localStorage.getItem('api_user_id');
+    let api_url             = window.localStorage.getItem('api_url');
+    let client_identifier   = window.localStorage.getItem('client_identifier');
+    let branch_id           = window.localStorage.getItem('branch_id');
+    
+    if((api_user_id == null || api_user_id == '')) {
+            window.location = "login.html";
+    } else {
+        $(document).ready(function() {
+            //loadAjax();
+            $.ajax({
+                url: api_url+'/purchase_api/loadlabelPrintData',
+                method: 'POST',
+                data: {'client_identifier':client_identifier, 'api_user_id':api_user_id, 'branch_id':branch_id},
+                success: function(response) {
+                    //removeAjaxLoad();
+                    var data = JSON.parse(response);
+                    console.log(data);
+                    if(data.status==1)
+                    {
+                        let orderData  = data.data;
+                        if(orderData.data_count > 0)
+                        {
+                            window.location = "price_check_and_print.html";
+                        }
+                    }
+                },
+                error:function (xhr, ajaxOptions, thrownError){
+                       // removeAjaxLoad();
+                        $.alert('No vendor found..!');
+                        return false;                          
+                }   
+            });
+        })
+    }
+    </script>
+</head>
+
+<body>
+
+    <!-- Mobile Wrapper -->
+    <div class="max-w-md mx-auto min-h-screen bg-brand-bg relative pb-safe overflow-hidden flex flex-col">
+
+        <!-- Abstract Glowing Gradients -->
+        <div class="absolute top-[-10%] left-[-20%] w-96 h-96 bg-brand-purple rounded-full mix-blend-screen filter blur-[120px] opacity-30 pointer-events-none z-0"></div>
+        <div class="absolute top-[30%] right-[-20%] w-80 h-80 bg-brand-pink rounded-full mix-blend-screen filter blur-[120px] opacity-20 pointer-events-none z-0"></div>
+        <div class="absolute bottom-[-10%] left-[10%] w-96 h-96 bg-brand-light rounded-full mix-blend-screen filter blur-[150px] opacity-20 pointer-events-none z-0"></div>
+
+        <!-- App Header with Back Button -->
+        <header class="fixed top-0 w-full max-w-md z-40 bg-brand-bg/80 backdrop-blur-xl border-b border-white/5 shadow-sm pt-safe">
+            <div class="flex items-center px-4 py-3 h-16">
+                <!-- Back Button -->
+                <button id="backBtn" class="flex items-center justify-center w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 active:bg-white/15 transition-colors border border-white/10 shrink-0">
+                    <i data-lucide="chevron-left" class="w-6 h-6 text-white"></i>
+                </button>
+                
+                <!-- Title -->
+                <h1 class="flex-1 text-center text-lg font-bold text-white mr-10 leading-tight">
+                    Print Settings
+                </h1>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="pt-[88px] px-5 flex-1 relative z-10 flex flex-col">
+            
+            <div class="bg-white/5 backdrop-blur-md rounded-3xl p-5 border border-white/10 shadow-xl mt-4">
+                <div class="flex items-center gap-3 mb-4 text-white/90">
+                    <div class="w-8 h-8 rounded-full bg-brand-pink/20 text-brand-pink flex items-center justify-center border border-brand-pink/30">
+                        <i data-lucide="printer" class="w-4 h-4"></i>
+                    </div>
+                    <p class="font-semibold text-lg">Select Print Type</p>
+                </div>
+                
+                <div class="relative group">
+                    <select name="print_type" class="form-control print_type w-full bg-[#0d0d26] border border-white/20 rounded-2xl py-4 pl-4 pr-12 text-white font-medium focus:outline-none focus:border-brand-pink/60 transition-colors shadow-inner cursor-pointer">
+                        <optgroup label="AiP Local Printing">
+                            <option value="product_barcode">Product Barcode</option>
+                            <option value="product_barcode_without_price">Product Barcode Without Price</option>
+                            <option value="product_shelf_barcode">Product Shelf Barcode</option>
+                        </optgroup>
+                        <optgroup label="Server Printing">
+                            <option value="barcode_aip_print">AiP Print</option>
+                            <option value="barcode_qz_print">QZ Print</option>
+                            <option value="barcode_pdf_print">PDF Print</option>
+                        </optgroup>   
+                    </select>  
+                    <div class="absolute inset-y-0 right-4 flex items-center pointer-events-none text-white/50 group-focus-within:text-brand-pink transition-colors">
+                        <i data-lucide="chevron-down" class="w-5 h-5"></i>
+                    </div>
+                </div>
+                <p class="text-white/40 text-[11px] mt-3 ml-1">Settings will be saved locally to your device.</p>
+            </div>
+
+        </div>
+
+        <!-- Sticky Footer -->
+        <div class="p-5 pb-8 relative z-10 w-full mt-auto">
+            <button type="button" class="save_print_type w-full bg-gradient-to-r from-brand-purple to-brand-pink hover:from-brand-purple/90 hover:to-brand-pink/90 text-white font-bold text-lg py-4 rounded-[20px] shadow-[0_8px_20px_-6px_rgba(197,41,157,0.5)] active:scale-[0.98] transition-all flex justify-center items-center gap-2">
+                Save & Continue
+                <i data-lucide="arrow-right" class="w-5 h-5"></i>
+            </button>        
+        </div>
+
+    </div>
+
+    <!-- Scripts -->
+    <script>
+        // UI Scripts
+        $(document).ready(function() {
+            lucide.createIcons();
+
+            // Native feel back button
+            $('#backBtn').click(function() {
+                // If there's history, go back, else redirect to dashboard
+                if (window.history.length > 1) {
+                    window.history.back();
+                } else {
+                    window.location = "home.html";
+                }
+            });
+        });
+
+        // Original App Logic (Untouched)
+        function loadAjax()
+        {
+            $('body').append("<div class='loading'><img src='images/new_loader.gif' class='loadingIco'></div>");
+        }
+        function removeAjaxLoad()
+        {
+            $('.loading').remove();
+        }
+
+        $(document).ready(function() {
+            let print_type = window.localStorage.getItem('print_type_set');
+            if(print_type != null && print_type != '')
+            {
+                $('.print_type').val(print_type);
+            }
+
+            $('.save_print_type').click(function(){
+                let print_type = $('.print_type').find(':selected').val();
+                window.localStorage.setItem('print_type', print_type);
+                window.localStorage.setItem('print_type_set', print_type);
+                window.location = "price_check_and_print.html";
+            });
+        });
+    </script>
+</body>
+</html>

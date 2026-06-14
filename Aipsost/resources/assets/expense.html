@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <!-- Meta, title, CSS, favicons, etc. -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0 viewport-fit=cover" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Aipsoft Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;300;400;500;700;900&display=swap" rel="stylesheet">
+    <script type="text/javascript" src="js/jquery-3.5.1.min.js"></script>
+    <script src="js/jquery-confirm.min.js"></script> 
+    <link rel="stylesheet" href="css/jquery-confirm.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.0.13/dist/css/select2.min.css" rel="stylesheet" /> 
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.0.13/dist/js/select2.min.js"></script>
+    <link href="css/select2.min.css" rel="stylesheet" />
+    <!-- <script type="text/javascript" src='js/select2.min.js'></script> -->
+    <script type="text/javascript">
+    let api_user_id         = window.localStorage.getItem('api_user_id');
+    let api_url             = window.localStorage.getItem('api_url');
+    let client_identifier   = window.localStorage.getItem('client_identifier');
+    let branch_id           = window.localStorage.getItem('branch_id');
+    let currency_id         = window.localStorage.getItem('currency_id');
+    if((api_user_id == null || api_user_id == '' || api_url =='' || api_url == null)) {
+        window.location = "login.html";
+    } 
+    let expense_id          = window.localStorage.getItem('expense_id');
+    </script>
+</head>
+
+<style type="text/css">
+
+    body {
+        font-family: 'Roboto', sans-serif;
+        margin: 0;
+    }
+    .loading {
+        position: fixed;
+        z-index: 999999;
+        height: 100%;
+        width: 100%;
+        overflow: show;
+        margin: auto;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        right: 0;
+        background: #000;
+        opacity: 0.5;
+    }
+    img.loadingIco {
+        width: 15%;
+        position: absolute;
+        top: 44%;
+        left: 44%;
+    }
+    .nav_deader {
+        background-image: linear-gradient(to right, #305daf , #17a9ca);
+        /*background-image: linear-gradient(#252525, #070707);*/
+        padding: 8px;
+        color: #fff;
+        overflow: hidden;
+    }
+    .aiplogo {
+        float: left;
+        margin-right: 8px;
+    }
+    .nav_text p {
+        font-size: 14px;
+        margin: 0;
+        font-weight: 400;
+        margin-top: 2px;
+    }
+    .GRN_wrap{
+        padding: 8px 10px;
+        overflow: hidden;
+    }
+    .back_btn{
+        background-color: #2350a3;
+        font-size: 15px;
+        font-weight: 500;
+        color: #fff;
+        border: 0;
+        padding: 8px 30px;
+        float: left;
+        border-radius: 4px;
+        letter-spacing: 1px;
+    }
+    .content{
+        margin-bottom: 5px;
+        overflow: hidden;
+    }
+    .content p {
+        text-align: right;
+        margin: 0;
+        position: relative;
+        top: 12px;
+        color: #3b3b3b;
+        font-weight: 400;
+        font-size: 16px;
+        display: inline;
+        float: right;
+    }
+    .search{
+        position: relative;
+        margin-bottom: 6px;
+        display: flex;
+    }
+    .search input {
+        width: 100%;
+        padding: 10px;
+        padding-right: 40px;
+        color: #3b3b3b;
+        border: 1px solid #989898;
+        border-radius: 4px;
+    }
+    .search img {
+        position: absolute;
+        right: 8px;
+        overflow: hidden;
+        top: 6px;
+        color: #5d5d5d;
+    }
+    .content_body {
+        border: 1px solid #d6d6d6;
+        padding: 10px;
+        height: 80vh;
+        overflow-y: auto;
+        border-radius: 5px;
+        background-color: #fbfbfb;
+    }
+    .content_body::-webkit-scrollbar-track {
+        border-radius: 0px;
+        background-color: #fff;
+    }
+
+    .content_body::-webkit-scrollbar {
+        width: 6px;
+        background-color: #717171;
+    }
+
+    .content_body::-webkit-scrollbar-thumb {
+        border-radius: 6px;
+        background-color: #717171;
+    }    
+    .content_body ul{
+        padding: 0;
+        list-style-type: none;
+        margin: 0;
+    }
+    .content_body ul li {
+        background-color: #e9e9e9;
+        padding: 6px;
+        border: 1px solid #717171;
+        color: #3a3a3a;
+        margin-bottom: 6px;
+        font-size: 14px;
+    }    
+    .content_body ul li.active {
+        background-color: #2350a3;
+        color: #fff;
+    }
+    .footer button{
+        width: 100%;
+        padding: 15px;
+        font-weight: 600;
+        font-size: 16px;
+        background-color: #2451a6;
+        color: #fff;
+        position: fixed;
+        bottom: 0px;
+        border: 1px solid #686f8c;
+    }
+    .itemForm{
+        width: 100%;
+        float: left;
+        margin-bottom: 8px;
+    }
+    .itemForm .select2-container{
+        width: 100%;
+        float: left;
+        margin-bottom: 8px;
+    }
+    .itemForm label {
+        color: #3e3e3e;
+        font-size: 15px;
+        font-weight: 500;
+        margin-bottom: 5px;
+        display: block;
+    }
+    .itemForm select {
+        border: 1px solid #bfbfbf;
+        font-size: 14px;
+        color: #333;
+        padding: 8px;
+        width: 97%;
+/*        height: 40px;*/
+        font-weight: 500;
+        border-radius: 5px;
+    }
+
+    .itemForm input {
+        border: 1px solid #bfbfbf;
+        font-size: 14px;
+        color: #333;
+        padding: 8px;
+        width: 92%;
+        /*height: 40px;*/
+        font-weight: 500;
+        border-radius: 5px;
+    }
+    .search.header_type {
+        padding: 12px 0;
+    }    
+    .header_type p {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 400;
+    }
+
+    .jconfirm-holder {
+    padding-top: 20px;
+    padding-bottom: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh; /* Center the dialog vertically */
+}
+
+.jconfirm-box-container {
+    width: 100%;
+    max-width: 400px; /* Limit the max width */
+    margin: 0 auto;
+    transition: transform 0.4s cubic-bezier(0.36, 0.55, 0.19, 1);
+}
+
+.jconfirm-content {
+    padding: 10px 20px; /* Adjust padding */
+}
+
+.jconfirm-content-pane {
+    overflow-y: auto;
+    max-height: 400px; /* Ensure content fits within a manageable height */
+}
+
+.jconfirm-buttons {
+    display: flex;
+    justify-content: center;
+    padding-top: 10px;
+}
+
+.jconfirm-buttons button {
+    padding: 8px 20px;
+    font-size: 14px;
+}
+
+
+    @media only screen and (max-width: 400px) {
+        .itemForm {
+            width: 100%;
+            margin-bottom: 12px;
+        }    
+        .itemForm select {
+            width: 100%;
+        }         
+    }
+
+
+    /* CSS specific to iOS devices */ 
+    @supports (-webkit-touch-callout: none) {
+    .nav_deader {
+        padding-top: 50px;
+    }
+
+    }
+    /* CSS specific to iOS devices */ 
+
+    .itemForm p {
+        color: #2f2f2f;
+        font-size: 16px;
+        font-weight: 500;
+        padding-bottom: 5px;
+        margin: 0;
+    }
+
+    .imp{
+        color: #a82d25 !important;
+    }
+
+</style>
+
+<body>
+<div class='loading'><img src='images/new_loader.gif' class='loadingIco'></div>
+    <div class="nav_deader">
+        <div class="aiplogo">
+            <img src="images/aipsoft.png">
+        </div>
+        <div class="nav_text">
+            <p>AipSoft - Expense</p>
+        </div>
+    </div>
+
+    <div class="GRN_wrap">  
+        <div class="content">
+            <button type="button" class="back_btn">Back</button>
+        </div>
+        <div class="content_body">
+
+            <div class="itemForm">
+                <label>Branch</label>
+                <select class="branch">
+                </select>
+            </div>  
+
+            <div class="itemForm">
+                <label>Vendor</label>
+                <select class="vendor">
+                </select>
+            </div> 
+            
+            <div class="itemForm">
+                <label>Driver</label>
+                <select class="driver">
+                </select>
+            </div> 
+
+            <div class="itemForm prod_details" style="display:none"> 
+                <!-- <p>Account Head</p>
+                <p class="imp head_name"></p> -->
+        
+                <div class="form_wrap">
+                    <div class="itemForm">
+                        <label>Amount</label>
+                        <input type="number" class="amount" value="">
+                    </div>                                 
+                </div>
+            </div>
+
+            <div class="itemForm">
+                <label>Date</label>
+                <input type="date" class="date">
+            </div>  
+
+            <div class="itemForm">
+                <label>Vehicle Plate No</label>
+                <select class="vehicle_plate_number">
+                </select>
+            </div>  
+
+            <div class="itemForm">
+                <label>Vehicle Owner</label>
+                <select class="vehicle_owner">
+                </select>
+            </div>
+
+            <div class="itemForm">
+                <label>Projects</label>
+                <select class="projects">
+                </select>
+            </div>
+
+            <div class="itemForm">
+                <label>Bill Date</label>
+                <input type="date" class="bill_date">
+            </div>
+
+            <div class="itemForm">
+                <label>Bill No</label>
+                <input type="text" class="bill_no">
+            </div>
+
+            <div class="itemForm">
+                <label>Remark</label>
+                <input type="text" class="remark">
+            </div>
+
+            <hr>
+
+            <div class="itemForm">
+                <label>Pay Account</label>
+                <select class="pay_account">
+                    <!-- <option value="0" selected>Credit</option> -->
+                </select>
+            </div>
+
+        </div>
+
+    </div>
+    <div class="footer">
+        <button type="button" class="startBtn" style="display:none">Start></button>        
+    </div>
+<script>
+$(document).ready(function() {
+
+    //setting date and bill date to current date
+    var date = new Date();
+    var day = date.getDate();
+    var month = date.getMonth() + 1;
+    var year = date.getFullYear();
+    if (month < 10) month = "0" + month;
+    if (day < 10) day = "0" + day;
+    var today = year + "-" + month + "-" + day;
+    $('.date').val(today);
+    $('.bill_date').val(today);
+
+    loadAjax();
+    $("select").select2();
+    load_branches();
+    // load_projects();
+    load_pay_account();
+    load_drivers();
+    get_expense_data();
+})
+
+function load_branches()
+{
+    let br_HTML    =  '';
+    $('.branch').html(br_HTML);     
+    $.ajax({
+        url: api_url+'/purchase_api/loadBranches',
+        method: 'POST',
+        async:false,
+        data: {'api_user_id':api_user_id,'client_identifier':client_identifier},
+        success: function(response) {
+            var data =JSON.parse(response);
+            // console.log(data);
+            if(data.status==1)
+            {
+                let branches    =  data.data;
+                if(branches.length > 0)
+                {
+                    branches.forEach(function(branch, index) {
+                        br_HTML  += '<option class="item" value="'+branch.id+'">'+branch.city+'</option>';
+                    })
+                }
+                $('.branch').html(br_HTML);
+                load_vehicle_plate_no();
+                load_vendors();
+            }
+        },
+        error:function(xhr,ajaxOptions,thrownError){
+            $.alert('Cannot Fetch Branch List.Failed!');                   
+        }   
+    });
+}
+
+$('body').on('change', '.branch', function(e) {
+    loadAjax();
+    $('.vendor').removeAttr('disabled');
+    $('.driver').removeAttr('disabled');
+    $('.vehicle_plate_number').removeAttr('disabled');
+    $('.vehicle_owner').removeAttr('disabled');
+    $('.projects').removeAttr('disabled');
+    $('.driver').val("").trigger('change');
+    load_vehicle_plate_no();
+    load_vendors();
+});
+
+function load_vehicle_plate_no()
+{
+    let branch_id = $('.branch').val();
+    $('.vehicle_plate_number').html('');
+    $('.vehicle_owner').html('');
+    $('.projects').html('');
+    let asl_HTML  = '<option value = "" selected>Select Vehicle Plate No</option>';
+    $.ajax({
+        url: api_url+'/purchase_api/accountSegmentList',
+        method: 'POST',
+        async:false,
+        data: {'branch_id':branch_id,'client_identifier':client_identifier},
+        success: function(response) {
+            var data =JSON.parse(response);
+            // console.log(data);
+            if(data.status==1)
+            {
+                let account_segment_list= data.data;
+                if(account_segment_list.length > 0)
+                {
+                    account_segment_list.forEach(function(segment,index) {
+                        asl_HTML += '<option class="item" value="'+segment.id+'">'+segment.segment_name+'</option>';
+                    })
+                }
+                $('.vehicle_plate_number').html(asl_HTML);
+            }
+            else
+            {
+                $('.vehicle_plate_number').html(asl_HTML);
+            }
+            load_vehicle_owner_details();
+            load_projects();
+        },
+        error:function (xhr, ajaxOptions, thrownError){
+            $.alert('Cannot fetch Vehicle Plate No list.Failed!'); 
+            $('.vehicle_plate_number').html(asl_HTML);                       
+        }   
+    });
+}
+
+$('body').on('change', '.vehicle_plate_number', function(e) {
+    loadAjax();
+    load_vehicle_owner_details();
+    load_projects();
+});
+
+function load_vehicle_owner_details()
+{
+    let branch_id               = $('.branch').val();
+    let vehicle_plate_no_id     = $('.vehicle_plate_number').val();
+    // console.log(vehicle_plate_no_id);
+    let acl_HTML  = '<option value = "" selected>Select Vehicle Owner</option>';
+    $.ajax({
+        url: api_url+'/purchase_api/accountClassList',
+        method: 'POST',
+        async:false,
+        data: {'branch_id':branch_id,'client_identifier':client_identifier,'account_segment':vehicle_plate_no_id},
+        success: function(response) {
+            var data =JSON.parse(response);
+            // console.log(data);
+            if(data.status==1)
+            {
+                let account_class_list= data.data;
+                if(account_class_list.length > 0)
+                {
+                    acl_HTML      = '';
+                    account_class_list.forEach(function(account_class,index) {
+                        acl_HTML += '<option class="item" value="'+account_class.id+'">'+account_class.name+'</option>';
+                    })
+                }
+                $('.vehicle_owner').html(acl_HTML);
+            }
+            else
+            {
+                $('.vehicle_owner').html(acl_HTML);
+            }
+        },
+        error:function (xhr, ajaxOptions, thrownError){
+            $.alert('Cannot fetch Vehicle Owner list.Failed!'); 
+            $('.vehicle_owner').html(acl_HTML);                     
+        }   
+    });
+}
+
+function load_projects()
+{
+    let vehicle_plate_no_id       = $('.vehicle_plate_number').val();
+    let pr_HTML  = '<option value = "" selected>Select Project</option>';
+    $.ajax({
+        url: api_url+'/purchase_api/projectList',
+        method: 'POST',
+        async:false,
+        data: {'client_identifier':client_identifier,'account_segment':vehicle_plate_no_id},
+        success: function(response) {
+            var data =JSON.parse(response);
+            // console.log(data);
+            if(data.status==1)
+            {
+                let project_list= data.data;
+                if(project_list.length > 0)
+                {
+                    pr_HTML      = '';
+                    project_list.forEach(function(project,index) {
+                        pr_HTML += '<option class="item" value="'+project.id+'">'+project.name+'</option>';
+                    })
+                }
+                $('.projects').html(pr_HTML);
+            }
+            else
+            {
+                $('.projects').html(pr_HTML);
+            }
+        }, 
+        error:function (xhr, ajaxOptions, thrownError){
+            $.alert('Cannot fetch Project list.Failed!'); 
+            $('.projects').html(pr_HTML);                       
+        }   
+    });
+}
+
+function load_pay_account()
+{
+    let pacc_HTML  = '';
+    $.ajax({
+        url: api_url+'/purchase_api/payAccountList',
+        method: 'POST',
+        async:false,
+        data: {'client_identifier':client_identifier,'branch_id':branch_id,'api_user_id':api_user_id},
+        success: function(response) {
+            var data =JSON.parse(response);
+            // console.log(data);
+            if(data.status==1)
+            {
+                let pay_account_list= data.data;
+                if(pay_account_list.length > 0)
+                {
+                    pay_account_list.forEach(function(pay_account,index) {
+                        pacc_HTML += '<option class="item" value="'+pay_account.id+'">'+pay_account.acc_name1+'</option>';
+                    })
+                }
+                $('.pay_account').html(pacc_HTML);
+            }
+            else
+            {
+                $('.pay_account').html(pacc_HTML);
+            }
+        }, 
+        error:function (xhr, ajaxOptions, thrownError){
+            $.alert('Cannot fetch Pay Account list.Failed!'); 
+            $('.pay_account').html(pacc_HTML);                      
+        }   
+    });
+}
+
+function load_vendors()
+{
+    let vendor_HTML  = '<option value="" selected>Select Vendor</option>';
+    let branch_id    = $('.branch').val();
+    $.ajax({
+        url: api_url+'/purchase_api/getVendors',
+        method: 'POST',
+        async:false,
+        data: {'client_identifier':client_identifier,'branch_id':branch_id},
+        success: function(response) {
+            var response =JSON.parse(response);
+            // console.log(response);
+            if(response.status==1)
+            {
+                let vendor_list= response.data.data_result;
+                // console.log(vendor_list);
+                if(vendor_list.length > 0)
+                {
+                    vendor_list.forEach(function(vendor,index) {
+                        vendor_HTML += '<option class="item" value="'+vendor.id+'">'+vendor.acc_name1+'</option>';
+                    })
+                }
+                $('.vendor').html(vendor_HTML);
+            }
+            else
+            {
+                $('.vendor').html(vendor_HTML);
+            }
+        }, 
+        error:function (xhr, ajaxOptions, thrownError){
+            $.alert('Cannot fetch Vendor list.Failed!'); 
+            $('.vendor').html(vendor_HTML);                    
+        }   
+    });
+}
+
+$('body').on('change','.vendor', function(e) {
+    let vendor_id   = $(this).val();
+    if(vendor_id)
+    {
+        $(".driver").val("").trigger('change');
+        $('.driver').attr('disabled', 'disabled');
+    }
+    else
+    {
+        $('.driver').removeAttr('disabled');
+    }
+});
+
+function load_drivers()
+{
+    let driver_HTML  = '<option value="" selected>Select Driver</option>';
+    let branch_id    = $('.branch').val();
+    $.ajax({
+        url: api_url+'/purchase_api/getDrivers',
+        method: 'POST',
+        async:false,
+        data: {'client_identifier':client_identifier},
+        success: function(response) {
+            var response =JSON.parse(response);
+            console.log(response);
+            if(response.status==1)
+            {
+                let driver_list= response.data;
+                driver_list.forEach(function(driver,index) {
+                    driver_HTML += '<option class="item" value="'+driver.id+'">'+driver.employee_name1+'</option>';
+                })
+            }
+            $('.driver').html(driver_HTML);
+        }, 
+        error:function (xhr, ajaxOptions, thrownError){
+            $.alert('Cannot fetch Driver list.Failed!'); 
+            $('.driver').html(driver_HTML);                    
+        }   
+    });
+}
+
+$('body').on('change','.driver', function(e) {
+    let driver_id             = $(this).val();
+    // console.log(driver_id);
+    if(driver_id)
+    {
+        // let account_head_name = $(this).find(":selected").attr('data-acc_name');
+        // $('.head_name').html(account_head_name);
+        $('.prod_details').show();
+        $(".vendor").val("").trigger('change');
+        $(".vehicle_plate_number").val("").trigger('change');
+        $(".vehicle_owner").val("").trigger('change');
+        $(".projects").val("").trigger('change');
+
+
+        $('.vendor').attr('disabled', 'disabled');
+        $('.vehicle_plate_number').attr('disabled', 'disabled');
+        $('.vehicle_owner').attr('disabled', 'disabled');
+        $('.projects').attr('disabled', 'disabled');
+    }
+    else
+    {
+        // $('.head_name').html('');
+        $('.prod_details').hide();
+        $('.vendor').removeAttr('disabled');
+        $('.vehicle_plate_number').removeAttr('disabled');
+        $('.vehicle_owner').removeAttr('disabled');
+        $('.projects').removeAttr('disabled');
+    }
+});
+
+function get_expense_data()
+{
+    if(expense_id !=0 && expense_id !=undefined && expense_id !=null && expense_id !='')
+    {
+        $.ajax({
+            url: api_url+'/purchase_api/get_expense_data',
+            method: 'POST',
+            async:false,
+            data: {'client_identifier':client_identifier,'expense_id':expense_id},
+            success: function(response) {
+                var response =JSON.parse(response);
+                if(response.status = 1)
+                {
+                    expense_data = response.expense_data;
+                    console.log(expense_data);
+                    $(".branch").val(expense_data.branch_id).trigger('change');
+                    $('.vendor').val(expense_data.party_account).trigger('change');
+                    $('.driver').val(expense_data.driver_id).trigger('change');
+                    $(".date").val(expense_data.date);
+                    $('.vehicle_plate_number').val(expense_data.account_segment_id).trigger('change');
+                    $('.vehicle_owner').val(expense_data.account_class_id).trigger('change');
+                    $('.projects').val(expense_data.project_id).trigger('change');
+                    $(".bill_date").val(expense_data.bill_date);
+                    $('.bill_no').val(expense_data.bill_no);
+                    $('.remark').val(expense_data.remark);
+                    $('.pay_account').val(expense_data.pay_account);
+                    $('.amount').val(expense_data.amount);
+                
+                    if(expense_data.hold == 1)
+                    {
+                        $('.startBtn').html("UPDATE");
+                    }
+                    else
+                    {
+                        $('.startBtn').html("VIEW");
+                    }
+                }
+            }, 
+            error:function (xhr, ajaxOptions, thrownError){
+                $.alert('Cannot fetch Expense data. Failed!');              
+            }   
+        });
+    }
+    $('.startBtn').show();
+}
+
+$(document).on('click','.startBtn',function(e){
+    if($('.startBtn').html() == "VIEW")
+    {
+        window.location = "expense_details.html";
+        return false;
+    }
+
+    let branch  = $('.branch').val();
+    if(!branch)
+    {
+        $.alert('Add Branch!');
+        return false;
+    }   
+
+    let date = $('.date').val();
+    if(!date)
+    {
+        $.alert('Add Date!');
+        return false;
+    }
+
+    let vehicle_plate_number = $('.vehicle_plate_number').val();
+    /* if(!vehicle_plate_number)
+    {
+        $.alert('Add Vehicle No!');
+        return false;
+    } */
+
+    let vehicle_owner = $('.vehicle_owner').val();
+    /* if(!vehicle_owner)
+    {
+        $.alert('Add Vehicle Owner!');
+        return false;
+    } */
+
+    let bill_date = $('.bill_date').val();
+    if(!bill_date)
+    {
+        $.alert('Add Bill Date!');
+        return false;
+    }
+
+    let pay_account  = $('.pay_account').val();
+    if(!pay_account)
+    {
+        $.alert('Add Pay Account!');
+        return false;
+    }
+
+    
+    let remark      =   $('.remark').val().trim();
+    let bill_no     =   $('.bill_no').val().trim();
+    let project_id  =   $('.projects').val();
+    let vendor_id   =   $('.vendor').val();
+    let driver_id   =   $('.driver').val();
+    let amount      =   0;
+
+    if(driver_id)
+    {
+        amount      = Number($('.amount').val());
+        if(!amount)
+        {
+            $.alert('Add Amount!');
+            return false;
+        }
+    }
+
+    $('.startBtn').attr('disabled', 'disabled');
+    loadAjax();
+    $.ajax({
+        url: api_url+'/purchase_api/hold_expense',
+        method: 'POST',
+        data: {'user_id':api_user_id, 'branch_id':branch, 'pay_account': pay_account,'date': date,'remark': remark,'client_identifier':client_identifier,'bill_date':bill_date,'bill_no':bill_no,'account_segment_id':vehicle_plate_number,'account_class_id':vehicle_owner,'project_id':project_id,'party_account':vendor_id,'driver_id':driver_id,'expense_id':expense_id,'amount':amount},
+        success: function(response) {
+            response=JSON.parse(response);
+            removeAjaxLoad();
+            if(response.status == 1)
+            {
+                window.localStorage.setItem('expense_id',response.expense_id);
+                window.localStorage.setItem('account_segment_id',vehicle_plate_number);
+                window.localStorage.setItem('account_class_id',vehicle_owner);
+                window.localStorage.setItem('branch_id_expense',branch);
+                window.location = "expense_details.html";
+            }
+            else
+            {
+                $.alert(response.message);
+            }
+            // console.log(response);
+            // console.log(response.message);
+        },
+        error:function (xhr, ajaxOptions, thrownError){
+            removeAjaxLoad();
+            $('.startBtn').removeAttr("disabled");
+            $.alert('Cannot add Expense.Failed !');                      
+        }   
+    });
+})
+
+function loadAjax()
+{
+    $('body').append("<div class='loading'><img src='images/new_loader.gif' class='loadingIco'></div>");
+    // $('.loading').removeClass('invisibl');
+}
+
+function removeAjaxLoad()
+{
+    // $('.loading').remove();
+    setTimeout(function(){ $('.loading').remove();},500);
+}
+
+$('.logout_btn').click(function(){
+    window.localStorage.setItem('api_user_id','');
+    window.location = "login.html";
+})
+
+$('.back_btn').click(function(){
+    window.location = "expence_list.html";
+})
+
+$( document ).on( "ajaxStop", function() {
+    removeAjaxLoad();
+});
+
+</script>
+</body>
+
+</html>

@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <!-- Meta, title, CSS, favicons, etc. -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no viewport-fit=cover" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Aipsoft Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;300;400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/jquery-confirm.min.css">
+    <script type="text/javascript">
+    let api_user_id         = window.localStorage.getItem('api_user_id');
+    let api_url             = window.localStorage.getItem('api_url');
+    let client_identifier   = window.localStorage.getItem('client_identifier');
+    let branch_id           = window.localStorage.getItem('branch_id');
+    let currency_id         = window.localStorage.getItem('currency_id');
+    if((api_user_id == null || api_user_id == '')) {
+            window.location = "login.html";
+    }
+    let order_id     = window.localStorage.getItem('order_id');
+    // console.log('order_id '+order_id);
+    // if(order_id!=0 && order_id!=undefined && order_id!=null && order_id!='')
+    // {
+    //     window.location = "grn_item.html";
+    // }
+    </script>
+</head>
+
+<style type="text/css">
+
+    body {
+        font-family: 'Roboto', sans-serif;
+        margin: 0;
+        overflow-x: hidden;
+        height: 100vh;
+    }
+    .nav_deader {
+        background-image: linear-gradient(to right, #305daf , #17a9ca);
+        /*background-image: linear-gradient(#252525, #070707);*/
+        padding: 8px;
+        color: #fff;
+        overflow: hidden;
+    }
+    .aiplogo {
+        float: left;
+        margin-right: 8px;
+    }
+    .nav_text p {
+        font-size: 14px;
+        margin: 0;
+        font-weight: 400;
+        margin-top: 2px;
+    }
+    .home_wrap{
+        padding: 10px;
+        overflow: auto;
+    }
+    .home_wrap button {
+        background-color: #ffffff;
+        border-radius: 4px;
+        padding: 15px;
+        margin-bottom: 8px;
+        width: 100%;
+        color: #000;
+        font-weight: 400;
+        font-size: 14px;
+        margin: 10px;
+        border: 1px solid #dcdcdc;
+        box-shadow: -1px -1px 5px 0px rgb(16 16 16 / 75%);
+        -webkit-box-shadow: 0px 0px 3px 0px rgb(214 214 214 / 75%);
+        -moz-box-shadow: -1px -1px 5px 0px rgba(16,16,16,0.75);
+    }
+    .footer{
+        width: 100%;
+        position: fixed;
+        bottom: 0;
+    }
+    .footer button{
+        width: 100%;
+        padding: 15px;
+        font-weight: 600;
+        font-size: 16px;
+        height: 75px;
+        background-color: #2451a6;
+        color: #fff;
+        border: 0;
+        left: 0;
+    }
+    .column_list {
+           width: 41%;
+           margin-right: 9%;
+           float: left;
+           display: flex;
+    }
+    .categories_columns{
+        width: 100%;
+        background-color: #ffffff;
+        text-align: center;
+        border-radius: 4px;
+        padding: 30px;
+        margin-bottom: 8px;        
+        margin: 10px;
+        height: 80px;
+        border: 1px solid #dcdcdc;
+        box-shadow: -1px -1px 5px 0px rgb(16 16 16 / 75%);
+        -webkit-box-shadow: 0px 0px 3px 0px rgb(214 214 214 / 75%);
+        -moz-box-shadow: -1px -1px 5px 0px rgba(16,16,16,0.75);        
+    }
+    .categories_columns img {
+        margin-top: 8px;
+    }
+    .categories_columns h4 {
+        color: #000;
+        font-weight: 500;
+        font-size: 16px;
+        margin: 0;
+        padding-top: 10px;
+    }
+
+
+    @media only screen and (max-width: 600px) {
+        .categories_columns {
+            padding: 12px;
+        }
+        .categories_columns h4 {
+            font-size: 14px;
+        } 
+        .categories_columns {
+            margin: 5px;
+        }      
+    }
+
+    @media only screen and (max-width: 500px) {
+       .home_wrap button {
+            padding: 10px;
+            font-size: 12px;
+            margin: 8px;
+        }
+        .home_wrap {
+            padding: 5px;
+        }
+        .categories_columns {
+            padding: 8px;
+        }
+        .categories_columns h4 {
+            font-size: 13px;
+        }
+
+    }
+
+    @media only screen and (max-width: 400px) {
+        .categories_columns img {
+            margin-top: 2px;
+        }
+    }
+    
+
+    .home_wrap {
+        height: 85vh;
+    } 
+
+    .column_list {
+        display: none;
+    } 
+
+    /* CSS specific to iOS devices */ 
+
+    @supports (-webkit-touch-callout: none) {     
+    .nav_deader {
+        padding-top: 50px;
+    }
+       
+        .home_wrap {
+        padding-bottom: 25px;
+    }      
+
+    }
+
+
+</style>
+
+<body>
+
+    <div class="nav_deader">
+        <div class="aiplogo">
+            <img src="images/aipsoft.png">
+        </div>
+        <div class="nav_text">
+            <p>AipSoft - Login</p>
+        </div>
+    </div>
+
+    <div class="home_wrap">
+        <div class="column_list">
+            <div class="categories_columns expence_dashboard">
+                <img src="images/dashboard.png">
+                <h4>Dashboard-Expence</h4>
+            </div>            
+        </div> 
+        <div class="column_list grn">
+            <div class="categories_columns">
+                <img src="images/grn.png">
+                <h4>Goods received note - GRN</h4>
+            </div>            
+        </div>        
+        <div class="column_list grv">
+            <div class="categories_columns">
+                <img src="images/grn-return.png">
+                <h4>Goods return voucher - GRV</h4>
+            </div>
+        </div>        
+        <div class="column_list sales_order">
+            <div class="categories_columns">
+                <img src="images/lpo.png">
+                <h4>Sales Order</h4>
+            </div>
+        </div>     
+        <div class="column_list">
+            <div class="categories_columns item_request">
+                <img src="images/items.png">
+                <h4>Item Request</h4>
+            </div>
+        </div> 
+        
+       
+       <!--  <div class="column_list">
+            <div class="categories_columns collection_entry">
+                <img src="images/clothing.png">
+                <h4>Collection Entry</h4>
+            </div>
+        </div>  -->
+        <div class="column_list">
+            <div class="categories_columns close_counter_entry">
+                <img src="images/counter.png">
+                <h4>Close Counter/Deposit</h4>
+            </div>
+        </div>        
+        <div class="column_list">
+            <div class="categories_columns stock_adj">
+                <img src="images/stock.png">
+                <h4>Stock Adjustmen</h4>
+            </div>
+        </div>        
+        <div class="column_list">
+            <div class="categories_columns stock_transfer">
+                <img src="images/stock_transfer.png">
+                <h4>Stock Transfer</h4>
+            </div>
+        </div> 
+        <div class="column_list">
+            <div class="categories_columns expense">
+                <img src="images/expences.png">
+                <h4>Expense</h4>
+            </div>
+        </div>       
+        <div class="column_list">
+            <div class="categories_columns product_bundle_creation">
+                <img src="images/product.png">
+                <h4>Product-Bundle-Creation</h4>
+            </div>
+        </div>
+        <div class="column_list">
+            <div class="categories_columns price_change_history">
+                <img src="images/price_change.png">
+                <h4>Price Change History</h4>
+            </div>
+        </div>
+        <div class="column_list">
+            <div class="categories_columns price_check_and_print">
+                <img src="images/price.png">
+                <h4>Price Check & Label Print</h4>
+            </div>
+        </div>
+        <div class="column_list">
+            <div class="categories_columns settings">
+                <img src="images/barcode-scanner.png">
+                <h4>Settings</h4>
+            </div>
+        </div>
+        <div class="column_list">
+            <div class="categories_columns scan_goods_receive">
+                <img src="images/document-scanner.png">
+                <h4>Scan/Goods Receive</h4>
+            </div>
+        </div>                
+        <div class="column_list">
+            <div class="categories_columns authenticate_option">
+                <img src="images/document-scanner.png">
+                <h4>Authenticate</h4>
+            </div>
+        </div> 
+        <div class="column_list sales_and_sales_return_report">
+            <div class="categories_columns">
+                <img src="images/sales_report.png">
+                <h4>Sales & Sales Return Report</h4>
+            </div>
+        </div>          
+
+    </div>
+    <div class="footer">
+        <button type="button" class="logout_btn">Logout</button>        
+    </div>
+<script type="text/javascript" src="js/jquery-3.5.1.min.js"></script>
+<script>
+$(document).ready(function() {
+
+    // let screenHeight = Number($(window).outerHeight());
+    // let home_wrap_height = screenHeight-105;
+    // // console.log(home_wrap_height);
+    // $('.home_wrap').css('height',home_wrap_height+'px');
+
+    $('.logout_btn').click(function(){
+         window.localStorage.setItem('api_user_id','');
+         window.localStorage.setItem('client_identifier','');
+         window.localStorage.setItem('branch_id','');
+         window.localStorage.setItem('currency_id','');
+         window.localStorage.setItem('branch_from','');
+         window.location = "login.html";
+    }) 
+    $('.expence_dashboard').click(function(){
+        window.location = "dashboard.html";
+    })
+     $('.grn').click(function(){
+        window.location = "grn.html";
+    })
+    $('.scan_goods_receive').click(function(){
+        window.location = "scan.html";
+    })
+    $('.grv').click(function(){
+        window.location = "grv.html";
+    })
+    $('.stock_adj').click(function(){
+        window.location = "stock_adjustment.html";
+    })
+    $('.stock_transfer').click(function(){
+        window.location = "stock_transfer.html";
+    })
+     $('.price_check_and_print').click(function(){
+        window.location = "print_type.html";
+    })
+    $('.product_bundle_creation').click(function(){
+        window.location = "products.html";
+    })
+    $('.item_request').click(function(){
+        window.location = "barcode_select.html";
+    })
+    $('.collection_entry').click(function(){
+        window.location = "collection_start.html";
+    })
+    $('.close_counter_entry').click(function(){
+        window.location = "close_counter_start.html";
+    })
+    $('.price_change_history').click(function(){
+        window.location = "price_change_history.html";
+    })
+    $('.settings').click(function(){
+        window.location = "settings.html";
+    })
+    $('.authenticate_option').click(function(){
+        window.location = "authenticate.html";
+    })
+     $('.lpo').click(function(){
+        window.location = "home.html";
+    })
+    $('.expense').click(function(){
+        window.location = "expence_list.html";
+    })
+    $('.sales_order').click(function(){ 
+        window.location = 'sales_order.html';
+    });
+    $('.sales_and_sales_return_report').click(function(){ 
+        window.location = 'sales_and_sales_return_report_filter.html';
+    });
+    // $('.column_list').css('display','block');
+ 
+      $.ajax({
+            url: api_url + '/purchase_api/GetAiPSoftModulePermission',
+            method: 'POST',
+            dataType: "json",
+            data: {
+                'client_identifier': client_identifier,
+                'branch_id': branch_id,
+                'user_id': api_user_id
+            },
+            success: function(response) {
+
+                // $('.expense').css('display', 'block');
+                // if(response.UserInfo.user_type_id == 3 || response.UserInfo.user_type_id == 6)
+                // {
+                //     $('.column_list').css('display','block');
+                // } 
+                // else
+                // {
+                    if (response.status == "1") {
+                        if(response.UserInfo.user_type_id == 3 || response.UserInfo.user_type_id == 6)
+                        {
+                            $('.column_list').css('display','block');
+                        } 
+                        else
+                        { 
+                            // Loop through the 'data' object
+                            $.each(response.data, function(key, value) {                               
+
+                                if (value == 1) {                                
+                                    // Remove 'aipc_' prefix from the key
+                                    // $('.column_list').has('.'+key).css({
+                                    //     'display': 'block'
+                                    // });
+                                    if($('.column_list').hasClass(key)){
+                                        $('.'+key).show()
+                                    }
+                                }
+                            });
+                        }
+                    } else {
+                        // alert("No data available");
+                        console.log("No data available");
+                    }
+                // }               
+            },
+            error: function(xhr, ajaxOptions, thrownError) {
+                alert('Cannot fetch server data!');
+                $('.column_list').css('display', 'block');
+            }
+        });
+
+
+
+})
+</script>
+</body>
+
+</html>

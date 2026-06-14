@@ -344,9 +344,6 @@ export default function App() {
     if (route === '/dashboard' && authReady && !user) {
       setRoute('/auth');
     }
-    if (route === '/book' && authReady && !user) {
-      setRoute('/auth');
-    }
     if (route === '/auth' && authReady && user) {
       setRoute('/dashboard');
     }
@@ -562,7 +559,8 @@ export default function App() {
           >
             <Hero 
               onTrackClick={() => setRoute('/track')} 
-              onBookClick={() => setRoute('/contact')} 
+              onBookClick={() => setRoute('/book')} 
+              onNavigate={setRoute}
               config={siteConfig}
             />
             <JourneySection />
@@ -708,10 +706,11 @@ export default function App() {
   };
 
   const isDriverRoute = route === '/driver';
+  const hidesPrimaryNavbar = isDriverRoute || route === '/';
 
   return (
     <div className="min-h-screen flex flex-col font-sans select-none selection:bg-primary/20">
-      {!isDriverRoute && <Navbar currentRoute={route} setRoute={setRoute} user={user} config={siteConfig} />}
+      {!hidesPrimaryNavbar && <Navbar currentRoute={route} setRoute={setRoute} user={user} config={siteConfig} />}
       
       <main className="flex-1">
         {!loadedRemoteData && (
@@ -732,7 +731,7 @@ export default function App() {
       {route !== '/dashboard' && route !== '/admin' && route !== '/driver' && <Footer setRoute={setRoute} config={siteConfig} />}
 
       {/* Floating WhatsApp CTA */}
-      {!isDriverRoute && (
+      {!hidesPrimaryNavbar && (
         <motion.button
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
@@ -744,7 +743,7 @@ export default function App() {
       )}
 
       {/* Sticky Bottom Nav (Mobile Only) */}
-      {!isDriverRoute && (
+      {!hidesPrimaryNavbar && (
         <div className="md:hidden fixed bottom-0 left-0 right-0 glass h-20 px-6 flex items-center justify-between z-40 border-t border-gray-100">
           <button 
             onClick={() => setRoute('/')}

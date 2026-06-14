@@ -1,0 +1,1528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <!-- Meta, title, CSS, favicons, etc. -->
+    <meta charset="utf-8"> 
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0 viewport-fit=cover" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Aipsoft Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;300;400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/jquery-confirm.min.css">
+    <link rel="stylesheet" type="text/css" href="css/typeahead_css.css">
+    <script type="text/javascript" src="js/jquery-3.4.1.min.js"></script>
+    <script src="js/jquery-confirm.min.js"></script>
+     <!-- <script type="text/javascript" src="js/typeahead.js"></script> -->
+    <script type="text/javascript" src="js/typeahead.bundle.js"></script>
+    <script src="js/jquery-confirm.min.js"></script>
+    <script src="js/config.js"></script>
+    <script type="text/javascript"> 
+    
+    let api_user_id         = window.localStorage.getItem('api_user_id');
+    let api_url             = window.localStorage.getItem('api_url');
+    let client_identifier   = window.localStorage.getItem('client_identifier');
+    let order_id            = window.localStorage.getItem('order_id');
+    let vendor_id           = window.localStorage.getItem('vendor_id');
+    let branch_id           = window.localStorage.getItem('branch_id');
+    let currency_id         = window.localStorage.getItem('currency_id');
+    let tax_included        = window.localStorage.getItem('tax_included');
+    let module_settings;
+    let user_type;
+    console.log('tax_included - '+tax_included)
+    if((api_user_id == null || api_user_id == '' || api_url =='' || api_url == null)) {
+            window.location = "login.html";
+    } 
+    if(order_id=='' || order_id==null || order_id=='0') {
+            window.location = "grn_supplier.html";
+    } 
+    else{
+        $(document).ready(function() {
+            loadAjax();
+            $.ajax({
+                url: api_url+'/purchase_api/loadOrderData',
+                method: 'POST',
+                data: {'order_id': order_id,'branch_id':branch_id,'user_id':api_user_id,'client_identifier':client_identifier},
+                success: function(response) {
+                    removeAjaxLoad();
+                    var data =JSON.parse(response);
+                    user_type        = data.user_type;
+                    module_settings  = data.module_settings;
+                    console.log(data);
+                    if(data.status==1)
+                    {
+                        let orderData  = data.data;
+                        if(orderData.data_count > 0)
+                        {
+                            let orders = orderData.data_result;
+                            let tot_qty = 0;
+                            orders.forEach(function(order, index) {
+                                let sl_no = 1;
+                                if($(".sl_no").length>0)
+                                {
+                                    sl_no = Number($(".sl_no").length)+1;
+                                }
+                                let qty   = Number(order.quantity!=null?order.quantity:0);
+                                let foc   = Number(order.free!=null?order.free:0);
+                                tot_qty   = qty+foc;
+                                let tRow = '<tr class="item_row">\
+                                                <td class="sl_no" data-barcode="'+order.barcode+'">'+sl_no+'</td>\
+                                                <td>'+order.barcode+' - '+order.product_name1+'</td>\
+                                                <td>'+order.unitname_short+'</td>\
+                                                <td>'+Number(order.purchase_rate).toFixed(2)+'</td>\
+                                                <td>'+tot_qty+'</td>\
+                                                <td>'+Number(order.net_amount).toFixed(2)+'</td>\
+                                            </tr>';
+                                $('.productList tbody').append(tRow);
+                            })
+                        }
+                    }
+                },
+                error:function (xhr, ajaxOptions, thrownError){
+                        removeAjaxLoad();
+                        $.alert('No vendor found..!');
+                        return false;                          
+                    }   
+            });
+        })
+    }
+
+
+
+    </script>
+</head>
+
+<style type="text/css">
+
+    body {
+        font-family: 'Roboto', sans-serif;
+        margin: 0;
+    }
+    .form_footerBtn.errorData {
+        background: #ff4646;
+        text-align: center;
+        font-size: 16px;
+        padding: 20px 0;
+    }
+    p.errortxt {
+        color: #fff;
+        font-size: 18px;
+    }
+    p.errortxt:last-child{
+        margin-bottom: 10px;
+    }
+    .nav_deader {
+        background-image: linear-gradient(to right, #305daf , #17a9ca);
+        /*background-image: linear-gradient(#252525, #070707);*/
+        padding: 8px;
+        color: #fff;
+        overflow: hidden;
+    }
+    .aiplogo {
+        float: left;
+        margin-right: 8px;
+    }
+    .nav_text p {
+        font-size: 14px;
+        margin: 0;
+        font-weight: 400;
+        margin-top: 2px;
+    }
+    .GRN_wrap {
+        padding: 8px 10px;
+        overflow: hidden;
+        position: relative;
+    }
+    .footer button{
+        width: 100%;
+        padding: 15px;
+        font-weight: 600;
+        font-size: 16px;
+        background-color: #2451a6;
+        color: #fff;
+        position: fixed;
+        bottom: 0px;
+        border: 1px solid #686f8c;
+    }
+    .scanitem {
+        width: 95%;
+        float: left;
+        position: relative;
+        display: flex;
+    }
+    .scanitem label {
+        color: #3b3b3b;
+        margin-bottom: 0;
+        font-size: 14px;
+        font-weight: 400;
+        width: 8%;
+        float: left;
+        position: relative;
+        top: 0;
+        padding: 10px 5px;
+    }
+    .scanitem input {
+        border: 1px solid #707070;
+        background-color: #e9e9e9;
+        padding: 8px;
+        color: #3b3b3b;
+        font-size: 14px;
+        font-weight: 400;
+        width: 100%;
+        padding-right: 35px;
+    }
+    .search_btn {
+        position: absolute;
+        right: 10px;
+        top: 10px;
+    }
+    .center_form{
+        width: 30%;
+        float: left;
+    } 
+    .center_form p{
+    }
+    .center_form input{
+        border: 1px solid #707070;
+        background-color: #e9e9e9;
+        padding: 8px;
+        color: #3b3b3b;
+        font-size: 14px;
+        font-weight: 400;
+        margin-top: 3px;
+        width: 70%
+    }
+    .OK_Btn {
+        font-size: 14px;
+        font-weight: 600;
+        background-color: #000;
+        color: #fff;
+        border: 1px solid #707070;
+        padding: 8px 8px;
+        float: right;
+        position: relative;
+    }
+    .grn_table {
+        width: 100%;
+        height: 300px;
+        overflow-y: auto;
+        overflow-x: hidden;
+    }    
+    .grn_table table {
+        border-spacing: 0px;
+        width: 100%
+    }
+    .grn_table th {
+        background-color: #2350a3;
+        font-size: 10px;
+        color: #fff;
+        padding: 5px;
+        border-right: 1px solid #6f6f6f;
+    }
+    .grn_table td {
+        font-size: 8px;
+        font-weight: 400;
+        color: #1e1e1e;
+        padding: 5px 3px;
+        border-right: 1px solid #6f6f6f;
+        border-bottom: 1px dotted #d7d7d7;
+    }
+    .item_popup{
+        background-color: #f3f3f3;
+        padding: 20px;
+        display: none;
+    }
+    .item_popup p {
+        color: #2f2f2f;
+        font-size: 16px;
+        font-weight: 500;
+        padding-bottom: 5px;
+        margin: 0;
+    }
+    .imp{
+        color: #a82d25 !important;
+    }
+    .imp_sp{
+        color: #a900ff !important;
+    }
+    .item_popup {
+        background-color: #f3f3f3;
+        padding: 20px;
+        position: fixed;
+        bottom: 65px;
+    }
+    .itemForm{
+        width: 50%;
+        float: left;
+        margin-bottom: 6px;
+    }
+    .itemFormFull{
+        width: 100%;
+        float: left;
+        margin-bottom: 6px;
+    }
+    .itemFormFull label {
+        color: #3e3e3e;
+        font-size: 15px;
+        font-weight: 500;
+        margin-bottom: 5px;
+    }
+    .itemFormFull input {
+        border: 1px solid #6f6f6f;
+        font-size: 14px;
+        color: #333;
+        padding: 6px;
+        width: 90%;
+    }
+    .itemForm label {
+        color: #3e3e3e;
+        font-size: 15px;
+        font-weight: 500;
+        margin-bottom: 5px;
+    }
+    .itemForm input {
+        border: 1px solid #6f6f6f;
+        font-size: 14px;
+        color: #333;
+        padding: 6px;
+        width: 80%;
+    }
+    .itemFormFull select {
+        border: 1px solid #6f6f6f;
+        font-size: 14px;
+        color: #333;
+        padding: 6px;
+        width: 90%;
+    }
+    .form_footerBtn {
+        position: fixed;
+        bottom: 0px;
+        background-color: #254fa1;
+        z-index: 9999;
+        padding: 20px;
+        width: 100%;
+        left: 0px;
+    }
+    .form_footerBtn button {
+        background-color: #fff;
+        padding: 10px;
+        font-size: 14px;
+        font-weight: 500;
+        text-transform: uppercase;
+        color: #000;
+        border: 1px solid #5f7293;
+        width: 42%;
+        /*float: left;*/
+        margin-right: 15px;
+    }
+
+.loading {
+    position: fixed;
+    z-index: 999999;
+    height: 100%;
+    width: 100%;
+    overflow: show;
+    margin: auto;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    background: #000;
+    opacity: 0.5;
+}
+img.loadingIco {
+    width: 100%;
+    position: absolute;
+    top: 25%;
+}
+.form_footerBtn.errorData {
+        background: #ff4646;
+        text-align: center;
+        font-size: 16px;
+        padding: 20px 0;
+    }
+    p.errortxt {
+        color: #fff;
+        font-size: 18px;
+    }
+    .buttonDiv {
+        overflow: hidden;
+        text-align: center;
+    }
+    .addProdData {
+        background: green;
+        padding: 5%;
+        width: 90%
+    }
+.addProdData h1 {
+    margin: 0;
+    font-size: 22px;
+    color: #fff;
+    margin-bottom: 10px;
+}
+.item_popup.addProduct {
+    background: green;
+}
+.addProdData label {
+    color: #fff;
+}
+.addProdData .form_footerBtn{
+    background: green;
+}
+label.spectTxt {
+    padding: 15px 0 0;
+    display: block;
+}
+.form_footerBtn.addProdBtns button {
+    color: #fff;
+    font-weight: bold;
+    background: #000;
+}
+.form_footerBtn.addProdBtns button.closeBtn {
+    background: red !important;
+}
+input[readonly] {
+    background: #d6d6d6;
+}
+.hidden_item{
+    display: none !important;
+}
+.units{
+    width: 95% !important;
+}
+.invalid{
+    border: 3px solid #D95050 !important;
+}
+/*.scanitem_search {
+    position: absolute;
+    right: 0px;
+    top: 30px;
+}*/
+.item_search {
+    background-color: #fff;
+    height: 100vh;
+    top: 0;
+    position: fixed;
+    width: 100%;
+    padding: 0px;
+    left: 0;
+    z-index: 9;
+}
+.item_search .close_icon {
+    position: absolute;
+    right: 20px;
+    top: 25px;
+}
+.searchlisting_wrap {
+    overflow: hidden;
+    width: 100%;
+    padding: 15px 0;
+    height: calc(100vh - 98px);
+    overflow-y: scroll;
+    overflow-x: hidden;
+}
+.searchlisting_wrap ul{
+    padding: 0;
+    list-style-type: none;
+    margin: 0;
+}
+.searchlisting_wrap ul li{
+    width: 100%;
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 10px;
+    border-bottom: 1px solid #ececec;
+    padding: 10px;
+    color: #2f2f2f;
+}
+.item_search .scanitem {
+    width: 90%; 
+}
+.item_padd {
+    padding: 15px;
+}
+.hidden{
+    display: none;
+}
+.search_result_ul .selected{
+    background-color: #305bce;
+    color: #fff;
+}
+.search_result_ul .selected{
+    background-color: #305bce;
+    color: #fff;
+}
+.item_search .twitter-typeahead{
+    width: 100%;
+}
+.item_search .search_btn {
+    position: absolute;
+    right: -35px;
+    top: 10px;
+}
+.item_search .scanitem_search {
+    position: absolute;
+    right: -35px;
+    top: 9px;
+}
+
+@media only screen and (max-width: 1600px) {
+    .item_search .scanitem {
+        width: 92%;
+    }      
+}
+@media only screen and (max-width: 1200px) {
+    .item_search .scanitem {
+        width: 90%;
+    }      
+}
+
+@media only screen and (max-width: 993px) {
+    .scanitem label {
+        width: 15%;
+    }
+    .scanitem {
+        width: 92%;
+    }  
+    .item_search .scanitem {
+        width: 92%;
+    }
+    .item_search .scanitem {
+        width: 88%;
+    }        
+}
+
+@media only screen and (max-width: 800px) {
+    .item_search .scanitem {
+        width: 86%;
+    }    
+}
+
+@media only screen and (max-width: 600px) {
+    .scanitem label {
+        width: 22%;
+    }
+    .scanitem {
+        width: 90%;
+    }
+    .item_search .scanitem {
+        width: 90%;
+    } 
+    .item_search .scanitem {
+        width: 80%;
+    }    
+}
+
+
+@media only screen and (max-width: 500px) {
+    .item_search .close_icon {
+        right: 10px;
+    }
+    .scanitem label {
+        width: 30%;
+    }
+    .scanitem {
+        width: 88%;
+    } 
+    .item_search .scanitem {
+        width: 88%;
+        }
+    .item_search .scanitem {
+        width: 80%;
+    }   
+}
+
+
+@media only screen and (max-width: 400px) {
+    .item_search .scanitem {
+        width: 80%;
+    }
+/*    .item_search .scanitem_search {
+        position: absolute;
+        right: -10px;
+    }*/
+    .scanitem {
+        width: 85%;
+    }
+    .GRN_wrap {
+        padding: 8px 6px;
+    }
+    .scanitem label {
+        width: 50%;
+    }
+    .item_search .scanitem {
+        width: 85%;
+    } 
+    .item_search .scanitem {
+        width: 72%;
+    }   
+    .scanitem label {
+        font-size: 13px;
+    }     
+}
+
+/* CSS specific to iOS devices */ 
+
+@supports (-webkit-touch-callout: none) {
+    .nav_deader {
+        padding-top: 50px;
+    }
+    .GRN_wrap {
+        height:    calc(100vh - 90px);
+    } 
+}
+
+
+
+
+
+
+</style>
+
+<body>
+
+    <div class="nav_deader">
+        <div class="aiplogo">
+            <img src="images/aipsoft.png">
+        </div>
+        <div class="nav_text">
+            <p>AipSoft - GRN- <span class="grn_no"></span></p>
+        </div>
+    </div>
+
+    <div class="GRN_wrap">  
+        <div class="scanitem">
+            <label>Scan Item</label>
+            <input type="text" name="" class="barcode_search" id="barcode_get" onclick="open_camera();"> <!-- ok.openBarcode(); for android sendLoginAction() for ios-->
+            <div class="search_btn">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-search scanitem_search" viewBox="0 0 16 16">
+                  <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                </svg>   
+            </div>         
+        </div>
+        <button id="myBtn" type="button" class="OK_Btn">OK</button>
+    </div>
+
+    <div class="item_search hidden">
+        <div class="item_padd">
+            <div class="close_search_btn">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-x-lg close_icon" viewBox="0 0 16 16">
+                  <path d="M1.293 1.293a1 1 0 0 1 1.414 0L8 6.586l5.293-5.293a1 1 0 1 1 1.414 1.414L9.414 8l5.293 5.293a1 1 0 0 1-1.414 1.414L8 9.414l-5.293 5.293a1 1 0 0 1-1.414-1.414L6.586 8 1.293 2.707a1 1 0 0 1 0-1.414z"/>
+                </svg>
+            </div>
+            <div class="scanitem">
+                <label>Scan Item</label>
+                <input type="text" name="" class="prod_search">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-search scanitem_search" viewBox="0 0 16 16">
+                  <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                </svg>
+            </div>
+            <div class="searchlisting_wrap">
+                <ul class="search_result_ul">
+                </ul>
+            </div>
+        </div>
+    </div>
+
+
+    <div class="grn_table">
+        <table class="productList">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Item Code</th>
+                    <th>Unit</th>
+                    <th>Cost</th>
+                    <th>Qty</th>
+                    <th>Total</th>
+                </tr>
+            </thead>
+            <tbody>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="footer">
+        <button type="button" class="saveBtn">Save & Close</button>        
+    </div>
+
+
+    <div class="item_popup prod_details">
+        <p class="prod_name">Product Name</p>
+        <p class="imp cat_name">Category Name</p>
+        <p class="imp_sp">Packet Qty: <span class="eq_base_qty"></span></p>
+        <!-- <p>Purchase Rate : <span class="purchase_rate">25:00</span></p> -->
+
+        <div class="form_wrap">
+            <div class="itemForm">
+                <label>Purchase Rate</label>
+                <input type="number" name="" readonly="readonly" class="pur_rate" value="1" onkeypress="return (event.charCode == 8 || event.charCode == 0 || event.charCode == 13) ? null : event.charCode >= 48 && event.charCode <= 57">
+            </div> 
+            <div class="itemForm">
+                <label>Sale Rate</label>
+                <input type="number" name="" readonly="readonly" class="s_rate" value="1" onkeypress="return (event.charCode == 8 || event.charCode == 0 || event.charCode == 13) ? null : event.charCode >= 48 && event.charCode <= 57">
+            </div> 
+            <div class="itemForm">
+                <label>Qty</label>
+                <input type="number" name="" class="prod_qty" value="1" onkeypress="return (event.charCode == 8 || event.charCode == 0 || event.charCode == 13) ? null : event.charCode >= 48 && event.charCode <= 57">
+            </div>            
+            <div class="itemForm">
+                <label>Total</label>
+                <input type="text" name="" class="prod_total" readonly="">
+            </div>            
+            <div class="itemForm">
+                <label>FOC</label>
+                <input type="number" name="" class="prod_foc" value="0" onkeypress="return (event.charCode == 8 || event.charCode == 0 || event.charCode == 13) ? null : event.charCode >= 48 && event.charCode <= 57">
+            </div>            
+            <div class="itemForm">
+                <label>Total Qty</label>
+                <input type="text" name="" class="tot_qty" readonly="">
+            </div>
+            <div class="form_footerBtn">
+                <button type="button" class="addBtn">ADD</button>
+                <button type="button" class="closeBtn">Close</button>
+            </div>
+        </div>
+
+    </div>
+    <div class="item_popup addProduct">
+    </div>
+<script>
+function RoundNum(num, length) { 
+    let number = (Math.round( num * 100 ) / 100).toFixed(length);
+    return number;
+}
+
+function mainSearchBarcode()
+{
+    let search_sale_products = new Bloodhound(
+    {
+        datumTokenizer: function(datum) {
+          return Bloodhound.tokenizers.whitespace(datum.value);
+        },
+        queryTokenizer: Bloodhound.tokenizers.whitespace,
+        remote: 
+        {
+            url: api_url+"/pos_api/getProductsUsingHints",
+            prepare:function(query, settings)
+            {
+              $('.notify').remove();
+              $(".spin_loader_cp").removeClass('hidden_section');
+              $('.search_result').html('');
+              settings.url = this.url + "/"+branch_id+'/'+client_identifier+'/'+query;
+              return settings;
+            },
+            transform: function(response) 
+            {
+                  $(".spin_loader_cp").addClass('hidden_section');
+                  $('.search_result').html('');
+                  console.log(response)
+                  if(response != null && response.length > 0)
+                  {
+                      // $('.barcode_scan_field').parents('.label_style').find('.tt-menu').addClass('box_ul searchbox_arrow');
+                      // return response;
+                      let displayHtml = ``;
+                      $.each(response,function(indx,item)
+                      {
+                          let price = Number(item.sale_rate_new?item.sale_rate_new:0).toFixed(2);
+                          let prod_name = item.product_name1;
+                          displayHtml += `<li class="ItemData item_${item.id}" data-id="${item.id}" data-barcode="${item.barcode}">${prod_name} ${item.packing_description?` - ${item.packing_description}`:``} <p style="margin-top:4px"> ${item.avail_units} (${item.avail_unit_eq_to_base} ${item.baseunit}) - ${item.barcode}</p></li>`;
+                          
+                      })
+                      $('.search_result_ul').html(displayHtml);
+                      $('.search_result_ul').find('li:first-child').addClass('selected');
+                  }
+                  else
+                  {
+                      $('.search_result_ul').html('<li> No items found!...</li>');
+                      //$('.prod_search').removeData();
+                      $('.prod_search').focus();
+                  }
+            }
+        }
+    });
+    search_sale_prdt_ahead = $('.prod_search').typeahead(
+    {
+        hint: false,
+        highlight: true,
+        minLength: 1
+    },
+    {
+        limit: 50,
+        name: 'Search_sale_products',
+        source: search_sale_products,
+        display:function(data)
+        {
+            data.product_name
+        },
+        templates: 
+        {
+            suggestion: function(item) 
+            {
+                // let price = Number(item.sale_rate).toFixed(no_of_decimals);
+                // let displayHtml = `<tr data-id="${item.barcode}" tabindex="0">
+                //                     <td>${item.product_name}</td>
+                //                     <td>${item.cat_name}</td>
+                //                     <td>${Number(item.cost).toFixed(no_of_decimals)}</td>
+                //                     <td>${price}</td>
+                //                     <td>${item.stock?item.stock:'0'}</td>
+                //                 </tr>`;
+                // $('.search_result').append(displayHtml);
+                // $('.search_result').find('tr:first-child').addClass('selected');
+                // return displayHtml;
+            }
+        }
+    });
+    $('.prod_search').bind('typeahead:selected', function(obj, datum, name) 
+    {  
+        $(".notify").remove();
+        $('.searchbox_arrow').hide();
+        $('.tt-dataset').empty();
+        selectedItemFromList(datum.barcode);
+    });
+}
+    $(document).ready(function() {
+
+        mainSearchBarcode();
+
+
+        // loadAjax()
+        getDefaultBarcode();
+        $('.grn_no').text('GRN_'+order_id);
+        $('.barcode_search').focus(function(){
+            $(this).select();
+        })
+        setTimeout(function(){$('.barcode_search').focus()},100);
+    })
+    let getDefaultBarcode = function()
+    {
+        $.ajax({
+                url: api_url+'/purchase_api/default_barcode',
+                method: 'POST',
+                data: {'branch_id':branch_id,'client_identifier':client_identifier},
+                success: function(response) {
+                    var data =JSON.parse(response);
+                    $('.OK_Btn').data('def_barcode','0');
+                    if(data.status==1)
+                    {
+                        $('.OK_Btn').data('def_barcode',data.default_barcode.default_barcode)
+                    }
+                },
+                error:function (xhr, ajaxOptions, thrownError){
+                }   
+            });
+    }
+    $(document).on('keyup','.barcode_search',function(e){
+        let val = $(this).val();
+        let val_array = val.split("");
+        console.log('length', val_array.length)
+        console.log('numeric', !$.isNumeric(val))
+
+        if (val_array.length >= 3 && !$.isNumeric(val)) {
+
+            $('.prod_search').val(val)
+            $('.item_search').removeClass('hidden')
+            $('.prod_search').focus()
+            $('.prod_search').trigger('input')
+        }
+        if(val!='' && (e.which == 13  || e.keyCode == 13))
+        {
+            $('.OK_Btn').click();
+        }
+    })
+    $(document).on('keyup','.prod_search',function(e){
+        let val = $(this).val();
+        
+        if(val!='' && (e.which == 13  || e.keyCode == 13))
+        {
+            console.log("yy")
+            $('.barcode_search').val(val)
+            $('.item_search').addClass('hidden')
+            $('.barcode_search').focus()
+        }
+    })
+    $(document).on('keyup','.prod_qty',function(e){
+        let val = $(this).val();
+        if(val!='' && (e.which == 13  || e.keyCode == 13))
+        {
+            $('.prod_foc').select();
+        }
+    })
+    $(document).on('keyup','.pur_rate',function(e){
+        let val = $(this).val();
+        if(val!='' && (e.which == 13  || e.keyCode == 13))
+        {
+            $('.s_rate').select();
+        }
+    })
+    $(document).on('keyup','.s_rate',function(e){
+        let val = $(this).val();
+        if(val!='' && (e.which == 13  || e.keyCode == 13))
+        {
+            $('.prod_qty').select();
+        }
+    })
+    $(document).on('input','.pur_rate',function(e){
+        let price   = Number($(this).val()?$(this).val():1);
+        let qty     = Number($('.prod_qty').val());
+        let tot     = qty*price;
+        let assignedTax = $('.prod_name').data('product_taxes');
+        calculateTax(assignedTax,price);
+        $('.prod_total').val(tot.toFixed(2))
+    })
+    $(document).on('input','.prod_qty',function(e){
+        let qty     = Number($(this).val()?$(this).val():1);
+        let price   = Number($('.pur_rate').val());
+        let tot     = qty*price;
+        $('.prod_total').val(tot.toFixed(2))
+    })
+    $(document).on('input','.prod_foc',function(e){
+        let foc     = Number($(this).val()?$(this).val():0);
+        let qty   = Number($('.prod_qty').val());
+        let tot     = foc+qty;
+        $('.tot_qty').val(tot)
+    })
+    $(document).on('keyup','.prod_foc',function(e){
+        let val = $(this).val();
+        if((e.which == 13  || e.keyCode == 13))
+        {
+            $('.addBtn').click();
+        }
+    })
+    $(document).on('click','.addBtn',function(e){
+        let barcode  = $('.barcode_search').val();
+        let prod_qty = Number($('.prod_qty').val());
+        let prod_foc = Number($('.prod_foc').val()?$('.prod_foc').val():0);
+        let p_rate   = Number($('.pur_rate').val());
+        let s_rate   = Number($('.s_rate').val());
+        let p_unit   = $('.prod_name').data('unit');
+        let p_unit_id= $('.prod_name').data('unit_id');
+        let p_prod_id= $('.prod_name').data('prod_id');
+        let eq_to_base      = Number($('.prod_name').data('eq_to_base'));
+        let product_taxes   = $('.prod_name').data('product_taxes');
+        let pur_rate        = p_rate/eq_to_base;
+        let pr_name         = $('.prod_name').text();
+        let margin_perc     = 0;
+        let profit          = Number(s_rate-p_rate);
+        margin_perc         = (profit/s_rate)*100;
+        margin_perc         = Number(margin_perc).toFixed(6);
+
+        let product_total_tax = Number($('.prod_name').data('product_total_tax'));
+        let tot_tax_amount    = Number($('.prod_name').data('tot_tax_amount'));
+        let tax_less_amount   = Number($('.prod_name').data('tax_less_amount'));
+        let with_tax_amount   = Number($('.prod_name').data('with_tax_amount'));
+
+         if(barcode!='' && prod_qty!='' && prod_qty!='0')
+        {
+            loadAjax();
+            if(!$(this).hasClass('clicked'))
+                $(this).addClass('clicked');
+            else
+                return false;
+            $.ajax({
+                url: api_url+'/purchase_api/addProductToCart',
+                method: 'POST',
+                data: {'barcode': barcode,'order_id': order_id,'p_prod_id':p_prod_id,'prod_qty':prod_qty,'prod_foc':prod_foc,'p_rate':p_rate,'pur_rate':pur_rate,'s_rate':s_rate,'p_unit_id':p_unit_id,'branch_id':branch_id,'eq_to_base':eq_to_base,'margin_perc':margin_perc,'product_taxes':product_taxes,'product_total_tax':product_total_tax,'tot_tax_amount':tot_tax_amount,'tax_less_amount':tax_less_amount,'with_tax_amount':with_tax_amount,'tax_included':tax_included,'client_identifier':client_identifier},
+                success: function(response) {
+                    $('.addBtn').removeClass('clicked');
+                    removeAjaxLoad();
+                    $('.barcode_search').val('').focus()
+                    var data =JSON.parse(response);
+                    console.log(data);
+                    if(data.status==1)
+                    {
+                        let sl_no = 1;
+                        if($(".sl_no").length>0)
+                        {
+                            sl_no = Number($(".sl_no").length)+1;
+                        }
+                        let totQty = prod_qty+prod_foc;
+                        let tRow = '<tr class="item_row">\
+                                        <td class="sl_no" data-barcode="'+barcode+'">'+sl_no+'</td>\
+                                        <td >'+barcode+' - '+pr_name+'</td>\
+                                        <td >'+p_unit+'</td>\
+                                        <td >'+p_rate.toFixed(2)+'</td>\
+                                        <td >'+totQty+'</td>\
+                                        <td >'+(totQty*p_rate).toFixed(2)+'</td>\
+                                    </tr>';
+                        $('.productList tbody').append(tRow);
+                    }
+                    else
+                    {
+                        $('.prod_details').hide();
+                         $.alert(data.message);
+                         return false;
+                    }
+                    $('.closeBtn').click();
+                },
+                error:function (xhr, ajaxOptions, thrownError){
+                        $('.addBtn').removeClass('clicked');
+                        removeAjaxLoad();
+                        $.alert('No vendor found..!');
+                        return false;                          
+                    }   
+            });
+        }
+    })
+
+    $(document).on('click','.saveBtn',function(e){
+        $.confirm({
+            title:'Confirmation!',
+            content: 'Are you sure to save the updates?',
+            buttons: {
+                Okay: function () {
+                        loadAjax()
+                        $.ajax({
+                                url: api_url+'/purchase_api/submitFinalOrder',
+                                method: 'POST',
+                                data: {'order_id': order_id,'client_identifier':client_identifier},
+                                success: function(response) {
+                                    removeAjaxLoad();
+                                    $('.barcode_search').select()
+                                    var data =JSON.parse(response);
+                                    console.log(data);
+                                    if(data.status==1)
+                                    {
+                                        window.localStorage.setItem('order_id','0');
+                                        window.localStorage.setItem('vendor_id','0');
+                                        $.alert({
+                                                title: 'Success',
+                                                content: 'Order successfully placed.',
+                                                onContentReady: function () {
+                                                    setTimeout(function(){$(".jconfirm-buttons").find('button').focus();},100);
+                                                },
+                                                onClose: function () { window.location = "home.html";}
+                                            });
+                                       
+                                    }
+                                    else
+                                    {
+                                        $.alert(data.message);
+                                        return false;
+                                    }
+                                    $('.closeBtn').click();
+                                },
+                                error:function (xhr, ajaxOptions, thrownError){
+                                        removeAjaxLoad();
+                                        $.alert('No vendor found..!');
+                                        return false;                          
+                                    }   
+                            });
+                },
+                Cancel: function () {
+                        
+                }
+            },
+            onOpen: function () {
+            // after the modal is displayed.
+               
+            },
+
+        });
+    })
+    $(document).on('click','.closeBtn',function(e){
+        $('.prod_name').text(''); 
+        $('.cat_name').text(''); 
+        $('.purchase_rate').text(''); 
+        $('.prod_qty').val(1); 
+        $('.prod_foc').val(0); 
+        $('.tot_qty').val(1); 
+        $('.prod_total').val(''); 
+        $('.prod_name').data('unit','');
+        $('.prod_name').data('unit_id','');
+        $('.prod_name').data('prod_id','');
+
+        $('.prod_name').data('eq_to_base','');
+        $('.prod_name').data('product_taxes','');
+        $('.prod_name').data('product_total_tax','');
+        $('.prod_name').data('tot_tax_amount','');
+        $('.prod_name').data('tax_less_amount','');
+        $('.prod_name').data('with_tax_amount','');
+        $('.item_popup').hide();
+        $('.barcode_search').select();
+    })
+    $(document).on('click','.addProd',function(e){
+        let barcode = $(this).data('id');
+        $('.addProduct').html('').hide();
+
+        $.ajax({
+                url: api_url+'/purchase_api/loadProductRelatedData',
+                method: 'POST',
+                data: {'branch_id':branch_id,'client_identifier':client_identifier},
+                success: function(response) {
+                    var data =JSON.parse(response);
+                    $('.OK_Btn').data('def_barcode','0');
+                    console.log('data', data)
+                    let cat_html = '<option value="0">Select</option>';
+                    let unit_html = '<option value="0">Select</option>';
+                    let tax_html = '';
+                    if(data.status==1)
+                    {
+                        if (data.data.category_count > 0) {
+                            data.data.category_result.forEach(function(cat) {
+                                cat_html += `<option value="${cat.id}">${cat.category_name1}</option>`;
+                                
+                            });
+                        } 
+                        if (data.data.unit_count > 0) {
+                            data.data.unit_result.forEach(function(unit) {
+                                unit_html += `<option value="${unit.id}">${unit.unitname}</option>`;
+                                
+                            });
+                        } 
+                        if (data.data.tax_count > 0) {
+                            let checked = "checked";
+                            data.data.tax_result.forEach(function(tax) {
+                                tax_html += `<input type="radio" name="tax_list" data-tax_value="${tax.tax_value}" value="${tax.id}" style="width:auto" ${checked}><label for="${tax.id}">${tax.tax_name} (${tax.tax_value})</label>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`;
+                                checked = "";
+                                
+                            });
+                        } 
+
+
+                          let divHtml = '<div class="addProdData">\
+                                            <div class="form_wrap">\
+                                                <h1>Create New Product</h1>\
+                                                <div class="itemFormFull rows">\
+                                                    <label>Barcode</label>\
+                                                    <input type="text" name="" class="prod_barcode" value="'+barcode+'" >\
+                                                </div>   \
+                                                <div class="itemFormFull rows">\
+                                                    <label>Item Name</label>\
+                                                    <input type="text" name="" class="prod_name_val" value="" >\
+                                                </div>            \
+                                                <div class="itemFormFull rows">\
+                                                    <label>Category</label>\
+                                                    <select class="categories">'+cat_html+'</select>\
+                                                </div> \
+                                                <div class="itemFormFull rows">\
+                                                    <label>Unit</label>\
+                                                    <select class="units">'+unit_html+'</select>\
+                                                </div> \
+                                                <div class="itemFormFull rows">\
+                                                    <label>Tax</label>\
+                                                    <div>'+tax_html+'</div>\
+                                                </div> \
+                                                <div class="itemForm rows">\
+                                                    <label>Purchase Rate</label>\
+                                                    <input type="number" name="" class="purchase_rate_val" value="0" onkeypress="return (event.charCode == 8 || event.charCode == 0 || event.charCode == 13) ? null : event.charCode >= 48 && event.charCode <= 57">\
+                                                </div>            \
+                                                <div class="itemForm rows">\
+                                                    <label>Sales Rate</label>\
+                                                    <input type="number" name="" class="sale_rate_val" value="0" onkeypress="return (event.charCode == 8 || event.charCode == 0 || event.charCode == 13) ? null : event.charCode >= 48 && event.charCode <= 57">\
+                                                </div> \
+                                                <div class="itemForm rows">\
+                                                    <label>Purchase Rate With VAT</label>\
+                                                    <input type="number" name="" class="purchase_rate_val_vat" value="0" onkeypress="return (event.charCode == 8 || event.charCode == 0 || event.charCode == 13) ? null : event.charCode >= 14">\
+                                                </div>            \
+                                                <div class="itemForm rows">\
+                                                    <label>Sales Rate With VAT</label>\
+                                                    <input type="number" name="" class="sale_rate_val_vat" value="0" onkeypress="return (event.charCode == 8 || event.charCode == 0 || event.charCode == 13) ? null : event.charCode >= 14">\
+                                                </div> \
+                                                <div class="form_footerBtn addProdBtns">\
+                                                    <button type="button" class="addProdBtn">ADD</button>\
+                                                    <button type="button" class="closeBtn">Close</button>\
+                                                </div>\
+                                            </div>\
+                                        </div>';
+                        $('.addProduct').html(divHtml).show();
+                        setTimeout(function(){$('.prod_name_val').select()},100);
+                    }
+                },
+                error:function (xhr, ajaxOptions, thrownError){
+                }   
+        });
+      
+    })
+    $(document).on('input','.purchase_rate_val',function(e){
+        let amount = Number($(this).val())?Number($(this).val()):0;
+        let tax_value          = $('input[name="tax_list"]:checked').attr('data-tax_value')?$('input[name="tax_list"]:checked').attr('data-tax_value'):0;
+        tax_value.replace("%", "");
+
+        tax_value = Number(tax_value);
+
+        let tax_amount = (tax_value*amount)/100;
+
+        let amount_with_vat = Number(amount) + Number(tax_amount);
+
+        $('.purchase_rate_val_vat').val(RoundNum(amount_with_vat, 2));
+
+    })
+    $(document).on('input','.sale_rate_val',function(e){
+        let amount = Number($(this).val())?Number($(this).val()):0;
+        let tax_value          = $('input[name="tax_list"]:checked').attr('data-tax_value')?$('input[name="tax_list"]:checked').attr('data-tax_value'):0;
+        tax_value.replace("%", "");
+
+        tax_value = Number(tax_value);
+
+        let tax_amount = (tax_value*amount)/100;
+
+        let amount_with_vat = Number(amount) + Number(tax_amount);
+
+        $('.sale_rate_val_vat').val(RoundNum(amount_with_vat, 2));
+
+    })
+    $(document).on('input','.purchase_rate_val_vat',function(e){
+        let amount_with_vat = Number($(this).val())?Number($(this).val()):0;
+        let tax_value          = $('input[name="tax_list"]:checked').attr('data-tax_value')?$('input[name="tax_list"]:checked').attr('data-tax_value'):0;
+        tax_value.replace("%", "");
+
+        tax_value = Number(tax_value);
+
+        let tax_amount = 100/(Number(100) + Number(tax_value));
+
+       let amount = Number(amount_with_vat) * Number(tax_amount);
+
+        $('.purchase_rate_val').val(RoundNum(amount, 2));
+
+    })
+    $(document).on('input','.sale_rate_val_vat',function(e){
+        let amount_with_vat = Number($(this).val())?Number($(this).val()):0;
+        let tax_value          = $('input[name="tax_list"]:checked').attr('data-tax_value')?$('input[name="tax_list"]:checked').attr('data-tax_value'):0;
+        tax_value.replace("%", "");
+
+        tax_value = Number(tax_value);
+
+        let tax_amount = 100/(Number(100) + Number(tax_value));
+
+       let amount = Number(amount_with_vat) * Number(tax_amount);
+
+        $('.sale_rate_val').val(RoundNum(amount, 2));
+
+    })
+    $(document).on('click','input[name="tax_list"]',function(e){
+       
+       $('.purchase_rate_val').trigger('input')
+       $('.sale_rate_val').trigger('input')
+
+    })
+    $(document).on('keyup','.rows input',function(e){
+        let val = $(this).val();
+        if(val!='' && (e.which == 13  || e.keyCode == 13))
+        {
+           if($(this).parents('.rows').next('.rows').find('input').length > 0)
+           {
+                $(this).parents('.rows').next('.rows').find('input').trigger('select');
+           }
+           else
+           {
+                $('.addProdBtn').trigger('click')
+           }
+        }
+    })
+  
+    $(document).on('click','.addProdBtn',function(e){
+        let flag = true;
+        let barcode  = $('.prod_barcode').val();
+        let prod_name= $('.prod_name_val').val();
+        let purchase_rate   = $('.purchase_rate_val').val();
+        let sale_rate       = $('.sale_rate_val').val();
+        let def_barcode     = $('.OK_Btn').data('def_barcode');
+        let category_id     = $('.addProdData .categories').find(':selected').val()?$('.addProdData .categories').find(':selected').val():0;
+        let unit_id     = $('.addProdData .units').find(':selected').val()?$('.addProdData .units').find(':selected').val():0;
+        let tax_id          = $('input[name="tax_list"]:checked').val();
+        let purchase_rate_vat   = $('.purchase_rate_val_vat').val();
+        let sale_rate_vat       = $('.sale_rate_val_vat').val();
+
+        if (category_id == 0) {
+            $('.addProdData .categories').addClass('invalid');
+            flag = false;
+        }
+        if (unit_id == 0) {
+            $('.addProdData .units').addClass('invalid');
+            flag = false;
+        }
+
+        console.log('category_id', category_id)
+         console.log('unit_id', unit_id)
+        
+        console.log(barcode+"!='' && "+prod_name+"!='' && "+purchase_rate+"!='' && "+sale_rate+"!='' && "+barcode+"!='0'")
+        if(barcode!='' && prod_name!='' && purchase_rate!='' && sale_rate!='' && barcode!='0' && flag == true)
+        {
+            loadAjax();
+            $.ajax({
+                url: api_url+'/purchase_api/creatProduct',
+                method: 'POST',
+                data: {'user_id':api_user_id,'barcode': barcode,'prod_name': prod_name,'purchase_rate':purchase_rate,'sale_rate':sale_rate,'def_barcode':def_barcode,'branch_id':branch_id,'currency_id':currency_id,'client_identifier':client_identifier, 'category_id':category_id, 'tax_id':tax_id, 'purchase_rate_vat':purchase_rate_vat, 'sale_rate_vat':sale_rate_vat, 'unit_id':unit_id},
+                success: function(response) {
+                    removeAjaxLoad();
+                    $('.barcode_search').select()
+                    var data =JSON.parse(response);
+                    console.log(data);
+                    if(data.status==1)
+                    {
+                        $('.closeBtn').click();
+                        $('.OK_Btn').data('def_barcode',data.default_barcode.default_barcode)
+                        // let e = jQuery.Event("keypress");
+                        // e.which = 13; // 
+                        $('.OK_Btn').trigger('click');
+                    }
+                    else
+                    {
+                        $('.prod_details').hide();
+                         $.alert(data.message);
+                         return false;
+                    }
+                },
+                error:function (xhr, ajaxOptions, thrownError){
+                        removeAjaxLoad();
+                        $.alert('No vendor found..!');
+                        return false;                          
+                    }   
+            });
+        }
+    })
+    $(document).on('click','.OK_Btn',function(e){
+        let val = $('.barcode_search').val();
+        if(val!='')
+        {
+            $('.addProduct').html('').hide();
+            loadAjax()
+            $.ajax({
+                url: api_url+'/purchase_api/loadProduct',
+                method: 'POST',
+                data: {'barcode': val,'branch_id':branch_id,'client_identifier':client_identifier},
+                success: function(response) {
+                    removeAjaxLoad();
+                    $('.barcode_search').select()
+                    var data =JSON.parse(response);
+                    console.log(data);
+                    if(data.status==1)
+                    {
+                        let productData  = data.data;
+                        let duplicate_flag = 0;
+                        $(".item_row").each(function(){
+                            if($(this).find('.sl_no').data('barcode')==val)
+                            {
+                                duplicate_flag=1;
+                                return false;
+                            }
+                            
+                        });
+                        if(duplicate_flag==1)
+                        {
+                            $.confirm({
+                                title:'Confirmation!',
+                                content: 'This product already added, Are you sure to add again?',
+                                buttons: {
+                                    Okay: function () {
+                                        proceedToAdd(productData,1);
+                                    },
+                                    Cancel: function () {
+                                        $('.closeBtn').click();    
+                                    }
+                                },
+                                onOpen: function () {
+                                // after the modal is displayed.
+                                   
+                                },
+
+                            });
+                        }
+                        else
+                        {
+                            proceedToAdd(productData)
+                        }
+                    }
+                    else
+                    {
+                        $('.prod_details').hide();
+                        addProd_cls = '';
+                        console.log('user_type', user_type)
+                        if(module_settings.add_product_from_mobile_application=='0' || user_type == 'Admin')
+                        {
+                            addProd_cls = 'hidden_item';
+                        }
+                        let divHtml = '<div class="form_footerBtn errorData">\
+                                            <p class="errortxt">'+val+'</p>\
+                                            <p class="errortxt">Product not found !!!</p>\
+                                             <p class="errortxt '+addProd_cls+'">Create New</p>\
+                                            <div class="buttonDiv">\
+                                                <button type="button" class="addProd '+addProd_cls+'" data-id="'+val+'">ADD</button>\
+                                            <div class="buttonDiv">\
+                                                <button type="button" class="closeBtn">Close</button>\
+                                            </div>\
+                                        </div>';
+                        $('.addProduct').html(divHtml).show();
+                         // $.alert(data.message);
+                         return false;
+                    }
+                },
+                error:function (xhr, ajaxOptions, thrownError){
+                        removeAjaxLoad();
+                        $.alert('No vendor found..!');
+                        return false;                          
+                    }   
+            });
+        }
+    })
+    function loadAjax()
+    {
+        $('body').append("<div class='loading'><img src='images/new_loader.gif' class='loadingIco'></div>");
+        // $('.loading').removeClass('invisibl');
+    }
+    function removeAjaxLoad()
+    {
+        $('.loading').remove();
+        // setTimeout(function(){ $('.loading').remove();},100);
+    }
+    function proceedToAdd(productData,mode=0)
+    {
+        if(productData.data_count > 0)
+        {
+            let product       = productData.data_result;
+            let assignedTax   = productData.assigned_tax;
+            let eq_to_base    = Number(product[0].avail_unit_eq_to_base!=null?product[0].avail_unit_eq_to_base:1);
+            let purchase_rate = Number(product[0].purchase_rate!=null?product[0].purchase_rate:'0.00');
+            purchase_rate     = Number(eq_to_base*purchase_rate);
+            let sale_price    = Number(product[0].sale_price!=null?product[0].sale_price:'0.00');
+            $('.prod_name').text(product[0].product_name); 
+            $('.prod_name').data('unit',product[0].avail_units);
+            $('.prod_name').data('eq_to_base',eq_to_base);
+            $('.prod_name').data('unit_id',product[0].unit_id);
+            $('.prod_name').data('prod_id',product[0].id);
+            $('.prod_name').data('product_taxes',assignedTax);
+            $('.cat_name').text(product[0].category_name);
+            $('.eq_base_qty').text(eq_to_base);
+            calculateTax(assignedTax,purchase_rate);
+            // $('.purchase_rate').text(purchase_rate).hide(); 
+            $('.prod_qty').val(1); 
+            $('.prod_foc').val(0); 
+            $('.tot_qty').val(1); 
+            $('.prod_total').val(purchase_rate.toFixed(2)); 
+            $('.pur_rate').val(purchase_rate.toFixed(2)); 
+            $('.s_rate').val(sale_price.toFixed(2)); 
+            $('.prod_details').show();
+            // if(mode==1)
+            //     setTimeout(function(){$('.prod_qty').select()},300)
+            // else
+            //     setTimeout(function(){$('.prod_qty').select()},100)
+            if(module_settings.edit_cost_non_admin_mobile=='1' || user_type == 'Admin')
+            {
+                $('.pur_rate').attr("readonly", false); 
+            }
+            if(module_settings.edit_sale_rate_non_admin_mobile=='1' || user_type == 'Admin')
+            {
+                $('.s_rate').attr("readonly", false); 
+            }
+            
+            if(module_settings.focus_after_scaning_barcode=='purchase_rate' && !$('input.pur_rate').is('[readonly]'))
+            {
+                setTimeout(function(){$('.pur_rate').select()},300)
+            }
+            else if(module_settings.focus_after_scaning_barcode=='sale_rate' && !$('input.s_rate').is('[readonly]'))
+            {
+                setTimeout(function(){$('.s_rate').select()},300)
+            }
+            else if(module_settings.focus_after_scaning_barcode=='qty')
+            {
+                setTimeout(function(){$('.prod_qty').select()},300)
+            }
+            else
+            {
+                setTimeout(function(){$('.prod_foc').select()},300)
+            }
+        }
+    }
+    function calculateTax(taxes,pur_rate)
+    {
+        let product_total_tax = 0;
+        let tax_less_amount   = Number(pur_rate);
+        let tot_tax_amount    = 0;
+        let with_tax_amount   = Number(pur_rate);
+        if(taxes!=null && taxes!= undefined)
+        {
+            $.each(taxes,function(index,each_tax){
+                let per = '%';
+                let tax_rate = 0;
+                let tax = 0;
+                let tax_value = each_tax['tax_value'];
+                if (tax_value != 0) {
+                    tax_rate = tax_value.toString().split(per);
+                    tax = Number(tax_rate[0]);
+                }
+                if (tax_rate.length > 0) {
+                     product_total_tax += tax;
+                }
+                // console.log('tax_value - ' +each_tax['tax_value']);
+            });
+            console.log('tax_included - '+tax_included)
+            if(product_total_tax > 0)
+            {
+                if (tax_included == 1) 
+                {
+                    console.log('I am here')
+                    tot_tax_amount  = Number(pur_rate - (pur_rate/(product_total_tax+100))*100);
+                    tax_less_amount = pur_rate-tot_tax_amount;
+                    with_tax_amount = Number(pur_rate);
+                }
+                else
+                {
+                     console.log('No, I am here')
+                    tot_tax_amount  = Number((product_total_tax/100)*pur_rate);
+                    tax_less_amount = Number(pur_rate);
+                    with_tax_amount = Number(pur_rate)+Number(tot_tax_amount);
+                }
+            }
+        }
+        else
+        {
+            tax_less_amount = Number(pur_rate);
+            with_tax_amount = Number(pur_rate);
+        }
+        console.log('product_total_tax - '+product_total_tax)
+        console.log('tot_tax_amount - '+tot_tax_amount)
+        console.log('tax_less_amount - '+tax_less_amount)
+        console.log('with_tax_amount - '+with_tax_amount)
+        $('.prod_name').data('product_total_tax',product_total_tax);
+        $('.prod_name').data('tot_tax_amount',tot_tax_amount);
+        $('.prod_name').data('tax_less_amount',tax_less_amount);
+        $('.prod_name').data('with_tax_amount',with_tax_amount);
+    }
+
+ function setDelayItem(str)
+   {
+    $('#barcode_get').val(str);
+    $('#myBtn').click();
+   }
+
+function setRequestFocus()
+   {
+    setTimeout(function(){ $('#barcode_get').focus(); }, 300);
+   }
+
+    $(document).on('click','.search_btn',function(e){
+
+        $('.item_search').removeClass('hidden');
+        $('.prod_search').focus()
+
+    })
+
+    $(document).on('click','.close_search_btn',function(e){
+
+        let val = $('.prod_search').val();
+        $('.item_search').addClass('hidden');
+        $('.barcode_search').val(val)
+        $('.barcode_search').focus()
+
+    })
+
+    $(document).on('click','.search_result_ul li',function(e){
+
+        let barcode = $(this).attr('data-barcode')?$(this).attr('data-barcode'):0;
+        $('.barcode_search').val(barcode);
+
+        $('.OK_Btn').trigger('click')
+        $('.item_search').addClass('hidden');
+
+        
+
+    })
+    
+let screenHeight = Number($(window).outerHeight());
+let grn_table_height = screenHeight-190;
+$('.grn_table').css('height',grn_table_height+'px');
+
+</script>
+</body>
+</html>

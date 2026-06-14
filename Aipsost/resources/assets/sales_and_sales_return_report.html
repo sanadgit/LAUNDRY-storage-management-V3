@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sales & Returns Report</title>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <!-- Meta, title, CSS, favicons, etc. -->
+    <meta charset="utf-8"> 
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0 viewport-fit=cover" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Aipsoft Sales Order</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;300;400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" type="text/css" href="css/typeahead_css.css">
+    <link rel="stylesheet" href="css/jquery-confirm.min.css">
+    <link rel="stylesheet" href="css/bootstrap.min.css">
+    <link rel="stylesheet" href="css/dataTables.bootstrap4.css">
+    <link rel="stylesheet" href="css/responsive.dataTables.css">
+    <script src="js/tailwindcss.js"></script>
+
+    <style>
+        .table-container::-webkit-scrollbar { height: 4px; }
+        .table-container::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        /* Smooth scrolling for the summary cards on small screens */
+        .summary-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+        .summary-scroll::-webkit-scrollbar { display: none; }
+
+        /* Data table */
+        div.dt-container {
+            max-width: 600px;
+            margin: 0 auto;   
+        }
+        .dataTables_wrapper .dataTables_paginate .paginate_button {
+            border-radius: 4px;
+        }
+        #report-table {
+        border-collapse: collapse;
+        }                     n
+
+        #report-table th,
+        #report-table td {
+            border: 1px solid #e5e7eb; /* light gray */
+        }
+        @media (max-width: 640px) {
+
+            #report-table_wrapper {
+                font-size: 12px;
+            }
+
+            #report-table_wrapper input,
+            #report-table_wrapper select {
+                padding: 4px 20px;
+                font-size: 12px;
+                height: 30px;
+            }
+
+            .dataTables_paginate .paginate_button {
+                padding: 4px 8px !important;
+                font-size: 12px !important;
+            }
+
+            .dataTables_length {
+                display: none;
+            }
+
+        }
+        .sr_row{
+            background-color: #ff0000d6;
+            color: white;
+        }
+
+        /* Prevent the whole page from scrolling */
+
+        /* Shrink summary cards slightly for more report space */
+        .summary-card {
+            padding: 0.5rem !important;
+        }
+
+        /* ── 3. Dot Pulse ── */
+        .dots {
+            display: flex; gap: 5px; align-items: center; justify-content: center;
+        }
+        .dots span {
+            width: 5px; height: 5px;
+            background: #384ba0;
+            border-radius: 50%;
+            animation: pulse 1.2s ease-in-out infinite;
+        }
+        .dots span:nth-child(2) { animation-delay: 0.2s; }
+        .dots span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes pulse   { 0%,100% { opacity: 0.2; transform: scale(0.7); } 50% { opacity: 1; transform: scale(1); } }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans">
+
+    <header class="sticky top-0 bg-white shadow-sm z-20 px-4 py-3 flex items-center justify-between">
+        <button class="back_btn flex items-center text-blue-600 font-semibold text-sm">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+            </svg>
+            Back
+        </button>
+        <h1 class="text-base font-bold text-slate-700">Sales Report</h1>
+        <div class="w-10"></div> </header>
+
+    <main class="p-2 space-y-4">
+        <div id="date-range-display" 
+            class="flex items-center justify-center gap-2 text-[12px] font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg py-2 shadow-sm">
+
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7H3v12a2 2 0 002 2z"/>
+            </svg>
+
+            <span id="from-date"></span>
+
+            <span class="text-slate-400">—</span>
+
+            <span id="to-date"></span>
+
+        </div>
+
+        <div class="grid grid-cols-3 gap-2">
+            <div class="bg-white p-3 rounded-xl shadow-sm border-b-4 border-green-500 summary-card">
+                <p class="text-[10px] text-slate-500 uppercase font-bold">Sales</p>
+                <p class="text-sm font-bold text-green-600" id="si_amt">
+                    <div class="dots">
+                        <span></span><span></span><span></span>
+                    </div>
+                </p>
+            </div>
+            <div class="bg-white p-3 rounded-xl shadow-sm border-b-4 border-red-400 summary-card">
+                <p class="text-[10px] text-slate-500 uppercase font-bold">Returns</p>
+                <p class="text-sm font-bold text-red-500" id="sr_amt">
+                    <div class="dots">
+                        <span></span><span></span><span></span>
+                    </div>
+                </p>
+            </div>
+            <div class="bg-white p-3 rounded-xl shadow-sm border-b-4 border-blue-500 summary-card">
+                <p class="text-[10px] text-slate-500 uppercase font-bold">Net Total</p>
+                <p class="text-sm font-bold text-blue-700" id="net_amt">
+                    <div class="dots">
+                        <span></span><span></span><span></span>
+                    </div>
+                </p>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-100" style="padding: 8px">
+            <div class="table-container overflow-x-auto">
+                <table class="w-full text-left hover stripe cell-border" id="report-table">
+                    <thead>
+                        <tr class="bg-slate-50 text-slate-500 uppercase tracking-wider" style="font-size: 10px;">
+                            <th class="p-2 font-semibold">Sl No.</th>
+                            <th class="p-2 font-semibold" >Bill Date</th>
+                            <th class="p-2 font-semibold text-right">Inv No.</th>
+                            <th>Cust Name</th>
+                            <th>Inv Amt</th>
+                            <th>Recieved Amt</th>
+                            <th>Tot Recieved Amt</th>
+                            <th>Balance</th>
+                            <th>Tot Balance</th>
+                            <th>Days</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-50" style="font-size: 9px">
+                    
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </main>
+
+<script type="text/javascript" src="js/jquery-3.4.1.min.js"></script>
+<script type="text/javascript" src="js/typeahead.bundle.js"></script>
+<script src="js/jquery-confirm.min.js"></script>
+<script src="js/config.js"></script>
+<script src="js/bootstrap.bundle.min.js"></script>
+<script type="text/javascript"> </script>
+<script src="js/dataTables.js"></script>
+<script src="js/dataTables.bootstrap4.js"></script>
+<script src="js/dataTables.responsive.js"></script>
+<script src="js/responsive.dataTables.js"></script>
+<script>
+
+$(document).ready(function(){
+    const api_url               = window.localStorage.getItem('api_url');
+    const api_user_id           = window.localStorage.getItem('api_user_id');
+    const client_identifier     = window.localStorage.getItem('client_identifier');
+    const report_date_from      = window.localStorage.getItem('si_and_sr_report_date_from') || null;
+    const report_date_to        = window.localStorage.getItem('si_and_sr_report_date_to') || null;
+    const report_customer_id    = window.localStorage.getItem('si_and_sr_report_customer_id') || null;
+    const report_branch_id      = window.localStorage.getItem('si_and_sr_report_branch_id') || null;
+    const showRecievedAmt       = window.localStorage.getItem('si_and_sr_report_show_recieved_amt') || 0;
+    const excludeFullyPaidBill  = window.localStorage.getItem('si_and_sr_report_hide_paid_bill') || 0;
+
+    if((api_user_id == null || api_user_id == '' || api_url =='' || api_url == null)) {
+        window.location = "login.html";
+    } 
+    if((report_date_from == null || report_date_to == null || report_branch_id == null)) {
+        window.location = "sales_and_sales_return_report_filter.html";
+    } 
+
+    $('.back_btn').on('click', function() { window.location = 'sales_and_sales_return_report_filter.html'; });
+
+    let dataTable = new DataTable('#report-table', {
+        ajax:{
+            url: api_url + "/purchase_api/sales_and_return_report",
+            type: 'POST',
+            data: function(d){
+                d.client_identifier = client_identifier,
+                d.date_from         = report_date_from,
+                d.date_to           = report_date_to,
+                d.customer_id       = report_customer_id,
+                d.branch_id         = report_branch_id,
+                d.show_recieved_amt         = showRecievedAmt,
+                d.exclude_fully_paid_bill   = excludeFullyPaidBill
+            },
+            dataSrc: function (json) { 
+                $('.dots').hide();
+                let net_amt = json.net_total
+                $('#net_amt').text(net_amt);
+                let si_amt = json.si_total
+                $('#si_amt').text(si_amt);
+                let sr_amt = json.sr_total
+                $('#sr_amt').text(sr_amt);
+                $('#from-date').text(json.from_date);
+                $('#to-date').text(json.to_date);
+                return json.data;
+            }
+        },
+        dataSrc: 'data',
+        processing: true,
+        responsive: true,
+        serverSide: true,
+        ordering: false,
+        dom: "<'flex flex-col gap-2 md:flex-row md:items-center md:justify-between mb-2'lf>" +
+         "t" +
+         "<'flex flex-col gap-2 md:flex-row md:items-center md:justify-between mt-2'ip>",
+        columns: [
+            { data: 'sl_no' },
+            { data: 'date' },
+            { data: 'si_no' },
+            { data: 'cust_name' },
+            { data: 'inv_amt' },
+            { data: 'recieved_amt'},
+            { data: 'tot_received_amt'},
+            { data: 'balance' },
+            { data: 'tot_amt' },      
+            { data: 'days' }
+        ],
+        columnDefs: [
+            {
+                targets: 1,
+                className: 'dt-head-center, dt-body-center'
+            },
+            {
+                targets: 0,
+                className: 'dt-head-center, dt-body-center'
+            }
+        ],
+        createdRow: function(row, data){
+            if(data.type == 'sr'){
+                row.classList.add('sr_row')
+            }
+        }
+    });
+
+    var table = $('#report-table').DataTable();
+    if(showRecievedAmt == '0'){
+        table.column(5).visible(false);
+        table.column(6).visible(false);
+    } else {
+        table.column(5).visible(true);
+        table.column(6).visible(true);
+    }
+    
+
+
+});
+</script>
+
+</body>
+</html>

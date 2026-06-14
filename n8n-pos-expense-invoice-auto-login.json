@@ -1,0 +1,176 @@
+{
+  "name": "Laundry POS Expense Invoice Entry - Auto Login",
+  "nodes": [
+    {
+      "id": "note-overview",
+      "name": "How to Use",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        -360
+      ],
+      "parameters": {
+        "content": "## POS Expense / Purchase Invoice Entry\nWebhook receives expense invoice JSON, logs into POS automatically, creates header, adds expense lines, then approves the expense.\n\nRequired n8n Variables: POS_USERNAME, POS_PASSWORD, AIPSOFT_API_USER_ID. Optional: AIPSOFT_CLIENT_IDENTIFIER=inout, AIPSOFT_DEFAULT_BRANCH_ID=1, AIPSOFT_DEFAULT_PAY_ACCOUNT_ID."
+      }
+    },
+    {
+      "id": "manual-trigger",
+      "name": "Manual Test Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -120
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "sample-payload",
+      "name": "Sample Expense Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        -120
+      ],
+      "parameters": {
+        "jsCode": "const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dubai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());\nreturn [{ json: { branch_id: '1', pay_account: 'REPLACE_PAY_ACCOUNT_ID', date: today, bill_date: today, bill_no: 'TEST-' + Date.now(), remark: 'n8n test expense invoice', vendor_id: '', driver_id: '', project_id: '', account_segment_id: '', account_class_id: '', lines: [{ account_head: '33958', notes: 'Test miscellaneous expense from n8n', amount: 1, tax_amount: 0, total: 1 }] } }];"
+      }
+    },
+    {
+      "id": "webhook-trigger",
+      "name": "Expense Invoice Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -720,
+        120
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pos-expense-invoice",
+        "responseMode": "lastNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "normalize",
+      "name": "Normalize Expense Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const raw = $json.body && typeof $json.body === 'object' ? $json.body : $json;\nconst vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dubai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());\nconst clean = (value) => String(value ?? '').trim();\nconst num = (value, fallback = 0) => { const parsed = Number(String(value ?? '').replace(/,/g, '')); return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : fallback; };\nconst lines = Array.isArray(raw.lines) ? raw.lines : Array.isArray(raw.items) ? raw.items : [];\nif (lines.length === 0) throw new Error('Expense payload must include lines array.');\nconst normalizedLines = lines.map((line, index) => { const amount = num(line.amount, NaN); if (!Number.isFinite(amount) || amount <= 0) throw new Error('Line ' + (index + 1) + ' amount must be greater than 0.'); const taxAmount = line.tax_amount !== undefined ? num(line.tax_amount) : line.tax_rate !== undefined ? num(amount * num(line.tax_rate) / 100) : 0; const total = line.total !== undefined ? num(line.total) : num(amount + taxAmount); const accountHead = clean(line.account_head || line.accountHead || line.expense_account_id || line.expenseAccountId); if (!accountHead) throw new Error('Line ' + (index + 1) + ' missing account_head.'); return { account_head: accountHead, notes: clean(line.notes || line.description || line.remark), amount, tax_amount: taxAmount, total }; });\nconst payload = { user_id: clean(raw.user_id || raw.api_user_id || vars.AIPSOFT_API_USER_ID), client_identifier: clean(raw.client_identifier || vars.AIPSOFT_CLIENT_IDENTIFIER || 'inout'), branch_id: clean(raw.branch_id || vars.AIPSOFT_DEFAULT_BRANCH_ID || '1'), pay_account: clean(raw.pay_account || raw.payment_account_id || vars.AIPSOFT_DEFAULT_PAY_ACCOUNT_ID), date: clean(raw.date || today), bill_date: clean(raw.bill_date || raw.billDate || raw.date || today), bill_no: clean(raw.bill_no || raw.billNo || raw.invoice_no || raw.invoiceNo), remark: clean(raw.remark || raw.notes || raw.description), party_account: clean(raw.party_account || raw.vendor_id || raw.vendorId || raw.supplier_id || raw.supplierId), driver_id: clean(raw.driver_id || raw.driverId), project_id: clean(raw.project_id || raw.projectId), account_segment_id: clean(raw.account_segment_id || raw.vehicle_plate_number || raw.vehiclePlateNumber), account_class_id: clean(raw.account_class_id || raw.vehicle_owner || raw.vehicleOwner), amount: raw.driver_id || raw.driverId ? num(raw.amount || normalizedLines.reduce((sum, line) => sum + line.total, 0)) : 0, images: Array.isArray(raw.images) ? raw.images : [], lines: normalizedLines };\nif (!payload.user_id) throw new Error('Missing AIPSOFT_API_USER_ID n8n variable or user_id in payload.');\nif (!payload.pay_account) throw new Error('Missing pay_account. Add pay_account in payload or AIPSOFT_DEFAULT_PAY_ACCOUNT_ID variable.');\nreturn [{ json: payload }];"
+      }
+    },
+    {
+      "id": "create-expense",
+      "name": "Create POS Expense Invoice Auto Login",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        40,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst POS_USERNAME = String(vars.POS_USERNAME || 'REPLACE_POS_USERNAME').trim();\nconst POS_PASSWORD = String(vars.POS_PASSWORD || 'REPLACE_POS_PASSWORD').trim();\nconst CLIENT_IDENTIFIER = String($json.client_identifier || vars.AIPSOFT_CLIENT_IDENTIFIER || 'inout').trim() || 'inout';\nconst BASE_URL = String(vars.AIPSOFT_API_BASE_URL || 'https://beta.aipsoft.com/inout').replace(/\\/$/, '');\nconst POS_LOGIN_ENDPOINT = String(vars.POS_LOGIN_ENDPOINT || BASE_URL + '/login/check').trim();\nconst POS_LOGIN_REFERER = String(vars.POS_LOGIN_REFERER || BASE_URL + '/accounts/expenses').trim();\nconst POS_ORIGIN = String(vars.POS_ORIGIN || 'https://beta.aipsoft.com').trim();\nif (!POS_USERNAME || POS_USERNAME === 'REPLACE_POS_USERNAME' || !POS_PASSWORD || POS_PASSWORD === 'REPLACE_POS_PASSWORD') { throw new Error('Set POS_USERNAME and POS_PASSWORD in n8n Variables.'); }\nconst formEncode = (params) => Object.entries(params).flatMap(([key, value]) => Array.isArray(value) ? value.map((entry) => [key, entry]) : [[key, value]]).map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(String(value ?? ''))).join('&');\nconst parseCookieHeader = (cookieHeader) => { const map = new Map(); for (const part of String(cookieHeader || '').split(';')) { const segment = part.trim(); if (!segment) continue; const eq = segment.indexOf('='); if (eq <= 0) continue; map.set(segment.slice(0, eq).trim(), segment.slice(eq + 1).trim()); } return map; };\nconst normalizeHeaders = (headers = {}) => { const out = {}; if (headers && typeof headers.forEach === 'function') { headers.forEach((value, key) => { out[String(key).toLowerCase()] = value; }); if (typeof headers.getSetCookie === 'function') out['set-cookie'] = headers.getSetCookie(); return out; } for (const [key, value] of Object.entries(headers || {})) out[String(key).toLowerCase()] = value; return out; };\nconst getSetCookies = (headers = {}) => { const raw = normalizeHeaders(headers)['set-cookie']; if (!raw) return []; if (Array.isArray(raw)) return raw; return String(raw).split(/,(?=\\s*[^;,\\s]+=)/g).map((v) => v.trim()).filter(Boolean); };\nconst mergeCookieHeaders = (baseCookieHeader, setCookies) => { const merged = parseCookieHeader(baseCookieHeader); for (const setCookie of setCookies || []) { const cookiePart = String(setCookie || '').split(';')[0]?.trim(); const eq = cookiePart.indexOf('='); if (eq <= 0) continue; merged.set(cookiePart.slice(0, eq).trim(), cookiePart.slice(eq + 1).trim()); } return Array.from(merged.entries()).map(([key, value]) => key + '=' + value).join('; '); };\nconst hasMinimalCookie = (cookieHeader) => /ci_session_/i.test(String(cookieHeader || '')) && /\\binout=/i.test(String(cookieHeader || ''));\nconst isLoginHtml = (text) => { const lower = String(text || '').toLowerCase(); return lower.includes(':: login') || lower.includes('login/check') || lower.includes('name=\"password\"') || lower.includes(\"name='password'\"); };\nasync function requestFull(options) { const requestOptions = { method: options.method || 'POST', url: options.url, headers: options.headers || {}, body: options.body, json: false, returnFullResponse: true, resolveWithFullResponse: true, simple: false, timeout: 30000 }; if (this?.helpers?.httpRequest) { const response = await this.helpers.httpRequest(requestOptions); if (response && typeof response === 'object' && (response.headers || Object.prototype.hasOwnProperty.call(response, 'body'))) { return { statusCode: response.statusCode || response.status || 0, headers: response.headers || {}, body: typeof response.body === 'string' ? response.body : JSON.stringify(response.body ?? '') }; } return { statusCode: 0, headers: {}, body: typeof response === 'string' ? response : JSON.stringify(response ?? '') }; } if (typeof fetch !== 'function') throw new Error('No HTTP helper available inside n8n Code node.'); const response = await fetch(options.url, { method: options.method || 'POST', headers: options.headers || {}, body: options.body, redirect: 'manual' }); return { statusCode: response.status, headers: response.headers, body: await response.text() }; }\nfunction parseJson(text, label) { try { return JSON.parse(String(text || '')); } catch { throw new Error(label + ' returned non-JSON response: ' + String(text || '').slice(0, 240)); } }\nfunction money(value) { return Math.round((Number(value) || 0) * 100) / 100; }\nfunction apiHeaders(cookieHeader) { return { Accept: 'application/json, text/javascript, */*; q=0.01', 'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ar;q=0.7', 'Cache-Control': 'no-cache', Pragma: 'no-cache', Origin: POS_ORIGIN, Referer: POS_LOGIN_REFERER, 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', Cookie: cookieHeader }; }\nlet cookieHeader = 'language=english; direction=ltr; dont_show_today=true';\ntry { const preflight = await requestFull.call(this, { method: 'GET', url: POS_LOGIN_REFERER, headers: { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', Cookie: cookieHeader } }); cookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(preflight.headers)); } catch {}\nconst usernameBeforeAt = POS_USERNAME.includes('@') ? POS_USERNAME.split('@')[0].trim() : POS_USERNAME;\nconst usernames = Array.from(new Set([POS_USERNAME, POS_USERNAME.toLowerCase(), usernameBeforeAt, usernameBeforeAt.toLowerCase(), usernameBeforeAt ? usernameBeforeAt + '@' + CLIENT_IDENTIFIER : '', usernameBeforeAt ? usernameBeforeAt.toLowerCase() + '@' + CLIENT_IDENTIFIER : ''].filter(Boolean)));\nlet authed = false; let usedUsername = ''; let lastLoginBody = '';\nfor (const username of usernames) { const loginBody = formEncode({ username, password: POS_PASSWORD, client_identifier: CLIENT_IDENTIFIER, auto_login: 'null', connection_path: 'null' }); const loginResponse = await requestFull.call(this, { method: 'POST', url: POS_LOGIN_ENDPOINT, headers: apiHeaders(cookieHeader), body: loginBody }); cookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(loginResponse.headers)); lastLoginBody = String(loginResponse.body || ''); const lower = lastLoginBody.toLowerCase(); const ok = lower.includes('login_success') || lower.includes('password_ok') || ((loginResponse.statusCode >= 200 && loginResponse.statusCode < 400) && !isLoginHtml(lastLoginBody)); if (ok && hasMinimalCookie(cookieHeader)) { authed = true; usedUsername = username; break; } }\nif (!authed) throw new Error('POS login failed. Last response: ' + lastLoginBody.slice(0, 240));\nasync function postApi(path, data, label) { const response = await requestFull.call(this, { method: 'POST', url: BASE_URL + path, headers: apiHeaders(cookieHeader), body: formEncode(data) }); cookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(response.headers)); if (isLoginHtml(response.body)) throw new Error(label + ' returned login page. Check POS permission.'); return parseJson(response.body, label); }\nconst holdData = { user_id: $json.user_id, branch_id: $json.branch_id, pay_account: $json.pay_account, date: $json.date, remark: $json.remark, client_identifier: CLIENT_IDENTIFIER, bill_date: $json.bill_date, bill_no: $json.bill_no, account_segment_id: $json.account_segment_id, account_class_id: $json.account_class_id, project_id: $json.project_id, party_account: $json.party_account, driver_id: $json.driver_id, expense_id: $json.expense_id || '', amount: $json.amount || 0 };\nconst hold = await postApi('/purchase_api/hold_expense', holdData, 'hold_expense');\nif (Number(hold.status) !== 1 || !hold.expense_id) throw new Error('hold_expense failed: ' + JSON.stringify(hold));\nconst expenseId = String(hold.expense_id); const detailResults = []; let totalTax = 0; let totalAmount = 0;\nfor (const line of $json.lines || []) { totalTax = money(totalTax + Number(line.tax_amount || 0)); totalAmount = money(totalAmount + Number(line.total || 0)); const detail = await postApi('/purchase_api/save_expense_details', { expense_id: expenseId, branch_id: $json.branch_id, account_head: line.account_head, account_segment_id: $json.account_segment_id, account_class_id: $json.account_class_id, amount: line.amount, tax_amount: line.tax_amount, total: line.total, notes: line.notes, client_identifier: CLIENT_IDENTIFIER, button_type: 'ADD', expense_details_id: '' }, 'save_expense_details'); if (Number(detail.status) !== 1) throw new Error('save_expense_details failed: ' + JSON.stringify(detail)); detailResults.push(detail); }\nconst approve = await postApi('/purchase_api/approve_expense_data', { expense_id: expenseId, client_identifier: CLIENT_IDENTIFIER, total_tax: totalTax, total_amount: totalAmount, images: Array.isArray($json.images) ? $json.images : [], user_id: $json.user_id }, 'approve_expense_data');\nif (Number(approve.status) !== 1) throw new Error('approve_expense_data failed: ' + JSON.stringify(approve));\nreturn [{ json: { ok: true, expense_id: expenseId, total_tax: totalTax, total_amount: totalAmount, hold_response: hold, detail_responses: detailResults, approve_response: approve, used_username: usedUsername } }];"
+      }
+    },
+    {
+      "id": "respond",
+      "name": "Return Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        300,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Manual Test Trigger": {
+      "main": [
+        [
+          {
+            "node": "Sample Expense Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sample Expense Payload": {
+      "main": [
+        [
+          {
+            "node": "Normalize Expense Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expense Invoice Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Expense Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Expense Input": {
+      "main": [
+        [
+          {
+            "node": "Create POS Expense Invoice Auto Login",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create POS Expense Invoice Auto Login": {
+      "main": [
+        [
+          {
+            "node": "Return Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "laundry"
+    },
+    {
+      "name": "pos"
+    },
+    {
+      "name": "expenses"
+    }
+  ],
+  "triggerCount": 2,
+  "updatedAt": "2026-06-10T00:00:00.000Z",
+  "versionId": "1-pos-expense-auto-login"
+}

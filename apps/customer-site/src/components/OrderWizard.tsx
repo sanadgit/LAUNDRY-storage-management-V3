@@ -7,6 +7,7 @@ import {
   Clock, Info, Sparkles, Wand2, Briefcase
 } from 'lucide-react';
 import { PricingItem, SiteConfig } from '../types';
+import { LaundryIcon, resolvePricingItemIcon } from './LaundryIcon';
 
 interface OrderWizardProps {
   onOrderSuccess: (order: any) => void;
@@ -16,10 +17,10 @@ interface OrderWizardProps {
 }
 
 const SERVICES = [
-  { id: 1, name: 'غسيل + كوي', desc: 'تنظيف كامل مع كوي بخاري وتعطير', icon: '🫧', priceKey: 'wash_dry' },
-  { id: 2, name: 'تنظيف جاف', desc: 'للملابس الحساسة والبدل والمفارش الثمينة', icon: '🥼', priceKey: 'wash_dry' },
-  { id: 3, name: 'كوي فقط', desc: 'ملابسك نظيفة وتحتاج فقط للكوي', icon: '♨️', priceKey: 'iron' },
-  { id: 4, name: 'مفارش ومنزلية', desc: 'فراش، ستائر، بطاطين، سجاد صغير', icon: '🛏️', priceKey: 'wash_dry' },
+  { id: 1, name: 'غسيل + كوي', desc: 'تنظيف كامل مع كوي بخاري وتعطير', icon: 'washing_machine', priceKey: 'wash_dry' },
+  { id: 2, name: 'تنظيف جاف', desc: 'للملابس الحساسة والبدل والمفارش الثمينة', icon: 'dry_cleaning_suit', priceKey: 'wash_dry' },
+  { id: 3, name: 'كوي فقط', desc: 'ملابسك نظيفة وتحتاج فقط للكوي', icon: 'steam_iron', priceKey: 'iron' },
+  { id: 4, name: 'مفارش ومنزلية', desc: 'فراش، ستائر، بطاطين، سجاد صغير', icon: 'folded_laundry', priceKey: 'wash_dry' },
 ];
 
 const URGENCY = [
@@ -143,7 +144,12 @@ export const OrderWizard: React.FC<OrderWizardProps> = ({ onOrderSuccess, onBack
     <div className="max-w-4xl mx-auto bg-white rounded-[3rem] shadow-2xl shadow-primary/10 overflow-hidden border border-gray-100 min-h-[600px]">
       {/* Top Bar */}
       <div className="bg-secondary p-6 flex items-center gap-4">
-        <div className="w-12 h-12 bg-primary rounded-2xl flex items-center justify-center font-black text-white italic">I&O</div>
+        <LaundryIcon
+          name="outty-order-basket"
+          alt=""
+          className="h-16 w-16 rounded-2xl bg-white/10 p-1"
+          imageClassName="h-full w-full rounded-xl object-contain"
+        />
         <div>
           <h2 className="text-white font-bold leading-tight">اطلب الآن — In & Out Laundry</h2>
           <p className="text-primary/60 text-xs font-medium">طلب استلام وتوصيل جديد</p>
@@ -213,7 +219,7 @@ export const OrderWizard: React.FC<OrderWizardProps> = ({ onOrderSuccess, onBack
                             <CheckCircle2 size={14} />
                           </div>
                         )}
-                        <div className="text-4xl mb-4 group-hover:scale-110 transition-transform">{svc.icon}</div>
+                        <LaundryIcon name={svc.icon} alt={svc.name} className="mb-4 h-20 w-20 transition-transform group-hover:scale-110" />
                         <h4 className={`text-lg font-bold mb-1 ${selSvcs.includes(svc.id) ? 'text-primary' : 'text-gray-900'}`}>{svc.name}</h4>
                         <p className="text-gray-500 text-xs font-medium leading-relaxed">{svc.desc}</p>
                       </button>
@@ -335,7 +341,11 @@ export const OrderWizard: React.FC<OrderWizardProps> = ({ onOrderSuccess, onBack
                                 return (
                                   <div key={item.barcode} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-transparent hover:border-gray-200 transition-all">
                                     <div className="flex items-center gap-4">
-                                      <span className="text-2xl">{item.icon}</span>
+                                      <LaundryIcon
+                                        name={resolvePricingItemIcon(item)}
+                                        alt={item.name_ar}
+                                        className="h-10 w-10"
+                                      />
                                       <div>
                                         <p className="font-bold text-gray-900 text-sm">{item.name_ar}</p>
                                         <p className="text-[10px] font-medium text-gray-400">{item.name_en} — {toAr(parseFloat(itemPrice) || 0)} درهم / قطعة</p>
@@ -616,9 +626,12 @@ export const OrderWizard: React.FC<OrderWizardProps> = ({ onOrderSuccess, onBack
                   animate={{ scale: 1, opacity: 1 }}
                   className="py-12 text-center space-y-6"
                 >
-                  <div className="w-24 h-24 bg-success/10 text-success rounded-full flex items-center justify-center mx-auto shadow-inner">
-                    <CheckCircle2 size={48} />
-                  </div>
+                  <LaundryIcon
+                    name="outty-delivery"
+                    alt=""
+                    className="mx-auto h-36 w-36 rounded-[2rem] bg-white/70 p-2 shadow-2xl shadow-primary/10"
+                    imageClassName="h-full w-full rounded-3xl object-contain"
+                  />
                   <div>
                     <h3 className="text-3xl font-black italic mb-2">تم استلام طلبك <span className="text-success">بنجاح!</span></h3>
                     <p className="text-gray-500 font-medium max-w-sm mx-auto">
@@ -709,7 +722,15 @@ export const OrderWizard: React.FC<OrderWizardProps> = ({ onOrderSuccess, onBack
                       );
                     })}
                     {totalItems === 0 && (
-                      <p className="text-sm text-gray-400 italic text-center py-8">لم يتم اختيار أي قطع بعد</p>
+                      <div className="py-8 text-center">
+                        <LaundryIcon
+                          name="outty-empty-state"
+                          alt=""
+                          className="mx-auto mb-3 h-24 w-24 rounded-3xl bg-white/70 p-1.5 shadow-sm"
+                          imageClassName="h-full w-full rounded-2xl object-contain opacity-90"
+                        />
+                        <p className="text-sm text-gray-400 italic">لم يتم اختيار أي قطع بعد</p>
+                      </div>
                     )}
                   </>
                 )}

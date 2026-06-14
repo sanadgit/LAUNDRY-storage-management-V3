@@ -1,0 +1,1051 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <!-- Meta, title, CSS, favicons, etc. -->
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- <link rel="icon" href="images/icons/favicon1.ico" type="image/ico" /> -->
+    <title>Laundry Packing System</title>
+    <!-- Bootstrap -->
+    <!-- <link rel="stylesheet" type="text/css" href="css/bootstrap.css"> -->
+    <link rel="stylesheet" type="text/css" href="css/bootstrap.min.css">
+    <link rel="stylesheet" type="text/css" href="css/pos_style.css">
+    <link rel="stylesheet" type="text/css" href="css/fontawesome.min.css">
+    <link rel="stylesheet" type="text/css" href="css/all.min.css">
+    <link rel="stylesheet" type="text/css" href="css/bootstrap-datepicker.css">
+    <link rel="stylesheet" type="text/css" href="css/bootstrap-glyphicons.min.css">
+    <link rel="stylesheet" type="text/css" href="css/bootstrap-timepicker.min.css">
+    <link rel="stylesheet" href="css/jquery-confirm.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/swiper/swiper-bundle.min.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;1,100&display=swap" rel="stylesheet">
+    <script type="text/javascript">
+    // let customer_data  = window.localStorage.getItem('customer_data');
+    // console.log(JSON.parse(customer_data))
+    // if((customer_data == null)) {
+    //     // localStorage.removeItem('customer_data')
+    //     window.location = "index.html";
+    // }
+       
+    </script>
+    <script src="server.js"></script>
+
+    <style type="text/css">
+        .tab__item{
+            font-size: 14px;
+        }
+        .footer_buttons_wrap ul.ul-btn li{
+            width: auto;
+            padding: 0 10px;
+        }
+    .dropdown {
+      position: relative;
+      display: inline-block;
+      width: 47%;
+      margin-bottom: 10px;
+    }
+
+    /* Style for the button that triggers the dropdown */
+    .dropdown-btn,.filtet-btn {
+      padding: 5px 20px;
+    background-color: #3498db;
+    color: white;
+    border: none;
+    cursor: pointer;
+    border-radius: 5px;
+    font-size: 14px;
+    display: inline-block;
+    width: 100%;
+    text-align: left;
+    }
+    .dropdown-btn span.arrow,.filtet-btn span.arrow {
+    font-size: 13px;
+    float: right;
+}
+ul.dropdown-menu li {
+    background: white;
+    border-radius: 0;
+    font-size: 14px;
+/*    padding-left: 15px;*/
+    border-bottom: 1px solid #ccc;
+}
+ul.dropdown-menu {
+    padding: 5px 15px 0;
+}
+    .dropdown-btn:hover,.filtet-btn:hover {
+      background-color: #2980b9;
+    }
+
+    /* Dropdown menu style */
+    .dropdown-menu {
+      display: none; /* Initially hidden */
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background-color: #fff;
+      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+      width: 100%;
+      border-radius: 5px;
+      z-index: 1;
+      margin-top: 5px;
+      padding: 0;
+      list-style-type: none;
+    }
+
+    /* List item styling inside the dropdown */
+    .dropdown-menu li {
+      padding: 10px 20px;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+
+    .dropdown-menu li:hover {
+      background-color: #f1f1f1;
+    }
+
+    /* Arrow pointing to the dropdown (optional) */
+    .dropdown-menu:before {
+      content: "";
+      position: absolute;
+      top: -10px;
+      left: 50%;
+      margin-left: -5px;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-bottom: 10px solid #fff;
+    }
+    .mobile_product_list{
+        height: auto;
+    }
+    ul.pending_items {
+        overflow: auto;
+        height: calc(100vh - 330px);
+        padding-right: 6px;
+    }
+    .pending_items::-webkit-scrollbar {
+        width: 6px;
+        background-color: #404652;
+        border: 0;
+    }
+    .pending_items::-webkit-scrollbar-thumb {
+        border-radius: 8px;
+        background-color: #f5f5f5;
+    }
+    /* Swiper Container */
+    .swiper-container {
+        width: 100%;
+        height: auto;
+        max-width: 500px;
+        margin-bottom: 20px;
+        position: relative; /* Ensure relative positioning for absolute elements */
+    }
+
+    /* Ensure images fit and do not overflow */
+    .swiper-slide img {
+        width: 100%;
+        height: auto;
+        object-fit: contain;
+        border-radius: 5px;
+    }
+
+    /* Position pagination at the bottom */
+    .swiper-pagination {
+        position: absolute;
+        bottom: -20px !important; /* Adjust as needed */
+        left: 0;
+        width: 100%;
+        text-align: center;
+        z-index: 10; /* Ensure it appears above the images */
+    }
+
+    /* Style pagination bullets */
+    .swiper-pagination-bullet {
+        background: #333; /* Dark color for visibility */
+        opacity: 0.7;
+    }
+
+    .swiper-pagination-bullet-active {
+        background: #22BC66; /* Highlight color for the active bullet */
+    }
+
+    /*.slider_comments_container{
+      margin: auto;
+      margin-top: 30px;
+      overflow: hidden;
+    }*/
+    .swiper-slide img{
+        max-height: 260px;
+    }
+    .slide-caption {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        color: white;
+        font-size: 18px;
+        background: rgb(0 0 0 / 67%);
+        padding: 10px 0;
+        text-align: center;
+        font-weight: bold;
+        font-size: 18px;
+    }
+    .image-modal {
+        display: none;
+        position: fixed;
+        z-index: 1;
+        padding-top: 60px;
+        left: 0;
+        top: 80px;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.9);
+    }
+    .image-modal .swiper-slide{
+        background: #fff;
+    }
+    .image-modal .swiper-slide img{
+        max-height: none;
+    }
+    /* Modal image slider */
+    .modal-swiper img {
+        margin: auto;
+        display: block;
+        width: 100%;
+        max-width: 700px;
+    }
+
+    /* Close button in the modal */
+    .close-modal {
+        position: absolute;
+        top: 15px;
+        right: 35px;
+        color: #f1f1f1;
+        font-size: 40px;
+        font-weight: bold;
+        cursor: pointer;
+    }
+
+    .close-modal:hover,
+    .close-modal:focus {
+        color: #bbb;
+        text-decoration: none;
+        cursor: pointer;
+    }
+    .image_upload_btns_new{
+        border: 0;
+        float: left;
+    }
+    </style>
+</head>
+
+<body class="overflow">
+
+    <!----------- nav heder ------------>
+
+    <div class="nav_header">
+        <div class="aipsoft_logo">
+            <img src="images/aipsoft_headerLogo.png">
+        </div>        
+        <div class="nav_logo">
+            <!-- <img src="images/mobaschgrp-logo.svg"> -->
+        </div>
+        <div class="cashor_details">
+            <img src="" class="profile_avatar">
+            <p class="profile_name">-</p>
+            <h6 class="profile_type">-</h6>
+            <span class="profile_logged">Counter Opened @ -:-:-</span>
+        </div>
+        <div class="logout" data-toggle="modal" data-target="#logout_modal">
+            <img src="images/logout.svg">
+        </div>
+        <div class="header_datetime">
+            <div  id="header_date"><h5>- <span>-</span></h5>  </div>
+            <p class="profile_branch">Counter: -</p> 
+        </div>        
+    </div>
+
+    <div class="split_header"></div>
+
+    <!----------- End nav header ------------>
+
+    <div class="scrollBar">   
+
+        <div class="header_form window_view">
+            <ul>
+                <li>
+                    <label>Order: </label>
+                    <input type="" name="" class="order_no inp_field" readonly="readonly">
+                </li>            
+                <li>
+                    <label>Depot/Branch: </label>
+                    <select class="order_branch inp_field select_field"></select>
+                    <!-- <input type="" name="" class="order_branch inp_field" readonly="readonly"> -->
+                </li>            
+                <li>
+                    <label>Packing Date:  </label>
+                    <input type="" name="" class="packing_date inp_field" readonly="readonly">
+                </li>
+                <li>
+                    <label>Packing Time:  </label>
+                    <input type="" name="" class="packing_time inp_field" readonly="readonly">
+                </li>            
+                <li>
+                    <label>Delivery date:  </label>
+                    <input type="" name="" class="del_date inp_field" readonly="readonly">
+                </li>            
+                <li>
+                    <label>Delivery time:  </label>
+                    <input type="" name="" class="del_time inp_field" readonly="readonly">
+                </li>            
+                <li>
+                    <label>Salesman:   </label>
+                    <select class="salesman inp_field select_field"></select>
+                    <!-- <input type="" name="" class="salesman inp_field" readonly="readonly"> -->
+                </li>
+            </ul>
+            <p class="left cust_data">-</p>
+            <!-- <p class="right"><label class="custom_box check_label send_sms"><input type="checkbox" checked="checked"><span class="checkmark"></span> Send SMS</label></p> -->
+            <!-- <p class="right"><label class="custom_box check_label send_whatsapp"><input type="checkbox" checked="checked"><span class="checkmark"></span> Send WhatsApp</label></p> -->
+        </div>
+
+        <div class="split_mobile_header major_container">
+            <div class="scrollBar">
+                <div class="mobile_body_bg">
+                    <section class="section">
+                        <div class="tab">
+                          <div class="tab__list">
+                            <div class="tab__item hidden" data-section="pending_jobs" onclick="LoadCustomerOrderJobs()">Pending Jobs<span class="pending_jobs_cnt">-</span></div>
+                            
+                          </div>
+                          <div class="tab__content major_container">
+                            <div class="tab__content-item tab">
+                                <div class="mobile_product_list">
+                                    <div class="job_filter">
+                                        <div class="dropdown">
+                                          <button class="dropdown-btn"><span class="selected">Filter Job</span><span class="arrow">&#9660;</span></button>
+                                          <ul class="dropdown-menu avail_services">
+                                          </ul>
+                                        </div>
+                                        <div class="dropdown" style="float: right;">
+                                          <button class="filtet-btn"><span class="filter-item">Filter Job</span><span class="arrow">&#9660;</span></button>
+                                          <ul class="dropdown-menu avail_filters">
+                                            <li data-id="0" class="">Pending</li>
+                                            <li data-id="1" class="">Completed</li>
+                                            <li data-id="2" class="">Cancelled</li>
+                                          </ul>
+                                        </div>
+                                    </div>
+                                    <ul class="pending_items_head">
+                                        <li class="header_row">
+                                            <table class="pro_table_head">
+                                              <tr>
+                                                <td class="" style="width:20%">Order#</td>
+                                                <td class="" style="width:40%">Order Date</td>
+                                                <td class="" align="left" style="width:40%">Job Assigned</td>
+                                              </tr>
+                                            </table>
+                                        </li>
+                                    </ul>
+                                    <ul class="pending_items">                                   
+                                                               
+                                    </ul>
+                                </div>   
+                            </div>
+                            
+                          </div>
+                        </div>
+                    </section>               
+                </div>
+
+
+                <div class="fixed_mobile_footer">
+                    <!-- <div class="split_qty_wrap">
+                        <label class="custom_box split_qty"><input type="checkbox" checked="checked"><span class="checkmark"></span></label>Splitting Qty
+                    </div> -->
+                    <div class="footer_buttons_wrap">
+                        
+                        <ul class="ul-btn pending_jobs mob_footer_btns">
+                            <li>
+                                <button type="button" class="back_btn" data-page="packing">Back</button>
+                            </li>                    
+                            <li class="invisible">
+                                <button type="button" class="splitnext_btn split_to_new" data-split_mode="single"><i class="fas fa-chevron-right"></i></button>
+                            </li>                    
+                            <li class="prev_li invisible">
+                                <button type="button" class="preview_files" data-split_mode="all">Preview</button>
+                            </li>               
+                            <li>
+                                <button type="button" class="update_job" data-action="pending">Update Job</button>
+                            </li>
+                        </ul>
+                        
+                        <ul class="ul-btn completed_jobs mob_footer_btns" style="display: none">
+                            <li>
+                                <button type="button" class="sec_back_btn" data-page="packing">Back</button>
+                            </li>                    
+                            <li class="invisible">
+                                <button type="button" class="splitnext_btn split_from_new" data-split_mode="single"><i class="fas fa-chevron-left"></i></button>
+                            </li>                    
+                            <li class="invisible">
+                                <button type="button" class="split_dbl_btn split_from_new" data-split_mode="all"><i class="fas fa-angle-double-left"></i></button>
+                            </li>                    
+                            <li>
+                                <button type="button" class="next_block" data-action="completed">Update Job</button>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!--------------------------------------->
+
+        <div class="pos_footer">
+            <p>AipSoft-POS-Magnus World IT Solutions - Abu Dhabi - UAE-Tel :- +971 56 664 4516 , +971 56 664 4514</p>
+        </div>
+
+    <!----------------- popup modal ---------------------->
+
+
+        <div class="modal fade" id="submitpack" role="dialog">
+            <div class="modalpopup_dialoge submitpackdialoge">
+                <div class="modalpopup_content">
+                    <div class="submitpack_wrap">
+                        <i class="fas fa-check-circle submitpack_icon"></i>
+                        <h2>Packing Saved Successfully !!!</h2>
+                        <button type="button" class="nextpacking_btn">Next packing - 0.20</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+     <!------------------------------ Logout popup  ------------------------------------>
+
+    <div class="modal fade" id="logout_modal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                      <img class="popupclose_btn closeModalBtn" src="images/closebtn.png">
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="logout_wrap">
+                        <ul class="power_actions">
+                            <li data-action="logout">
+                                <img src="images/logout_icon.svg">
+                                <p>LogOut</p>
+                            </li>                         
+                            <li data-action="shutdown">
+                                <img src="images/shutdown_icon.svg">
+                                <p>Shut Down</p>
+                            </li>                         
+                            <li data-action="restart">
+                                <img src="images/reset_icon.svg">
+                                <p>Restart</p>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+<a href="" class="whatsapp_a" id="whatsapp_a" style="top:-100000px;" target="_blank"></a>
+<div class="modal fade" id="dependancy-modal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h4>Process Job</h4>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                      <img class="popupclose_btn closeModalBtn" src="images/closebtn.png">
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="dependancy_wrap">
+                         <div class="modalpopup_content">
+                            <div class="job_update_wrap">
+                                <table class="job_upd_tbl"> 
+                                    <tr>
+                                        <td class="td_head">Order No#</td><td class="job_order_no"></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="td_head">Item Desc.</td><td class="job_order_item"></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="td_head">Job</td><td class="job_order_service"></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="td_head">Comments</td>
+                                        <td class="">
+                                            <textarea class="job_comment" rows="3"></textarea>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td class="td_head">Item Files</td>
+                                        <td>
+                                            <div class="image_upload_btns_new">
+                                                <!-- <input id="file-input" class="file-input" type="file" style="display:none;" accept="image/*"> -->
+                                                <button class="upload_img" data-toggle="modal" data-target="#image_upload_modal"> </button>
+                                            </div> 
+                                        </td>
+                                    </tr>
+                                </table>
+                               
+                                <button type="button" class="update_service" data-action="1">Complete Job</button>
+                                <button type="button" class="update_service cancel_job" data-action="2">Cancel Job</button>
+                            </div>
+                        </div>   
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!------------------------------------------------------------------>
+
+
+
+
+    <div id="imageModal" class="image-modal">
+        <span class="close-modal">&times;</span>
+        <div class="swiper-container modal-swiper">
+            <div class="swiper-wrapper">
+                <!-- Slides will be dynamically inserted here -->
+            </div>
+            <!-- Modal slider pagination -->
+            <div class="swiper-pagination"></div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="image_upload_modal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true" data-backdrop="static" data-keyboard="false">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                      <img class="popupclose_btn closeModalBtn" src="images/closebtn.png">
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <h2>Job Images</h2>
+                    <div class="image_upload_wrap">
+                        <ul class="uploaded_images image_list_ul"></ul>
+                        <div class="image_upload_btns_new">
+                            <input id="file-input" class="file-input" type="file" style="display:none;" accept="image/*">
+                            <button class="upload_img upload_img_pop"> </button>
+                        </div>
+                        <span class="reset delete_all_uploaded hidden"><img src="images/delete_img.png" height="15px" width="15px"> Delete all images</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!---------------------------- js ----------------------------------->
+
+    <script type="text/javascript" src="js/jquery-3.4.1.min.js"></script>
+    <script type="text/javascript" src="js/popper.min.js"></script>
+    <script type="text/javascript" src="js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="js/fontawesome.min.js"></script>
+    <script src="https://unpkg.com/tippy.js@5"></script>
+    <script type="text/javascript" src="js/packing.js"></script>
+    <script src="js/jquery-confirm.min.js"></script>
+
+    <script type="text/javascript" src="js/bootstrap-datepicker.min.js"></script>
+    <script type="text/javascript" src="js/bootstrap-timepicker.min.js"></script>
+    <script type="text/javascript" src="js/moment.min.js"></script>
+    <script src="https://unpkg.com/swiper/swiper-bundle.min.js"></script>
+
+    <!------------------- Fadein-Out mobile card list ------------------->
+
+
+
+<!------ accordion ----------->
+
+<script >$(document).ready(function() {
+
+  var bodyEl = $('body'),
+    accordionDT = $('.accordion').find('dt'),
+    accordionDD = accordionDT.next('dd'),
+    parentHeight = accordionDD.height(),
+    childHeight = accordionDD.children('.content').outerHeight(true),
+    newHeight = parentHeight > 0 ? 0 : childHeight,
+    accordionPanel = $('.accordion-panel'),
+    buttonsWrapper = accordionPanel.find('.buttons-wrapper'),
+    openBtn = accordionPanel.find('.open-btn'),
+    closeBtn = accordionPanel.find('.close-btn');
+
+  bodyEl.on('click', function(argument) {
+    var totalItems = $('.accordion').children('dt').length;
+    var totalItemsOpen = $('.accordion').children('dt.is-open').length;
+
+    if (totalItems == totalItemsOpen) {
+      openBtn.addClass('hidden');
+      closeBtn.removeClass('hidden');
+      buttonsWrapper.addClass('is-open');
+      //accordionDD.addClass('isActive');
+      //accordionDD.css('overflow','visible');
+      setTimeout(function(){accordionDD.css('overflow','visible');},500)
+    } else {
+      openBtn.removeClass('hidden');
+      closeBtn.addClass('hidden');
+      buttonsWrapper.removeClass('is-open');
+      //accordionDD.removeClass('isActive');
+
+      accordionDD.css('overflow','hidden');
+    }
+  });
+
+      function openAll() {
+
+        openBtn.on('click', function(argument) {
+
+          accordionDD.each(function(argument) {
+            var eachNewHeight = $(this).children('.content').outerHeight(true);
+            $(this).css({
+              height: eachNewHeight
+            });
+          });
+          accordionDT.addClass('is-open');
+        });
+      }
+
+      function closeAll() {
+
+        closeBtn.on('click', function(argument) {
+          accordionDD.css({
+            height: 0
+          });
+          accordionDT.removeClass('is-open');
+        });
+      }
+
+      function openCloseItem() {
+        accordionDT.on('click', function() {
+
+          var el = $(this),
+            target = el.next('dd'),
+            parentHeight = target.height(),
+            childHeight = target.children('.content').outerHeight(true),
+            newHeight = parentHeight > 0 ? 0 : childHeight;
+
+          // animate to new height
+          target.css({
+            height: newHeight
+          });
+
+          // remove existing classes & add class to clicked target
+          if (!el.hasClass('is-open')) {
+            el.addClass('is-open');
+          }
+
+          // if we are on clicked target then remove the class
+          else {
+            el.removeClass('is-open');
+          }
+        });
+      }
+
+      openAll();
+      closeAll();
+      openCloseItem();
+
+      let send_sms = window.localStorage.getItem('send_sms');
+      let send_whatsapp = window.localStorage.getItem('send_whatsapp');
+      if(send_sms != null && send_sms == 1)
+      {
+        $(".send_sms input[type='checkbox']").attr('checked', true);
+      }
+      if(send_whatsapp != null && send_whatsapp == 1)
+      {
+       $(".send_whatsapp input[type='checkbox']").attr('checked', true);
+      }
+
+
+    });
+    //# sourceURL=pen.js
+</script>
+
+
+
+<!----------------------- tab panal --------------------------->
+
+
+    <script type="text/javascript">
+
+        // reference from https://www.digitalocean.com/community/tutorials/js-tabs
+
+        const tabs = document.querySelectorAll(".tab");
+        window.localStorage.setItem('origin_from','landing');
+        function tabify(tab) {
+          const tabList = tab.querySelector(".tab__list");
+
+          if (tabList) {
+            const tabItems = [...tabList.children];
+            const tabContent = tab.querySelector(".tab__content");
+            const tabContentItems = [...tabContent.children];
+            let tabIndex = 0;
+
+            tabIndex = tabItems.findIndex((item, index) => {
+              return [...item.classList].indexOf("is--active") > -1;
+            });
+
+            tabIndex > -1 ? (tabIndex = tabIndex) : (tabIndex = 0);
+
+            function setTab(index) {
+              tabItems.forEach((x, index) => x.classList.remove("is--active"));
+              tabContentItems.forEach((x, index) => x.classList.remove("is--active"));
+
+              tabItems[index].classList.add("is--active");
+              tabContentItems[index].classList.add("is--active");
+            }
+
+            tabItems.forEach((x, index) =>
+              x.addEventListener("click", () => setTab(index))
+            );
+            setTab(tabIndex);
+            tab.querySelectorAll(".tab").forEach((tabContent) => tabify(tabContent));
+          }
+        }
+
+        tabs.forEach(tabify);
+
+        $('body').on('click','.update_job',function(){
+            let job_id = $('.mobile_product_list ul li.active').data('job_id');
+            // alert(order_id);return false;
+            if(job_id != undefined)
+            {
+                let order_no =  $('.mobile_product_list ul li.active').data('order_no');
+                let order_id =  $('.mobile_product_list ul li.active').data('order_id');
+                let order_item =  $('.mobile_product_list ul li.active').data('order_item');
+                let item_qty =  $('.mobile_product_list ul li.active').data('item_qty');
+                let job_item_name =  $('.mobile_product_list ul li.active').find('.job_item_name').text();
+                let job_item_service =  $('.mobile_product_list ul li.active').find('.job_item_service').text();
+                // window.location = "split.html";
+          
+                $('.job_order_no').text(': '+order_no)
+                $('.job_order_item').text(': '+job_item_name)
+                $('.job_order_service').text(': '+job_item_service)
+                $('#dependancy-modal').modal({backdrop: 'static', keyboard: false})
+            }
+            else
+            { 
+                loadErrorPopup('Empty Prompt','Please select any job to proceed !')
+                return false;
+            }
+            // $('.tab__item[data-section="completed_jobs"]').trigger('click')
+        })
+        $('body').on('click','.sec_back_btn',function(){
+            $('.tab__item[data-section="pending_jobs"]').trigger('click')
+        })
+        $('body').on('click','.tab__item',function(){
+            let section = $(this).data('section');
+            $('.mob_footer_btns').hide();
+            $('.'+section).show();
+            setTimeout(function(){ $('.remark_scan_input').focus();},150);
+        })
+$('body').on('click','.update_service',function(){
+    let sel_service = $('.user_avail_services').val();
+    let job_action  = $(this).data('action');
+    let job_comments= $('.job_comment').val();
+    let confirm_txt = job_action == 1 ? "Are you sure to update the job?" : "Are you sure to cancel the job?";
+    let confirm_typ = job_action == 1 ? "blue" : "red";
+
+    $.confirm({
+        title: false,
+        boxWidth: '90%',
+        useBootstrap: false,
+        draggable: true,
+        content: '' +
+          '<div class="form-group invoice-found">' +
+          '<h4>Confirm !</h4>' +
+          '<p>'+confirm_txt+'</p>'+
+          '</div>',
+        type: confirm_typ,
+        buttons: {
+            cancel: {
+                action: function (cancel) {
+                  window.top.close();
+                },
+                text: 'No, Cancel'
+                  //close
+              },
+              ok:{
+                text: 'Yes, Continue',
+                btnClass: 'btn-'+confirm_typ,
+                  action: function () {
+                    proceedJobAction(job_action,job_comments);
+                  }
+              }
+        },
+        onOpenBefore: function () {
+            // before the modal is displayed.
+            $('.jconfirm').addClass('specClass')
+            $('.jconfirm-buttons').addClass('full-width')
+        },
+        onContentReady: function () {
+            // bind to events
+           // $('.jconfirm-buttons').addClass('full-width')
+            var jc = this;
+            this.$content.parents('.jconfirm').addClass('jconfirm_custom');
+            this.$content.find('.job_search_txt').on('keyup', function (e) {
+              let val = $(this).val();
+              
+              if(e.which == 13  || e.keyCode == 13)
+              {
+                jc.$$ok.trigger('click');
+              }
+            }); 
+        }
+    });
+})
+function set_remarkwithcomma()
+{
+var str = $('.remark_scan_input').val();
+if(str != '' && str != ' ' && str != '  ')
+setDelayItem(str);
+$('.remark_scan_input').val('');
+}
+
+
+function setDelayItem(str)
+{
+var exist_str = $('.remark_final').val();
+if(exist_str != '')
+{
+    var str = str+','+exist_str;
+}
+$('.remark_final').val(str);
+}
+
+
+$('.remark_scan_input').keydown(function (e){
+    if(e.keyCode == 13){
+       set_remarkwithcomma();
+    }
+})
+
+$('body').on('click','.clear_remarks',function(){
+             $('.remark_final').val('');
+             setTimeout(function(){ $('.remark_scan_input').focus();},100);
+        })
+$("body").on('click','.mobile_product_list ul li:not(.header_row)',function()
+{
+    $('.mobile_product_list ul li').removeClass('active')
+    $(this).addClass('active');
+    let item_images = $(this).data('item_files');
+    if(item_images && Number(item_images) > 0)
+        $('li.prev_li').removeClass('invisible');
+    else
+        $('li.prev_li').addClass('invisible');
+})
+ $(document).ready(function() {
+    // Toggle the dropdown visibility when button is clicked
+    $(".dropdown-btn").click(function() {
+      $(this).parents('.dropdown').find(".dropdown-menu").toggle(); // Show or hide the menu
+      // Toggle the arrow direction
+      var arrow = $(".dropdown-btn .arrow");
+      if ($(this).parents('.dropdown').find(".dropdown-menu").is(":visible")) {
+        arrow.html("&#9650;"); // Up arrow (▲)
+      } else {
+        arrow.html("&#9660;"); // Down arrow (▼)
+      }
+    });
+
+    $(".filtet-btn").click(function() {
+      $(this).parents('.dropdown').find(".dropdown-menu").toggle(); // Show or hide the menu
+      // Toggle the arrow direction
+      var arrow = $(".filtet-btn .arrow");
+      if ($(this).parents('.dropdown').find(".dropdown-menu").is(":visible")) {
+        arrow.html("&#9650;"); // Up arrow (▲)
+      } else {
+        arrow.html("&#9660;"); // Down arrow (▼)
+      }
+    });
+    // Hide the dropdown when clicking anywhere outside
+    $(document).click(function(event) {
+      if (!$(event.target).closest('.dropdown').length) {
+        $(".dropdown-menu").hide();
+      }
+    });
+
+    // Prevent dropdown from closing when clicking inside the menu
+    $("body").on('click','.avail_services li',function(event,mode=0) {
+      event.stopPropagation(); // Prevent click event from bubbling up
+      var selectedText = $(this).text(); // Get the text of the selected item
+      var selectedID = $(this).data('id'); // Get the text of the selected item
+      $(".dropdown-btn").find('.selected').text(selectedText); // Set button text to selected item
+      $(".dropdown-menu").hide();
+      $(".dropdown-btn .arrow").html("&#9660;"); 
+      console.log('selectedID',selectedID)
+      window.localStorage.setItem('saved_job_filter',selectedID);
+      if(mode==0)
+        LoadMyJobs();
+    });
+    $("body").on('click','.avail_filters li',function(event,mode=0) {
+      event.stopPropagation(); // Prevent click event from bubbling up
+      var selectedText = $(this).text(); // Get the text of the selected item
+      var selectedID = $(this).data('id'); // Get the text of the selected item
+      $(".filtet-btn").find('.filter-item').text(selectedText); // Set button text to selected item
+      $(".filtet-btn").parents('.dropdown').find(".dropdown-menu").hide();
+      $(".filtet-btn .arrow").html("&#9660;"); 
+      console.log('selectedID',selectedID)
+      window.localStorage.setItem('saved_status_filter',selectedID);
+      if(mode==0)
+        LoadMyJobs();
+    });
+  });    
+function proceedJobAction(job_action,job_comments){
+    let job_id = $('.mobile_product_list ul li.active').data('job_id');
+    if(job_id != undefined)
+    {
+        let order_no    =  $('.mobile_product_list ul li.active').data('order_no');
+        let order_id    =  $('.mobile_product_list ul li.active').data('order_id');
+        let order_item  =  $('.mobile_product_list ul li.active').data('order_item');
+        let item_qty    =  $('.mobile_product_list ul li.active').data('item_qty');
+        let job_id      =  $('.mobile_product_list ul li.active').data('job_id');
+        let file_ids = [];
+        $(".image_list_ul li").each(function(){
+          file_ids.push($(this).data('file'));
+        });
+        loadAjax();
+        $.ajax({
+            url      : base_url+"/packing_api/saveJobProcess",
+            type     : "POST",
+            data     : {'client_identifier': client_identifier,'order_id': order_id,'branch_id':branch_id,'user_id':user_id,'item_qty':item_qty,'order_item':order_item,'job_action':job_action,'job_comments':job_comments,'job_id':job_id,'file_ids':file_ids},
+            dataType : "JSON",
+            success: function(data) 
+            {
+              removeAjaxLoad();
+              $('.valid_input').val('');
+              // LoadMyJobs();
+              $.confirm({
+                  title: 'Successful',
+                  content: 'Your job updated successfully.',
+                  boxWidth: '50%',
+                  useBootstrap: false,
+                  icon: 'fas fa-exclamation-triangle',
+                  backgroundDismissAnimation: 'glow',
+                  type: 'green',
+                  autoClose: 'redirectUser|5000',
+                  buttons: {
+                      redirectUser: {
+                          text: 'Next job - ',
+                          action: function () {
+                              window.location.replace(`my-jobs.html`);
+                          }
+                      }
+                  }
+              });
+              // location.reload();
+            },
+            error:function(request, status, error)
+            {
+              removeAjaxLoad();
+              loadErrorPopup('Saving Error','Something went wrong, Please try again')
+              return false;
+            }
+        });
+    }
+    else
+    {
+        loadErrorPopup('Empty Prompt','Please select any job to proceed !')
+    }
+}
+$('body').on('click', '.preview_files', function() {
+  loadAjax();
+  let order_id   = $("li.job-pending.active").data('order_id');
+  let order_item = $("li.job-pending.active").data('order_item');
+  $.ajax({
+    url: base_url+'/packing_api/getItemImages',
+    method: 'POST',
+    data: {'client_identifier': client_identifier,'order_item':order_item,'order_id':order_id},
+    dataType : "JSON",
+    success: function(data) 
+    {
+      // removeAjaxLoad();
+      if(data.status==1)
+      {
+        let response = data.data;
+          if(Object.keys(response).length > 0)
+          {
+            order_images  = response.order_images?response.order_images:{};
+            if(order_images.length>0)
+            {
+               // var clickedIndex = $(this).closest('.swiper-slide').index();  // Get the index of the clicked image
+                var modalSlidesHtml = '';
+
+                // Generate the HTML for the modal slider (same as the main slider)
+                $.each(order_images, function(index, each_image){
+                    modalSlidesHtml += `<div class="swiper-slide"><img src="${each_image.file_name}" alt="Sample Image ${index + 1}" class="modal-image"><div class="slide-caption">${each_image.file_title}</div></div>`;
+                });
+
+                // Insert the slides HTML into the modal swiper container
+                $('.modal-swiper .swiper-wrapper').html(modalSlidesHtml);
+
+                // Show the modal
+                $('#imageModal').css('display', 'block');
+
+                // Initialize Swiper in the modal
+                var modalSwiper = new Swiper('.modal-swiper', {
+                    slidesPerView: 1,
+                    spaceBetween: 10,
+                    pagination: {
+                        el: '.swiper-pagination',
+                        clickable: true,
+                    },
+                    navigation: {
+                        nextEl: '.swiper-button-next',
+                        prevEl: '.swiper-button-prev',
+                    },
+                    autoplay: false,
+                });
+            }
+            else
+            {
+              loadErrorPopup('Failed','Failed to load the item images.')
+            }
+          }
+          else
+          {
+            loadErrorPopup('Software Error','Data not loaded, Contact Support team.','1')
+          }
+      }
+      else
+      {
+        loadErrorPopup('Loading Error',data.message,'1')
+      }
+      removeAjaxLoad();
+    },
+    error:function(request, status, error)
+    {
+      removeAjaxLoad();
+      $('body').removeClass('skeleton');
+      return false;
+    }
+  });
+});
+// Close the modal when the close button is clicked
+$('.close-modal').on('click', function() {
+    $('#imageModal').css('display', 'none');  // Hide the modal
+});
+
+// Close the modal when clicking outside of the image
+$(window).on('click', function(event) {
+    if (event.target == document.getElementById('imageModal')) {
+        $('#imageModal').css('display', 'none');  // Hide the modal
+    }
+});
+$('body').on('click','.comments_counter_icon',function(){
+    $(this).parents('li').find('.comments_block').toggleClass('invisible');
+})
+</script>
+
+
+
+</body>
+
+</html>

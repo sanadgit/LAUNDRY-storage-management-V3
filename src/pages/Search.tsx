@@ -1,10 +1,9 @@
 import { useState, useEffect, useMemo, useDeferredValue, useRef } from 'react';
 import { useStore, type Blanket, type Log } from '../store/useStore';
-import { Search, Map as MapIcon, Box, CheckCircle2, ChevronRight, ChevronLeft, Target, Package, Crosshair, ScanLine, X, AlertCircle } from 'lucide-react';
+import { Search, Map as MapIcon, CheckCircle2, ChevronRight, ChevronLeft, Target, Package, Crosshair, ScanLine, X, AlertCircle } from 'lucide-react';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
 import Grid2D from '../components/Grid2D';
-import Warehouse3D from '../components/Warehouse3D';
 import StoreControlBar from '../components/StoreControlBar';
 import StoreManagementModal from '../components/store-management/StoreManagementModal';
 import EmptyStoreConfirmStep from '../components/store-management/EmptyStoreConfirmStep';
@@ -21,8 +20,6 @@ import ExportStoreStep from '../components/store-management/ExportStoreStep';
 import StoreSummaryStep from '../components/store-management/StoreSummaryStep';
 import StoreHealthStep from '../components/store-management/StoreHealthStep';
 import StoreHistoryStep from '../components/store-management/StoreHistoryStep';
-import { useViewer3D } from '../context/Viewer3DSettings';
-import { getVirtualGridCellWorldPoint } from '../utils/virtualGridWorldPoint';
 import { extractTicketNumberFromScan } from '../utils/barcode';
 import { getScannerSupportMessage, startCameraBarcodeScanner } from '../utils/cameraScanner';
 import { canMarkPicked } from '../lib/roleAccess';
@@ -74,7 +71,6 @@ export default function SearchPage() {
     markAsPicked,
     selectedStore,
     setSelectedStore,
-    gridFace,
     setSelectedGridCell,
     updateBlanket,
     addStore,
@@ -85,8 +81,6 @@ export default function SearchPage() {
     currentUser,
     setSearchImmersive,
   } = useStore();
-
-  const { requestFocusCellWorld } = useViewer3D();
 
   const [searchPanelOpen, setSearchPanelOpen] = useState(true);
   const [mobilePanelSnap, setMobilePanelSnap] = useState<MobilePanelSnap>('peek');
@@ -105,13 +99,12 @@ export default function SearchPage() {
   const [scannerMode, setScannerMode] = useState<ScannerMode>('search');
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [scannerPreview, setScannerPreview] = useState<{ raw: string; extracted: string } | null>(null);
-  const [hasOpened3D, setHasOpened3D] = useState(viewMode === '3D');
   const [pendingPickScanBlanket, setPendingPickScanBlanket] = useState<Blanket | null>(null);
   const canPick = canMarkPicked(currentUser?.role);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerModeRef = useRef<ScannerMode>('search');
   const pendingPickScanBlanketRef = useRef<Blanket | null>(null);
-  const completeMarkAsPickedRef = useRef<(payload: Blanket) => Promise<boolean>>(async () => false);
+  const completeMarkAsPickedRef = useRef<(payload: Blanket, pickScanValue?: string) => Promise<boolean>>(async () => false);
   const panelDragStartYRef = useRef<number | null>(null);
   const panelDragStartSnapRef = useRef<MobilePanelSnap>('peek');
   const [lockedStores, setLockedStores] = useState<Record<string, boolean>>({});
@@ -250,7 +243,7 @@ export default function SearchPage() {
               }
               setScannerError(null);
               setScannerOpen(false);
-              const marked = await completeMarkAsPickedRef.current(target);
+              const marked = await completeMarkAsPickedRef.current(target, extracted);
               if (marked) {
                 setPendingPickScanBlanket(null);
                 pendingPickScanBlanketRef.current = null;
@@ -318,8 +311,8 @@ export default function SearchPage() {
   }, [setSearchImmersive]);
 
   useEffect(() => {
-    if (viewMode === '3D') setHasOpened3D(true);
-  }, [viewMode]);
+    if (viewMode !== '2D') setViewMode('2D');
+  }, [setViewMode, viewMode]);
 
   const latestLogBySlotKey = useMemo(() => {
     const map = new Map<string, Log>();
@@ -630,24 +623,15 @@ export default function SearchPage() {
   }, [retrievalIndex, currentResult, setSelectedStore]);
 
   const zoomToBlanket = (blanket: Blanket) => {
-    const store = stores.find((s) => s.store_name === blanket.store);
-    if (!store) return;
-    setViewMode('3D');
+    setViewMode('2D');
     setSelectedStore(blanket.store);
     setSelectedGridCell({ store: blanket.store, row: blanket.row, column: blanket.column });
-    const point = getVirtualGridCellWorldPoint({
-      store,
-      row: blanket.row,
-      column: blanket.column,
-      gridFace,
-    });
-    requestFocusCellWorld(point);
   };
 
-  const completeMarkAsPicked = async (payload: Blanket) => {
+  const completeMarkAsPicked = async (payload: Blanket, pickScanValue?: string) => {
     setPickError(null);
     try {
-      await markAsPicked(payload);
+      await markAsPicked(payload, { pickScanValue });
     } catch (error: any) {
       const message = typeof error?.message === 'string' ? error.message : 'Failed to mark as picked.';
       console.error('markAsPicked failed:', error);
@@ -873,7 +857,7 @@ export default function SearchPage() {
       setEmptyReason('');
       setManagementStep('main');
     } catch (error: any) {
-      setStoreActionError(error?.message || 'Failed to empty store.');
+      setStoreActionError(error?.response?.data?.error || error?.message || 'Failed to empty store.');
     } finally {
       setEmptyBusy(false);
     }
@@ -2068,21 +2052,11 @@ export default function SearchPage() {
             onClick={() => setViewMode('2D')}
             className={cn(
               "flex-1 md:flex-none justify-center flex items-center gap-2 px-4 sm:px-5 lg:px-6 py-2.5 sm:py-2.5 lg:py-3 rounded-xl text-sm sm:text-[0.92rem] lg:text-[0.98rem] font-bold transition-all",
-              viewMode === '2D' ? "bg-blue-600 text-white shadow-lg" : "text-slate-400 hover:text-white"
+              "bg-blue-600 text-white shadow-lg"
             )}
           >
             <MapIcon size={20} />
             2D View
-          </button>
-          <button 
-            onClick={() => setViewMode('3D')}
-            className={cn(
-              "flex-1 md:flex-none justify-center flex items-center gap-2 px-4 sm:px-5 lg:px-6 py-2.5 sm:py-2.5 lg:py-3 rounded-xl text-sm sm:text-[0.92rem] lg:text-[0.98rem] font-bold transition-all",
-              viewMode === '3D' ? "bg-blue-600 text-white shadow-lg" : "text-slate-400 hover:text-white"
-            )}
-          >
-            <Box size={20} />
-            3D View
           </button>
         </div>
       </div>
@@ -2271,7 +2245,7 @@ export default function SearchPage() {
                   className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3.5 rounded-3xl font-black text-sm sm:text-[0.92rem] lg:text-base shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2.5"
                 >
                   <Crosshair size={18} />
-                  ZOOM TO SLOT (3D)
+                  SHOW SLOT (2D)
                 </button>
                 
                 <div className="flex gap-2.5">
@@ -2397,7 +2371,7 @@ export default function SearchPage() {
                   className="w-full bg-slate-800 hover:bg-slate-700 text-white py-3.5 rounded-3xl font-black text-sm sm:text-[0.92rem] lg:text-base shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2.5"
                 >
                   <Crosshair size={18} />
-                  ZOOM TO SLOT (3D)
+                  SHOW SLOT (2D)
                 </button>
               </div>
 
@@ -2556,16 +2530,13 @@ export default function SearchPage() {
 
         {/* Center: Viewport */}
         <div className="warehouse-viewport flex-1 min-w-0 relative bg-slate-950 overflow-hidden" style={mobileViewportBottomInsetStyle}>
-          <div className={cn('absolute inset-0', viewMode === '2D' ? 'block' : 'hidden')}>
+          <div className="absolute inset-0 block">
             <Grid2D
               interactionMode={inputModeActive ? 'input' : 'search'}
               lockedStores={lockedStores}
               onOpenStoreManagement={openStoreManagement}
               showDesktopInputPanel={false}
             />
-          </div>
-          <div className={cn('absolute inset-0', viewMode === '3D' ? 'block' : 'hidden')}>
-            {hasOpened3D ? <Warehouse3D active={viewMode === '3D'} /> : null}
           </div>
           
           {/* Store Selector Overlay */}
@@ -2623,7 +2594,7 @@ export default function SearchPage() {
                   className="warehouse-action-btn w-full bg-slate-800 hover:bg-slate-700 text-white py-2.5 rounded-2xl font-black text-xs transition-all active:scale-95 flex items-center justify-center gap-2"
                 >
                   <Crosshair size={14} />
-                  ZOOM TO SLOT (3D)
+                  SHOW SLOT (2D)
                 </button>
                 <div className="grid grid-cols-2 gap-2">
                   <button

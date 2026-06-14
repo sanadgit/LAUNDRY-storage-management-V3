@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <link rel="stylesheet" type="text/css" href="../packing/css/all.min.css">
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.1.3/dist/css/bootstrap.min.css" integrity="sha384-MCw98/SFnGE8fJT3GXwEOngsV7Zt27NXFoaoApmYm81iuXoPkFOJwJ8ERdknLPMO" crossorigin="anonymous">
+
+    <link href="https://maxcdn.bootstrapcdn.com/font-awesome/4.3.0/css/font-awesome.min.css" rel="stylesheet">
+
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery-confirm/3.3.4/jquery-confirm.min.css">
+
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+
+    <title>Pickup Request</title>
+    <style type="text/css">
+        .choose_time ul li{width:13%;}
+          .dates_ul li{cursor: pointer;}
+          .dates_ul li.selected{background-color:#2261a4;color:#FFF;}
+          .dates_ul li.selected h5,.dates_ul li.selected p{color:#FFF;}
+        body {
+            overflow: auto;
+        }
+        .map_width_wrap {
+            margin-top: 108px;
+        }     
+        #map {
+            width: 100%;
+            height: calc(100vh - 109px);
+        }
+          .gm-svpc{display: none;}
+          .gmnoprint{display: none;}
+          .gm-fullscreen-control {display: none;}
+          .onclickbtn{display: none;}
+            #infowindow-content {
+            display: none;
+        }
+        .pac-container {
+            z-index: 9999;
+        }
+        .popup_close_btn{
+          top: 0;
+        }
+        a.shipping{
+            color: #2653a3;
+            font-size: 28px;
+            background: #e9f6fe;
+            /* padding: 10px 15px; */
+            border-radius: 100%;
+            height: 48px;
+            width: 48px;
+            text-align: center;
+            line-height: 48px;
+        }
+        .pull-right.btn-group-sm{
+            display: flex;
+        }
+    </style>
+</head>
+
+<body class="pickup_request_body">
+    <header>
+        <nav class="navbar navbar-expand-lg navbar-dark fixed-top bg_rose">
+            <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarCollapse" aria-controls="navbarCollapse" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse bg-dark" id="navbarCollapse">
+                <div class="side_menu_mobile_wrapper">
+                    <ul class="navbar-nav mr-auto">
+                        <li class="nav-item">
+                            <a class="nav-link user_profile"><span><img class="profile_avatar" src="images/profile.png"></span><h6><span class="profile_name">Muhammed</span><span class="profile_type"></span></h6></a>
+                        </li>
+                        <li class="nav-item ">
+                            <a class="nav-link" href="landing.html">Delivery Dashboard</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="home_delivery.html">Home Delivery</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="pickup.html">Pickup</a>
+                        </li>
+                        <li class="nav-item active">
+                            <a class="nav-link" href="pickup_request.html">Pickup Request</a>
+                        </li>
+                        <!-- <li class="nav-item">
+                <a class="nav-link" href="order_details.html">Order Details</a>
+              </li> -->
+                        <li class="nav-item counter_manager">
+                            <a class="nav-link" href="counter_shift.html">Counter Shift Manager</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="javascript:" onclick="ok.settings()">Settings</a>
+                        </li>
+                    </ul>
+                    <h6 class="logout" onclick="logout()">Logout</h6>
+                </div>
+            </div>
+            <a class="navbar-brand" href="">Pickup Request</a>
+        </nav>
+    </header>
+    <!-- loader -->
+    <div class="pickup-loader" style="display:none;">
+        <span class="loader"></span>
+        <div style="margin-top:12px;color:#007bff;font-weight:600;"></div>
+    </div>
+    <section class="sec_01_home_delivery sec_01_pickup_request">
+        <div class="container">
+            <div class="row search_wrapper">
+                <div class="col-xs-9 col-sm-9 col-md-9">
+                    <div class="input-group">
+                        <span class="input-group-text" id="basic-addon1">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-search" viewBox="0 0 16 16">
+                  <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"></path>
+                </svg>
+              </span>
+                        <input type="text" id="pickupSearchInput" class="form-control" placeholder="Search" aria-label="Input group example" aria-describedby="basic-addon1">
+                    </div>
+                </div>
+                <div class="col-xs-3 col-sm-3 col-md-3">
+                    <button type="button" class="btn btn-outline-danger" id="pickupFilterBtn">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-funnel" viewBox="0 0 16 16">
+                            <path d="M1.5 1.5A.5.5 0 0 1 2 1h12a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-.128.334L10 8.692V13.5a.5.5 0 0 1-.342.474l-3 1A.5.5 0 0 1 6 14.5V8.692L1.628 3.834A.5.5 0 0 1 1.5 3.5zm1 .5v1.308l4.372 4.858A.5.5 0 0 1 7 8.5v5.306l2-.666V8.5a.5.5 0 0 1 .128-.334L13.5 3.308V2z"></path>
+                        </svg>
+                        Filter
+                    </button>
+                </div>
+            </div>
+            <div class="row home_delivery_row_02">
+                <div class="container bootstrap snippets bootdey">
+                    <div class="row delivery_orders" data-toggle="modal" data-target="#chooseCustomerModal" style="margin-bottom: 115px;">
+                    </div>
+                </div>
+            </div>
+            <footer class="scan_barcode_footer" style="margin-left: -13px;">
+                <div class="scan_barcode">
+                    <a href="pickup_req.html">
+                        <button type="button" class="btn btn-primary pickup_request" id="Pickup_request">Add New Pickup Request</button>
+                    </a>
+                </div>
+            </footer>
+    </section>
+    <!---- loader ---->
+
+    <!-- Customer Details Modal -->
+    <div class="modal fade" id="customerDetailsModal" tabindex="-1" role="dialog" aria-labelledby="customerDetailsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <form id="customerDetailsForm">
+                    <div class="modal-header" style="border-top-left-radius:0px;border-top-right-radius:0px;position: fixed;z-index: 9;width: 100%;">
+                        <h5 class="modal-title" id="customerDetailsModalLabel">Pickup Details</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span>&times;</span></button>
+                    </div>
+                    <div class="modal-body" style="margin-top: 40px;">
+                        <input type="hidden" id="pickup_id" name="id">
+
+                        <div class="form-group">
+                            <label for="customer_name">Customer Name</label>
+                            <input type="text" class="form-control" id="customer_name" name="customer_name">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="customer_mobile">Customer Mobile</label>
+                            <input type="text" class="form-control" id="customer_mobile" name="customer_mobile" readonly>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group col-md-6">
+                                <label for="slot_date">Slot Date</label>
+                                <input type="date" class="form-control" id="slot_date" name="slot_date">
+                            </div>
+
+                            <div class="form-group col-md-6">
+                                <label for="slot_time">Slot Time</label>
+                                <select class="form-control" id="slot_time" name="slot_time">
+                                    <option value="">Select a time slot</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <a href="javascript:" class="update-loc"><i class="fas fa-map-marker-alt"></i> Update</a>
+                            <label for="shipping_address_dropdown">Shipping Address </label>
+                            <select class="form-control" id="shipping_address_dropdown" name="shipping_address_id">
+                                <option value="">Select Shipping Address</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="shipping_area_dropdown">Shipping Area</label>
+                            <select class="form-control" id="shipping_area_dropdown" name="shipping_area_id">
+                                <option value="">Select Shipping Area</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="direct_map_link">Map Link</label>
+                            <input type="text" class="form-control" id="direct_map_link" name="direct_map_link">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="pickup_remark">Pickup Remark</label>
+                            <textarea class="form-control" id="pickup_remark" name="pickup_remark" rows="2"></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="pickup_description">Pickup Description</label>
+                            <textarea class="form-control" id="pickup_description" name="pickup_description" rows="3"></textarea>
+                        </div>
+                    </div>
+
+                    <div class="modal-footer">
+                        <button type="submit" class="btn btn-primary">Update Pickup Request</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="modal fade animate shedulepopup" id="add_address" tabindex="" role="dialog" aria-labelledby="myModalLabel">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content animate-bottom">
+                <div class="add_address_body">
+                    <header class="top_header">
+                        <div class="popup_close_btn pcursor google_map_close" data-dismiss="modal">
+                            <svg xmlns="https://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-x-lg" viewBox="0 0 16 16">
+                                <path d="M1.293 1.293a1 1 0 0 1 1.414 0L8 6.586l5.293-5.293a1 1 0 1 1 1.414 1.414L9.414 8l5.293 5.293a1 1 0 0 1-1.414 1.414L8 9.414l-5.293 5.293a1 1 0 0 1-1.414-1.414L6.586 8 1.293 2.707a1 1 0 0 1 0-1.414z" />
+                            </svg>
+                        </div>
+                        <div class="title text-center text-uppercase">
+                            <span class="popup_headertxt select_dlvry_loc_span">Select Delivery Location</span>
+                        </div>
+                        <div class="header_search">
+                            <svg xmlns="https://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" class="bi bi-search search_icon_style" viewBox="0 0 16 16">
+                                <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"></path>
+                            </svg>
+                            <div id="pac-container">
+                                <input id="pac-input" class="form-control" type="text" placeholder="Move the map or Type to Search" />
+                            </div>
+                        </div>
+                    </header>
+                    <div class="map_width_wrap">
+                        <div id="map">
+                            <p align="center">
+                                <br>
+                                <br>
+                                <br>
+                                <br>Please Wait 😊
+                                <br> Waiting for location map !
+                                <br>
+                                <br>If map not appeared,
+                                <br>you can continue without map,
+                                <br>we'll call you for the location
+                            </p>
+                        </div>
+                        <div style="display: none;">
+                            <input type="hidden" id="location_enabled" name="" value="">
+                            <p>On idle position: <span id="onIdlePositionView"></span></p>
+                            <p>On click position: <span id="onClickPositionView"></span></p>
+                        </div>
+                        <div id="infowindow-content">
+                            <span id="place-name" class="title"></span>
+                            <br />
+                            <span id="place-address"></span>
+                        </div>
+                    </div>
+
+                    <div id="confirmPosition" class="confirm_btn" data-toggle="modal" data-target="#address_confirm">
+                        <button id="confirmPosition" class="confirm_position" type="button">Confirm</button>
+                    </div>
+                    <div onclick="GetDeviceLocation();" class="locationfind_icon"><img src="images/findlocationIcon.svg"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal fade animate shedulepopup" id="address_confirm" tabindex="" role="dialog" aria-labelledby="myModalLabel">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content animate-bottom">
+                <div class="address_confirm_body">
+                    <header class="top_header">
+                        <div class="popup_close_btn pcursor address_popup_close" data-dismiss="modal">
+                            <svg xmlns="https://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-x-lg" viewBox="0 0 16 16">
+                                <path d="M1.293 1.293a1 1 0 0 1 1.414 0L8 6.586l5.293-5.293a1 1 0 1 1 1.414 1.414L9.414 8l5.293 5.293a1 1 0 0 1-1.414 1.414L8 9.414l-5.293 5.293a1 1 0 0 1-1.414-1.414L6.586 8 1.293 2.707a1 1 0 0 1 0-1.414z" />
+                            </svg>
+                        </div>
+                        <div class="title text-center text-uppercase">
+                            <span class="popup_headertxt setup_address">Setup your address</span>
+                        </div>
+                        <div class="header_check">
+                            <svg xmlns="https://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" class="bi bi-check setup_check" viewBox="0 0 16 16">
+                                <path d="M10.97 4.97a.75.75 0 0 1 1.07 1.05l-3.99 4.99a.75.75 0 0 1-1.08.02L4.324 8.384a.75.75 0 1 1 1.06-1.06l2.094 2.093 3.473-4.425a.267.267 0 0 1 .02-.022z" />
+                            </svg>
+                        </div>
+                    </header>
+                    <div class="address_form_wrap_skeleten" style="display:none;">
+                        <div class="address_form_skeleten"></div>
+                        <div class="address_form_skeleten"></div>
+                        <div class="address_form_skeleten"></div>
+                        <div class="address_form_skeleten bottom_zero_skln"></div>
+                        <div class="address_form_pgraph_skeleten"></div>
+                        <div class="save_address_btn_skeleten"></div>
+                    </div>
+                    <div class="address_form">
+                        <input required="" class="location_txt" type='text'>
+                        <label class="location_lbl" placeholder='Location (e.g. bulding name, Street #)'></label>
+                    </div>
+                    <div class="address_form">
+                        <input required="" class="apartment_txt" type='text'>
+                        <label class="apartment_lbl" placeholder='Appartment / House number'></label>
+                    </div>
+                    <div class="address_form">
+                        <input required="" class="name_txt" type='text'>
+                        <label class="name_lbl" placeholder='Name'></label>
+                    </div>
+                    <div class="address_form">
+                        <input required="" class="addr_spec_txt" type='text'>
+                        <label class="addr_spec_inst_lbl" placeholder='Address Specific Instructions (Optional)'></label>
+                        <p class="addr_spec_inst_eg_p">Eg. Please know the door instead of pressing the doorbell when you arrive at my address</p>
+                    </div>
+
+                    <button type="button" class="save_btn save_address_pickup">Save</button>
+
+                </div>
+            </div>
+        </div>
+    </div>
+    <input type="hidden" id="shipping_id" value="" data-loc_building="" data-loc_apartment="" data-loc_name="" data-loc_other="" data-latitude="" data-longitude="">
+
+    <a href="javascript:" id="pay-now-btn" class="f-fallback button button--green" data-toggle="modal" data-target="#add_address">Update Location</a>
+
+    <!-- pull down to refresh -->
+    <div id="pullToRefresh" style="background: #FF4171;" aria-hidden="true">
+      <div class="ptr-inner">
+        <span class="ptr-arrow"></span>
+        <span class="ptr-spinner"><i class="fas fa-sync-alt"></i></span>
+        <span class="ptr-text"></span>
+      </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.4.1.min.js"></script>
+    <script type="text/javascript" src="../packing/js/fontawesome.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.14.3/dist/umd/popper.min.js" integrity="sha384-ZMP7rVo3mIykV+2+9J3UJ46jBk0WLaUAdn689aCwoqbBJiSnjAK/l8WvCWPIPm49" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.1.3/dist/js/bootstrap.min.js" integrity="sha384-ChfqqxuZUCnJSK3+MXmPNIyE6ZbWh2IMqE241rYiqJxyMiZ6OW/JmZQ5stwEULTy" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js" integrity="sha384-9/reFTGAW83EW2S0VKaIzap3H66lZH81PoYlFhbGU+6BZp6G7niu735Sk7lN" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.min.js" integrity="sha384-+sLIOodYLS7CIrQpBjl+C7nPvqq+FbNUBDunl/OZv93DB7Ln/533i8e/mZXLi/P+" crossorigin="anonymous"></script>
+    <script type="text/javascript" src="../packing/js/bootstrap-datepicker.min.js"></script>
+    <script src="../packing/js/jquery-confirm.min.js"></script>
+    <script type="text/javascript" src="js/delivery.js"></script>
+    <script type="text/javascript">
+        var head = document.getElementsByTagName('head')[0];
+          var js = document.createElement("script");
+          let src = "";
+          if (window.localStorage.getItem('language') == 'arabic')
+            src = "https://maps.googleapis.com/maps/api/js?key=AIzaSyBv6a9-gl0FkDfgr_OqvsH5bfFCVott6gk&libraries=places&language=ar";
+          else
+            src = "https://maps.googleapis.com/maps/api/js?key=AIzaSyBv6a9-gl0FkDfgr_OqvsH5bfFCVott6gk&libraries=places";
+          js.src = src;
+          head.appendChild(js);
+          $(document).ready(function () {
+            // $('.choosedate_ul_scroll').mousewheel(function(e, delta) {
+            //  this.scrollLeft -= (delta * 40);
+            //  e.preventDefault();
+            // });
+          });
+    </script>
+    <script src="https://view.aiplink.net//assets/js/location-picker.min.js"></script>
+    <script type="text/javascript">
+        setTimeout(function () {
+          GetDeviceLocation()
+          // setCurrentPosition(0, 0); // dubai location for testing
+    }, 600);
+    $('body').on('click','.update-loc',function(){
+      let lat = $('#shipping_id').data('latitude');  
+      let lng = $('#shipping_id').data('longitude');
+      console.log(lat,lng)
+      if(lat!='' && lng!=''){
+        console.log(lat,lng,'I am clicked')
+        setCurrentPosition(lat, lng)
+      }
+      else
+        GetDeviceLocation()
+    
+      $("#add_address").modal({
+            backdrop: 'static',
+            keyboard: false
+        });
+    })
+    function GetDeviceLocation() {
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(showPosition);
+        } else {
+            alert("Geolocation is not supported by this browser.");
+        }
+    }
+    function showPosition(position) {
+        $('#shipping_id').data('latitude',position.coords.latitude);
+        $('#shipping_id').data('longitude',position.coords.longitude);
+        setCurrentPosition(position.coords.latitude, position.coords.longitude, 0);
+    }
+    function setCurrentPosition(lat, lng, loc = 1) {
+      document.getElementById('pac-input').value = '';
+      // alert(lat+' - '+lng);
+      console.log('latitude',lat)
+      console.log('longitude',lng)
+      setTimeout(function () {
+          if (loc == 1) {
+              $('#location_enabled').val(1);
+          }
+          var confirmBtn = document.getElementById('confirmPosition');
+          var onClickPositionView = document.getElementById('onClickPositionView');
+          var onIdlePositionView = document.getElementById('onIdlePositionView');
+          var map = document.getElementById('map');
+          console.log('ok');
+    
+          // console.log('inside1');
+          // var lat = position.coords.latitude;
+          // var lng = position.coords.longitude;
+          // Initialize LocationPicker plugin
+          var lp = new locationPicker(map, {
+              setCurrentPosition: true, // You can omit this, defaults to true
+              zoomControlOptions: {
+                  style: google.maps.ZoomControlStyle.LARGE
+              },
+              lat: lat,
+              lng: lng
+          }, {
+              zoom: 17 // You can set any google map options here, zoom defaults to 15
+          });
+          const input = document.getElementById("pac-input");
+          const options = {
+              componentRestrictions: {
+                  country: "ae"
+              },
+              fields: ["formatted_address", "geometry", "name"],
+              strictBounds: false,
+              //types: ["establishment"],
+          };
+          //map.controls[google.maps.ControlPosition.TOP_RIGHT].push(card);
+          const infowindow = new google.maps.InfoWindow();
+          const infowindowContent = document.getElementById("infowindow-content");
+          infowindow.setContent(infowindowContent);
+          const marker = new google.maps.Marker({
+              lp,
+              anchorPoint: new google.maps.Point(0, -29),
+          });
+          const autocomplete = new google.maps.places.Autocomplete(input, options);
+          console.log(autocomplete);
+          autocomplete.addListener("place_changed", () => {
+              infowindow.close();
+              marker.setVisible(false);
+              console.log('thne heree');
+              const place = autocomplete.getPlace();
+              //console.log(JSON.stringify(place.geometry.location));
+              if (!place.geometry || !place.geometry.location) {
+                  // User entered the name of a Place that was not suggested and
+                  // pressed the Enter key, or the Place Details request failed.
+                  window.alert("No details available for input: '" + place.name + "'");
+                  return;
+              } else {
+                  var latlng_parse = JSON.stringify(place.geometry.location);
+                  var latlng_p = JSON.parse(latlng_parse);
+                  console.log(latlng_p);
+                  console.log("latlng_p");
+                  // window.localStorage.setItem('new_location_lat_lng',latlng_parse);
+                  var new_location = lp.setSearchLocation(latlng_p.lat, latlng_p.lng);
+              }
+              // var point = new google.maps.LatLng(latlng_p.lat, latlng_p.lng);
+              // lp.setCenter(point);
+              //  // If the place has a geometry, then present it on a map.
+              // if (place.geometry.viewport) {
+              //   map.fitBounds(place.geometry.viewport);
+              // } else {
+              //   map.setCenter(place.geometry.location); 
+              //   map.setZoom(17);
+              // }
+          });
+          // Listen to button onclick event
+          confirmBtn.onclick = function () {
+              // Get current location and show it in HTML
+              var location = lp.getMarkerPosition();
+              onClickPositionView.innerHTML = 'The chosen location is ' + location.lat + ',' + location.lng;
+              $('#shipping_id').data('latitude',location.lat);
+              $('#shipping_id').data('longitude',location.lng);
+    
+              $('.location_txt').val($('#shipping_id').data('loc_building'));  
+              $('.apartment_txt').val($('#shipping_id').data('loc_apartment'));  
+              $('.name_txt').val($('#shipping_id').data('loc_name'));  
+              $('.addr_spec_txt').val($('#shipping_id').data('loc_other'));  
+              
+              console.log('latitude',location.lat)
+              console.log('longitude',location.lng)
+              // window.localStorage.setItem('new_location_lat', location.lat);
+              // window.localStorage.setItem('new_location_lng', location.lng);
+          };
+          // Listen to map idle event, listening to idle event more accurate than listening to ondrag event
+          google.maps.event.addListener(lp.map, 'idle', function (event) {
+              // Get current location and show it in HTML
+              var location = lp.getMarkerPosition();
+              onIdlePositionView.innerHTML = 'The chosen location is ' + location.lat + ',' + location.lng;
+          });
+    
+      }, 300);
+    }
+    </script>
+</body>
+
+</html>

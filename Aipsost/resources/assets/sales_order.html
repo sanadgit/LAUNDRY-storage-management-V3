@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <!-- Meta, title, CSS, favicons, etc. -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0 viewport-fit=cover" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Aipsoft Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;300;400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/jquery-confirm.min.css">
+
+    <script type="text/javascript">
+    let api_user_id         = window.localStorage.getItem('api_user_id');
+    let api_url             = window.localStorage.getItem('api_url');
+    let client_identifier   = window.localStorage.getItem('client_identifier');
+    if((api_user_id == null || api_user_id == '' || api_url =='' || api_url == null)) {
+            window.location = "login.html";
+    } 
+    let order_id     = window.localStorage.getItem('sale_order_id');
+    if(order_id!=0 && order_id!=undefined && order_id!=null && order_id!='')
+    {
+        window.location = "sales_order_item.html";
+    }
+    </script>
+</head>
+
+<style type="text/css">
+
+    body {
+        font-family: 'Roboto', sans-serif;
+        margin: 0;
+        overflow-x: hidden;   
+        height: 100vh; 
+    }
+    .nav_deader {
+        background-image: linear-gradient(to right, #305daf , #17a9ca);
+        /*background-image: linear-gradient(#252525, #070707);*/
+        padding: 8px;
+        color: #fff;
+        overflow: hidden;
+    }
+    .aiplogo {
+        float: left;
+        margin-right: 8px;
+    }
+    .nav_text p {
+        font-size: 14px;
+        margin: 0;
+        font-weight: 400;
+        margin-top: 2px;
+    }
+    .sales_order_wrap{
+        padding: 8px 10px;
+        overflow: hidden;
+    }
+    .back_btn {
+        background-color: #2350a3;
+        font-size: 15px;
+        font-weight: 500;
+        color: #fff;
+        border: 0;
+        padding: 8px 30px;
+        float: left;
+        border-radius: 4px;
+        letter-spacing: 1px;
+    }
+    .content{
+        margin-bottom: 5px;
+        overflow: hidden;
+    }
+    .content p {
+        text-align: right;
+        margin: 0;
+        position: relative;
+        top: 12px;
+        color: #3b3b3b;
+        font-weight: 400;
+        font-size: 16px;
+        display: inline;
+        float: right;
+    }
+    .search{
+        position: relative;
+        margin-bottom: 6px;
+        display: flex;
+    }
+    .search input {
+        width: 100%;
+        padding: 10px;
+        padding-right: 40px;
+        color: #3b3b3b;
+        border: 1px solid #989898;
+        border-radius: 4px;
+    }
+    .search img {
+        position: absolute;
+        right: 8px;
+        overflow: hidden;
+        top: 6px;
+        color: #5d5d5d;
+    }
+    .content_body {
+        border: 1px solid #989898;
+        padding: 10px;
+        height: 50vh;
+        overflow-y: auto;
+        border-radius: 5px;
+    }
+    .content_body::-webkit-scrollbar-track {
+        border-radius: 0px;
+        background-color: #fff;
+    }
+
+    .content_body::-webkit-scrollbar {
+        width: 6px;
+        background-color: #717171;
+    }
+
+    .content_body::-webkit-scrollbar-thumb {
+        border-radius: 6px;
+        background-color: #717171;
+    }    
+    .content_body ul{
+        padding: 0;
+        list-style-type: none;
+        margin: 0;
+    }
+    .content_body ul li {
+        background-color: #e9e9e9;
+        padding: 6px;
+        border: 1px solid #717171;
+        color: #3a3a3a;
+        margin-bottom: 6px;
+        font-size: 14px;
+    }    
+    .content_body ul li.active {
+        background-color: #2350a3;
+        color: #fff;
+    }
+    .footer{
+        width: 100%;
+        position: fixed; 
+        bottom: 0 !important;
+    }
+    .footer button{
+        width: 100%;
+        padding: 20px;
+        height: 75px;
+        font-weight: 600;
+        font-size: 16px;
+        background-color: #2451a6;
+        color: #fff;
+        border: 0;
+        left: 0;
+    }
+.loadingIco{ display: none; }
+
+
+    /* CSS specific to iOS devices */ 
+
+    @supports (-webkit-touch-callout: none) {
+    .nav_deader {
+        padding-top: 50px;
+    }
+    .sales_order_wrap {
+        height:    calc(100vh - 90px);
+    } 
+    }
+
+
+
+
+</style>
+
+<body>
+
+    <div class="nav_deader">
+        <div class="aiplogo">
+            <img src="images/aipsoft.png">
+        </div>
+        <div class="nav_text">
+            <p>AipSoft - Sales Order</p>
+        </div>
+    </div>
+
+    <div class="sales_order_wrap">  
+        <div class="content">
+            <button type="button" class="back_btn">Back</button>
+            <p>Customer</p>
+        </div>
+        <div class="search">
+            <input type="text" class="keyword_search" name="">
+            <img src="images/searchico.png" class="searchIco">
+            <img src="images/loading.gif" class="loadingIco">
+        </div>
+
+        <div class="content_body">
+            <ul class="customers_list">            
+            </ul>
+        </div>
+    
+    </div>
+    <div class="footer">
+        <button type="button" class="startBtn">Start   ></button>        
+    </div>
+    <script type="text/javascript" src="js/jquery-3.5.1.min.js"></script>
+    <script src="js/jquery-confirm.min.js"></script>
+    <script src="js/config.js"></script>
+    <script>
+        $(document).ready(function() {
+            $('.logout_btn').click(function(){
+                 window.localStorage.setItem('api_user_id','');
+                 window.location = "login.html";
+            })
+            $('.back_btn').click(function(){
+                window.location = "home.html";
+            })
+            $('.keyword_search').focus(function(){
+                $(this).select();
+            })
+        })
+        $(document).on('keyup','.keyword_search',function(e){
+            let val = $(this).val();
+            if(val!='' && (e.which == 13  || e.keyCode == 13))
+            {
+                
+                $('.searchIco').hide();
+                $('.loadingIco').show();
+                $.ajax({
+                        url: api_url+'/purchase_api/loadCustomers',
+                        method: 'POST',
+                        data: {'keyword': val,'client_identifier':client_identifier},
+                        success: function(response) {
+                            $('.loadingIco').hide();
+                            $('.searchIco').show();
+                            $('.keyword_search').select()
+                            var data =JSON.parse(response);
+                            if(data.status==1)
+                            {
+                                let customersData  = data.data;
+                                let customerList = '';
+                                if(customersData.data_count > 0)
+                                {
+                                    let customers = customersData.data_result;
+                                    customers.forEach(function(customer, index) {
+                                        customerList += '<li class="item" data-id="'+customer.id+'">'+customer.acc_name1+' - '+customer.city+'</li>';
+                                    })        
+                                }
+                                else
+                                {
+                                    customerList = '<li class="empty">No item found</li>';
+                                }
+                                $('.customers_list').html(customerList);
+                            }
+                            else
+                            {
+                                 let customerList = '<li class="empty">No item found</li>';
+                                 $('.customers_list').html(customerList);
+                                 $.alert(data.message);
+                                 return false;
+                            }
+                        },
+                        error:function (xhr, ajaxOptions, thrownError){
+                                $('.loadingIco').hide();
+                                $('.searchIco').show();
+                                $.alert('No customer found..!');
+                                return false;                          
+                            }   
+                    });
+            }
+        })
+        $(document).on('click','.customers_list li.item',function(e){
+            $('.customers_list li.item').removeClass('active');
+            $(this).addClass('active');
+        })
+        $(document).on('click','.startBtn',function(e){
+            let customer_id             = $('.customers_list li.active').data('id');
+            if(customer_id!=null && customer_id!='' && customer_id!=0)
+            {
+               window.localStorage.setItem('customer_id', customer_id);
+               window.location = "sales_order_customer.html";
+            }
+        })
+    </script>
+</body>
+</html>

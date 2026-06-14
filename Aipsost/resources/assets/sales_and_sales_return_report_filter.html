@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="theme-color" content="#2563eb">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <title>Aipsoft – Report Filter</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/jquery-confirm.min.css">  
+    
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --blue:     #2563eb;
+            --blue-lt:  #dbeafe;
+            --text:     #0f172a;
+            --text-2:   #475569;
+            --text-3:   #94a3b8;
+            --bg:       #f1f5f9;
+            --white:    #ffffff;
+            --border:   #e2e8f0;
+            --border-2: #cbd5e1;
+            --r:        13px;
+            --r-sm:     10px;
+        }
+
+        html {
+    height: 100%;
+}
+
+body {
+    height: 100%;
+    width: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+
+        .page {
+            display: flex; flex-direction: column;
+            height: 100%; height: 100dvh;
+            padding-top: env(safe-area-inset-top, 0px);
+            padding-bottom: env(safe-area-inset-bottom, 0px);
+        }
+
+        .header {
+            flex-shrink: 0; background: linear-gradient(108deg, #1d4ed8 0%, #2563eb 55%, #0891b2 100%);
+            display: flex; align-items: center; gap: 10px; padding: 0 14px; height: 58px;
+            box-shadow: 0 2px 14px rgba(37,99,235,.3); z-index: 10;
+        }
+        .hdr-logo {
+            width: 36px; height: 36px; border-radius: 9px; background: rgba(255,255,255,.2);
+            border: 1.5px solid rgba(255,255,255,.35); display: flex; align-items: center; justify-content: center;
+            font-size: 15px; font-weight: 800; color: #fff;
+        }
+        .hdr-text { flex: 1; min-width: 0; }
+        .hdr-title { font-size: 13px; font-weight: 700; color: #fff; }
+        .hdr-sub { font-size: 11px; color: rgba(255,255,255,.65); }
+        .back-btn {
+            background: rgba(255,255,255,.15); border: 1.5px solid rgba(255,255,255,.3);
+            color: #fff; font-family: inherit; font-size: 12px; font-weight: 600; padding: 0 14px; height: 36px; border-radius: 8px;
+        }
+
+        .mid-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 14px; gap: 12px; }
+        .top-fixed { flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; }
+        
+        .card { background: var(--white); border: 1px solid var(--border); border-radius: var(--r); padding: 14px; }
+        .sec-label { font-size: 10.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--text-3); margin-bottom: 8px; }
+
+        /* FIXED: Date row layout to prevent right margin crash */
+        .date-row { display: flex; align-items: center; gap: 8px; width: 100%; }
+        .date-field { flex: 1; min-width: 0; }
+        .date-field label { display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--text-2); margin-bottom: 5px; }
+        
+        /* Removed Icon Padding and updated input */
+        .date-field input {
+            width: 100%; background: var(--white); border: 1.5px solid var(--border-2);
+            border-radius: var(--r-sm); padding: 10px 8px;
+            color: var(--text); font-family: inherit; font-size: 13px; font-weight: 600;
+            min-height: 40px; outline: none; appearance: none; -webkit-appearance: none;
+        }
+        
+        .date-arrow { flex-shrink: 0; display: flex; align-items: center; justify-content: center; padding-top: 18px; }
+        .date-arrow svg { width: 14px; height: 14px; color: var(--text-3); }
+
+        .chips { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+        .chip {
+            background: var(--bg); border: 1.5px solid var(--border-2); border-radius: 20px;
+            padding: 6px 12px; font-size: 9.5px; font-weight: 600; color: var(--text-2);
+            /* width: 60%; */
+            margin-top: 4px;
+        }
+        .chip.active { background: var(--blue-lt); border-color: var(--blue); color: var(--blue); }
+
+        .search-wrap { position: relative; }
+        .search-wrap input {
+            width: 100%; background: var(--white); border: 1.5px solid var(--border-2);
+            border-radius: var(--r-sm); padding: 12px 14px 12px 40px; font-size: 14px; outline: none; min-height: 42px;
+        }
+        .s-ico { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); width: 18px; color: var(--text-3); }
+        
+        .list-area { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; margin-top: 4px; }
+        .list-scroll {
+            flex: 1; overflow-y: auto; background: var(--white);
+            border: 1.5px solid var(--border); border-radius: var(--r);
+        }
+
+        .customers_list { list-style: none; padding: 5px; }
+        .customers_list li.item { display: flex; align-items: center; gap: 10px; padding: 12px 10px; border-radius: 9px; border-bottom: 1px solid var(--bg); }
+        .customers_list li.item:last-child { border-bottom: none; }
+        .customers_list li.item.active { background: #eff6ff; border: 1.5px solid var(--blue); }
+        .cust-av { width: 36px; height: 36px; border-radius: 50%; background: var(--blue-lt); display: flex; align-items: center; justify-content: center; font-weight: 700; color: var(--blue); font-size: 14px; }
+        .cust-name { font-size: 13px; font-weight: 600; color: var(--text); }
+        .cust-city { font-size: 11px; color: var(--text-3); }
+        .state-msg { text-align: center; padding: 30px 10px; color: var(--text-3); font-size: 13px; }
+
+        .footer { flex-shrink: 0; padding: 12px 14px; background: var(--white); border-top: 1px solid var(--border); }
+        .start-btn {
+            width: 100%; min-height: 52px; border: none; border-radius: 12px;
+            background: linear-gradient(108deg, #1d4ed8 0%, #2563eb 55%, #0891b2 100%);
+            color: #fff; font-size: 15px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+        }
+
+        /* From Uiverse.io by mrhyddenn */ 
+        /* The switch - the box around the slider */
+        .switch {
+            font-size: 12px;
+            position: relative;
+            display: inline-block;
+            width: 45px;
+            height: 26px;
+        }
+
+        /* Hide default HTML checkbox */
+        .switch input {
+            opacity: 1;
+            width: 0;
+            height: 0;
+        }
+
+        /* The slider */
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0px;
+            background: #fff;
+            transition: .4s;
+            border-radius: 30px;
+            border: 1px solid #ccc;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 1.9em;
+            width: 1.9em;
+            border-radius: 16px;
+            left: 1.2px;
+            top: 0;
+            bottom: 0;
+            background-color: white;
+            box-shadow: 0 2px 5px #999999;
+            transition: .4s;
+        }
+
+        input:checked + .slider {
+            background-color: #5fdd54;
+            border: 1px solid transparent;
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(1.5em);
+        }
+
+    </style>
+</head>
+
+<body>
+<div class="page">
+    <header class="header">
+        <div class="hdr-logo">A</div>
+        <div class="hdr-text">
+            <div class="hdr-title">Sales Invoice &amp; Return</div>
+            <div class="hdr-sub">Report Filter</div>
+        </div>
+        <button class="back-btn back_btn">&#8592; Back</button>
+    </header>
+
+    <div class="mid-wrap">
+        <div class="top-fixed">
+            <div class="card">
+                <div class="sec-label" style="text-align: center;">Date Range</div>
+                <div style="display: flex;">
+                    <div style="width: 50%;">
+                        <div class="date-row">
+                            <div class="date-field">
+                                <label>From</label>
+                                <input type="date" id="date_from">
+                            </div>                    
+                        </div>                
+                        <div class="date-row">                    
+                            <div class="date-field">
+                                <label>To</label>
+                                <input type="date" id="date_to">
+                            </div>
+                        </div>
+                    </div>
+                    <div style="width: 50%; padding-left: 20px;">
+                        <!-- <div class=""> -->
+                            <!-- <div class="chip" data-range="today">Today</div>
+                            <div class="chip" data-range="week">This Week</div>
+                            <div class="chip" data-range="month">This Month</div>
+                            <div class="chip" data-range="fy">This Financial Year</div> -->
+                            <div>
+                                <div style="font-size: 13px;">Show Received Amount</div>
+                                <label class="switch">
+                                    <input type="checkbox" id="show-receive-amt">
+                                    <span class="slider"></span>
+                                </label>
+                            </div> 
+                            <br>
+                            <div>
+                                <div style="font-size: 13px;">Exclude Fully Paid Bills</div>
+                                <label class="switch">
+                                    <input type="checkbox" id="exclude-paid-bill">
+                                    <span class="slider"></span>
+                                </label>                                
+                            </div>                            
+                        <!-- </div> -->
+                    </div>
+                </div>
+                <div style="margin-top: 4px;">
+                    <hr style=" border-top: 1px solid #e2e8f0;">
+                    <div class="sec-label" style="text-align: center; margin-top: 4px;">Branch</div>
+                    <div id="branches" style="display: flex; justify-content: space-around;"></div>
+                </div>
+            
+            </div>
+
+            <div>
+                <div class="sec-label">Customer Selection</div>
+                <div class="search-wrap">
+                    <input type="text" class="keyword_search" placeholder="Search customer name...">
+                    <svg class="s-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                </div>
+            </div>
+        </div>
+
+        <div class="list-area">
+            <div class="list-scroll">
+                <ul class="customers_list">
+                    <li class="state-msg">Search for a customer to filter</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <button class="start-btn startBtn">Generate Report</button>
+    </footer>
+</div>
+
+<script src="js/jquery-3.5.1.min.js"></script>
+<script src="js/config.js"></script>
+<script src="js/jquery-confirm.min.js"></script>
+<script>
+        
+    </script>
+<script>
+$(document).ready(function () {   
+    
+    const api_user_id       = window.localStorage.getItem('api_user_id');
+    const api_url           = window.localStorage.getItem('api_url');
+    const client_identifier = window.localStorage.getItem('client_identifier');
+    const startDate   = window.localStorage.getItem('si_and_sr_report_date_from') || null;
+    const endDate     = window.localStorage.getItem('si_and_sr_report_date_to') || null;
+    const showRecievedAmt       = window.localStorage.getItem('si_and_sr_report_show_recieved_amt') || 0;
+    const excludeFullyPaidBill  = window.localStorage.getItem('si_and_sr_report_hide_paid_bill') || 0;
+
+    function init(){
+
+        if((api_user_id == null || api_user_id == '' || api_url =='' || api_url == null)) {
+            window.location = "login.html";
+        } 
+        loadBranches();
+
+        if(startDate != null && endDate != null){
+            $('#date_from').val(startDate);
+            $('#date_to').val(endDate);
+        } else {
+            const now = new Date();
+            const today = now.toISOString().split('T')[0];
+            $('#date_from, #date_to').val(today);
+        }
+        if(showRecievedAmt == 1){ $('#show-receive-amt').prop('checked', true) } 
+        if(excludeFullyPaidBill == 1){ $('#exclude-paid-bill').prop('checked', true) } 
+    }
+    init();
+
+    function fmt(d) { return d.toISOString().split('T')[0]; }
+
+    function loadBranches(){
+        $.ajax({
+            type: "get",
+            url: api_url + "/purchase_api/load_branches",
+            data: {client_identifier : client_identifier},
+            dataType: "json",
+            success: function (response) {
+                if(response.status == 'success'){
+                    if(response.data.length > 0){
+                        let branch_html = '';
+                        response.data.forEach(function(value, index){
+                            let branch_id = window.localStorage.getItem('si_and_sr_report_branch_id') || null;
+                            selected = '';
+                            if(branch_id != null && branch_id == value.id){
+                                selected = 'checked';
+                            } else if(branch_id == null && value.id == 1) {                                
+                                selected = 'checked';
+                            }
+                            branch_html += `<div class="form-check-inline">
+                                <label class="form-check-label">
+                                    <input type="radio" class="form-check-input" id="radio_${index}" name="branch" value="${value.id}" ${selected}>
+                                    ${value.city}
+                                </label>
+                            </div>`;
+                        });
+                        $('#branches').html(branch_html);
+                        
+                    }
+                }
+            }
+        });
+    }
+
+    $('.chip').on('click', function () {
+        $('.chip').removeClass('active');
+        $(this).addClass('active');
+        const range = $(this).data('range');
+        let from = new Date();
+        let to = new Date();
+
+        if (range === 'week') from.setDate(from.getDate() - from.getDay());
+        else if (range === 'month') from = new Date(from.getFullYear(), from.getMonth(), 1);
+        else if (range === 'fy') from = new Date(from.getFullYear(), 0, 1);
+
+        $('#date_from').val(fmt(from));
+        $('#date_to').val(fmt(to));
+    });
+
+    $('.keyword_search').on('keyup', function (e) {
+        // if (e.which === 13) {
+            const val = $(this).val().trim();
+            if (!val) return;
+            $.post(api_url + '/purchase_api/loadCustomers', { keyword: val, client_identifier: client_identifier }, function(res) {
+                const data = JSON.parse(res);
+                if (data.status == 1 && data.data.data_count > 0) {
+                    let html = '';
+                    data.data.data_result.forEach(c => {
+                        html += `<li class="item" data-id="${c.id}">
+                                    <div class="cust-av">${c.acc_name1[0]}</div>
+                                    <div class="cust-info">
+                                        <div class="cust-name">${c.acc_name1}</div>
+                                        <div class="cust-city">${c.city}</div>
+                                    </div>
+                                 </li>`;
+                    });
+                    $('.customers_list').html(html);
+                }
+            });
+        // }
+    });
+
+    $(document).on('click', '.customers_list li.item', function () {
+        $('.customers_list li').removeClass('active');
+        $(this).addClass('active');
+    });
+
+
+
+    $('.startBtn').on('click', function () {
+        const from = $('#date_from').val().trim() || '';
+        const to = $('#date_to').val().trim() || '';
+        const cid = $('.customers_list li.active').data('id') || undefined;
+        const branch = $('input[name="branch"]:checked').val() || undefined;
+
+        if(from == ''){
+            $.alert({
+                title: 'Alert!',
+                content: 'From date is Required!',
+            });
+            return;
+        }
+        if(to == ''){
+            $.alert({
+                title: 'Alert!',
+                content: 'End date is Required!',
+            });
+            return;
+        }
+        // if(cid == undefined){
+        //     $.alert({
+        //         title: 'Alert!',
+        //         content: 'Customer Required!',
+        //     });
+        //     return;
+        // }
+        if(branch == undefined){
+            $.alert({
+                title: 'Alert!',
+                content: 'Branch Required!',
+            });
+            return;
+        }
+
+        showReceiveAmt = $('#show-receive-amt').is(':checked') ? 1 : 0;
+        // console.log('showReceiveAmt: '+showReceiveAmt);
+        paidBillExclude = $('#exclude-paid-bill').is(':checked') ? 1 : 0;
+        // console.log('paidBillExclude: '+paidBillExclude);
+
+        window.localStorage.setItem('si_and_sr_report_date_from', from);
+        window.localStorage.setItem('si_and_sr_report_date_to', to);
+        window.localStorage.setItem('si_and_sr_report_customer_id', cid || '');
+        window.localStorage.setItem('si_and_sr_report_branch_id', branch);
+        window.localStorage.setItem('si_and_sr_report_show_recieved_amt', showReceiveAmt);
+        window.localStorage.setItem('si_and_sr_report_hide_paid_bill', paidBillExclude);
+        window.location = 'sales_and_sales_return_report.html';
+    });
+    
+    $('.back_btn').on('click', function() { window.location = 'home.html'; });
+});
+</script>
+</body>
+</html>

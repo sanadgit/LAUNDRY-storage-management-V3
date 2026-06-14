@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <!-- Meta, title, CSS, favicons, etc. -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">     
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Aipsoft Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;300;400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/jquery-confirm.min.css">
+    <script type="text/javascript">
+    let serverurl = 'https://magnus.aipsoft.com/rc/remote_user';    
+    // let serverurl = 'http://localhost/development/rc/remote_user';    
+    let api_user_id  = window.localStorage.getItem('api_user_id');
+    if((api_user_id != null && api_user_id != 0)) {
+        // window.location.replace(`landing.html`);
+        window.location = "landing.html";
+    }
+    </script>
+    <script src="js/config.js"></script>
+</head>
+
+
+<style type="text/css">
+
+    body {
+        font-family: 'Roboto', sans-serif;
+        margin: 0;
+    }
+    .nav_deader {
+        background-image: linear-gradient(to right, #305daf , #17a9ca);
+        /*background-image: linear-gradient(#252525, #070707);*/
+        padding: 8px;
+        color: #fff;
+        overflow: hidden;
+    }
+    .aiplogo {
+        float: left;
+        margin-right: 8px;
+    }
+    .nav_text p {
+        font-size: 14px;
+        margin: 0;
+        font-weight: 400;
+        margin-top: 2px;
+    }
+    .login{
+        padding: 30px;
+    }
+    .login img{
+        margin:auto;
+        display: block;
+        margin-bottom: 30px;
+    }    
+    .username label{
+        color: #3e3e3e;
+        font-size: 14px;
+        font-weight: 400;
+        margin-bottom: 3px;
+    }
+    .username input {
+        border: 1px solid #e0e0e0;
+        padding: 10px 8px;
+        font-size: 14px;
+        font-weight: 400;
+        color: #24314a;
+        width: 100%;
+        border-radius: 5px;
+        margin-top: 5px;
+        padding-left: 30px;
+        width: -webkit-fill-available;
+    } 
+    .password label{
+        color: #4c4c4c;
+        font-size: 14px;
+        font-weight: 400;
+        margin-bottom: 3px;
+    }
+    .password input {
+        border: 1px solid #e0e0e0;
+        padding: 10px 8px;
+        font-size: 14px;
+        font-weight: 400;
+        color: #333;
+        width: 100%;
+        margin-top: 5px;
+        border-radius: 5px;
+        padding-left: 30px;
+        overflow: hidden;
+        width: -webkit-fill-available;
+    }
+    .username{
+        margin-bottom: 20px;
+        position: relative;
+    }
+    .password{
+        margin-bottom: 10px;
+        position: relative;
+    }
+    .remind {
+        margin-bottom: 25px;
+        font-size: 14px;
+    }
+    .remind label {
+        color: #6f6f6f;
+    }
+    .login_btn {
+        width: 100%;
+        padding: 15px;
+        background-image: linear-gradient(to right, #305daf , #17a9ca);
+        font-size: 15px;
+        font-weight: 600;
+        color: #fff;
+        border-radius: 34px;
+        border: 0;
+        letter-spacing: 5px;
+        text-transform: uppercase;    
+    }
+    .login_footer_text p {
+        margin: 5px;
+        font-size: 14px;
+        color: #1b3048;
+    }
+    .device_cont label {
+        width: 100%;
+        display: flex;
+        margin-bottom: 5px;
+    }
+    .device_cont select {
+        width: 100%;
+        display: flex;
+        padding: 10px;
+        border-radius: 4px;
+        border: 1px solid #8a8a8a;
+        font-size: 14px;
+        color: #464646;
+    }
+    .login_cont .input_img {
+        position: absolute;
+        top: 35px;
+        margin: 0;
+        left: 8px;
+    }
+    .login_cont {
+        position: relative;
+    }
+
+    .device_pin_wrap .device_img {
+        position: absolute;
+        top: 38px;
+        margin: 0;
+        left: 8px;
+    }
+    .device_pin_wrap {
+        position: relative;
+    }
+
+    .hidden{
+        display: none;
+    }
+
+/*------------loader------------------------*/
+
+     /* Absolute Center Spinner */
+.loading {
+  position: fixed;
+  z-index: 999;
+  height: 2em;
+  width: 2em;
+  overflow: show;
+  margin: auto;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  right: 0;
+}
+
+/* Transparent Overlay */
+.loading:before {
+  content: '';
+  display: block;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+    background: radial-gradient(rgba(20, 20, 20,.7), rgba(0, 0, 0, .7));
+
+  background: -webkit-radial-gradient(rgba(20, 20, 20,.7), rgba(0, 0, 0,.7));
+}
+
+/* :not(:required) hides these rules from IE9 and below */
+.loading:not(:required) {
+  /* hide "loading..." text */
+  font: 0/0 a;
+  color: transparent;
+  text-shadow: none;
+  background-color: transparent;
+  border: 0;
+}
+
+.loading:not(:required):after {
+  content: '';
+  display: block;
+  font-size: 10px;
+  width: 1em;
+  height: 1em;
+  margin-top: -0.5em;
+  -webkit-animation: spinner 150ms infinite linear;
+  -moz-animation: spinner 150ms infinite linear;
+  -ms-animation: spinner 150ms infinite linear;
+  -o-animation: spinner 150ms infinite linear;
+  animation: spinner 150ms infinite linear;
+  border-radius: 0.5em;
+  -webkit-box-shadow: rgba(255,255,255, 0.75) 1.5em 0 0 0, rgba(255,255,255, 0.75) 1.1em 1.1em 0 0, rgba(255,255,255, 0.75) 0 1.5em 0 0, rgba(255,255,255, 0.75) -1.1em 1.1em 0 0, rgba(255,255,255, 0.75) -1.5em 0 0 0, rgba(255,255,255, 0.75) -1.1em -1.1em 0 0, rgba(255,255,255, 0.75) 0 -1.5em 0 0, rgba(255,255,255, 0.75) 1.1em -1.1em 0 0;
+box-shadow: rgba(255,255,255, 0.75) 1.5em 0 0 0, rgba(255,255,255, 0.75) 1.1em 1.1em 0 0, rgba(255,255,255, 0.75) 0 1.5em 0 0, rgba(255,255,255, 0.75) -1.1em 1.1em 0 0, rgba(255,255,255, 0.75) -1.5em 0 0 0, rgba(255,255,255, 0.75) -1.1em -1.1em 0 0, rgba(255,255,255, 0.75) 0 -1.5em 0 0, rgba(255,255,255, 0.75) 1.1em -1.1em 0 0;
+}
+
+/* Animation */
+
+@-webkit-keyframes spinner {
+  0% {
+    -webkit-transform: rotate(0deg);
+    -moz-transform: rotate(0deg);
+    -ms-transform: rotate(0deg);
+    -o-transform: rotate(0deg);
+    transform: rotate(0deg);
+  }
+  100% {
+    -webkit-transform: rotate(360deg);
+    -moz-transform: rotate(360deg);
+    -ms-transform: rotate(360deg);
+    -o-transform: rotate(360deg);
+    transform: rotate(360deg);
+  }
+}
+@-moz-keyframes spinner {
+  0% {
+    -webkit-transform: rotate(0deg);
+    -moz-transform: rotate(0deg);
+    -ms-transform: rotate(0deg);
+    -o-transform: rotate(0deg);
+    transform: rotate(0deg);
+  }
+  100% {
+    -webkit-transform: rotate(360deg);
+    -moz-transform: rotate(360deg);
+    -ms-transform: rotate(360deg);
+    -o-transform: rotate(360deg);
+    transform: rotate(360deg);
+  }
+}
+@-o-keyframes spinner {
+  0% {
+    -webkit-transform: rotate(0deg);
+    -moz-transform: rotate(0deg);
+    -ms-transform: rotate(0deg);
+    -o-transform: rotate(0deg);
+    transform: rotate(0deg);
+  }
+  100% {
+    -webkit-transform: rotate(360deg);
+    -moz-transform: rotate(360deg);
+    -ms-transform: rotate(360deg);
+    -o-transform: rotate(360deg);
+    transform: rotate(360deg);
+  }
+}
+@keyframes spinner {
+  0% {
+    -webkit-transform: rotate(0deg);
+    -moz-transform: rotate(0deg);
+    -ms-transform: rotate(0deg);
+    -o-transform: rotate(0deg);
+    transform: rotate(0deg);
+  }
+  100% {
+    -webkit-transform: rotate(360deg);
+    -moz-transform: rotate(360deg);
+    -ms-transform: rotate(360deg);
+    -o-transform: rotate(360deg);
+    transform: rotate(360deg);
+  }
+}
+  /*------------loader--------------------------*/  
+
+/* CSS specific to iOS devices */ 
+
+@supports (-webkit-touch-callout: none) {
+    .nav_deader {
+        padding-top: 50px;
+    }
+
+}
+
+
+
+</style>
+
+<body>
+
+    <div class="loading main_loader hidden">
+    </div>
+
+    <div class="nav_deader">
+        <div class="aiplogo">
+            <img src="images/aipsoft.png">
+        </div>
+        <div class="nav_text">
+            <p>AipSoft - Login</p> 
+        </div>
+    </div>
+
+    <div class="login">
+        <img src="images/aipconnect.png">
+
+
+<div class="api_url_cont login_cont" style="display:none;">
+        <div class="username form_element">
+             <img class="input_img" src="images/url.png">
+            <label>PLEASE RESET YOUR API URL</label>
+
+            <input type="text" value="http://192.168." name="api_url_set" id="api_url_set" class="api_url required">
+        </div> 
+        <p>Please make sure, you are entering the currect api url: eg: http://192.168.1.5/company</p>
+        <button type="button" class="login_btn" onclick="set_api_url();">Submit</button>
+</div>
+
+
+<div class="login_cont login_cont_div">
+        <!-- <div class="username form_element">
+            <img class="input_img" src="images/url.png"> 
+            <label>API URL</label>
+            <input type="text" name="api_url" class="api_url required">
+        </div>  -->
+        <div class="username form_element">
+            <img class="input_img" src="images/user.png"> 
+            <label>Username</label>
+            <input type="text" name="api_user" class="api_user required">
+
+        </div>       
+        <div class="password form_element">
+            <img class="input_img" src="images/lock.png"> 
+            <label>Password</label>
+            <input type="password" name="api_pwd" class="api_pwd required">
+        </div>
+        <div class="remind">
+            <label>
+              <input type="checkbox" name="remember" class="remember_me"> Remind me</label>
+        </div>
+        <button type="button" class="login_btn login_action">Login</button>
+</div>
+
+
+<div class="device_cont" style="display:none;">
+        
+        <div class="username form_element">
+            <label>Select Device</label>
+            <select type="text" name="api_user" id="device_list" class="api_user device_list required">
+                <option>Select One</option>
+                <option value="1">Device 01</option>
+            </select>
+        </div>       
+        <div class="password form_element device_pin_wrap">
+            <img class="device_img" src="images/devicepin.png"> 
+            <label>Device PIN</label>
+            <input type="password" name="device_pin" class="device_pin required">
+        </div>
+        
+        <button type="button" class="login_btn verfy_action">Verify PIN</button>
+</div>
+
+
+    </div>
+
+    <div class="login_footer_text">
+        <p align="center"><b>Software Sale & Support</b></p>
+        <p align="center">Magnus World IT Solution, Abu Dhabi</p>
+        <p align="center">+971 56 6644 516, +971 56 6644 514</p>
+    </div>
+
+
+<script type="text/javascript" src="js/jquery-3.5.1.min.js"></script>
+<script src="js/jquery-confirm.min.js"></script>
+<script>
+
+function bin2hex(str)
+    {
+        let i;
+        let l;
+        let output = '';
+        let n;
+        str += '';
+        for (i = 0, l = str.length; i < l; i++)
+        {
+            n = str.charCodeAt(i).toString(16);
+            output += n.length < 2 ? '0' + n : n;
+        }
+        return output;
+    }
+   
+    function EncryptData(data,salt)
+    {
+        partial_result = salt+data+salt;           //Salt Added on both side of the Data
+        partial_result = partial_result.split("").reverse().join("");
+        partial_result = bin2hex(partial_result);  //Convert the reversed Data to Hexadecimal
+        final_result   = partial_result.split("").reverse().join("");  //Reverse the Hexadecimal Data
+        return final_result;
+    }
+    
+
+function set_api_url() {
+    
+    var set_api_url = $('#api_url_set').val();
+    window.localStorage.setItem('api_url',set_api_url);
+    location.reload();
+}
+
+
+function setdeivcedata(imei_id, device_name, device_os, fcm_id)
+{
+//document.getElementById('device_info').innerHTML = 'IMEI: '+imei_id+'<br>Device Name: '+device_name+'<br>Deivce OS: '+device_os+'<br>FCM ID: '+fcm_id;
+window.localStorage.setItem('imei_id',imei_id);
+window.localStorage.setItem('device_name',device_name);
+window.localStorage.setItem('device_os',device_os);
+window.localStorage.setItem('fcm_id',fcm_id);
+
+$('.login_cont_div').hide();
+$('.device_cont').fadeIn();
+
+}
+
+
+let salt  = "xxmQ";        
+  
+    let api_url  = window.localStorage.getItem('api_url');
+    let api_user = window.localStorage.getItem('api_user');
+    let api_pwd  = window.localStorage.getItem('api_pwd');
+    let client_id  = window.localStorage.getItem('client_id');
+    let remember_me  = window.localStorage.getItem('remember_me');
+    console.log('remember_me - '+remember_me)
+    $(document).ready(function() {
+        
+        // //new WOW().init();
+        if((api_user_id != null && api_user_id != 0)) {
+            // window.location.replace(`landing.html`);
+            window.location = "landing.html";
+        }
+        if(remember_me==1)
+        {
+            //$('.api_url').val(api_url);
+            $('.api_user').val(api_user+'@'+client_id);
+            $('.api_pwd').val(api_pwd);
+            $('.remember_me').prop('checked',true);
+        }
+        
+
+        $('.login_action').click(function(){
+
+            let mac_updated  = window.localStorage.getItem('mac_updated');
+           
+            let api_user_in = $('.api_user').val(); //alert(api_user_in);
+            let api_pwd     = $('.api_pwd').val();
+            let remember_me = $('.remember_me').is(":checked") ? '1' : '0';
+            if(!api_user_in.includes("@"))
+            {
+                $.alert('Invalid Username..!, it must includes username"@"company id');
+                return false; 
+            }
+            
+
+               let userinput = api_user_in.split("@");
+                client_id = userinput[1];
+                let new_api_user = userinput[0];
+            
+            window.localStorage.setItem('remember_me',remember_me);
+            window.localStorage.setItem('api_user',new_api_user);
+            window.localStorage.setItem('api_pwd',api_pwd);
+            window.localStorage.setItem('client_id',client_id);
+
+            let action_enc  = EncryptData('verify_user',salt);
+            let company_id_enc  = EncryptData(client_id,salt);
+            let aip_user_enc = EncryptData(new_api_user,salt);
+            let api_pwd_enc = EncryptData(api_pwd,salt);
+
+            console.log('company_id: '+client_id);
+            console.log('action: '+action_enc);
+            console.log('user-1: '+new_api_user);
+            console.log('pass: '+api_pwd_enc);
+
+
+            if(mac_updated!=null && mac_updated != '')
+            {
+                login_to_app(client_id,new_api_user,api_pwd,api_url);
+                return false;
+            }
+
+
+            $.ajax({
+                    url: serverurl,
+                    method: 'POST',
+                    data: {'sudo1': company_id_enc,'sudo2':aip_user_enc,'sudo3':api_pwd_enc,'sudo4':action_enc},
+                    beforeSend: function() {
+                        $('.main_loader').removeClass('hidden');   
+                    },
+                    complete: function (request) {
+                        $('.main_loader').addClass('hidden');   
+                    },
+                    success: function(response) {
+                        $('.login_action').removeAttr("disabled");
+                        var data =JSON.parse(response);
+                        console.log(data);
+                        if(data.response_code==1)
+                        {
+                            $("#device_list").empty();
+                            $("#device_list").append("<option value='0'>Select One</option>");
+                            $.each(data.response_data,function(index,each_option){
+                                $("#device_list").append("<option value='"+each_option['device_id']+"'>"+each_option['group_name']+" - "+each_option['device_name']+"</option>");
+                            });
+
+get_device_data(); // remove ok for ios
+
+                            $('.login_cont_div').hide();
+                            $('.device_cont').fadeIn();
+
+                           // let successData = data.data;
+                           //  window.localStorage.setItem('api_url',api_url);
+                           //  window.localStorage.setItem('api_user',api_user);
+                           //  window.localStorage.setItem('api_pwd',api_pwd);
+                           //  window.localStorage.setItem('api_user_id',successData.user_id);
+                           //  window.localStorage.setItem('client_identifier',successData.oem_identifier);
+                           //  window.localStorage.setItem('branch_id',successData.branch_id);
+                           //  window.localStorage.setItem('currency_id',successData.currency_id);
+                           //  window.localStorage.setItem('order_id',successData.pending_order);
+                           //  window.localStorage.setItem('order_id_grv',successData.pending_order_grv);
+                           //  window.localStorage.setItem('tax_included',successData.purchase_tax_included);
+                           //  // if(successData.pending_order==0)
+                           //  //     window.location = "landing.html";
+                           //  // else
+                           //  //     window.location = "grn_item.html";
+                           //   window.location = "landing.html";
+                        }
+                        else
+                        {
+                             $.alert('Invalid Credentials..!');
+                             return false;
+                        }
+                        
+                        // if($('#scroll_container').height() > 610) {
+                        //  $('.scroll_icon').css('display', 'block');
+                        // }
+                    },
+                    error:function (xhr, ajaxOptions, thrownError){
+                            // if(xhr.status==404) {
+                                $('.login_action').removeAttr("disabled");
+                                $.alert('Error Found, Or Invalid Credentials..!');
+                                return false;
+                               
+                            // }
+                        }   
+
+                });
+
+
+
+
+
+
+
+            //let api_url     = $('.api_url').val();
+            
+            if(api_url!='' && api_user!='' && api_pwd!='')
+            {
+                $('.login_action').attr('disabled', 'disabled');
+                
+                // $('.login_cont_div').hide();
+                // $('.device_cont').fadeIn();
+
+
+            }
+            // alert('clicked - --------- '+remember_me);
+        })
+        setTimeout(function(){$('.api_url').select()},100)
+    });
+    
+
+$('.verfy_action').click(function(){
+
+    let api_user  = window.localStorage.getItem('api_user');
+    let api_pwd  = window.localStorage.getItem('api_pwd');
+    let client_id = window.localStorage.getItem('client_id');
+    
+    if((api_user != null && api_user != '' && api_pwd != null && api_pwd != '')) {
+        aip_user_enc = EncryptData(api_user,salt);
+        api_pwd_enc = EncryptData(api_pwd,salt); 
+    }
+    else
+    {
+     $.alert('Something went wrong..!');  return false; 
+    }
+
+
+    let device_id    = $('.device_list').val(); 
+    let device_pass     = $('.device_pin').val();
+
+    let action_enc  = EncryptData('verify_pin',salt);
+    let company_id_enc  = EncryptData(client_id,salt);
+    let device_id_enc = EncryptData(device_id,salt);
+    let device_pass_enc = EncryptData(device_pass,salt);
+
+    console.log('device_id_enc: '+device_id_enc);
+
+    $.ajax({
+                    url: serverurl,
+                    method: 'POST',
+                    data: {'sudo1': company_id_enc,'sudo2':aip_user_enc,'sudo3':api_pwd_enc,'sudo4':action_enc,'sudo5':device_id_enc,'sudo6':device_pass_enc},
+                    beforeSend: function() {
+                        $('.main_loader').removeClass('hidden');   
+                    },
+                    complete: function (request) {
+                        $('.main_loader').addClass('hidden');   
+                    },
+                    success: function(response) {
+                        $('.login_action').removeAttr("disabled");
+                        var data =JSON.parse(response);
+                        console.log(data);
+                        if(data.response_text=='Pin verification succeeded')
+                        {
+                            let connectapiurl = data.response_value.server_url;
+                            if(connectapiurl == null || connectapiurl =='')
+                            {
+                            //get conectairul from serverurl
+                            let finalurl = serverurl.substring(0, serverurl.length-14);
+                            connectapiurl =finalurl+client_id; 
+                            window.localStorage.setItem('device_id',device_id);
+                            updateMacAddressandlogin(client_id,client_id,api_user,api_pwd,connectapiurl);
+                            }
+                            else
+                            {
+                            let new_client_id_from_url = connectapiurl.split("/").pop();
+                            window.localStorage.setItem('device_id',device_id);
+                            updateMacAddressandlogin(new_client_id_from_url,client_id,api_user,api_pwd,connectapiurl);
+                            }
+
+                            
+
+                        }
+                        else
+                        {
+                             $.alert('Invalid Device Pin..!');
+                             return false;
+                        }
+                        
+                        // if($('#scroll_container').height() > 610) {
+                        //  $('.scroll_icon').css('display', 'block');
+                        // }
+                    },
+                    error:function (xhr, ajaxOptions, thrownError){
+                            // if(xhr.status==404) {
+                                $('.login_action').removeAttr("disabled");
+                                $.alert('Error Found, Or Invalid Credentials..!');
+                                return false;
+                               
+                            // }
+                        }   
+
+                });
+
+
+});
+
+
+function updateMacAddressandlogin(company_id_from_url,company_id,api_user,api_pwd,connectapiurl)
+{
+    let new_device_id  = window.localStorage.getItem('device_id');
+    let mac_id  = window.localStorage.getItem('imei_id');
+    let os = window.localStorage.getItem('device_os');
+    let fcm_id = window.localStorage.getItem('fcm_id');
+    let installing_os = window.localStorage.getItem('installing_os');
+    if(installing_os == 'system')
+    {
+    mac_id = 'no_mac'; // testing purpose
+    os = installing_os; // testing purpose
+    }
+    // mac_id = '65656565'; // testing purpose
+    // os = 'test'; // testing purpose
+
+if(mac_id != null && mac_id != '' && os != null && os != '')
+    {
+$.ajax({
+                    url: serverurl,
+                    method: 'POST',
+                    data: {'sudo1':EncryptData(company_id, salt),'sudo2':EncryptData(api_user, salt),'sudo3':EncryptData(api_pwd, salt),'sudo4':EncryptData('update_mac', salt),'sudo5':EncryptData(new_device_id, salt),'sudo7':EncryptData(mac_id, salt),'sudo8':EncryptData(os, salt),'sudo11':EncryptData(fcm_id, salt)},
+                    success: function(response) {
+                        $('.login_action').removeAttr("disabled");
+                        var data =JSON.parse(response);
+                        console.log(data);
+                        if(data.response_text=='MAC Updated Successfully' || mac_id == 'no_mac')
+                        {
+                            window.localStorage.setItem('mac_updated',mac_id);
+                            login_to_app(company_id_from_url,api_user,api_pwd,connectapiurl);
+                        }
+                        else
+                        {
+                             $.alert('Error. \nInvalid Device Data..! or Device Already Registered, '+data.response_text+',(Device: '+mac_id+'), Please Contact Your Admin !');
+                             return false;
+                        }
+                        
+                        // if($('#scroll_container').height() > 610) {
+                        //  $('.scroll_icon').css('display', 'block');
+                        // }
+                    },
+                    error:function (xhr, ajaxOptions, thrownError){
+                            // if(xhr.status==404) {
+                                $('.login_action').removeAttr("disabled");
+                                $.alert('Error Found, Or Invalid Credentials..!');
+                                return false;
+                               
+                            // }
+                        }   
+
+                });
+
+}
+else
+{
+     $.alert('Invalid Device data !, Contact software vendor !');
+     get_device_data();
+      return false;
+        // login_to_app(company_id,api_user,api_pwd,connectapiurl);
+}
+
+}
+
+
+
+function login_to_app(company_id,api_user,api_pwd,connectapiurl)
+{
+    $('.login_cont_div').fadeIn();
+    $('.device_cont').hide();
+    window.localStorage.setItem('api_url',connectapiurl);
+
+    $.ajax({
+                    url: connectapiurl+'/purchase_api/login_action',
+                    method: 'POST',
+                    data: {'username': api_user+'@'+company_id,'password':api_pwd},
+                    beforeSend: function() {
+                        $('.main_loader').removeClass('hidden');   
+                    },
+                    complete: function (request) {
+                        $('.main_loader').addClass('hidden');   
+                    },
+                    success: function(response) {
+                        $('.login_action').removeAttr("disabled");
+                        var data =JSON.parse(response);
+                        console.log(data);
+                        if(data.status==1)
+                        {
+                           let successData = data.data;
+                            window.localStorage.setItem('api_url',connectapiurl);
+                            window.localStorage.setItem('api_user',api_user);
+                            window.localStorage.setItem('api_pwd',api_pwd);
+                            window.localStorage.setItem('api_user_id',successData.user_id);
+                            window.localStorage.setItem('client_identifier',successData.oem_identifier);
+                            window.localStorage.setItem('branch_id',successData.branch_id);
+                            window.localStorage.setItem('currency_id',successData.currency_id);
+                            window.localStorage.setItem('order_id',successData.pending_order);
+                            window.localStorage.setItem('order_id_grv',successData.pending_order_grv);
+                            window.localStorage.setItem('tax_included',successData.purchase_tax_included);
+                            window.localStorage.setItem('client_id',company_id);
+                            // if(successData.pending_order==0)
+                            //     window.location = "landing.html";
+                            // else
+                            //     window.location = "grn_item.html";
+                             window.location = "landing.html";
+                        }
+                        else
+                        {
+                             $.alert('Invalid Credentials..!, '+api_user+'@'+company_id);
+                             return false;
+                        }
+                        
+                        // if($('#scroll_container').height() > 610) {
+                        //  $('.scroll_icon').css('display', 'block');
+                        // }
+                    },
+                    error:function (xhr, ajaxOptions, thrownError){
+                            $('.login_action').removeAttr("disabled");
+                            if (xhr.status === 0 && xhr.statusText === 'error') {
+                                $.alert('No connection established to '+connectapiurl+"<br><br>please check.!");
+                            } else {
+                                $.alert("<h2>Invalid Credentials..!</h2>Api:" + connectapiurl + "\nUser:" + api_user + '@' + company_id);
+                                // $('.login_cont_div').hide();
+                                // $('.api_url_cont').fadeIn();
+                            }
+                            return false;
+                        }   
+
+                });
+}
+
+
+    $(document).on('keyup','.form_element input',function(e){
+        let val = $(this).val();
+        if(val!='' && (e.which == 13  || e.keyCode == 13))
+        {
+            if($(this).parents('.form_element').next('.form_element').find('input').length > 0)
+            {
+                $(this).parents('.form_element').next('.form_element').find('input').select();
+            }
+            else
+            {
+                $('.login_action').click();
+            }
+        }
+    })
+
+
+</script>
+</body>
+
+</html>

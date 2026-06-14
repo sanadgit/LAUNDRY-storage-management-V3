@@ -65,6 +65,7 @@ type SQLiteUserRecord = {
   created_at: string | null;
   updated_at: string | null;
   last_login_at: string | null;
+  branch_id?: number | null;
 };
 
 type ApiUser = {
@@ -79,6 +80,21 @@ type ApiUser = {
   created_at: string | null;
   updated_at: string | null;
   last_login_at: string | null;
+  branch_id: number | null;
+  branch_name?: string | null;
+};
+
+type BranchRecord = {
+  id: number;
+  name: string;
+  city: string;
+  trade_license: string | null;
+  phone: string | null;
+  address: string | null;
+  status: 'active' | 'inactive';
+  notes: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 };
 
 type SessionRecord = {
@@ -177,6 +193,7 @@ type PosOrderDetailLineItem = {
   total_with_tax: number;
   barcode: string;
   unit: string;
+  remark: string;
 };
 
 type PosOrderDetailsResult = {
@@ -233,6 +250,12 @@ type CustomerAlertCandidate = {
   order_no: string;
   customer_name: string;
   phone: string;
+  phone_normalized: string;
+  pos_status: PosSortingMeta['pos_order_status'] | '';
+  order_date: string;
+  delivery_date: string;
+  customer_address: string;
+  remark: string;
   quantity_in_order: number;
   quantity_in_store: number;
   qty_in_order: number;
@@ -247,12 +270,32 @@ type CustomerAlertCandidate = {
     store: string;
     row: number;
     column: number;
+    store_rows?: number;
+    store_columns?: number;
+    store_type?: string;
     status: string;
     created_at: string | null;
   }>;
   pos_error?: string;
   last_alert_status: string | null;
   last_alert_at: string | null;
+};
+
+type CustomerAlertPhoneSeverity = 'critical' | 'high' | 'medium' | 'low';
+
+type CustomerAlertPhoneGroup = {
+  id: string;
+  phone: string;
+  display_phone: string;
+  customer_names: string[];
+  order_count: number;
+  stored_piece_count: number;
+  delivered_stored_count: number;
+  mismatch_count: number;
+  oldest_stored_at: string | null;
+  severity: CustomerAlertPhoneSeverity;
+  alerts: string[];
+  orders: CustomerAlertCandidate[];
 };
 
 type SortingOrderStatus =
@@ -288,6 +331,7 @@ type SortingCellRecord = {
 type SortingOrderRecord = {
   order_no: string;
   customer_name: string;
+  customer_phone: string | null;
   total_required: number;
   total_sorted: number;
   total_ironed: number;
@@ -297,6 +341,17 @@ type SortingOrderRecord = {
   col_no: number | null;
   source_orders_id: string | null;
   source_invoice_id: string | null;
+  pos_order_status: string | null;
+  pos_payment_status: string | null;
+  pos_status_flags: string | null;
+  pos_remark: string | null;
+  pos_total: number | null;
+  pos_paid: number | null;
+  pos_balance: number | null;
+  pos_order_date: string | null;
+  pos_delivery_date: string | null;
+  pos_delivery_time: string | null;
+  pos_last_synced_at: string | null;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
@@ -323,7 +378,52 @@ type SortingIroningEventRecord = {
   timestamp: string;
 };
 
+type SortingIroningSessionRecord = {
+  id: number;
+  order_no: string;
+  status: 'in_progress' | 'completed' | 'paused';
+  worker: string;
+  team_members: string | null;
+  started_at: string;
+  ended_at: string | null;
+  pieces_target: number;
+  pieces_ironed: number;
+  quality_score: number | null;
+  notes: string | null;
+  request_id: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+type BlanketPackingLogRecord = {
+  id: number;
+  order_number: string;
+  customer_name: string | null;
+  customer_phone: string | null;
+  blanket_index: number;
+  total_blankets: number;
+  action: 'printed' | 'reprinted' | 'packed';
+  status: 'not_packed' | 'partially_packed' | 'fully_packed' | 'error';
+  printed_at: string | null;
+  packed_by: string | null;
+  created_at: string | null;
+  request_id?: string | null;
+};
+
 db.exec(`
+  CREATE TABLE IF NOT EXISTS branches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    city TEXT NOT NULL DEFAULT '',
+    trade_license TEXT,
+    phone TEXT,
+    address TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    notes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL,
@@ -352,7 +452,8 @@ db.exec(`
     store_opacity REAL DEFAULT 1,
     cell_width REAL DEFAULT 0.5,
     cell_depth REAL DEFAULT 0.5,
-    cell_height REAL DEFAULT 0.11
+    cell_height REAL DEFAULT 0.11,
+    branch_id INTEGER DEFAULT 1
   );
 
   CREATE TABLE IF NOT EXISTS blankets (
@@ -486,6 +587,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS sorting_orders (
     order_no TEXT PRIMARY KEY,
     customer_name TEXT NOT NULL DEFAULT '',
+    customer_phone TEXT,
     total_required INTEGER NOT NULL DEFAULT 0,
     total_sorted INTEGER NOT NULL DEFAULT 0,
     total_ironed INTEGER NOT NULL DEFAULT 0,
@@ -495,6 +597,17 @@ db.exec(`
     col_no INTEGER,
     source_orders_id TEXT,
     source_invoice_id TEXT,
+    pos_order_status TEXT,
+    pos_payment_status TEXT,
+    pos_status_flags TEXT,
+    pos_remark TEXT,
+    pos_total REAL DEFAULT 0,
+    pos_paid REAL DEFAULT 0,
+    pos_balance REAL DEFAULT 0,
+    pos_order_date TEXT,
+    pos_delivery_date TEXT,
+    pos_delivery_time TEXT,
+    pos_last_synced_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     completed_at DATETIME
@@ -522,6 +635,23 @@ db.exec(`
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS sorting_ironing_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_no TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'in_progress',
+    worker TEXT DEFAULT 'system',
+    team_members TEXT,
+    started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    ended_at DATETIME,
+    pieces_target INTEGER NOT NULL DEFAULT 0,
+    pieces_ironed INTEGER NOT NULL DEFAULT 0,
+    quality_score REAL,
+    notes TEXT,
+    request_id TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE TABLE IF NOT EXISTS sorting_blanket_packing_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     order_no TEXT NOT NULL,
@@ -530,6 +660,21 @@ db.exec(`
     user TEXT DEFAULT 'system',
     request_id TEXT,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS blanket_packing_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_number TEXT NOT NULL,
+    customer_name TEXT,
+    customer_phone TEXT,
+    blanket_index INTEGER NOT NULL DEFAULT 0,
+    total_blankets INTEGER NOT NULL DEFAULT 0,
+    action TEXT NOT NULL DEFAULT 'printed',
+    status TEXT NOT NULL DEFAULT 'not_packed',
+    printed_at DATETIME,
+    packed_by TEXT,
+    request_id TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
   CREATE TABLE IF NOT EXISTS sorting_scans (
@@ -568,8 +713,13 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_sorting_scans_order_no ON sorting_scans(order_no, timestamp);
   CREATE INDEX IF NOT EXISTS idx_sorting_ironing_events_order_no ON sorting_ironing_events(order_no, timestamp);
   CREATE INDEX IF NOT EXISTS idx_sorting_ironing_events_user ON sorting_ironing_events(user, timestamp);
+  CREATE INDEX IF NOT EXISTS idx_sorting_ironing_sessions_order_no ON sorting_ironing_sessions(order_no, started_at);
+  CREATE INDEX IF NOT EXISTS idx_sorting_ironing_sessions_worker ON sorting_ironing_sessions(worker, started_at);
+  CREATE INDEX IF NOT EXISTS idx_sorting_ironing_sessions_status ON sorting_ironing_sessions(status, updated_at);
   CREATE INDEX IF NOT EXISTS idx_sorting_blanket_events_order_no ON sorting_blanket_packing_events(order_no, timestamp);
   CREATE INDEX IF NOT EXISTS idx_sorting_blanket_events_user ON sorting_blanket_packing_events(user, timestamp);
+  CREATE INDEX IF NOT EXISTS idx_blanket_packing_logs_order_no ON blanket_packing_logs(order_number, created_at);
+  CREATE INDEX IF NOT EXISTS idx_blanket_packing_logs_action ON blanket_packing_logs(action, created_at);
 `);
 
 const ensureColumn = (table: string, column: string, sqlType: string) => {
@@ -590,6 +740,7 @@ ensureColumn('stores', 'store_opacity', 'REAL DEFAULT 1');
 ensureColumn('stores', 'cell_width', 'REAL DEFAULT 0.5');
 ensureColumn('stores', 'cell_depth', 'REAL DEFAULT 0.5');
 ensureColumn('stores', 'cell_height', 'REAL DEFAULT 0.11');
+ensureColumn('stores', 'branch_id', 'INTEGER DEFAULT 1');
 
 // Backfill: folded shelves can hold multiple bags per cell.
 // If you already use a different capacity, edit it from the Management UI.
@@ -634,6 +785,21 @@ ensureColumn('users', 'is_active', 'INTEGER DEFAULT 1');
 ensureColumn('users', 'created_at', 'DATETIME');
 ensureColumn('users', 'updated_at', 'DATETIME');
 ensureColumn('users', 'last_login_at', 'DATETIME');
+ensureColumn('users', 'branch_id', 'INTEGER DEFAULT 1');
+
+const ensureDefaultSqliteBranch = () => {
+  const existing = db.prepare('SELECT id FROM branches ORDER BY id ASC LIMIT 1').get() as { id: number } | undefined;
+  if (!existing) {
+    db.prepare(
+      `INSERT INTO branches (id, name, city, trade_license, phone, address, status, notes, created_at, updated_at)
+       VALUES (1, ?, ?, ?, ?, ?, 'active', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+    ).run('فرع الفلاح', 'أبوظبي', '', '', 'Al Falah, Abu Dhabi', 'Default branch for existing storage and orders.');
+  }
+  db.prepare('UPDATE stores SET branch_id = 1 WHERE branch_id IS NULL OR branch_id <= 0').run();
+  db.prepare('UPDATE users SET branch_id = 1 WHERE branch_id IS NULL OR branch_id <= 0').run();
+};
+
+ensureDefaultSqliteBranch();
 
 ensureColumn('logs', 'user', "TEXT DEFAULT 'system'");
 ensureColumn('logs', 'store', 'TEXT');
@@ -703,6 +869,7 @@ ensureColumn('sorting_cells', 'updated_at', 'DATETIME');
 
 ensureColumn('sorting_orders', 'order_no', "TEXT DEFAULT ''");
 ensureColumn('sorting_orders', 'customer_name', "TEXT DEFAULT ''");
+ensureColumn('sorting_orders', 'customer_phone', 'TEXT');
 ensureColumn('sorting_orders', 'total_required', 'INTEGER DEFAULT 0');
 ensureColumn('sorting_orders', 'total_sorted', 'INTEGER DEFAULT 0');
 ensureColumn('sorting_orders', 'total_ironed', 'INTEGER DEFAULT 0');
@@ -712,6 +879,17 @@ ensureColumn('sorting_orders', 'row_no', 'INTEGER');
 ensureColumn('sorting_orders', 'col_no', 'INTEGER');
 ensureColumn('sorting_orders', 'source_orders_id', 'TEXT');
 ensureColumn('sorting_orders', 'source_invoice_id', 'TEXT');
+ensureColumn('sorting_orders', 'pos_order_status', 'TEXT');
+ensureColumn('sorting_orders', 'pos_payment_status', 'TEXT');
+ensureColumn('sorting_orders', 'pos_status_flags', 'TEXT');
+ensureColumn('sorting_orders', 'pos_remark', 'TEXT');
+ensureColumn('sorting_orders', 'pos_total', 'REAL DEFAULT 0');
+ensureColumn('sorting_orders', 'pos_paid', 'REAL DEFAULT 0');
+ensureColumn('sorting_orders', 'pos_balance', 'REAL DEFAULT 0');
+ensureColumn('sorting_orders', 'pos_order_date', 'TEXT');
+ensureColumn('sorting_orders', 'pos_delivery_date', 'TEXT');
+ensureColumn('sorting_orders', 'pos_delivery_time', 'TEXT');
+ensureColumn('sorting_orders', 'pos_last_synced_at', 'DATETIME');
 ensureColumn('sorting_orders', 'created_at', 'DATETIME');
 ensureColumn('sorting_orders', 'updated_at', 'DATETIME');
 ensureColumn('sorting_orders', 'completed_at', 'DATETIME');
@@ -731,6 +909,20 @@ ensureColumn('sorting_ironing_events', 'user', "TEXT DEFAULT 'system'");
 ensureColumn('sorting_ironing_events', 'request_id', 'TEXT');
 ensureColumn('sorting_ironing_events', 'timestamp', 'DATETIME');
 
+ensureColumn('sorting_ironing_sessions', 'order_no', "TEXT DEFAULT ''");
+ensureColumn('sorting_ironing_sessions', 'status', "TEXT DEFAULT 'in_progress'");
+ensureColumn('sorting_ironing_sessions', 'worker', "TEXT DEFAULT 'system'");
+ensureColumn('sorting_ironing_sessions', 'team_members', 'TEXT');
+ensureColumn('sorting_ironing_sessions', 'started_at', 'DATETIME');
+ensureColumn('sorting_ironing_sessions', 'ended_at', 'DATETIME');
+ensureColumn('sorting_ironing_sessions', 'pieces_target', 'INTEGER DEFAULT 0');
+ensureColumn('sorting_ironing_sessions', 'pieces_ironed', 'INTEGER DEFAULT 0');
+ensureColumn('sorting_ironing_sessions', 'quality_score', 'REAL');
+ensureColumn('sorting_ironing_sessions', 'notes', 'TEXT');
+ensureColumn('sorting_ironing_sessions', 'request_id', 'TEXT');
+ensureColumn('sorting_ironing_sessions', 'created_at', 'DATETIME');
+ensureColumn('sorting_ironing_sessions', 'updated_at', 'DATETIME');
+
 ensureColumn('sorting_scans', 'order_no', "TEXT DEFAULT ''");
 ensureColumn('sorting_scans', 'scanned_code', "TEXT DEFAULT ''");
 ensureColumn('sorting_scans', 'table_id', 'INTEGER');
@@ -748,6 +940,25 @@ ensureColumn('sorting_blanket_packing_events', 'qty', 'INTEGER DEFAULT 1');
 ensureColumn('sorting_blanket_packing_events', 'user', "TEXT DEFAULT 'system'");
 ensureColumn('sorting_blanket_packing_events', 'request_id', 'TEXT');
 ensureColumn('sorting_blanket_packing_events', 'timestamp', 'DATETIME');
+
+ensureColumn('blanket_packing_logs', 'order_number', "TEXT DEFAULT ''");
+ensureColumn('blanket_packing_logs', 'customer_name', 'TEXT');
+ensureColumn('blanket_packing_logs', 'customer_phone', 'TEXT');
+ensureColumn('blanket_packing_logs', 'blanket_index', 'INTEGER DEFAULT 0');
+ensureColumn('blanket_packing_logs', 'total_blankets', 'INTEGER DEFAULT 0');
+ensureColumn('blanket_packing_logs', 'action', "TEXT DEFAULT 'printed'");
+ensureColumn('blanket_packing_logs', 'status', "TEXT DEFAULT 'not_packed'");
+ensureColumn('blanket_packing_logs', 'printed_at', 'DATETIME');
+ensureColumn('blanket_packing_logs', 'packed_by', 'TEXT');
+ensureColumn('blanket_packing_logs', 'request_id', 'TEXT');
+ensureColumn('blanket_packing_logs', 'created_at', 'DATETIME');
+
+db.prepare(
+  'CREATE INDEX IF NOT EXISTS idx_blanket_packing_logs_order_no ON blanket_packing_logs(order_number, created_at)'
+).run();
+db.prepare(
+  'CREATE INDEX IF NOT EXISTS idx_blanket_packing_logs_action ON blanket_packing_logs(action, created_at)'
+).run();
 
 const ensureSortingCellsForTable = (tableId: number, rows: number, cols: number) => {
   const normalizedRows = Math.max(1, Number(rows) || 1);
@@ -923,7 +1134,19 @@ const CUSTOMER_ALERT_SEND_TIMEOUT_MS = Math.max(
 const POS_BASE_URL = String(process.env.POS_BASE_URL ?? 'https://magnus.aipsoft.com/inout/sales').trim();
 const POS_FIND_ORDERS_PATH = String(process.env.POS_FIND_ORDERS_PATH ?? '/findLaundryOrders').trim();
 const POS_FIND_ORDER_DETAILS_PATH = String(process.env.POS_FIND_ORDER_DETAILS_PATH ?? '/findOrderDetails').trim();
+const POS_SAVE_ORDER_PATH = String(process.env.POS_SAVE_ORDER_PATH ?? '/saveOrder').trim();
 const POS_GET_PRODUCTS_PATH = String(process.env.POS_GET_PRODUCTS_PATH ?? '/getProducts').trim();
+const POS_COUNTER_CASH_REPORT_PATH = String(process.env.POS_COUNTER_CASH_REPORT_PATH ?? '/generate_report').trim();
+const POS_PURCHASE_API_BASE_URL = String(process.env.POS_PURCHASE_API_BASE_URL ?? 'https://beta.aipsoft.com/inout').trim();
+const POS_EXPENSES_REFERER = String(
+  process.env.POS_EXPENSES_REFERER ?? `${POS_PURCHASE_API_BASE_URL.replace(/\/+$/, '')}/accounts/expenses`
+).trim();
+const AIPSOFT_API_USER_ID = String(process.env.AIPSOFT_API_USER_ID ?? '').trim();
+const AIPSOFT_DEFAULT_PAY_ACCOUNT_ID = String(process.env.AIPSOFT_DEFAULT_PAY_ACCOUNT_ID ?? '').trim();
+const POS_DELIVERY_USER_ID = String(
+  process.env.POS_DELIVERY_USER_ID ?? AIPSOFT_API_USER_ID ?? '1'
+).trim() || '1';
+const POS_DELIVERY_CURRENCY_ID = String(process.env.POS_DELIVERY_CURRENCY_ID ?? '2').trim() || '2';
 const POS_REFERER = String(process.env.POS_REFERER ?? POS_BASE_URL).trim();
 const POS_ORIGIN = String(process.env.POS_ORIGIN ?? '').trim();
 const POS_COOKIE = String(process.env.POS_COOKIE ?? process.env.POS_SESSION_COOKIE ?? '').trim();
@@ -951,7 +1174,11 @@ const POS_TABLE_COLUMN_COUNT = Math.max(
   Math.min(40, Number(process.env.POS_TABLE_COLUMN_COUNT ?? 17) || 17)
 );
 const POS_REQUEST_TIMEOUT_MS = Math.max(3000, Math.min(30000, Number(process.env.POS_REQUEST_TIMEOUT_MS ?? 15000) || 15000));
+const POS_CACHE_TTL = 60000; // 1 minute cache
+const posSearchCache = new Map<string, { result: any; timestamp: number }>();
+
 let posCookieJar = POS_COOKIE;
+let posCookieJarAutoRefreshed = false;
 let posRefreshInFlight: Promise<boolean> | null = null;
 let posLastRefreshReason = '';
 
@@ -1078,14 +1305,19 @@ const updatePosCookieJarFromResponse = (baseCookieHeader: string, response: Resp
 
 const hasMinimalPosCookie = (cookieHeader: string) => /ci_session_/i.test(cookieHeader) && /\binout=/i.test(cookieHeader);
 
+const isPosHtmlDocument = (text: string) => {
+  const lower = String(text ?? '').toLowerCase();
+  return lower.includes('<!doctype') || lower.includes('<html');
+};
+
 const isLikelyPosLoginHtml = (text: string) => {
   const lower = String(text ?? '').toLowerCase();
   return (
-    lower.includes('<!doctype') ||
-    lower.includes('<html') ||
     lower.includes(':: login') ||
     lower.includes('login/check') ||
-    lower.includes('assets/dashboard/css/login.css')
+    lower.includes('assets/dashboard/css/login.css') ||
+    lower.includes('name="password"') ||
+    lower.includes("name='password'")
   );
 };
 
@@ -1100,7 +1332,7 @@ const refreshPosSession = async (reason: string): Promise<boolean> => {
   if (posRefreshInFlight) return posRefreshInFlight;
 
   posRefreshInFlight = (async () => {
-    let cookieHeader = String(posCookieJar || POS_COOKIE).trim();
+    let cookieHeader = '';
     const withTimeout = async (request: (signal: AbortSignal) => Promise<Response>) => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), POS_REQUEST_TIMEOUT_MS);
@@ -1199,29 +1431,70 @@ const refreshPosSession = async (reason: string): Promise<boolean> => {
         return false;
       }
 
-      // Validate that /sales is accessible and not redirected to login page.
+      const verifyPayload = new URLSearchParams();
+      verifyPayload.set('draw', '1');
+      verifyPayload.set('start', '0');
+      verifyPayload.set('length', '1');
+      verifyPayload.set('order[0][column]', '0');
+      verifyPayload.set('order[0][dir]', 'desc');
+      verifyPayload.set('search[value]', '');
+      verifyPayload.set('search[regex]', 'false');
+      verifyPayload.set('filterTxt', '');
+      verifyPayload.set('job_search_txt', '');
+      verifyPayload.set('date', '');
+      verifyPayload.set('waiter', '');
+      verifyPayload.set('from_date', '');
+      verifyPayload.set('from_time', '');
+      verifyPayload.set('to_data', '');
+      verifyPayload.set('to_time', '');
+      verifyPayload.set('paid_status', POS_PAID_STATUS);
+      verifyPayload.set('job_status', POS_JOB_STATUS);
+      verifyPayload.set('cust_type', POS_CUSTOMER_TYPE);
+      verifyPayload.set('del_type', POS_DELIVERY_TYPE);
+      verifyPayload.set('pay_type', POS_PAY_TYPE);
+      verifyPayload.set('branch_id', POS_BRANCH_ID);
+      verifyPayload.set('prevent_depot_selection', POS_PREVENT_DEPOT_SELECTION);
+      verifyPayload.set('_', String(Date.now()));
+
       const verifyResponse = await withTimeout((signal) =>
-        fetch(POS_BASE_URL, {
-          method: 'GET',
+        fetch(resolvePosEndpoint(), {
+          method: 'POST',
           headers: {
-            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            Accept: 'application/json, text/javascript, */*; q=0.01',
             'Cache-Control': 'no-cache',
             Pragma: 'no-cache',
-            Referer: POS_LOGIN_REFERER,
+            Origin: resolvePosOrigin(),
+            Referer: POS_REFERER || POS_BASE_URL,
+            'X-Requested-With': 'XMLHttpRequest',
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
             ...(cookieHeader ? { Cookie: cookieHeader } : {}),
           },
+          body: verifyPayload.toString(),
           signal,
         })
       );
       updatePosCookieJarFromResponse(cookieHeader, verifyResponse);
       cookieHeader = String(posCookieJar || cookieHeader).trim();
       const verifyText = await verifyResponse.text().catch(() => '');
-      if (!verifyResponse.ok || isLikelyPosLoginHtml(verifyText) || !hasMinimalPosCookie(cookieHeader)) {
-        posLastRefreshReason = `auto_refresh_not_authorized(${reason})`;
+      let verifyParsed: any = null;
+      try {
+        verifyParsed = verifyText ? JSON.parse(verifyText) : null;
+      } catch {
+        verifyParsed = null;
+      }
+      if (
+        !verifyResponse.ok ||
+        !verifyParsed ||
+        !Array.isArray(verifyParsed?.data) ||
+        isLikelyPosLoginHtml(verifyText) ||
+        !hasMinimalPosCookie(cookieHeader)
+      ) {
+        posLastRefreshReason = `POS auto-refresh login did not create an authorized order-search session (${reason}). Check POS_LOGIN credentials and sales search permission.`;
         return false;
       }
 
       posCookieJar = cookieHeader;
+      posCookieJarAutoRefreshed = true;
       posLastRefreshReason = '';
       return true;
     } catch {
@@ -1249,6 +1522,14 @@ const resolvePosEndpointFromPath = (endpointPath: string) => {
   if (!POS_BASE_URL) return '';
   if (/^https?:\/\//i.test(endpointPath)) return endpointPath;
   const base = POS_BASE_URL.endsWith('/') ? POS_BASE_URL : `${POS_BASE_URL}/`;
+  const relative = endpointPath.startsWith('/') ? endpointPath.slice(1) : endpointPath;
+  return new URL(relative, base).toString();
+};
+
+const resolvePosPurchaseApiEndpoint = (endpointPath: string) => {
+  if (!POS_PURCHASE_API_BASE_URL) return '';
+  if (/^https?:\/\//i.test(endpointPath)) return endpointPath;
+  const base = POS_PURCHASE_API_BASE_URL.endsWith('/') ? POS_PURCHASE_API_BASE_URL : `${POS_PURCHASE_API_BASE_URL}/`;
   const relative = endpointPath.startsWith('/') ? endpointPath.slice(1) : endpointPath;
   return new URL(relative, base).toString();
 };
@@ -1308,6 +1589,303 @@ const parsePosOrderPreview = (row: any[]): PosOrderPreview => {
   };
 };
 
+type PosSortingMeta = {
+  pos_order_status: 'Delivered' | 'Fully Packed' | 'Partially Packed' | 'Pending' | 'Pending/Unpaid';
+  pos_payment_status: 'Paid' | 'Partially Paid' | 'Not Paid';
+  pos_status_flags: string;
+  pos_remark: string;
+  pos_total: number;
+  pos_paid: number;
+  pos_balance: number;
+  pos_order_date: string;
+  pos_delivery_date: string;
+  pos_delivery_time: string;
+};
+
+type PosConnectOrder = {
+  order_no: string;
+  customer_phone: string;
+  customer_name: string;
+  order_date: string;
+  delivery_date: string;
+  delivery_time: string;
+  customer_address: string;
+  remark: string;
+  price: number;
+  balance: number;
+  order_status: PosSortingMeta['pos_order_status'];
+  source_orders_id: string;
+  source_invoice_id: string;
+};
+
+type PickupSearchLineItem = PosOrderDetailLineItem & {
+  category: 'clothes' | 'home_phase2' | 'blanket_phase3';
+};
+
+type PickupSearchOrder = PosConnectOrder & {
+  line_items: PickupSearchLineItem[];
+  blanket_storage: {
+    order_no: string;
+    qty_in_store: number;
+    first_stored_at: string | null;
+    store_slots: CustomerAlertCandidate['store_slots'];
+  } | null;
+  details_error?: string;
+};
+
+type PosConnectSearchAttempt = {
+  query: string;
+  records_total: number;
+  records_filtered: number;
+  parsed_orders: number;
+};
+
+const normalizePosStatusFlags = (preview?: PosOrderPreview | null, details?: PosOrderDetailsResult | null) => {
+  const flags = new Set<string>();
+  for (const flag of preview?.status_flags ?? []) {
+    const normalized = String(flag ?? '').trim().toLowerCase();
+    if (normalized) flags.add(normalized);
+  }
+  const statusText = String(details?.general?.status ?? '').toLowerCase();
+  if (statusText.includes('delivered')) flags.add('delivered');
+  if (statusText.includes('fully') && statusText.includes('pack')) flags.add('fully_packed');
+  if (statusText.includes('partial') && statusText.includes('pack')) flags.add('partially_packed');
+  if (statusText.includes('not') && statusText.includes('paid')) flags.add('not_paid_fully');
+  if (statusText.includes('unpaid')) flags.add('not_paid_fully');
+  if (statusText.includes('full') && statusText.includes('paid')) flags.add('full_paid');
+  return Array.from(flags);
+};
+
+const normalizePosPaymentStatus = (paid: number, total: number, balance: number): PosSortingMeta['pos_payment_status'] => {
+  if (balance <= 0 && (paid > 0 || total <= 0)) return 'Paid';
+  if (paid > 0 && balance > 0) return 'Partially Paid';
+  return 'Not Paid';
+};
+
+const normalizePosOrderStatus = (
+  flags: string[],
+  paymentStatus: PosSortingMeta['pos_payment_status'],
+  balance: number
+): PosSortingMeta['pos_order_status'] => {
+  const flagSet = new Set(flags.map((flag) => String(flag).toLowerCase()));
+  if (flagSet.has('delivered')) return 'Delivered';
+  if (flagSet.has('fully_packed')) return 'Fully Packed';
+  if (flagSet.has('partially_packed')) return 'Partially Packed';
+  if (flagSet.has('not_paid_fully') || paymentStatus !== 'Paid' || balance > 0) return 'Pending/Unpaid';
+  return 'Pending';
+};
+
+const joinPosRemarks = (...values: unknown[]) => {
+  const seen = new Set<string>();
+  const parts: string[] = [];
+  for (const value of values) {
+    const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    parts.push(text);
+  }
+  return parts.join(' | ');
+};
+
+const buildPosSortingMeta = (
+  preview?: PosOrderPreview | null,
+  details?: PosOrderDetailsResult | null
+): PosSortingMeta => {
+  const flags = normalizePosStatusFlags(preview, details);
+  const total = normalizePosNumberish(details?.general?.grand_total ?? details?.general?.total_amount ?? preview?.total, 0);
+  const paid = normalizePosNumberish(details?.general?.received_amount ?? preview?.paid, 0);
+  const balance = normalizePosNumberish(details?.general?.balance ?? preview?.balance, Math.max(0, total - paid));
+  const paymentStatus = normalizePosPaymentStatus(paid, total, balance);
+  return {
+    pos_order_status: normalizePosOrderStatus(flags, paymentStatus, balance),
+    pos_payment_status: paymentStatus,
+    pos_status_flags: JSON.stringify(flags),
+    pos_remark: joinPosRemarks(preview?.notes, details?.general?.invoice_remark1, details?.general?.invoice_remark2),
+    pos_total: total,
+    pos_paid: paid,
+    pos_balance: balance,
+    pos_order_date: String(details?.general?.billing_date ?? preview?.invoice_date ?? preview?.created_at ?? '').trim(),
+    pos_delivery_date: String(details?.general?.delivery_date ?? '').trim(),
+    pos_delivery_time: String(details?.general?.delivery_time ?? '').trim(),
+  };
+};
+
+const normalizePosConnectPhone = (value: unknown) => String(value ?? '').replace(/\D+/g, '');
+
+const isPosConnectPhoneQuery = (query: string) => normalizePosConnectPhone(query).length >= 5;
+
+const buildPosConnectSearchQueries = (query: string) => {
+  const raw = String(query ?? '').trim();
+  const queries: string[] = [];
+  const add = (value: unknown) => {
+    const text = String(value ?? '').trim();
+    if (!text) return;
+    if (queries.some((item) => item.toLowerCase() === text.toLowerCase())) return;
+    queries.push(text);
+  };
+
+  add(raw);
+
+  const digits = normalizePosConnectPhone(raw);
+  if (digits.length >= 5) {
+    add(digits);
+    if (digits.startsWith('00') && digits.length > 7) add(digits.slice(2));
+    if (digits.startsWith('971') && digits.length >= 12) add(`0${digits.slice(3)}`);
+    if (digits.startsWith('0') && digits.length >= 10) {
+      add(digits.slice(1));
+      add(`971${digits.slice(1)}`);
+    }
+    if (digits.startsWith('5') && digits.length === 9) {
+      add(`0${digits}`);
+      add(`971${digits}`);
+    }
+    if (digits.length > 9) add(digits.slice(-9));
+    if (digits.length > 7) add(digits.slice(-7));
+  }
+
+  return queries;
+};
+
+const buildPosConnectOrder = (
+  preview?: PosOrderPreview | null,
+  details?: PosOrderDetailsResult | null
+): PosConnectOrder => {
+  const meta = buildPosSortingMeta(preview, details);
+  return {
+    order_no: String(details?.general?.order_no || preview?.order_no || '').trim(),
+    customer_phone: String(details?.general?.customer_mobile || preview?.customer_phone || '').trim(),
+    customer_name: String(details?.general?.customer_name || preview?.customer_name || '').trim(),
+    order_date: meta.pos_order_date,
+    delivery_date: meta.pos_delivery_date,
+    delivery_time: meta.pos_delivery_time,
+    customer_address: String(details?.general?.customer_address || '').trim(),
+    remark: meta.pos_remark,
+    price: meta.pos_total,
+    balance: meta.pos_balance,
+    order_status: meta.pos_order_status,
+    source_orders_id: String(preview?.orders_id || details?.general?.searched_order_id || details?.general?.order_id || '').trim(),
+    source_invoice_id: String(preview?.invoice_id || details?.general?.searched_invoice_id || '').trim(),
+  };
+};
+
+const normalizePickupStatus = (value: unknown) =>
+  String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ');
+
+const PICKUP_VISIBLE_STATUSES = new Set([
+  'packed partially',
+  'partially packed',
+  'fully packed',
+  'pending',
+  'pending/unpaid',
+  'delivered',
+]);
+
+const isPickupVisibleStatus = (status: unknown) => PICKUP_VISIBLE_STATUSES.has(normalizePickupStatus(status));
+
+const posPhoneMatchesAnyQuery = (phoneValue: unknown, queries: string[]) => {
+  const phone = normalizePosConnectPhone(phoneValue);
+  if (phone.length < 5) return false;
+  return queries.some((query) => {
+    const candidate = normalizePosConnectPhone(query);
+    if (candidate.length < 5) return false;
+    if (phone.includes(candidate) || candidate.includes(phone)) return true;
+    if (candidate.length >= 7 && phone.endsWith(candidate.slice(-7))) return true;
+    if (phone.length >= 7 && candidate.endsWith(phone.slice(-7))) return true;
+    return false;
+  });
+};
+
+const buildPickupSearchLineItems = (details: PosOrderDetailsResult | null): PickupSearchLineItem[] =>
+  (details?.line_items ?? []).map((item) => ({
+    ...item,
+    category: detectSortingItemCategory(item.name),
+  }));
+
+const hydratePickupSearchOrder = async (
+  preview: PosOrderPreview | null,
+  details: PosOrderDetailsResult | null,
+  detailsError = '',
+  fallbackOrderNo = ''
+): Promise<PickupSearchOrder | null> => {
+  const parsedOrder = buildPosConnectOrder(preview, details);
+  const order = parsedOrder.order_no || !fallbackOrderNo ? parsedOrder : { ...parsedOrder, order_no: fallbackOrderNo };
+  if (!isPickupVisibleStatus(order.order_status)) return null;
+
+  const blanketStorage = await loadStoredOrderSnapshotByOrderNo(order.order_no).catch(() => null);
+  return {
+    ...order,
+    line_items: buildPickupSearchLineItems(details),
+    blanket_storage: blanketStorage,
+    ...(detailsError ? { details_error: detailsError } : {}),
+  };
+};
+
+const findBestPosConnectPreview = (
+  orders: PosOrderPreview[],
+  query: string,
+  selected?: { orders_id?: string; invoice_id?: string }
+) => {
+  const selectedOrdersId = String(selected?.orders_id ?? '').trim();
+  const selectedInvoiceId = String(selected?.invoice_id ?? '').trim();
+  if (selectedOrdersId || selectedInvoiceId) {
+    const selectedPreview = orders.find((order) =>
+      (selectedOrdersId && String(order.orders_id ?? '') === selectedOrdersId) ||
+      (selectedInvoiceId && String(order.invoice_id ?? '') === selectedInvoiceId)
+    );
+    if (selectedPreview) return selectedPreview;
+  }
+
+  const normalizedQuery = query.trim().toUpperCase();
+  const exactOrder = orders.find((order) => String(order.order_no ?? '').trim().toUpperCase() === normalizedQuery);
+  if (exactOrder) return exactOrder;
+
+  const queryPhone = normalizePosConnectPhone(query);
+  if (queryPhone.length >= 5) {
+    const phoneMatches = orders.filter((order) => {
+      const phone = normalizePosConnectPhone(order.customer_phone);
+      return phone.length >= 5 && (phone.includes(queryPhone) || queryPhone.includes(phone));
+    });
+    if (phoneMatches.length === 1) return phoneMatches[0];
+  }
+
+  return orders[0] ?? null;
+};
+
+const posConnectPreviewMatchesQuery = (order: PosOrderPreview, query: string) => {
+  const normalizedQuery = String(query ?? '').trim().toUpperCase();
+  if (!normalizedQuery) return false;
+
+  const orderNo = String(order.order_no ?? '').trim().toUpperCase();
+  if (orderNo && orderNo === normalizedQuery) return true;
+
+  const queryPhone = normalizePosConnectPhone(query);
+  if (queryPhone.length >= 5) {
+    const phone = normalizePosConnectPhone(order.customer_phone);
+    if (phone.length >= 5 && (phone.includes(queryPhone) || queryPhone.includes(phone))) return true;
+  }
+
+  return false;
+};
+
+const filterPosConnectPreviewMatches = (orders: PosOrderPreview[], queries: string[]) => {
+  const seen = new Set<string>();
+  const matches: PosOrderPreview[] = [];
+  for (const order of orders) {
+    if (!queries.some((query) => posConnectPreviewMatchesQuery(order, query))) continue;
+    const key = `${order.orders_id || ''}:${order.invoice_id || ''}:${order.order_no || ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    matches.push(order);
+  }
+  return matches;
+};
+
 const normalizePosNumberish = (value: unknown, fallback = 0) => {
   const parsed = parseMoney(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -1320,6 +1898,38 @@ const firstNonEmptyString = (row: Record<string, any> | undefined, keys: string[
     if (value) return value;
   }
   return '';
+};
+
+const POS_KNOWN_PRODUCT_NAMES_BY_ID = new Map<string, string>([
+  ['123', 'BLANKET-SMALL'],
+  ['124', 'BLANKET-BIG'],
+  ['125', 'BEDSHEET-SMALL'],
+  ['126', 'BEDSHEET-BIG'],
+  ['127', 'PILLOW CASE'],
+  ['91', 'CURTAIN-SMALL'],
+  ['92', 'CURTAIN-MEDIUM'],
+  ['93', 'CURTAIN-BIG'],
+  ['128', 'pilow'],
+  ['132', 'dovet'],
+]);
+
+const POS_KNOWN_PRODUCT_NAMES_BY_BARCODE = new Map<string, string>([
+  ['29', 'BLANKET-SMALL'],
+  ['30', 'BLANKET-BIG'],
+  ['31', 'BEDSHEET-SMALL'],
+  ['32', 'BEDSHEET-BIG'],
+  ['33', 'PILLOW CASE'],
+  ['34', 'CURTAIN-SMALL'],
+  ['35', 'CURTAIN-MEDIUM'],
+  ['36', 'CURTAIN-BIG'],
+  ['37', 'pilow'],
+  ['61', 'dovet'],
+]);
+
+const resolveKnownPosProductName = (row: Record<string, any>) => {
+  const productId = String(row.sale_prdt_id ?? row.product_id ?? row.id ?? '').trim();
+  const barcode = String(row.barcode ?? row.product_barcode ?? '').trim();
+  return POS_KNOWN_PRODUCT_NAMES_BY_ID.get(productId) ?? POS_KNOWN_PRODUCT_NAMES_BY_BARCODE.get(barcode) ?? '';
 };
 
 const POS_DETAIL_ROW_HINT_KEYS = [
@@ -1435,15 +2045,17 @@ const buildPosOrderSearchPayload = (
     pay_type?: string;
     branch_id?: string;
     prevent_depot_selection?: string;
+    start?: string;
+    length?: string;
   }
 ) => {
   const params = new URLSearchParams();
 
   // Keep this lightweight by default; this endpoint accepts custom filters directly.
   params.set('draw', '1');
-  params.set('start', '0');
-  params.set('length', '25');
-  params.set('order[0][column]', '1');
+  params.set('start', overrides?.start ?? '0');
+  params.set('length', overrides?.length ?? '25');
+  params.set('order[0][column]', '0');
   params.set('order[0][dir]', 'desc');
   if (POS_INCLUDE_DATATABLE_COLUMNS) {
     for (let i = 0; i < POS_TABLE_COLUMN_COUNT; i += 1) {
@@ -1480,12 +2092,31 @@ const buildPosOrderSearchPayload = (
   return params;
 };
 
-const fetchPosOrderSearch = async (query: string) => {
+const getCachedPosSearch = (query: string) => {
+  const cached = posSearchCache.get(query);
+  if (cached && Date.now() - cached.timestamp < POS_CACHE_TTL) {
+    return cached.result;
+  }
+  return null;
+};
+
+const setCachedPosSearch = (query: string, result: any) => {
+  posSearchCache.set(query, { result, timestamp: Date.now() });
+};
+
+const fetchPosOrderSearch = async (
+  query: string,
+  overrides?: Parameters<typeof buildPosOrderSearchPayload>[1]
+) => {
   const endpoint = resolvePosEndpoint();
   if (!endpoint) {
     throw new Error('POS endpoint is not configured.');
   }
   let cookieHeader = String(posCookieJar || POS_COOKIE).trim();
+  if (canAutoRefreshPosSession() && !posCookieJarAutoRefreshed) {
+    await refreshPosSession('search_initial_refresh');
+    cookieHeader = String(posCookieJar || POS_COOKIE).trim();
+  }
   if ((!cookieHeader || !hasMinimalPosCookie(cookieHeader)) && canAutoRefreshPosSession()) {
     await refreshPosSession('search_prepare');
     cookieHeader = String(posCookieJar || POS_COOKIE).trim();
@@ -1494,7 +2125,7 @@ const fetchPosOrderSearch = async (query: string) => {
     throw new Error(
       canAutoRefreshPosSession()
         ? `POS session is not available and auto-refresh failed. ${posLastRefreshReason || 'Check POS login credentials in .env.'}`.trim()
-        : 'POS cookie is not configured. Set POS_COOKIE (or POS_SESSION_COOKIE) in server .env.'
+        : 'POS login is not configured. Set POS_AUTO_REFRESH_ENABLED=1 with POS_LOGIN_USERNAME and POS_LOGIN_PASSWORD in server .env, or set POS_COOKIE as a temporary fallback.'
     );
   }
   if (cookieHeader.includes('...')) {
@@ -1504,7 +2135,7 @@ const fetchPosOrderSearch = async (query: string) => {
     throw new Error(
       canAutoRefreshPosSession()
         ? `POS cookie is incomplete and auto-refresh could not fix it. ${posLastRefreshReason || ''}`.trim()
-        : 'POS_COOKIE is incomplete. It must include at least ci_session_* and inout cookies from POS request.'
+        : 'POS session is incomplete. Prefer enabling POS auto login with POS_AUTO_REFRESH_ENABLED=1 and POS_LOGIN_* settings.'
     );
   }
 
@@ -1571,7 +2202,7 @@ const fetchPosOrderSearch = async (query: string) => {
     return parsedBody;
   };
 
-  let { text, parsed } = await requestWithPayload(buildPosOrderSearchPayload(query));
+  let { text, parsed } = await requestWithPayload(buildPosOrderSearchPayload(query, overrides));
 
   const needsRetry =
     parsed &&
@@ -1599,14 +2230,14 @@ const fetchPosOrderSearch = async (query: string) => {
     if (/<!doctype|<html/i.test(text)) {
       if (canAutoRefreshPosSession() && (await refreshPosSession('search_html_response'))) {
         cookieHeader = String(posCookieJar || POS_COOKIE).trim();
-        const retry = await requestWithPayload(buildPosOrderSearchPayload(query));
+        const retry = await requestWithPayload(buildPosOrderSearchPayload(query, overrides));
         text = retry.text;
         parsed = retry.parsed;
       } else {
         throw new Error(
           canAutoRefreshPosSession()
             ? `POS returned HTML and auto-refresh failed. ${posLastRefreshReason || 'Check POS credentials/session.'}`.trim()
-            : 'POS returned HTML (likely login/session page). Refresh POS_COOKIE from browser Network and try again.'
+            : 'POS returned HTML (likely login/session page). Enable POS auto login with POS_AUTO_REFRESH_ENABLED=1 and POS_LOGIN_* settings.'
         );
       }
     } else {
@@ -1638,15 +2269,312 @@ const fetchPosOrderSearch = async (query: string) => {
   };
 };
 
+const POS_CONNECT_FALLBACK_QUERY = String(process.env.POS_CONNECT_FALLBACK_QUERY ?? '000').trim() || '000';
+const POS_CONNECT_FALLBACK_PAGE_SIZE = Math.max(
+  100,
+  Math.min(1000, Number(process.env.POS_CONNECT_FALLBACK_PAGE_SIZE ?? 500) || 500)
+);
+const POS_CONNECT_FALLBACK_MAX_PAGES = Math.max(
+  1,
+  Math.min(20, Number(process.env.POS_CONNECT_FALLBACK_MAX_PAGES ?? 4) || 4)
+);
+const POS_CONNECT_DEEP_FALLBACK_MAX_PAGES = Math.max(
+  POS_CONNECT_FALLBACK_MAX_PAGES,
+  Math.min(60, Number(process.env.POS_CONNECT_DEEP_FALLBACK_MAX_PAGES ?? 12) || 12)
+);
+const POS_CONNECT_FALLBACK_BATCH_SIZE = Math.max(
+  1,
+  Math.min(6, Number(process.env.POS_CONNECT_FALLBACK_BATCH_SIZE ?? 4) || 4)
+);
+const POS_CONNECT_FALLBACK_ENABLED = /^(1|true|yes)$/i.test(
+  String(process.env.POS_CONNECT_FALLBACK_ENABLED ?? '').trim()
+);
+const PICKUP_PHONE_FALLBACK_ENABLED = !/^(0|false|no)$/i.test(
+  String(process.env.PICKUP_PHONE_FALLBACK_ENABLED ?? '1').trim()
+);
+const PICKUP_PHONE_FALLBACK_MAX_PAGES = Math.max(
+  1,
+  Math.min(
+    POS_CONNECT_DEEP_FALLBACK_MAX_PAGES,
+    Number(process.env.PICKUP_PHONE_FALLBACK_MAX_PAGES ?? POS_CONNECT_FALLBACK_MAX_PAGES) || POS_CONNECT_FALLBACK_MAX_PAGES
+  )
+);
+const POS_CONNECT_FAST_RESPONSE_ENABLED = !/^(0|false|no)$/i.test(
+  String(process.env.POS_CONNECT_FAST_RESPONSE_ENABLED ?? '1').trim()
+);
+const POS_CONNECT_DIRECT_QUERY_LIMIT = Math.max(
+  1,
+  Math.min(8, Number(process.env.POS_CONNECT_DIRECT_QUERY_LIMIT ?? 3) || 3)
+);
+const POS_CONNECT_SEARCH_CACHE_TTL_MS = Math.max(
+  10_000,
+  Math.min(300_000, Number(process.env.POS_CONNECT_SEARCH_CACHE_TTL_MS ?? 120_000) || 120_000)
+);
+const POS_CONNECT_DETAILS_CACHE_TTL_MS = Math.max(
+  10_000,
+  Math.min(300_000, Number(process.env.POS_CONNECT_DETAILS_CACHE_TTL_MS ?? 120_000) || 120_000)
+);
+const POS_CONVEYER_AUTO_SYNC_ENABLED = !/^(0|false|no)$/i.test(
+  String(process.env.POS_CONVEYER_AUTO_SYNC_ENABLED ?? '1').trim()
+);
+const POS_CONVEYER_STORE_NAME = String(process.env.POS_CONVEYER_STORE_NAME ?? 'conveyer').trim() || 'conveyer';
+const POS_CONVEYER_STORE_ALIASES = String(
+  process.env.POS_CONVEYER_STORE_ALIASES ?? 'conveyer,conveyor,كونفير,كنفير'
+)
+  .split(',')
+  .map((item) => item.trim())
+  .filter(Boolean);
+const POS_CONVEYER_MAX_SLOT = Math.max(
+  1,
+  Math.min(1000, Number(process.env.POS_CONVEYER_MAX_SLOT ?? 300) || 300)
+);
+const posConnectSearchCache = new Map<
+  string,
+  {
+    expires_at: number;
+    result: Awaited<ReturnType<typeof fetchPosOrderSearch>>;
+  }
+>();
+const posConnectDetailsCache = new Map<
+  string,
+  {
+    expires_at: number;
+    result: PosOrderDetailsResult;
+  }
+>();
+const posConnectDetailsInFlight = new Map<string, Promise<PosOrderDetailsResult>>();
+
+const fetchCachedPosConnectSearch = async (
+  query: string,
+  overrides?: Parameters<typeof buildPosOrderSearchPayload>[1]
+) => {
+  const cacheKey = JSON.stringify({
+    query,
+    start: overrides?.start ?? '0',
+    length: overrides?.length ?? '25',
+    paid_status: overrides?.paid_status ?? POS_PAID_STATUS,
+    job_status: overrides?.job_status ?? POS_JOB_STATUS,
+    cust_type: overrides?.cust_type ?? POS_CUSTOMER_TYPE,
+    del_type: overrides?.del_type ?? POS_DELIVERY_TYPE,
+    pay_type: overrides?.pay_type ?? POS_PAY_TYPE,
+    branch_id: overrides?.branch_id ?? POS_BRANCH_ID,
+    prevent_depot_selection: overrides?.prevent_depot_selection ?? POS_PREVENT_DEPOT_SELECTION,
+  });
+  const now = Date.now();
+  const cached = posConnectSearchCache.get(cacheKey);
+  if (cached && cached.expires_at > now) return cached.result;
+
+  const result = await fetchPosOrderSearch(query, overrides);
+  if ((result.orders ?? []).length > 0) {
+    posConnectSearchCache.set(cacheKey, {
+      expires_at: now + POS_CONNECT_SEARCH_CACHE_TTL_MS,
+      result,
+    });
+  }
+
+  if (posConnectSearchCache.size > 80) {
+    for (const [key, entry] of posConnectSearchCache.entries()) {
+      if (entry.expires_at <= now || posConnectSearchCache.size > 60) {
+        posConnectSearchCache.delete(key);
+      }
+    }
+  }
+
+  return result;
+};
+
+const getPosConnectDetailsCacheKey = (params: {
+  order_id: string;
+  s_order_id: string;
+  mode?: string;
+  open_type?: string;
+  job_process_commision_option?: string;
+}) =>
+  JSON.stringify({
+    order_id: params.order_id || '0',
+    s_order_id: params.s_order_id || '0',
+    mode: params.mode || '0',
+    open_type: params.open_type || 'preview',
+    job_process_commision_option: params.job_process_commision_option ?? POS_JOB_PROCESS_COMMISION_OPTION,
+  });
+
+const getCachedPosConnectDetails = (params: Parameters<typeof getPosConnectDetailsCacheKey>[0]) => {
+  const cacheKey = getPosConnectDetailsCacheKey(params);
+  const cached = posConnectDetailsCache.get(cacheKey);
+  if (cached && cached.expires_at > Date.now()) return cached.result;
+  return null;
+};
+
+const fetchCachedPosConnectDetails = async (params: Parameters<typeof getPosConnectDetailsCacheKey>[0]) => {
+  const cacheKey = getPosConnectDetailsCacheKey(params);
+  const now = Date.now();
+  const cached = posConnectDetailsCache.get(cacheKey);
+  if (cached && cached.expires_at > now) return cached.result;
+
+  const inFlight = posConnectDetailsInFlight.get(cacheKey);
+  if (inFlight) return inFlight;
+
+  const promise = fetchPosOrderDetails(params)
+    .then((result) => {
+      posConnectDetailsCache.set(cacheKey, {
+        expires_at: Date.now() + POS_CONNECT_DETAILS_CACHE_TTL_MS,
+        result,
+      });
+
+      if (posConnectDetailsCache.size > 80) {
+        const pruneAt = Date.now();
+        for (const [key, entry] of posConnectDetailsCache.entries()) {
+          if (entry.expires_at <= pruneAt || posConnectDetailsCache.size > 60) {
+            posConnectDetailsCache.delete(key);
+          }
+        }
+      }
+
+      return result;
+    })
+    .finally(() => {
+      posConnectDetailsInFlight.delete(cacheKey);
+    });
+
+  posConnectDetailsInFlight.set(cacheKey, promise);
+  return promise;
+};
+
+const isLikelyPosConnectOrderNoQuery = (query: string) => {
+  const raw = String(query ?? '').trim();
+  const compact = raw.replace(/[^0-9A-Z]/gi, '');
+  const digits = normalizePosConnectPhone(raw);
+  if (!compact) return false;
+  if (/^\d+$/.test(compact)) return digits.length >= 3 && digits.length <= 8;
+  return compact.length >= 3 && compact.length <= 14;
+};
+
+const tryFetchPosConnectDetailsByDisplayedOrderNo = async (
+  query: string,
+  searchQueries: string[],
+  attempts: PosConnectSearchAttempt[]
+) => {
+  if (!isLikelyPosConnectOrderNoQuery(query)) return null;
+
+  const candidates = Array.from(
+    new Set(
+      [query, ...searchQueries, query.replace(/[^0-9A-Z]/gi, ''), query.replace(/\D+/g, '')]
+        .map((value) => String(value ?? '').trim())
+        .filter(Boolean)
+    )
+  ).slice(0, 8);
+
+  for (const candidate of candidates) {
+    const shapes = [
+      { order_id: '0', s_order_id: candidate, label: `${candidate} direct order` },
+      { order_id: candidate, s_order_id: '0', label: `${candidate} direct invoice` },
+    ];
+
+    for (const shape of shapes) {
+      try {
+        const details = await fetchCachedPosConnectDetails({
+          order_id: shape.order_id,
+          s_order_id: shape.s_order_id,
+          mode: '0',
+          open_type: 'preview',
+        });
+        const orderNo = String(details.general.order_no || details.general.searched_order_id || '').trim().toUpperCase();
+        const candidateUpper = candidate.toUpperCase();
+        const hasUsefulDetails =
+          (details.line_items ?? []).length > 0 ||
+          Boolean(details.general.customer_name || details.general.customer_mobile || details.general.grand_total);
+        if (hasUsefulDetails && (!orderNo || orderNo === candidateUpper || orderNo.includes(candidateUpper))) {
+          attempts.push({
+            query: shape.label,
+            records_total: 1,
+            records_filtered: 1,
+            parsed_orders: 1,
+          });
+          return details;
+        }
+      } catch {
+        attempts.push({
+          query: shape.label,
+          records_total: 0,
+          records_filtered: 0,
+          parsed_orders: 0,
+        });
+      }
+    }
+  }
+
+  return null;
+};
+
+const resolvePosConnectPreviewByDisplayedOrderNo = async (orderNo: string) => {
+  const normalizedOrderNo = normalizeSortingOrderNo(orderNo);
+  if (!normalizedOrderNo) return null;
+  const searchQueries = buildPosConnectSearchQueries(normalizedOrderNo);
+
+  for (const candidateQuery of searchQueries) {
+    try {
+      const search = await fetchCachedPosConnectSearch(candidateQuery);
+      const exact =
+        (search.orders ?? []).find((order) => normalizeSortingOrderNo(order.order_no) === normalizedOrderNo) ??
+        filterPosConnectPreviewMatches(search.orders ?? [], searchQueries)[0];
+      if (exact) return exact;
+    } catch {
+      // Fall back to the broader POS list scan below.
+    }
+  }
+
+  const pageSize = POS_CONNECT_FALLBACK_PAGE_SIZE;
+  const maxPages = POS_CONNECT_DEEP_FALLBACK_MAX_PAGES;
+  const batchSize = POS_CONNECT_FALLBACK_BATCH_SIZE;
+  for (let pageStart = 0; pageStart < maxPages; pageStart += batchSize) {
+    const pageNumbers = Array.from(
+      { length: Math.min(batchSize, maxPages - pageStart) },
+      (_unused, index) => pageStart + index
+    );
+    const batchResults = await Promise.all(
+      pageNumbers.map(async (page) => {
+        try {
+          const search = await fetchCachedPosConnectSearch(POS_CONNECT_FALLBACK_QUERY, {
+            start: String(page * pageSize),
+            length: String(pageSize),
+            job_status: '0',
+            branch_id: '0',
+            prevent_depot_selection: '0',
+          });
+          return { search, error: null as any };
+        } catch (error) {
+          return { search: null, error };
+        }
+      })
+    );
+
+    for (const result of batchResults) {
+      if (result.error || !result.search) continue;
+      const exact =
+        (result.search.orders ?? []).find((order) => normalizeSortingOrderNo(order.order_no) === normalizedOrderNo) ??
+        filterPosConnectPreviewMatches(result.search.orders ?? [], searchQueries)[0];
+      if (exact) return exact;
+    }
+
+    if (batchResults.some((result) => (result.search?.orders?.length ?? 0) < pageSize)) break;
+  }
+
+  return null;
+};
+
 const postPosForm = async (
   endpointPath: string,
   payload: URLSearchParams,
-  options?: { fallbackToGet?: boolean }
+  options?: { fallbackToGet?: boolean; referer?: string }
 ) => {
   const endpoint = resolvePosEndpointFromPath(endpointPath);
   if (!endpoint) throw new Error('POS endpoint is not configured.');
 
   let cookieHeader = String(posCookieJar || POS_COOKIE).trim();
+  if (canAutoRefreshPosSession() && !posCookieJarAutoRefreshed) {
+    await refreshPosSession('post_initial_refresh');
+    cookieHeader = String(posCookieJar || POS_COOKIE).trim();
+  }
   if ((!cookieHeader || !hasMinimalPosCookie(cookieHeader)) && canAutoRefreshPosSession()) {
     await refreshPosSession('post_prepare');
     cookieHeader = String(posCookieJar || POS_COOKIE).trim();
@@ -1655,7 +2583,7 @@ const postPosForm = async (
     throw new Error(
       canAutoRefreshPosSession()
         ? `POS session is not available and auto-refresh failed. ${posLastRefreshReason || 'Check POS login credentials in .env.'}`.trim()
-        : 'POS cookie is not configured. Set POS_COOKIE (or POS_SESSION_COOKIE) in server .env.'
+        : 'POS login is not configured. Set POS_AUTO_REFRESH_ENABLED=1 with POS_LOGIN_USERNAME and POS_LOGIN_PASSWORD in server .env, or set POS_COOKIE as a temporary fallback.'
     );
   }
   if (cookieHeader.includes('...')) {
@@ -1665,7 +2593,7 @@ const postPosForm = async (
     throw new Error(
       canAutoRefreshPosSession()
         ? `POS cookie is incomplete and auto-refresh could not fix it. ${posLastRefreshReason || ''}`.trim()
-        : 'POS_COOKIE is incomplete. It must include at least ci_session_* and inout cookies from POS request.'
+        : 'POS session is incomplete. Prefer enabling POS auto login with POS_AUTO_REFRESH_ENABLED=1 and POS_LOGIN_* settings.'
     );
   }
 
@@ -1676,7 +2604,7 @@ const postPosForm = async (
     Pragma: 'no-cache',
     Cookie: cookie,
     Origin: resolvePosOrigin(),
-    Referer: POS_REFERER || POS_BASE_URL,
+    Referer: options?.referer || POS_REFERER || POS_BASE_URL,
     'X-Requested-With': 'XMLHttpRequest',
   });
 
@@ -1729,7 +2657,7 @@ const postPosForm = async (
     responseBody = await parseResponse(getResponse);
   }
 
-  if (isLikelyPosLoginHtml(String(responseBody.text ?? '')) && canAutoRefreshPosSession()) {
+  if ((isPosHtmlDocument(String(responseBody.text ?? '')) || isLikelyPosLoginHtml(String(responseBody.text ?? ''))) && canAutoRefreshPosSession()) {
     const refreshed = await refreshPosSession('post_html_response');
     if (refreshed) {
       cookieHeader = String(posCookieJar || POS_COOKIE).trim();
@@ -1760,6 +2688,340 @@ const postPosForm = async (
   }
 
   return responseBody;
+};
+
+const normalizeReportDateInput = (value: unknown, fallback: string) => {
+  const text = String(value ?? '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : fallback;
+};
+
+const normalizeReportTimeInput = (value: unknown, fallback: string) => {
+  const text = String(value ?? '').trim();
+  return /^(0?[1-9]|1[0-2]):[0-5]\d\s?(AM|PM)$/i.test(text) ? text.toUpperCase().replace(/\s+/, ' ') : fallback;
+};
+
+const buildCounterCashReportPayload = (input: any) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const fromDate = normalizeReportDateInput(input?.from_date ?? input?.fromDate, today);
+  const toDate = normalizeReportDateInput(input?.to_date ?? input?.toDate, fromDate);
+  const payload = new URLSearchParams();
+  const fields: Record<string, string> = {
+    report_type: 'counter_cash',
+    from_date: fromDate,
+    from_time: normalizeReportTimeInput(input?.from_time ?? input?.fromTime, '12:00 AM'),
+    to_date: toDate,
+    to_time: normalizeReportTimeInput(input?.to_time ?? input?.toTime, '11:59 PM'),
+    no_of_decimal_places: String(input?.no_of_decimal_places ?? input?.decimalPlaces ?? '2'),
+    save: '1',
+    predefined_date: 'Custom Range',
+    prod_details: '0',
+    void_details: '0',
+    ord_prod_details: '0',
+    ord_void_details: '0',
+    cust_details: '0',
+    expns_details: String(input?.expns_details ?? '1'),
+    print: '0',
+    inv_cat_wise: '0',
+    ord_cat_wise: '0',
+    inv_cat_wise_tax: '0',
+    ord_cat_wise_tax: '0',
+    salesman_wise: '0',
+    credit_invoice: '0',
+    return_invoice: '0',
+    return_invoice_prod_details: '0',
+    expence_entry_details: '0',
+    purchase_etnry_details: '0',
+    order_billwise_details: '0',
+    vehicle_details: '0',
+    salesman_wise_detail: '0',
+    received_payment_details: '0',
+    order_product_unit_wise: '0',
+  };
+
+  for (const [key, value] of Object.entries(fields)) {
+    payload.set(key, value);
+  }
+
+  return payload;
+};
+
+const parseExpenseMoney = (value: unknown, fallback = 0) => {
+  const parsed = Number(String(value ?? '').replace(/,/g, '').trim());
+  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : fallback;
+};
+
+const normalizePosExpenseDate = (value: unknown, fallback: string) => {
+  const text = String(value ?? '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : fallback;
+};
+
+const parsePosJsonObject = (text: string, label: string) => {
+  try {
+    const parsed = text ? JSON.parse(text) : null;
+    if (parsed && typeof parsed === 'object') return parsed as Record<string, any>;
+  } catch {
+    // handled below
+  }
+  throw new Error(`${label} returned non-JSON response: ${String(text ?? '').slice(0, 240)}`);
+};
+
+const buildPosExpenseForm = (fields: Record<string, unknown>) => {
+  const payload = new URLSearchParams();
+  for (const [key, value] of Object.entries(fields)) {
+    payload.set(key, String(value ?? ''));
+  }
+  return payload;
+};
+
+const postPosPurchaseApi = async (endpointPath: string, fields: Record<string, unknown>) => {
+  const endpoint = resolvePosPurchaseApiEndpoint(endpointPath);
+  if (!endpoint) throw new Error('POS purchase API endpoint is not configured.');
+  const response = await postPosForm(endpoint, buildPosExpenseForm(fields), {
+    fallbackToGet: false,
+    referer: POS_EXPENSES_REFERER,
+  });
+  return parsePosJsonObject(String(response.text ?? ''), endpointPath);
+};
+
+const createPosExpenseInvoice = async (input: any) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const userId = String(input?.user_id ?? input?.api_user_id ?? AIPSOFT_API_USER_ID ?? '').trim();
+  if (!userId) {
+    throw new Error('AIPSOFT_API_USER_ID is missing. Set it in .env or send user_id in request.');
+  }
+
+  const clientIdentifier = String(input?.client_identifier ?? POS_LOGIN_CLIENT_IDENTIFIER ?? 'inout').trim() || 'inout';
+  const branchId = String(input?.branch_id ?? '1').trim() || '1';
+  const payAccount = String(input?.pay_account ?? input?.payment_account_id ?? AIPSOFT_DEFAULT_PAY_ACCOUNT_ID ?? '').trim();
+  if (!payAccount) {
+    throw new Error('pay_account is required. It is the POS payment account id.');
+  }
+
+  const rawLines = Array.isArray(input?.lines) ? input.lines : Array.isArray(input?.items) ? input.items : [];
+  if (rawLines.length === 0) throw new Error('At least one expense line is required.');
+
+  const lines = rawLines.map((line: any, index: number) => {
+    const accountHead = String(line?.account_head ?? line?.accountHead ?? line?.expense_account_id ?? '').trim();
+    if (!accountHead) throw new Error(`Line ${index + 1}: account_head is required.`);
+
+    const amount = parseExpenseMoney(line?.amount, NaN);
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error(`Line ${index + 1}: amount must be greater than 0.`);
+
+    const taxAmount =
+      line?.tax_amount !== undefined
+        ? parseExpenseMoney(line.tax_amount, 0)
+        : line?.tax_rate !== undefined
+          ? parseExpenseMoney((amount * parseExpenseMoney(line.tax_rate, 0)) / 100, 0)
+          : 0;
+    const total = line?.total !== undefined ? parseExpenseMoney(line.total, amount + taxAmount) : parseExpenseMoney(amount + taxAmount, 0);
+
+    return {
+      account_head: accountHead,
+      notes: String(line?.notes ?? line?.description ?? line?.remark ?? '').trim(),
+      amount,
+      tax_amount: taxAmount,
+      total,
+    };
+  });
+
+  const header = {
+    user_id: userId,
+    paid_by: String(input?.paid_by ?? input?.paidBy ?? input?.paid_by_name ?? '').trim(),
+    paid_by_id: String(input?.paid_by_id ?? input?.paidById ?? input?.paid_by ?? input?.paidBy ?? userId).trim(),
+    paid_user_id: String(input?.paid_by_id ?? input?.paidById ?? userId).trim(),
+    branch_id: branchId,
+    pay_account: payAccount,
+    date: normalizePosExpenseDate(input?.date, today),
+    remark: String(input?.remark ?? input?.notes ?? input?.description ?? '').trim(),
+    client_identifier: clientIdentifier,
+    bill_date: normalizePosExpenseDate(input?.bill_date ?? input?.billDate ?? input?.date, today),
+    bill_no: String(input?.bill_no ?? input?.billNo ?? input?.invoice_no ?? input?.invoiceNo ?? '').trim(),
+    account_segment_id: String(input?.account_segment_id ?? input?.vehicle_plate_number ?? '').trim(),
+    account_class_id: String(input?.account_class_id ?? input?.vehicle_owner ?? '').trim(),
+    project_id: String(input?.project_id ?? input?.projectId ?? '').trim(),
+    party_account: String(input?.party_account ?? input?.vendor_id ?? input?.vendorId ?? input?.supplier_id ?? '').trim(),
+    driver_id: String(input?.driver_id ?? input?.driverId ?? '').trim(),
+    expense_id: String(input?.expense_id ?? '').trim(),
+    amount: input?.driver_id || input?.driverId ? parseExpenseMoney(input?.amount ?? lines.reduce((sum, line) => sum + line.total, 0), 0) : 0,
+  };
+
+  const hold = await postPosPurchaseApi('/purchase_api/hold_expense', header);
+  if (Number(hold.status) !== 1 || !hold.expense_id) {
+    throw new Error(`hold_expense failed: ${JSON.stringify(hold)}`);
+  }
+
+  const expenseId = String(hold.expense_id);
+  const detailResponses: Record<string, any>[] = [];
+  let totalTax = 0;
+  let totalAmount = 0;
+
+  for (const line of lines) {
+    totalTax = parseExpenseMoney(totalTax + line.tax_amount, 0);
+    totalAmount = parseExpenseMoney(totalAmount + line.total, 0);
+    const detail = await postPosPurchaseApi('/purchase_api/save_expense_details', {
+      expense_id: expenseId,
+      branch_id: branchId,
+      account_head: line.account_head,
+      account_segment_id: header.account_segment_id,
+      account_class_id: header.account_class_id,
+      amount: line.amount,
+      tax_amount: line.tax_amount,
+      total: line.total,
+      notes: line.notes,
+      client_identifier: clientIdentifier,
+      button_type: 'ADD',
+      expense_details_id: '',
+    });
+    if (Number(detail.status) !== 1) {
+      throw new Error(`save_expense_details failed: ${JSON.stringify(detail)}`);
+    }
+    detailResponses.push(detail);
+  }
+
+  const approve = await postPosPurchaseApi('/purchase_api/approve_expense_data', {
+    expense_id: expenseId,
+    client_identifier: clientIdentifier,
+    total_tax: totalTax,
+    total_amount: totalAmount,
+    images: Array.isArray(input?.images) ? input.images : [],
+    user_id: userId,
+    paid_by: header.paid_by,
+    paid_by_id: header.paid_by_id,
+    paid_user_id: header.paid_user_id,
+  });
+  if (Number(approve.status) !== 1) {
+    throw new Error(`approve_expense_data failed: ${JSON.stringify(approve)}`);
+  }
+
+  return {
+    ok: true,
+    expense_id: expenseId,
+    header,
+    lines,
+    total_tax: totalTax,
+    total_amount: totalAmount,
+    hold_response: hold,
+    detail_responses: detailResponses,
+    approve_response: approve,
+  };
+};
+
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const extractCounterCashAmount = (html: string, label: string) => {
+  const pattern = new RegExp(
+    `<td[^>]*>\\s*${escapeRegex(label)}\\s*<\\/td>\\s*<td[^>]*>\\s*([\\d,.-]+)\\s*<\\/td>`,
+    'i'
+  );
+  const match = html.match(pattern);
+  return match ? parseMoney(match[1]) : 0;
+};
+
+const extractCounterCashText = (html: string, pattern: RegExp) => {
+  const match = html.match(pattern);
+  return match ? stripHtml(match[1]) : '';
+};
+
+const roundReportMoney = (value: number) => Math.round((Number(value) || 0) * 100) / 100;
+
+const parseCounterCashReportHtml = (html: string) => {
+  const parseExpenseRows = (sectionHtml: string) => {
+    const rows: Array<{ no: number; description: string; amount: number }> = [];
+    const expensePattern =
+      /<tr>\s*<td[^>]*>\s*(\d+)\s*<\/td>\s*<td[^>]*colspan="3"[^>]*>([\s\S]*?)<\/td>[\s\S]*?<td[^>]*align="right"[^>]*>\s*([\d,.-]+)\s*<\/td>\s*<\/tr>/gi;
+    for (const match of sectionHtml.matchAll(expensePattern)) {
+      rows.push({
+        no: Number(match[1]) || rows.length + 1,
+        description: stripHtml(match[2]),
+        amount: parseMoney(match[3]),
+      });
+    }
+    return rows;
+  };
+
+  const expenseSections: Array<{
+    key: string;
+    title: string;
+    received_total: number;
+    expense_total: number;
+    balance: number;
+    rows: Array<{ no: number; description: string; amount: number }>;
+  }> = [];
+  const expenseSectionPattern =
+    /<h3[^>]*class="[^"]*sub_title[^"]*"[^>]*>([\s\S]*?)<\/h3>([\s\S]*?)(?=<tr>\s*<td[^>]*colspan="5"[^>]*>\s*<h3[^>]*class="[^"]*sub_title|<\/tbody>\s*<\/table>)/gi;
+  for (const match of html.matchAll(expenseSectionPattern)) {
+    const title = stripHtml(match[1]);
+    const sectionHtml = String(match[2] ?? '');
+    if (!title) continue;
+    const lowerTitle = title.toLowerCase();
+    expenseSections.push({
+      key: lowerTitle.includes('credit') ? 'credit_card' : 'cash',
+      title,
+      received_total: extractCounterCashAmount(sectionHtml, 'Received Total'),
+      expense_total: extractCounterCashAmount(sectionHtml, 'Expense Total'),
+      balance: extractCounterCashAmount(sectionHtml, 'Balance'),
+      rows: parseExpenseRows(sectionHtml),
+    });
+  }
+
+  const expenseRows = expenseSections.flatMap((section) =>
+    section.rows.map((row) => ({
+      ...row,
+      account: section.key,
+      account_title: section.title,
+    }))
+  );
+  if (expenseRows.length === 0) {
+    expenseRows.push(
+      ...parseExpenseRows(html).map((row) => ({
+        ...row,
+        account: 'unknown',
+        account_title: 'Expense Details',
+      }))
+    );
+  }
+
+  const cashExpenseSection = expenseSections.find((section) => section.key === 'cash');
+  const creditCardExpenseSection = expenseSections.find((section) => section.key === 'credit_card');
+
+  const customerRows: Array<{ customer: string; invoice_count: number; amount: number }> = [];
+  const customerPattern =
+    /<tr>\s*<td[^>]*align="left"[^>]*>\s*([^<]+?)\s*<\/td>\s*<td[^>]*align="left"[^>]*>\s*(\d+)\s*<\/td>\s*<td[^>]*align="right"[^>]*>\s*([\d,.-]+)\s*<\/td>\s*<\/tr>/gi;
+  for (const match of html.matchAll(customerPattern)) {
+    const customer = stripHtml(match[1]);
+    if (!customer || customer.toLowerCase() === 'customer') continue;
+    customerRows.push({
+      customer,
+      invoice_count: Number(match[2]) || 0,
+      amount: parseMoney(match[3]),
+    });
+  }
+
+  return {
+    company: extractCounterCashText(html, /<h4[^>]*>\s*([^<]*IN AND OUT LAUNDRY[^<]*)\s*<\/h4>/i),
+    report_name: extractCounterCashText(html, /<h4[^>]*>\s*Reports\s*:\s*([\s\S]*?)<\/h4>/i),
+    date_range: extractCounterCashText(html, /Reports Date Range\s*:\s*([\s\S]*?)<\/h4>/i),
+    printed_at: extractCounterCashText(html, /Printing Date\s*\/\s*Time\s*:\s*([\s\S]*?)<\/h4>/i),
+    branch: extractCounterCashText(html, /<h4[^>]*>\s*Branch\s*:\s*([\s\S]*?)<\/h4>/i),
+    cash_receipt: extractCounterCashAmount(html, 'Cash Account(Reciept)'),
+    card_receipt: extractCounterCashAmount(html, 'Credit Card(Reciept)'),
+    grand_total_receipt: extractCounterCashAmount(html, 'Grand Total Receipt'),
+    total_income: extractCounterCashAmount(html, 'Total Income'),
+    cash_in_hand: extractCounterCashAmount(html, 'Cash in Hand'),
+    received_total: roundReportMoney(expenseSections.reduce((sum, section) => sum + section.received_total, 0)),
+    expense_total: roundReportMoney(expenseSections.reduce((sum, section) => sum + section.expense_total, 0)),
+    balance: roundReportMoney(expenseSections.reduce((sum, section) => sum + section.balance, 0)),
+    cash_received_total: cashExpenseSection?.received_total ?? 0,
+    cash_expense_total: cashExpenseSection?.expense_total ?? 0,
+    cash_balance: cashExpenseSection?.balance ?? 0,
+    credit_card_received_total: creditCardExpenseSection?.received_total ?? 0,
+    credit_card_expense_total: creditCardExpenseSection?.expense_total ?? 0,
+    credit_card_balance: creditCardExpenseSection?.balance ?? 0,
+    total_invoice: extractCounterCashAmount(html, 'Total Invoice'),
+    expense_sections: expenseSections,
+    expenses: expenseRows,
+    customers: customerRows,
+  };
 };
 
 const parsePosOrderDetails = (payload: any): PosOrderDetailsResult => {
@@ -1817,7 +3079,7 @@ const parsePosOrderDetails = (payload: any): PosOrderDetailsResult => {
       'item_name',
       'sale_prdt_name',
       'srv_prdt_product_name',
-    ]);
+    ]) || resolveKnownPosProductName(row);
     const secondaryName = firstNonEmptyString(row, ['secondary_sale_prdt_name']);
     const service = firstNonEmptyString(row, ['unitname_short', 'service_name']);
     const title = [productName, secondaryName].filter(Boolean).join(' - ') || service || `Item ${index + 1}`;
@@ -1845,6 +3107,7 @@ const parsePosOrderDetails = (payload: any): PosOrderDetailsResult => {
         total_with_tax: totalWithTax,
         barcode: String(row.barcode ?? '').trim(),
         unit: String(row.unitname_short ?? '').trim(),
+        remark: String(row.remark ?? '').trim(),
       });
     }
   }
@@ -1906,12 +3169,702 @@ const fetchPosOrderDetails = async (params: {
   }
   if (!Array.isArray(parsed)) {
     if (/<!doctype|<html/i.test(text)) {
-      throw new Error('POS returned HTML while loading order details (session/login page). Refresh POS_COOKIE and retry.');
+      throw new Error('POS returned HTML while loading order details. Check POS auto-login settings and order details permission.');
     }
     throw new Error(`POS order details response is not valid JSON array. ${text.slice(0, 240)}`);
   }
 
   return parsePosOrderDetails(parsed);
+};
+
+const fetchRawPosOrderDetails = async (params: {
+  order_id: string;
+  s_order_id: string;
+  mode?: string;
+  open_type?: string;
+}) => {
+  const payload = new URLSearchParams();
+  payload.set('order_id', params.order_id || '0');
+  payload.set('s_order_id', params.s_order_id || '0');
+  payload.set('mode', params.mode || '0');
+  payload.set('open_type', params.open_type || 'open');
+
+  const { text, parsed } = await postPosForm(POS_FIND_ORDER_DETAILS_PATH, payload, { fallbackToGet: false });
+  if (!Array.isArray(parsed) || !Array.isArray(parsed[0]) || parsed[0].length === 0) {
+    if (/<!doctype|<html/i.test(text)) {
+      throw new Error('POS returned HTML while opening the order for update.');
+    }
+    throw new Error(`POS order update payload is not a valid details array. ${text.slice(0, 240)}`);
+  }
+
+  return {
+    rows: parsed[0] as Array<Record<string, any>>,
+    dynamic_fields: parsed[1],
+    person_count_details: parsed[2],
+    product_assigned_tax: (parsed[3] ?? {}) as Record<string, Array<Record<string, any>>>,
+    invoice_history: Array.isArray(parsed[4]) ? parsed[4] : [],
+  };
+};
+
+const normalizePosLineMatch = (value: unknown) =>
+  String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const formatPosDayFirstDate = (value: unknown) => {
+  const raw = String(value ?? '').trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : raw;
+};
+
+const normalizePosDocumentId = (value: unknown) => {
+  const normalized = String(value ?? '').trim();
+  return normalized === '0' ? '' : normalized;
+};
+
+const updatePosSortingDescription = async (params: {
+  order: SortingOrderRecord;
+  item_names: string[];
+  description?: string;
+}) => {
+  let sourceOrdersId = normalizePosDocumentId(params.order.source_orders_id);
+  let sourceInvoiceId = normalizePosDocumentId(params.order.source_invoice_id);
+
+  if (!sourceOrdersId) {
+    const preview = await resolvePosConnectPreviewByDisplayedOrderNo(params.order.order_no);
+    sourceOrdersId = normalizePosDocumentId(preview?.orders_id);
+    sourceInvoiceId = normalizePosDocumentId(preview?.invoice_id);
+
+    if (sourceOrdersId) {
+      db.prepare(
+        `UPDATE sorting_orders
+         SET source_orders_id = ?,
+             source_invoice_id = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE order_no = ?`
+      ).run(sourceOrdersId, sourceInvoiceId || null, params.order.order_no);
+    }
+  }
+
+  if (!sourceOrdersId || sourceInvoiceId) {
+    throw new Error(
+      sourceInvoiceId
+        ? 'This POS order has already been converted to a Sales Invoice; Sales Order stage sync is not available.'
+        : `Could not resolve the open POS Sales Order ID for ${params.order.order_no}.`
+    );
+  }
+
+  const targetDescription = String(params.description ?? 'Sorting').trim() || 'Sorting';
+  const targetNames = params.item_names.map(normalizePosLineMatch).filter(Boolean);
+  if (targetNames.length === 0) {
+    throw new Error('No sorted item name was available for POS stage sync.');
+  }
+  const quantityOnlyStage = targetNames.every(
+    (name) => name === 'sorting quantity' || name === 'unsorted item'
+  );
+
+  const before = await fetchRawPosOrderDetails({
+    order_id: '0',
+    s_order_id: sourceOrdersId,
+    mode: '0',
+    open_type: 'open',
+  });
+  const rowsByEntry = new Map<string, Record<string, any>>();
+  for (const row of before.rows) {
+    const entryId = String(row.each_sale_entry_id ?? '').trim();
+    if (entryId && !rowsByEntry.has(entryId)) rowsByEntry.set(entryId, row);
+  }
+  const rows = Array.from(rowsByEntry.values());
+  const first = rows[0];
+  if (!first || rows.length === 0) throw new Error('POS order has no editable product rows.');
+
+  const receivedAmount = normalizePosNumberish(first.received_amount, 0);
+  const salesInvoiceCreated = String(first.sales_invoice_created ?? '0').trim();
+  if (salesInvoiceCreated !== '0' || receivedAmount !== 0) {
+    throw new Error('POS stage sync is limited to unpaid Sales Orders during the trial.');
+  }
+
+  const matchesTarget = (row: Record<string, any>) => {
+    const candidates = [
+      row.primary_sale_prdt_name,
+      row.secondary_sale_prdt_name,
+      `${row.primary_sale_prdt_name ?? ''} ${row.secondary_sale_prdt_name ?? ''}`,
+    ]
+      .map(normalizePosLineMatch)
+      .filter(Boolean);
+    return targetNames.some((target) =>
+      candidates.some((candidate) => candidate === target || candidate.includes(target) || target.includes(candidate))
+    );
+  };
+
+  const matchedScannedRows = quantityOnlyStage ? rows : rows.filter(matchesTarget);
+  if (matchedScannedRows.length === 0) {
+    throw new Error(`POS product row was not matched for: ${params.item_names.join(', ')}`);
+  }
+  // POS stores the production stage per product row. The stage represents the
+  // whole order, so write the same canonical value to every row in one update.
+  const updatedEntryIds = rows.map((row) => String(row.each_sale_entry_id));
+
+  const payload = new URLSearchParams();
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+    const prefix = `final_product_list[final_sale_product_list][${index}]`;
+    const productId = String(row.sale_prdt_id ?? '').trim();
+    const unitPrice = normalizePosNumberish(row.sale_unit_price ?? row.sale_unit_actual_price, 0);
+    const pDiscount = normalizePosNumberish(row.esp_pdisc, 0);
+    const rowDescription = targetDescription;
+
+    payload.set(`${prefix}[sale_order_dets_id]`, String(row.each_sale_entry_id ?? ''));
+    payload.set(`${prefix}[prdt_id]`, productId);
+    payload.set(`${prefix}[sale_unit_price]`, String(row.sale_unit_price ?? row.sale_unit_actual_price ?? 0));
+    payload.set(`${prefix}[qty]`, String(row.sale_qty ?? 1));
+    payload.set(`${prefix}[sale_unit]`, String(row.sale_unit_id ?? 1));
+    payload.set(`${prefix}[sub_total]`, String(row.sale_sub_total ?? 0));
+    payload.set(`${prefix}[tax_amount]`, String(row.sale_tax_amount ?? 0));
+    payload.set(`${prefix}[pdiscount]`, String(row.esp_pdisc ?? 0));
+    payload.set(`${prefix}[barcode]`, String(row.barcode ?? ''));
+
+    const assignedTaxes = Array.isArray(before.product_assigned_tax?.[productId])
+      ? before.product_assigned_tax[productId]
+      : [];
+    for (let taxIndex = 0; taxIndex < assignedTaxes.length; taxIndex += 1) {
+      const tax = assignedTaxes[taxIndex];
+      const taxPercentage = normalizePosNumberish(String(tax.tax_value ?? '').replace('%', ''), 0);
+      const taxPrefix = `${prefix}[product_specific_taxes][${taxIndex}]`;
+      payload.set(`${taxPrefix}[tax_id]`, String(tax.id ?? tax.tax_id ?? ''));
+      payload.set(`${taxPrefix}[tax_percentage]`, String(taxPercentage));
+      payload.set(`${taxPrefix}[tax_amount]`, String(((unitPrice - pDiscount) * taxPercentage) / 100));
+    }
+
+    payload.set(`${prefix}[multirate_id]`, String(row.multirate_id ?? 0));
+    payload.set(`${prefix}[other_description]`, rowDescription);
+    payload.set(`${prefix}[kot_enabled]`, String(row.tagFlag ?? 0));
+    payload.set(`${prefix}[others]`, String(row.others ?? ''));
+    payload.set(`${prefix}[cloth_id]`, String(row.cloth_id ?? 0));
+  }
+
+  const orderPrefix = 'order_selected_details';
+  const setOrder = (key: string, value: unknown) => payload.set(`${orderPrefix}[${key}]`, String(value ?? ''));
+  setOrder('affected_action', '');
+  setOrder('affected_inv', '');
+  setOrder('order_date', formatPosDayFirstDate(first.order_date));
+  setOrder('billing_date', first.billing_date ?? formatPosDayFirstDate(first.order_date));
+  setOrder('delivery_date', first.delivery_date ?? '');
+  setOrder('delivery_time', first.delivery_time ?? '');
+  setOrder('invoice_remark1', first.invoice_remark1 ?? '');
+  setOrder('invoice_remark2', first.invoice_remark2 ?? '');
+  setOrder('invoice_tbl_id', '');
+  setOrder('job_type', first.job_type ?? 0);
+  setOrder('delivery_type', first.delivery_type_id ?? 1);
+  setOrder('cust_type_id', first.customer_type_id ?? 76);
+  setOrder('tender_cash', first.tender_cash ?? 0);
+  setOrder('total_amount', first.total_amount ?? 0);
+  setOrder('discount', first.discount ?? 0);
+  setOrder('p_discount', first.p_discount ?? 0);
+  setOrder('round_off', first.round_off ?? 0);
+  setOrder('balance_amt', first.balance ?? 0);
+  setOrder('tax_amount', first.tax_amount ?? 0);
+  setOrder('received_amount', 0);
+  setOrder('approval_req_received_amount', 0);
+  setOrder('grand_total', first.grand_total ?? 0);
+  setOrder('paid', first.received_amount ?? 0);
+  setOrder('removed_amount_total', 0);
+  setOrder('old_customer_head_id', first.customer_account_head_id ?? '');
+  setOrder('assigned_salesman', first.assign_to_salesman ?? first.salesman_id ?? '');
+  setOrder('assigned_salesman_name', '');
+  setOrder('triggered_action', 'hold');
+  setOrder('sale_order_id', sourceOrdersId);
+  setOrder('can_create_sales_invoice', 0);
+  setOrder('branch_id', first.branch_id ?? '');
+  setOrder('single_cash_payment_entry', 0);
+  setOrder('set_bill_date_on_worktime', 0);
+  setOrder('multiple_salesman', first.multiple_salesman ?? '');
+  setOrder('order_interval', first.order_interval ?? '');
+  setOrder('extra_notes_id', 0);
+  setOrder('processing_pickup', 0);
+  setOrder('order_number', first.order_no ?? params.order.order_no);
+  setOrder('driver_id', first.driver_id ?? 0);
+  setOrder('split_and_merge', 0);
+  setOrder('split_and_merge_inv', 0);
+
+  const customerPrefix = 'customer_details';
+  const setCustomer = (key: string, value: unknown) => payload.set(`${customerPrefix}[${key}]`, String(value ?? ''));
+  setCustomer('customer_id', first.cust_id ?? '');
+  setCustomer('card_no', first.card_no ?? '');
+  setCustomer('mobile', first.cust_ord_mobile ?? first.customer_mobile ?? first.mobile ?? '');
+  setCustomer('customer_name', first.cust_ord_name ?? first.customer_name ?? '');
+  setCustomer('addr1', first.cust_ord_address ?? first.customer_address ?? first.address1 ?? '');
+  setCustomer('addr2', first.cust_ord_address ?? first.customer_address ?? first.address2 ?? '');
+  setCustomer('remarks', first.invoice_remark1 ?? '');
+  setCustomer('trn', first.cust_ord_trn ?? first.customer_trn ?? '');
+  setCustomer('other_details', first.other_details ?? '');
+
+  payload.set('cust_id', String(first.cust_auto_id ?? first.customer_id ?? ''));
+  payload.set('operation', 'update');
+  payload.set('order_id', '0');
+  payload.set('whatsapp_check', '0');
+
+  const financialBefore = {
+    total_amount: normalizePosNumberish(first.total_amount, 0),
+    tax_amount: normalizePosNumberish(first.tax_amount, 0),
+    grand_total: normalizePosNumberish(first.grand_total, 0),
+    received_amount: normalizePosNumberish(first.received_amount, 0),
+    balance: normalizePosNumberish(first.balance, 0),
+  };
+  const saveResult = await postPosForm(POS_SAVE_ORDER_PATH, payload, {
+    fallbackToGet: false,
+    referer: POS_REFERER || POS_BASE_URL,
+  });
+  if (!Array.isArray(saveResult.parsed) || String(saveResult.parsed[0] ?? '') !== sourceOrdersId) {
+    throw new Error(`POS did not confirm the Sales Order update. ${saveResult.text.slice(0, 240)}`);
+  }
+
+  posConnectDetailsCache.clear();
+  posConnectSearchCache.clear();
+  const after = await fetchRawPosOrderDetails({
+    order_id: '0',
+    s_order_id: sourceOrdersId,
+    mode: '0',
+    open_type: 'open',
+  });
+  const afterRows = after.rows.filter((row) => updatedEntryIds.includes(String(row.each_sale_entry_id ?? '')));
+  const verified = afterRows.length === updatedEntryIds.length &&
+    afterRows.every((row) => String(row.remark ?? '').trim() === targetDescription);
+  const afterFirst = after.rows[0] ?? {};
+  const financialAfter = {
+    total_amount: normalizePosNumberish(afterFirst.total_amount, 0),
+    tax_amount: normalizePosNumberish(afterFirst.tax_amount, 0),
+    grand_total: normalizePosNumberish(afterFirst.grand_total, 0),
+    received_amount: normalizePosNumberish(afterFirst.received_amount, 0),
+    balance: normalizePosNumberish(afterFirst.balance, 0),
+  };
+  const financialUnchanged = Object.keys(financialBefore).every(
+    (key) => Math.abs(financialBefore[key as keyof typeof financialBefore] - financialAfter[key as keyof typeof financialAfter]) < 0.001
+  );
+  if (!verified) throw new Error('POS saved the order but the Sorting description could not be verified.');
+  if (!financialUnchanged) throw new Error('POS stage update completed but financial totals changed unexpectedly.');
+
+  return {
+    success: true,
+    verified: true,
+    description: targetDescription,
+    sales_order_id: sourceOrdersId,
+    order_no: String(afterFirst.order_no ?? params.order.order_no),
+    updated_line_ids: updatedEntryIds,
+    financial_unchanged: true,
+  };
+};
+
+type PickupDeliveryPaymentMethod = 'cash' | 'credit_card';
+
+const formatPosDeliveryDateTime = () =>
+  new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Dubai',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  }).format(new Date());
+
+const formatPosPackingDate = (value: unknown) => {
+  const raw = String(value ?? '').trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[3]}-${match[2]}-${match[1]}` : raw;
+};
+
+const resolvePosDeliveryPaymentAccount = (
+  completePaymentMethod: unknown,
+  paymentMethod: PickupDeliveryPaymentMethod
+) => {
+  const paymentMap =
+    completePaymentMethod && typeof completePaymentMethod === 'object'
+      ? (completePaymentMethod as Record<string, any>)
+      : {};
+  const expectedName = paymentMethod === 'cash' ? 'cash' : 'credit card';
+  const matchingKey = Object.keys(paymentMap).find(
+    (key) => key.trim().toLowerCase().replace(/[-_]+/g, ' ') === expectedName
+  );
+  const firstMatch = matchingKey && Array.isArray(paymentMap[matchingKey]) ? paymentMap[matchingKey][0] : null;
+  const linkedAccount = String(
+    firstMatch?.linked_account ??
+      firstMatch?.linked_account_id ??
+      (paymentMethod === 'cash' ? '1' : '33777')
+  ).trim();
+
+  return {
+    label: paymentMethod === 'cash' ? 'Cash' : 'Credit-Card',
+    linked_account_id: linkedAccount || (paymentMethod === 'cash' ? '1' : '33777'),
+  };
+};
+
+const payAndDeliverPickupOrder = async (input: {
+  order_no: string;
+  source_orders_id?: string;
+  payment_method: PickupDeliveryPaymentMethod;
+  dry_run?: boolean;
+}) => {
+  const orderNo = normalizeSortingOrderNo(input.order_no);
+  if (!orderNo) throw new Error('Order number is required.');
+  if (!['cash', 'credit_card'].includes(input.payment_method)) {
+    throw new Error('Payment method must be cash or credit_card.');
+  }
+
+  let sourceOrdersId = normalizePosDocumentId(input.source_orders_id);
+  if (!sourceOrdersId) {
+    const preview = await resolvePosConnectPreviewByDisplayedOrderNo(orderNo);
+    sourceOrdersId = normalizePosDocumentId(preview?.orders_id);
+  }
+  if (!sourceOrdersId) throw new Error(`Could not resolve the POS Sales Order ID for ${orderNo}.`);
+
+  const before = await fetchRawPosOrderDetails({
+    order_id: '0',
+    s_order_id: sourceOrdersId,
+    mode: '0',
+    open_type: 'open',
+  });
+  const first = before.rows[0];
+  if (!first) throw new Error('POS order has no details.');
+
+  const actualOrderNo = normalizeSortingOrderNo(first.order_no);
+  if (actualOrderNo && actualOrderNo !== orderNo) {
+    throw new Error(`POS opened order ${actualOrderNo} instead of ${orderNo}.`);
+  }
+  if (String(first.order_status ?? '').trim() === '3') {
+    throw new Error(`Order ${orderNo} is already delivered.`);
+  }
+
+  const branchId = String(first.branch_id ?? '').trim();
+  if (!branchId) throw new Error('POS order branch is missing.');
+  const assignedDriverId = String(first.driver_id ?? '').trim();
+  const userId =
+    assignedDriverId && Number(assignedDriverId) > 0
+      ? assignedDriverId
+      : POS_DELIVERY_USER_ID || String(first.done_by ?? first.modified_user_id ?? '').trim();
+  if (!userId) throw new Error('POS delivery user is not configured.');
+
+  const deliveryReferer = `${POS_PURCHASE_API_BASE_URL.replace(/\/+$/, '')}/delivery`;
+  const deliveryOrderPayload = new URLSearchParams();
+  deliveryOrderPayload.set('client_identifier', POS_LOGIN_CLIENT_IDENTIFIER);
+  deliveryOrderPayload.set('branch_id', branchId);
+  deliveryOrderPayload.set('s_order_id', sourceOrdersId);
+  deliveryOrderPayload.set('order_id', '0');
+  const deliveryOrderResult = await postPosForm(
+    resolvePosPurchaseApiEndpoint('/pos_api/findDeliveryOrderDetails'),
+    deliveryOrderPayload,
+    { fallbackToGet: false, referer: deliveryReferer }
+  );
+  const deliveryOrderResponse = deliveryOrderResult.parsed;
+  if (
+    !Array.isArray(deliveryOrderResponse) ||
+    !Array.isArray(deliveryOrderResponse[0]) ||
+    deliveryOrderResponse[0].length === 0
+  ) {
+    throw new Error(`POS delivery order details could not be loaded. ${deliveryOrderResult.text.slice(0, 240)}`);
+  }
+  const deliveryOrderRows = deliveryOrderResponse[0] as Array<Record<string, any>>;
+  const deliveryFirst = deliveryOrderRows[0];
+  const deliveryPaymentMethods = deliveryOrderResponse[1];
+  const creditSaleEnabled = String(deliveryOrderResponse[2] ?? '').trim();
+
+  const deliveryConfigPayload = new URLSearchParams();
+  deliveryConfigPayload.set('client_identifier', POS_LOGIN_CLIENT_IDENTIFIER);
+  deliveryConfigPayload.set('branch_id', branchId);
+  deliveryConfigPayload.set('user_id', userId);
+  let deliveryConfigResult = await postPosForm(
+    resolvePosPurchaseApiEndpoint('/pos_api/getDeliveryData'),
+    deliveryConfigPayload,
+    { fallbackToGet: false, referer: deliveryReferer }
+  );
+  let deliveryConfig = deliveryConfigResult.parsed;
+  if (!deliveryConfig || Number(deliveryConfig.status) !== 1 || !deliveryConfig.data) {
+    throw new Error(`POS delivery settings could not be loaded. ${deliveryConfigResult.text.slice(0, 240)}`);
+  }
+
+  const findPendingDeliveryBill = async (config: any) => {
+    const configBill = (Array.isArray(config?.data?.bills) ? config.data.bills : []).find(
+      (bill: any) => String(bill?.invoice_id ?? '').trim() === sourceOrdersId
+    );
+    if (configBill) return configBill;
+
+    const pendingPayload = new URLSearchParams();
+    pendingPayload.set('order_id', '0');
+    pendingPayload.set('user_id', userId);
+    pendingPayload.set('branch_id', branchId);
+    pendingPayload.set('client_identifier', POS_LOGIN_CLIENT_IDENTIFIER);
+    pendingPayload.set('filter_content', orderNo);
+    pendingPayload.set('shift_id', String(config?.data?.shift_id ?? '0'));
+    const pendingResult = await postPosForm(
+      resolvePosPurchaseApiEndpoint('/pos_api/fetchPendingDeliveries'),
+      pendingPayload,
+      { fallbackToGet: false, referer: deliveryReferer }
+    );
+    const pendingResponse = pendingResult.parsed;
+    const pendingBills = Array.isArray(pendingResponse?.[0]) ? pendingResponse[0] : [];
+    return pendingBills.find(
+      (bill: any) =>
+        String(bill?.invoice_id ?? '').trim() === sourceOrdersId ||
+        normalizeSortingOrderNo(bill?.order_no) === orderNo
+    );
+  };
+
+  let matchingDeliveryBill = await findPendingDeliveryBill(deliveryConfig);
+  let packedForDelivery = false;
+  if (!matchingDeliveryBill && !input.dry_run) {
+    const packingConfigPayload = new URLSearchParams();
+    packingConfigPayload.set('client_identifier', POS_LOGIN_CLIENT_IDENTIFIER);
+    packingConfigPayload.set('branch_id', branchId);
+    packingConfigPayload.set('user_id', userId);
+    const packingReferer = `${POS_PURCHASE_API_BASE_URL.replace(/\/+$/, '')}/packing`;
+    const packingConfigResult = await postPosForm(
+      resolvePosPurchaseApiEndpoint('/packing_api/getPackingData'),
+      packingConfigPayload,
+      { fallbackToGet: false, referer: packingReferer }
+    );
+    const packingConfig = packingConfigResult.parsed;
+    if (!packingConfig || Number(packingConfig.status) !== 1 || !packingConfig.data) {
+      throw new Error(`POS packing settings could not be loaded. ${packingConfigResult.text.slice(0, 240)}`);
+    }
+
+    const packingOrderPayload = new URLSearchParams();
+    packingOrderPayload.set('client_identifier', POS_LOGIN_CLIENT_IDENTIFIER);
+    packingOrderPayload.set('branch_id', branchId);
+    packingOrderPayload.set('user_id', userId);
+    packingOrderPayload.set('order_id', sourceOrdersId);
+    packingOrderPayload.set('time_zone', String(packingConfig.data.time_zone ?? 'Asia/Dubai'));
+    const packingOrderResult = await postPosForm(
+      resolvePosPurchaseApiEndpoint('/packing_api/getOrderDetails'),
+      packingOrderPayload,
+      { fallbackToGet: false, referer: packingReferer }
+    );
+    const packingOrder = packingOrderResult.parsed;
+    const packingRows = Array.isArray(packingOrder?.data?.order_details)
+      ? (packingOrder.data.order_details as Array<Record<string, any>>)
+      : [];
+    if (Number(packingOrder?.status) !== 1 || packingRows.length === 0) {
+      throw new Error(`POS packing order details could not be loaded. ${packingOrderResult.text.slice(0, 240)}`);
+    }
+
+    const remainingPackingRows = packingRows
+      .map((row) => ({
+        id: String(row.id ?? '').trim(),
+        quantity: Math.max(
+          0,
+          normalizePosNumberish(row.qty, 0) - normalizePosNumberish(row.delivered_qty, 0)
+        ),
+      }))
+      .filter((row) => row.id && row.quantity > 0);
+    if (remainingPackingRows.length === 0) {
+      throw new Error('POS order has no remaining product quantity available for packing.');
+    }
+
+    const packingFirst = packingRows[0];
+    const savePackingPayload = new URLSearchParams();
+    savePackingPayload.set('client_identifier', POS_LOGIN_CLIENT_IDENTIFIER);
+    savePackingPayload.set('order_id', sourceOrdersId);
+    savePackingPayload.set('branch_id', branchId);
+    savePackingPayload.set('packing_date', String(packingConfig.data.pack_date ?? ''));
+    savePackingPayload.set('packing_time', String(packingConfig.data.pack_time ?? ''));
+    savePackingPayload.set(
+      'del_date',
+      formatPosPackingDate(packingFirst.delivery_date ?? deliveryFirst.delivery_date ?? first.delivery_date)
+    );
+    savePackingPayload.set(
+      'del_time',
+      String(packingFirst.delivery_time ?? deliveryFirst.delivery_time ?? first.delivery_time ?? '')
+    );
+    savePackingPayload.set('salesman', String(packingFirst.done_by ?? first.done_by ?? userId));
+    savePackingPayload.set('send_sms', '0');
+    savePackingPayload.set('send_whatsapp', '0');
+    for (let index = 0; index < remainingPackingRows.length; index += 1) {
+      savePackingPayload.set(
+        `final_packed_product_list[${index}][item_db_id]`,
+        remainingPackingRows[index].id
+      );
+      savePackingPayload.set(
+        `final_packed_product_list[${index}][pack_qty]`,
+        String(remainingPackingRows[index].quantity)
+      );
+    }
+    savePackingPayload.set('time_zone', String(packingConfig.data.time_zone ?? 'Asia/Dubai'));
+    savePackingPayload.set('user_id', userId);
+    savePackingPayload.set('full_packed', '1');
+    savePackingPayload.set(
+      'remark',
+      String(packingFirst.remark ?? packingFirst.invoice_remark1 ?? first.remark ?? first.invoice_remark1 ?? '')
+    );
+    savePackingPayload.set('packing_note', 'Picked via Smart Storage Hub');
+
+    const savePackingResult = await postPosForm(
+      resolvePosPurchaseApiEndpoint('/packing_api/savePacking'),
+      savePackingPayload,
+      { fallbackToGet: false, referer: packingReferer }
+    );
+    if (!savePackingResult.parsed || Number(savePackingResult.parsed.status) !== 1) {
+      const packingMessage = String(
+        savePackingResult.parsed?.message ?? savePackingResult.parsed?.error ?? ''
+      ).trim();
+      throw new Error(packingMessage || `POS packing failed. ${savePackingResult.text.slice(0, 300)}`);
+    }
+    packedForDelivery = true;
+
+    deliveryConfigResult = await postPosForm(
+      resolvePosPurchaseApiEndpoint('/pos_api/getDeliveryData'),
+      deliveryConfigPayload,
+      { fallbackToGet: false, referer: deliveryReferer }
+    );
+    deliveryConfig = deliveryConfigResult.parsed;
+    if (!deliveryConfig || Number(deliveryConfig.status) !== 1 || !deliveryConfig.data) {
+      throw new Error('POS packing succeeded but delivery settings could not be reloaded.');
+    }
+    matchingDeliveryBill = await findPendingDeliveryBill(deliveryConfig);
+    if (!matchingDeliveryBill) {
+      throw new Error('POS packing succeeded but the order is still not eligible for delivery.');
+    }
+  }
+
+  const shiftId = String(deliveryConfig.data.shift_id ?? '').trim();
+  if (!shiftId || Number(shiftId) <= 0) {
+    throw new Error(`No open POS shift for delivery user ${userId} in branch ${branchId}.`);
+  }
+
+  const balance = Math.max(0, normalizePosNumberish(deliveryFirst.balance ?? first.balance, 0));
+  if (balance <= 0) throw new Error(`Order ${orderNo} has no balance to collect.`);
+  const payment = resolvePosDeliveryPaymentAccount(
+    deliveryPaymentMethods ?? deliveryConfig.data.complete_payment_method,
+    input.payment_method
+  );
+  const dateTime = formatPosDeliveryDateTime();
+  const customerId = String(deliveryFirst.customer_id ?? first.customer_id ?? first.cust_auto_id ?? '').trim();
+  const shippingId = String(deliveryFirst.shipping_id ?? first.shipping_id ?? '0').trim() || '0';
+
+  const payload = new URLSearchParams();
+  const detailPrefix = 'order_delivery_details';
+  payload.set(`${detailPrefix}[lat]`, String(deliveryFirst.latitude ?? first.latitude ?? ''));
+  payload.set(`${detailPrefix}[lng]`, String(deliveryFirst.longitude ?? first.longitude ?? ''));
+  payload.set(`${detailPrefix}[balance]`, String(balance));
+  payload.set(`${detailPrefix}[customer_id]`, customerId);
+  payload.set(`${detailPrefix}[order_id]`, sourceOrdersId);
+  payload.set(`${detailPrefix}[shift_id]`, shiftId);
+  payload.set(`${detailPrefix}[update_location]`, '0');
+  payload.set(`${detailPrefix}[send_whatsapp]`, '0');
+  payload.set(`${detailPrefix}[received_amount]`, String(balance));
+
+  const paymentPrefix = `${detailPrefix}[received_amount_details][${payment.label}]`;
+  payload.set(`${paymentPrefix}[amount]`, String(balance));
+  payload.set(`${paymentPrefix}[date_time]`, dateTime);
+  payload.set(`${paymentPrefix}[linked_account_id]`, payment.linked_account_id);
+  if (input.payment_method === 'cash') {
+    payload.set(`${paymentPrefix}[tender_cash]`, String(balance));
+    payload.set(`${paymentPrefix}[change_given]`, '0');
+  } else {
+    const cardPrefix = `${paymentPrefix}[card_details][0]`;
+    payload.set(`${cardPrefix}[card_name]`, '');
+    payload.set(`${cardPrefix}[card_no]`, '');
+    payload.set(`${cardPrefix}[card_amount]`, String(balance));
+    payload.set(`${cardPrefix}[date]`, dateTime);
+  }
+
+  payload.set(
+    `${detailPrefix}[location_details][loc_building]`,
+    String(deliveryFirst.map_loc_building ?? first.map_loc_building ?? '')
+  );
+  payload.set(
+    `${detailPrefix}[location_details][loc_apartment]`,
+    String(deliveryFirst.map_loc_apartment ?? first.map_loc_apartment ?? '')
+  );
+  payload.set(
+    `${detailPrefix}[location_details][loc_name]`,
+    String(deliveryFirst.map_loc_name ?? first.map_loc_name ?? '')
+  );
+  payload.set(
+    `${detailPrefix}[location_details][loc_other]`,
+    String(deliveryFirst.shipping_other_info ?? first.shipping_other_info ?? '')
+  );
+  payload.set(`${detailPrefix}[shipping_id]`, shippingId);
+  payload.set('order_id', sourceOrdersId);
+  payload.set('client_identifier', POS_LOGIN_CLIENT_IDENTIFIER);
+  payload.set('user_id', userId);
+  payload.set('branch_id', branchId);
+  payload.set('currency_id', String(deliveryConfig.data.currency_id ?? POS_DELIVERY_CURRENCY_ID));
+
+  const requestSummary = {
+    order_no: orderNo,
+    sales_order_id: sourceOrdersId,
+    branch_id: branchId,
+    user_id: userId,
+    shift_id: shiftId,
+    payment_method: input.payment_method,
+    linked_account_id: payment.linked_account_id,
+    amount: balance,
+    credit_sale_enabled: creditSaleEnabled,
+    delivery_order_details_loaded: true,
+    delivery_payment_methods: Object.keys(
+      deliveryPaymentMethods && typeof deliveryPaymentMethods === 'object'
+        ? (deliveryPaymentMethods as Record<string, any>)
+        : {}
+    ),
+    customer_id: customerId,
+    shipping_id: shippingId,
+    delivery_bill: matchingDeliveryBill ?? null,
+    packed_for_delivery: packedForDelivery,
+  };
+  if (input.dry_run) return { success: true, dry_run: true, request: requestSummary };
+
+  const deliveryResult = await postPosForm(
+    resolvePosPurchaseApiEndpoint('/pos_api/deliveryProcess'),
+    payload,
+    { fallbackToGet: false, referer: deliveryReferer }
+  );
+  const deliveryResponse = deliveryResult.parsed;
+  if (!deliveryResponse || Number(deliveryResponse.response_code) !== 200) {
+    const message = String(deliveryResponse?.message ?? deliveryResponse?.error ?? '').trim();
+    console.warn('POS deliveryProcess rejected request:', {
+      request: requestSummary,
+      response: deliveryResponse ?? deliveryResult.text.slice(0, 500),
+    });
+    throw new Error(message || `POS delivery failed. ${deliveryResult.text.slice(0, 300)}`);
+  }
+
+  posConnectDetailsCache.clear();
+  posConnectSearchCache.clear();
+  const after = await fetchRawPosOrderDetails({
+    order_id: '0',
+    s_order_id: sourceOrdersId,
+    mode: '0',
+    open_type: 'open',
+  });
+  const afterFirst = after.rows[0] ?? {};
+  const afterBalance = Math.max(0, normalizePosNumberish(afterFirst.balance, 0));
+  const afterReceived = Math.max(0, normalizePosNumberish(afterFirst.received_amount, 0));
+  const delivered = String(afterFirst.order_status ?? '').trim() === '3';
+  const paymentRecorded = afterReceived + 0.01 >= balance || afterBalance <= 0.5;
+  // Aipsoft can return stale order_status from findOrderDetails immediately
+  // after delivery, while the zero balance and response_code=200 are current.
+  const verified = paymentRecorded && (delivered || afterBalance <= 0.5);
+  if (!verified) {
+    throw new Error(
+      `POS returned success but verification failed (delivered=${delivered}, balance=${afterBalance.toFixed(2)}).`
+    );
+  }
+
+  return {
+    success: true,
+    verified: true,
+    order_no: orderNo,
+    pos_order_no: String(afterFirst.order_no ?? orderNo),
+    sales_order_id: sourceOrdersId,
+    payment_method: input.payment_method,
+    linked_account_id: payment.linked_account_id,
+    amount_paid: balance,
+    remaining_balance: afterBalance,
+    order_status: delivered ? String(afterFirst.order_status ?? '3') : '3',
+    response: deliveryResponse,
+  };
 };
 
 const fetchPosProducts = async (params: {
@@ -1931,7 +3884,7 @@ const fetchPosProducts = async (params: {
   const { text, parsed } = await postPosForm(POS_GET_PRODUCTS_PATH, payload, { fallbackToGet: false });
   if (!parsed || typeof parsed !== 'object') {
     if (/<!doctype|<html/i.test(text)) {
-      throw new Error('POS returned HTML while loading products (session/login page). Refresh POS_COOKIE and retry.');
+      throw new Error('POS returned HTML while loading products. Check POS auto-login settings and products permission.');
     }
     throw new Error(`POS products response is not valid JSON. ${text.slice(0, 240)}`);
   }
@@ -2136,83 +4089,113 @@ const loadStoredOrderSnapshots = async (limit: number) => {
 const loadStoredOrderSnapshotByOrderNo = async (orderNoInput: string) => {
   const orderNo = normalizeAlertOrderNo(orderNoInput);
   if (!orderNo) return null;
+  const matchVariants = [orderNo, `${orderNo}(%`, `${orderNo}-%`, `${orderNo} %`];
 
   if (USE_POSTGRES_LOCAL && pgPool) {
-    const grouped = await pgPool.query(
-      `SELECT blanket_number AS order_no, MIN(created_at) AS first_stored_at, COUNT(*)::int AS qty_in_store
-       FROM blankets
-       WHERE status = 'stored' AND blanket_number = $1
-       GROUP BY blanket_number
-       LIMIT 1`,
-      [orderNo]
-    );
-    const row = grouped.rows[0] as any;
-    if (!row) return null;
     const slots = await pgPool.query(
-      `SELECT id, blanket_number, store, row, "column", status, created_at
-       FROM blankets
-       WHERE status = 'stored' AND blanket_number = $1
-       ORDER BY created_at ASC, id ASC`,
-      [orderNo]
+      `SELECT b.id,
+              b.blanket_number,
+              b.store,
+              b.row,
+              b."column",
+              b.status,
+              b.created_at,
+              s.rows AS store_rows,
+              s.columns AS store_columns,
+              s.store_type
+       FROM blankets b
+       LEFT JOIN stores s ON s.store_name = b.store
+       WHERE b.status = 'stored'
+         AND (
+           upper(trim(COALESCE(b.blanket_number, ''))) = $1
+           OR upper(trim(COALESCE(b.blanket_number, ''))) LIKE $2
+           OR upper(trim(COALESCE(b.blanket_number, ''))) LIKE $3
+           OR upper(trim(COALESCE(b.blanket_number, ''))) LIKE $4
+         )
+       ORDER BY b.created_at ASC, b.id ASC`,
+      matchVariants
     );
+    if (slots.rows.length === 0) return null;
+    const firstStoredAt = slots.rows.reduce((oldest: string | null, slot: any) => {
+      const value = slot?.created_at ? String(slot.created_at) : null;
+      if (!value) return oldest;
+      if (!oldest) return value;
+      return value.localeCompare(oldest) < 0 ? value : oldest;
+    }, null);
     return {
       order_no: orderNo,
-      qty_in_store: Math.max(0, Number(row?.qty_in_store ?? 0) || 0),
-      first_stored_at: row?.first_stored_at ? String(row.first_stored_at) : null,
+      qty_in_store: slots.rows.length,
+      first_stored_at: firstStoredAt,
       store_slots: (slots.rows as any[]).map((slot) => ({
         blanket_id: Number(slot?.id ?? 0) || 0,
         store: String(slot?.store ?? ''),
         row: Number(slot?.row ?? 0) || 0,
         column: Number(slot?.column ?? 0) || 0,
+        store_rows: Number(slot?.store_rows ?? 0) || undefined,
+        store_columns: Number(slot?.store_columns ?? 0) || undefined,
+        store_type: slot?.store_type ? String(slot.store_type) : undefined,
         status: String(slot?.status ?? 'stored'),
         created_at: slot?.created_at ? String(slot.created_at) : null,
       })),
     };
   }
 
-  const grouped = db
-    .prepare(
-      `SELECT blanket_number AS order_no, MIN(created_at) AS first_stored_at, COUNT(*) AS qty_in_store
-       FROM blankets
-       WHERE status = 'stored' AND blanket_number = ?
-       GROUP BY blanket_number
-       LIMIT 1`
-    )
-    .get(orderNo) as
-    | {
-        order_no: string;
-        first_stored_at: string | null;
-        qty_in_store: number;
-      }
-    | undefined;
-  if (!grouped) return null;
-
   const slots = db
     .prepare(
-      `SELECT id, blanket_number, store, row, "column", status, created_at
-       FROM blankets
-       WHERE status = 'stored' AND blanket_number = ?
-       ORDER BY datetime(created_at) ASC, id ASC`
+      `SELECT b.id,
+              b.blanket_number,
+              b.store,
+              b.row,
+              b."column",
+              b.status,
+              b.created_at,
+              s.rows AS store_rows,
+              s.columns AS store_columns,
+              s.store_type
+       FROM blankets b
+       LEFT JOIN stores s ON s.store_name = b.store
+       WHERE b.status = 'stored'
+         AND (
+           upper(trim(COALESCE(b.blanket_number, ''))) = ?
+           OR upper(trim(COALESCE(b.blanket_number, ''))) LIKE ?
+           OR upper(trim(COALESCE(b.blanket_number, ''))) LIKE ?
+           OR upper(trim(COALESCE(b.blanket_number, ''))) LIKE ?
+         )
+       ORDER BY datetime(b.created_at) ASC, b.id ASC`
     )
-    .all(orderNo) as Array<{
+    .all(...matchVariants) as Array<{
     id: number;
     blanket_number: string;
     store: string;
     row: number;
     column: number;
+    store_rows?: number;
+    store_columns?: number;
+    store_type?: string;
     status: string;
     created_at: string | null;
   }>;
+  if (slots.length === 0) return null;
+
+  const firstStoredAt = slots.reduce<string | null>((oldest, slot) => {
+    const value = slot.created_at ? String(slot.created_at) : null;
+    if (!value) return oldest;
+    if (!oldest) return value;
+    return value.localeCompare(oldest) < 0 ? value : oldest;
+  }, null);
 
   return {
     order_no: orderNo,
-    qty_in_store: Math.max(0, Number(grouped.qty_in_store ?? 0) || 0),
-    first_stored_at: grouped.first_stored_at ? String(grouped.first_stored_at) : null,
+    qty_in_store: slots.length,
+    first_stored_at: firstStoredAt,
     store_slots: slots.map((slot) => ({
       blanket_id: Number(slot.id ?? 0) || 0,
       store: String(slot.store ?? ''),
       row: Number(slot.row ?? 0) || 0,
       column: Number(slot.column ?? 0) || 0,
+      store_rows: Number(slot.store_rows ?? 0) || undefined,
+      store_columns: Number(slot.store_columns ?? 0) || undefined,
+      store_type: slot.store_type ? String(slot.store_type) : undefined,
       status: String(slot.status ?? 'stored'),
       created_at: slot.created_at ? String(slot.created_at) : null,
     })),
@@ -2228,7 +4211,7 @@ const resolvePosOrderDetailsByOrderNo = async (orderNo: string) => {
   let searchError = '';
 
   try {
-    const search = await fetchPosOrderSearch(normalizedOrderNo);
+    const search = await fetchCachedPosConnectSearch(normalizedOrderNo);
     const exact = search.orders.find((order) => normalizeAlertOrderNo(order.order_no) === normalizedOrderNo) ?? search.orders[0];
     if (exact) {
       sourceOrdersId = String(exact.orders_id ?? '').trim();
@@ -2252,7 +4235,7 @@ const resolvePosOrderDetailsByOrderNo = async (orderNo: string) => {
       ];
       for (const attempt of directAttempts) {
         try {
-          const details = await fetchPosOrderDetails({
+          const details = await fetchCachedPosConnectDetails({
             order_id: attempt.order_id,
             s_order_id: attempt.s_order_id,
             mode: '0',
@@ -2270,7 +4253,7 @@ const resolvePosOrderDetailsByOrderNo = async (orderNo: string) => {
     throw new Error(searchError || 'Unable to resolve order ID from POS.');
   }
 
-  return fetchPosOrderDetails({
+  return fetchCachedPosConnectDetails({
     order_id: sourceInvoiceId || '0',
     s_order_id: sourceOrdersId || '0',
     mode: '0',
@@ -2313,6 +4296,12 @@ const buildAlertCandidateFromSnapshot = async (
     order_no: fallbackOrderNo,
     customer_name: '',
     phone: '',
+    phone_normalized: '',
+    pos_status: '',
+    order_date: '',
+    delivery_date: '',
+    customer_address: '',
+    remark: '',
     quantity_in_order: 0,
     quantity_in_store: fallbackQtyInStore,
     qty_in_order: 0,
@@ -2333,13 +4322,21 @@ const buildAlertCandidateFromSnapshot = async (
 
   try {
     const details = await resolvePosOrderDetailsByOrderNo(snapshot.order_no);
+    const meta = buildPosSortingMeta(null, details);
     const qtyInOrder = (details.line_items ?? []).reduce((sum, line) => sum + Math.max(0, Number(line.qty ?? 0) || 0), 0);
     const qtyInStore = Math.max(0, Number(snapshot.qty_in_store ?? 0) || 0);
+    const phone = String(details.general.customer_mobile ?? '').trim();
     const match = evaluateAlertMatch(qtyInOrder, qtyInStore);
     return {
       ...fallback,
       customer_name: String(details.general.customer_name ?? '').trim(),
-      phone: String(details.general.customer_mobile ?? '').trim(),
+      phone,
+      phone_normalized: normalizeCustomerPhone(phone) ?? normalizePosConnectPhone(phone),
+      pos_status: meta.pos_order_status,
+      order_date: meta.pos_order_date,
+      delivery_date: meta.pos_delivery_date,
+      customer_address: String(details.general.customer_address ?? '').trim(),
+      remark: meta.pos_remark,
       quantity_in_order: qtyInOrder,
       quantity_in_store: qtyInStore,
       qty_in_order: qtyInOrder,
@@ -2384,6 +4381,186 @@ const buildCustomerAlertCandidates = async (limit = 120) => {
   });
 };
 
+const severityRank: Record<CustomerAlertPhoneSeverity, number> = {
+  critical: 4,
+  high: 3,
+  medium: 2,
+  low: 1,
+};
+
+const maxPhoneAlertSeverity = (values: CustomerAlertPhoneSeverity[]) => {
+  return values.reduce<CustomerAlertPhoneSeverity>(
+    (best, value) => (severityRank[value] > severityRank[best] ? value : best),
+    'low'
+  );
+};
+
+const getStoredAgeDays = (storedAt: string | null) => {
+  if (!storedAt) return 0;
+  const timestamp = new Date(storedAt).getTime();
+  if (!Number.isFinite(timestamp)) return 0;
+  return Math.max(0, Math.floor((Date.now() - timestamp) / 86_400_000));
+};
+
+const buildCustomerAlertPhoneGroups = async (options?: {
+  limit?: number;
+  q?: string;
+  severity?: string;
+  posStatus?: string;
+  oldDays?: number;
+}) => {
+  const limit = Math.max(1, Math.min(500, Number(options?.limit ?? 160) || 160));
+  const oldDays = Math.max(1, Math.min(90, Number(options?.oldDays ?? 7) || 7));
+  const candidates = await buildCustomerAlertCandidates(limit);
+  const groups = new Map<string, CustomerAlertPhoneGroup>();
+
+  for (const candidate of candidates) {
+    const normalizedPhone =
+      candidate.phone_normalized ||
+      normalizeCustomerPhone(candidate.phone) ||
+      normalizePosConnectPhone(candidate.phone);
+    const key = normalizedPhone || `missing:${normalizeAlertOrderNo(candidate.order_no)}`;
+    const existing = groups.get(key);
+    const group =
+      existing ??
+      ({
+        id: key,
+        phone: normalizedPhone,
+        display_phone: candidate.phone || (normalizedPhone ? normalizedPhone : 'رقم غير متوفر'),
+        customer_names: [],
+        order_count: 0,
+        stored_piece_count: 0,
+        delivered_stored_count: 0,
+        mismatch_count: 0,
+        oldest_stored_at: null,
+        severity: 'low',
+        alerts: [],
+        orders: [],
+      } satisfies CustomerAlertPhoneGroup);
+
+    group.orders.push(candidate);
+    if (candidate.customer_name && !group.customer_names.includes(candidate.customer_name)) {
+      group.customer_names.push(candidate.customer_name);
+    }
+    if (!group.phone && normalizedPhone) group.phone = normalizedPhone;
+    if ((!group.display_phone || group.display_phone === 'رقم غير متوفر') && candidate.phone) {
+      group.display_phone = candidate.phone;
+    }
+    if (
+      candidate.first_stored_at &&
+      (!group.oldest_stored_at || new Date(candidate.first_stored_at).getTime() < new Date(group.oldest_stored_at).getTime())
+    ) {
+      group.oldest_stored_at = candidate.first_stored_at;
+    }
+
+    groups.set(key, group);
+  }
+
+  let out = Array.from(groups.values()).map((group) => {
+    const alerts = new Set<string>();
+    const severities: CustomerAlertPhoneSeverity[] = ['low'];
+    const orderNos = new Set(group.orders.map((order) => normalizeAlertOrderNo(order.order_no)).filter(Boolean));
+    const deliveredStored = group.orders.filter((order) => order.pos_status === 'Delivered' && order.qty_in_store > 0);
+    const mismatched = group.orders.filter((order) => order.match_state === 'missing' || order.match_state === 'extra');
+    const missing = group.orders.filter((order) => order.match_state === 'missing');
+    const extra = group.orders.filter((order) => order.match_state === 'extra');
+    const posErrors = group.orders.filter((order) => Boolean(order.pos_error));
+    const oldOrders = group.orders.filter((order) => getStoredAgeDays(order.first_stored_at) >= oldDays);
+
+    if (!group.phone) {
+      alerts.add('رقم هاتف العميل غير متوفر، لا يمكن ربطه بطلبات أخرى تلقائياً.');
+      severities.push('low');
+    }
+    if (orderNos.size > 1) {
+      alerts.add(`هذا العميل لديه ${orderNos.size} طلبات مرتبطة بنفس رقم الهاتف.`);
+      severities.push(missing.length > 0 || deliveredStored.length > 0 ? 'high' : 'medium');
+    }
+    if (deliveredStored.length > 0) {
+      alerts.add(`${deliveredStored.length} طلب حالته Delivered في POS وما زال له قطع داخل الاستور.`);
+      severities.push('critical');
+    }
+    if (missing.length > 0) {
+      alerts.add(`${missing.length} طلب به قطع ناقصة بين POS والاستور.`);
+      severities.push('high');
+    }
+    if (extra.length > 0) {
+      alerts.add(`${extra.length} طلب به قطع زائدة أو مكررة داخل الاستور.`);
+      severities.push('medium');
+    }
+    if (oldOrders.length > 0) {
+      alerts.add(`${oldOrders.length} طلب موجود في الاستور منذ ${oldDays} أيام أو أكثر.`);
+      severities.push('medium');
+    }
+    if (posErrors.length > 0) {
+      alerts.add(`${posErrors.length} طلب تعذر جلب بياناته من POS.`);
+      severities.push('medium');
+    }
+
+    group.orders.sort((a, b) => {
+      if (a.pos_status === 'Delivered' && b.pos_status !== 'Delivered') return -1;
+      if (a.pos_status !== 'Delivered' && b.pos_status === 'Delivered') return 1;
+      const aAt = a.first_stored_at ? new Date(a.first_stored_at).getTime() : Number.MAX_SAFE_INTEGER;
+      const bAt = b.first_stored_at ? new Date(b.first_stored_at).getTime() : Number.MAX_SAFE_INTEGER;
+      return aAt - bAt;
+    });
+
+    return {
+      ...group,
+      order_count: orderNos.size || group.orders.length,
+      stored_piece_count: group.orders.reduce((sum, order) => sum + Math.max(0, Number(order.qty_in_store ?? 0) || 0), 0),
+      delivered_stored_count: deliveredStored.length,
+      mismatch_count: mismatched.length,
+      severity: maxPhoneAlertSeverity(severities),
+      alerts: Array.from(alerts),
+    };
+  });
+
+  const query = String(options?.q ?? '').trim().toLowerCase();
+  if (query) {
+    out = out.filter((group) => {
+      const haystack = [
+        group.phone,
+        group.display_phone,
+        group.customer_names.join(' '),
+        group.alerts.join(' '),
+        ...group.orders.flatMap((order) => [
+          order.order_no,
+          order.customer_name,
+          order.phone,
+          order.pos_status,
+          order.remark,
+          order.store_slots.map((slot) => `${slot.store} ${slot.row} ${slot.column}`).join(' '),
+        ]),
+      ]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }
+
+  const severity = String(options?.severity ?? 'all').trim().toLowerCase();
+  if (severity && severity !== 'all') {
+    out = out.filter((group) => group.severity === severity);
+  }
+
+  const posStatus = String(options?.posStatus ?? 'all').trim().toLowerCase();
+  if (posStatus && posStatus !== 'all') {
+    out = out.filter((group) => group.orders.some((order) => String(order.pos_status ?? '').toLowerCase() === posStatus));
+  }
+
+  out.sort((a, b) => {
+    const severityDelta = severityRank[b.severity] - severityRank[a.severity];
+    if (severityDelta !== 0) return severityDelta;
+    if (b.delivered_stored_count !== a.delivered_stored_count) return b.delivered_stored_count - a.delivered_stored_count;
+    const aAt = a.oldest_stored_at ? new Date(a.oldest_stored_at).getTime() : Number.MAX_SAFE_INTEGER;
+    const bAt = b.oldest_stored_at ? new Date(b.oldest_stored_at).getTime() : Number.MAX_SAFE_INTEGER;
+    if (aAt !== bAt) return aAt - bAt;
+    return a.display_phone.localeCompare(b.display_phone);
+  });
+
+  return out;
+};
+
 const normalizeSortingOrderNo = (value: unknown) => String(value ?? '').trim().toUpperCase();
 
 const toSortingCellStatus = (totalSorted: number, totalRequired: number): SortingCellStatus => {
@@ -2413,6 +4590,90 @@ const coercePositiveInt = (value: unknown, fallback = 1) => {
   return parsed;
 };
 
+const QUANTITY_ONLY_SORTING_ITEM_NAME = 'Sorting quantity';
+const BLANKET_PACKING_ITEM_LABEL = 'blanket items';
+const isBlanketPackingOnlyItem = (itemName: string) => detectSortingItemCategory(itemName) === 'blanket_phase3';
+
+const isQuantityOnlySortingItemName = (value: unknown) => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return normalized === 'unsorted item' || normalized === QUANTITY_ONLY_SORTING_ITEM_NAME.toLowerCase();
+};
+
+const buildSortingPosStageDescription = (totalSorted: unknown) =>
+  `Sorting ${Math.max(0, Math.floor(Number(totalSorted) || 0))}`;
+
+const ensureQuantityOnlySortingOrderInitialized = (params: { order_no: string; qty?: number }) => {
+  const normalizedOrderNo = normalizeSortingOrderNo(params.order_no);
+  if (!normalizedOrderNo) throw new Error('Order number is required.');
+  const scanQty = coercePositiveInt(params.qty, 1);
+  const existing = db
+    .prepare('SELECT * FROM sorting_orders WHERE order_no = ?')
+    .get(normalizedOrderNo) as SortingOrderRecord | undefined;
+  const existingItems = existing
+    ? (db.prepare('SELECT * FROM sorting_items WHERE order_no = ? ORDER BY id ASC').all(normalizedOrderNo) as SortingItemRecord[])
+    : [];
+
+  if (!existing) {
+    const createTx = db.transaction(() => {
+      db.prepare(
+        `INSERT INTO sorting_orders (
+          order_no, customer_name, customer_phone, total_required, total_sorted, total_ironed, status, source_orders_id, source_invoice_id, created_at, updated_at
+        )
+        VALUES (?, '', NULL, ?, 0, 0, 'sorting_pending', NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+      ).run(normalizedOrderNo, scanQty);
+      db.prepare(
+        `INSERT INTO sorting_items (order_no, item_name, qty_required, qty_sorted, qty_ironed, qty_packed, status)
+         VALUES (?, ?, ?, 0, 0, 0, 'missing')`
+      ).run(normalizedOrderNo, QUANTITY_ONLY_SORTING_ITEM_NAME, scanQty);
+    });
+    createTx();
+    return;
+  }
+
+  const canUseQuantityOnly =
+    existingItems.length === 0 ||
+    existingItems.every((item) => isQuantityOnlySortingItemName(item.item_name));
+  if (!canUseQuantityOnly) return;
+
+  const currentSorted = existingItems.reduce((sum, item) => sum + Math.max(0, Number(item.qty_sorted) || 0), 0);
+  const nextRequired = Math.max(
+    scanQty,
+    currentSorted + scanQty,
+    existingItems.reduce((sum, item) => sum + Math.max(0, Number(item.qty_required) || 0), 0),
+    Number(existing.total_required ?? 0) || 0
+  );
+
+  const updateTx = db.transaction(() => {
+    if (existingItems.length === 0) {
+      db.prepare(
+        `INSERT INTO sorting_items (order_no, item_name, qty_required, qty_sorted, qty_ironed, qty_packed, status)
+         VALUES (?, ?, ?, 0, 0, 0, 'missing')`
+      ).run(normalizedOrderNo, QUANTITY_ONLY_SORTING_ITEM_NAME, nextRequired);
+    } else {
+      const first = existingItems[0];
+      db.prepare(
+        `UPDATE sorting_items
+         SET item_name = ?, qty_required = ?, status = ?
+         WHERE id = ?`
+      ).run(
+        QUANTITY_ONLY_SORTING_ITEM_NAME,
+        nextRequired,
+        toSortingItemStatus(first.qty_sorted, nextRequired),
+        first.id
+      );
+      for (const extra of existingItems.slice(1)) {
+        db.prepare('DELETE FROM sorting_items WHERE id = ?').run(extra.id);
+      }
+    }
+    db.prepare(
+      `UPDATE sorting_orders
+       SET total_required = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE order_no = ?`
+    ).run(nextRequired, normalizedOrderNo);
+  });
+  updateTx();
+};
+
 const getSortingOrderBundle = (orderNo: string) => {
   const order = db
     .prepare('SELECT * FROM sorting_orders WHERE order_no = ?')
@@ -2427,6 +4688,7 @@ const getSortingOrderBundle = (orderNo: string) => {
   return {
     order,
     items,
+    ironing_sessions: listIroningSessions({ order_no: orderNo, limit: 20, offset: 0 }).rows,
     placement: order.table_id && order.row_no && order.col_no
       ? {
           table_id: order.table_id,
@@ -2473,7 +4735,10 @@ const syncSortingOrderProgress = (orderNo: string) => {
          total_sorted = ?,
          total_ironed = ?,
          status = ?,
-         completed_at = CASE WHEN ? = 'sorted_complete' AND completed_at IS NULL THEN CURRENT_TIMESTAMP ELSE completed_at END,
+         completed_at = CASE
+           WHEN ? = 'sorted_complete' THEN COALESCE(completed_at, CURRENT_TIMESTAMP)
+           ELSE NULL
+         END,
          updated_at = CURRENT_TIMESTAMP
      WHERE order_no = ?`
   ).run(totalRequired, totalSorted, totalIroned, orderStatus, orderStatus, orderNo);
@@ -2595,6 +4860,9 @@ const ensureSortingOrderInitialized = async (params: {
   let sourceOrdersId = String(params.source_orders_id ?? existing?.source_orders_id ?? '').trim();
   let sourceInvoiceId = String(params.source_invoice_id ?? existing?.source_invoice_id ?? '').trim();
   let customerName = String(params.customer_name ?? existing?.customer_name ?? '').trim();
+  let customerPhone = String((existing as any)?.customer_phone ?? '').trim();
+  let posSearchPreview: PosOrderPreview | null = null;
+  let posMeta: PosSortingMeta | null = null;
   let totalRequired = coercePositiveInt(params.total_required ?? existing?.total_required ?? 0, 0);
   const allowUnsortedFallback = Boolean(params.allow_unsorted_fallback);
   let posSearchError: string | null = null;
@@ -2611,11 +4879,12 @@ const ensureSortingOrderInitialized = async (params: {
 
   if (!sourceOrdersId && !sourceInvoiceId) {
     try {
-      const search = await fetchPosOrderSearch(normalizedOrderNo);
-      const exact =
-        search.orders.find((order) => normalizeSortingOrderNo(order.order_no) === normalizedOrderNo) ??
-        search.orders[0];
+      const search = await fetchCachedPosConnectSearch(normalizedOrderNo);
+      const exact = search.orders.find(
+        (order) => normalizeSortingOrderNo(order.order_no) === normalizedOrderNo
+      );
       if (exact) {
+        posSearchPreview = exact;
         sourceOrdersId = String(exact.orders_id ?? '').trim();
         sourceInvoiceId = String(exact.invoice_id ?? '').trim();
         if (!customerName) customerName = String(exact.customer_name ?? '').trim();
@@ -2644,13 +4913,15 @@ const ensureSortingOrderInitialized = async (params: {
 
     for (const candidate of directCandidates) {
       try {
-        const directDetails = await fetchPosOrderDetails({
+        const directDetails = await fetchCachedPosConnectDetails({
           order_id: candidate.order_id,
           s_order_id: candidate.s_order_id,
           mode: '0',
           open_type: 'preview',
         });
-        if ((directDetails.line_items ?? []).length > 0) {
+        const returnedOrderNo = normalizeSortingOrderNo(directDetails.general.order_no);
+        if ((directDetails.line_items ?? []).length > 0 && returnedOrderNo === normalizedOrderNo) {
+          posMeta = buildPosSortingMeta(null, directDetails);
           if (candidate.tag === 'orders') {
             sourceOrdersId = candidate.s_order_id;
           } else {
@@ -2669,7 +4940,7 @@ const ensureSortingOrderInitialized = async (params: {
 
   if (sourceOrdersId || sourceInvoiceId) {
     try {
-      const details = await fetchPosOrderDetails({
+      const details = await fetchCachedPosConnectDetails({
         order_id: sourceInvoiceId || '0',
         s_order_id: sourceOrdersId || '0',
         mode: '0',
@@ -2679,6 +4950,10 @@ const ensureSortingOrderInitialized = async (params: {
       if (!customerName) {
         customerName = String(details.general.customer_name ?? '').trim();
       }
+      if (!customerPhone) {
+        customerPhone = normalizeDriverPhone(details.general.customer_mobile ?? '');
+      }
+      posMeta = buildPosSortingMeta(posSearchPreview, details);
 
       const aggregate = new Map<string, number>();
       for (const line of details.line_items) {
@@ -2724,26 +4999,69 @@ const ensureSortingOrderInitialized = async (params: {
     if (!exists) {
       db.prepare(
         `INSERT INTO sorting_orders (
-          order_no, customer_name, total_required, total_sorted, total_ironed, status, source_orders_id, source_invoice_id, created_at, updated_at
+          order_no, customer_name, customer_phone, total_required, total_sorted, total_ironed, status,
+          source_orders_id, source_invoice_id, pos_order_status, pos_payment_status, pos_status_flags,
+          pos_remark, pos_total, pos_paid, pos_balance, pos_order_date, pos_delivery_date,
+          pos_delivery_time, pos_last_synced_at, created_at, updated_at
         )
-        VALUES (?, ?, ?, 0, 0, 'sorting_pending', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+        VALUES (?, ?, ?, ?, 0, 0, 'sorting_pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
       ).run(
         normalizedOrderNo,
         customerName,
+        customerPhone || null,
         totalRequired,
         sourceOrdersId || null,
-        sourceInvoiceId || null
+        sourceInvoiceId || null,
+        posMeta?.pos_order_status ?? null,
+        posMeta?.pos_payment_status ?? null,
+        posMeta?.pos_status_flags ?? null,
+        posMeta?.pos_remark ?? null,
+        posMeta?.pos_total ?? 0,
+        posMeta?.pos_paid ?? 0,
+        posMeta?.pos_balance ?? 0,
+        posMeta?.pos_order_date ?? null,
+        posMeta?.pos_delivery_date ?? null,
+        posMeta?.pos_delivery_time ?? null
       );
     } else {
       db.prepare(
         `UPDATE sorting_orders
          SET customer_name = ?,
+             customer_phone = ?,
              total_required = ?,
              source_orders_id = ?,
              source_invoice_id = ?,
+             pos_order_status = ?,
+             pos_payment_status = ?,
+             pos_status_flags = ?,
+             pos_remark = ?,
+             pos_total = ?,
+             pos_paid = ?,
+             pos_balance = ?,
+             pos_order_date = ?,
+             pos_delivery_date = ?,
+             pos_delivery_time = ?,
+             pos_last_synced_at = CURRENT_TIMESTAMP,
              updated_at = CURRENT_TIMESTAMP
          WHERE order_no = ?`
-      ).run(customerName, totalRequired, sourceOrdersId || null, sourceInvoiceId || null, normalizedOrderNo);
+      ).run(
+        customerName,
+        customerPhone || null,
+        totalRequired,
+        sourceOrdersId || null,
+        sourceInvoiceId || null,
+        posMeta?.pos_order_status ?? (existing as any)?.pos_order_status ?? null,
+        posMeta?.pos_payment_status ?? (existing as any)?.pos_payment_status ?? null,
+        posMeta?.pos_status_flags ?? (existing as any)?.pos_status_flags ?? null,
+        posMeta?.pos_remark ?? (existing as any)?.pos_remark ?? null,
+        posMeta?.pos_total ?? (existing as any)?.pos_total ?? 0,
+        posMeta?.pos_paid ?? (existing as any)?.pos_paid ?? 0,
+        posMeta?.pos_balance ?? (existing as any)?.pos_balance ?? 0,
+        posMeta?.pos_order_date ?? (existing as any)?.pos_order_date ?? null,
+        posMeta?.pos_delivery_date ?? (existing as any)?.pos_delivery_date ?? null,
+        posMeta?.pos_delivery_time ?? (existing as any)?.pos_delivery_time ?? null,
+        normalizedOrderNo
+      );
 
       db.prepare('DELETE FROM sorting_items WHERE order_no = ?').run(normalizedOrderNo);
     }
@@ -2765,6 +5083,214 @@ const ensureSortingOrderInitialized = async (params: {
     throw new Error('Failed to initialize sorting order.');
   }
   return created;
+};
+
+const loadPosSortingSnapshot = async (orderNo: string, order?: SortingOrderRecord | null) => {
+  const normalizedOrderNo = normalizeSortingOrderNo(orderNo);
+  let sourceOrdersId = String(order?.source_orders_id ?? '').trim();
+  let sourceInvoiceId = String(order?.source_invoice_id ?? '').trim();
+  let customerName = String(order?.customer_name ?? '').trim();
+  let customerPhone = String(order?.customer_phone ?? '').trim();
+  let details: Awaited<ReturnType<typeof fetchPosOrderDetails>> | null = null;
+  let posSearchPreview: PosOrderPreview | null = null;
+
+  if (!sourceOrdersId && !sourceInvoiceId) {
+    try {
+      const search = await fetchCachedPosConnectSearch(normalizedOrderNo);
+      const exact = search.orders.find(
+        (entry) => normalizeSortingOrderNo(entry.order_no) === normalizedOrderNo
+      );
+      if (exact) {
+        posSearchPreview = exact;
+        sourceOrdersId = String(exact.orders_id ?? '').trim();
+        sourceInvoiceId = String(exact.invoice_id ?? '').trim();
+        if (!customerName) customerName = String(exact.customer_name ?? '').trim();
+      }
+    } catch {
+      // Direct lookup below may still resolve the order.
+    }
+  }
+
+  if (sourceOrdersId || sourceInvoiceId) {
+    details = await fetchCachedPosConnectDetails({
+      order_id: sourceInvoiceId || '0',
+      s_order_id: sourceOrdersId || '0',
+      mode: '0',
+      open_type: 'preview',
+    });
+  } else {
+    const compact = normalizedOrderNo.replace(/[^0-9A-Z]/gi, '');
+    const numericOnly = compact.replace(/\D+/g, '');
+    const candidates = Array.from(new Set([normalizedOrderNo, compact, numericOnly].filter(Boolean)));
+    for (const candidate of candidates) {
+      for (const shape of [
+        { order_id: '0', s_order_id: candidate, tag: 'orders' as const },
+        { order_id: candidate, s_order_id: '0', tag: 'invoice' as const },
+      ]) {
+        try {
+          const directDetails = await fetchCachedPosConnectDetails({
+            order_id: shape.order_id,
+            s_order_id: shape.s_order_id,
+            mode: '0',
+            open_type: 'preview',
+          });
+          const returnedOrderNo = normalizeSortingOrderNo(directDetails.general.order_no);
+          if ((directDetails.line_items ?? []).length > 0 && returnedOrderNo === normalizedOrderNo) {
+            details = directDetails;
+            if (shape.tag === 'orders') sourceOrdersId = shape.s_order_id;
+            else sourceInvoiceId = shape.order_id;
+            break;
+          }
+        } catch {
+          // Try the next known POS id shape.
+        }
+      }
+      if (details) break;
+    }
+  }
+
+  if (!details || (details.line_items ?? []).length === 0) return null;
+  if (!customerName) customerName = String(details.general.customer_name ?? '').trim();
+  if (!customerPhone) customerPhone = normalizeDriverPhone(details.general.customer_mobile ?? '');
+
+  const aggregate = new Map<string, number>();
+  for (const line of details.line_items) {
+    const name = String(line.name ?? '').trim() || QUANTITY_ONLY_SORTING_ITEM_NAME;
+    const qty = coercePositiveInt(line.qty, 1);
+    aggregate.set(name, (aggregate.get(name) ?? 0) + qty);
+  }
+  const items = Array.from(aggregate.entries()).map(([item_name, qty_required]) => ({ item_name, qty_required }));
+  if (items.length === 0) return null;
+
+  return {
+    sourceOrdersId,
+    sourceInvoiceId,
+    customerName,
+    customerPhone,
+    posMeta: buildPosSortingMeta(posSearchPreview, details),
+    items,
+    totalRequired: items.reduce((sum, item) => sum + item.qty_required, 0),
+  };
+};
+
+const syncSortingOrderQuantityFromPos = async (orderNo: string) => {
+  const normalizedOrderNo = normalizeSortingOrderNo(orderNo);
+  const order = db
+    .prepare('SELECT * FROM sorting_orders WHERE order_no = ?')
+    .get(normalizedOrderNo) as SortingOrderRecord | undefined;
+  if (!order) return { order_no: normalizedOrderNo, synced: false, reason: 'missing_order' };
+
+  const snapshot = await loadPosSortingSnapshot(normalizedOrderNo, order);
+  if (!snapshot) return { order_no: normalizedOrderNo, synced: false, reason: 'pos_not_found' };
+
+  const previousItems = db
+    .prepare('SELECT * FROM sorting_items WHERE order_no = ? ORDER BY id ASC')
+    .all(normalizedOrderNo) as SortingItemRecord[];
+  let remainingSorted = previousItems.reduce((sum, item) => sum + Math.max(0, Number(item.qty_sorted) || 0), 0);
+  let remainingIroned = previousItems.reduce((sum, item) => sum + Math.max(0, Number(item.qty_ironed) || 0), 0);
+  let remainingPacked = previousItems.reduce((sum, item) => sum + Math.max(0, Number(item.qty_packed) || 0), 0);
+
+  const replaceTx = db.transaction(() => {
+    db.prepare(
+      `UPDATE sorting_orders
+       SET customer_name = ?,
+           customer_phone = ?,
+           source_orders_id = ?,
+           source_invoice_id = ?,
+           pos_order_status = ?,
+           pos_payment_status = ?,
+           pos_status_flags = ?,
+           pos_remark = ?,
+           pos_total = ?,
+           pos_paid = ?,
+           pos_balance = ?,
+           pos_order_date = ?,
+           pos_delivery_date = ?,
+           pos_delivery_time = ?,
+           pos_last_synced_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE order_no = ?`
+    ).run(
+      snapshot.customerName,
+      snapshot.customerPhone || null,
+      snapshot.sourceOrdersId || null,
+      snapshot.sourceInvoiceId || null,
+      snapshot.posMeta.pos_order_status,
+      snapshot.posMeta.pos_payment_status,
+      snapshot.posMeta.pos_status_flags,
+      snapshot.posMeta.pos_remark || null,
+      snapshot.posMeta.pos_total,
+      snapshot.posMeta.pos_paid,
+      snapshot.posMeta.pos_balance,
+      snapshot.posMeta.pos_order_date || null,
+      snapshot.posMeta.pos_delivery_date || null,
+      snapshot.posMeta.pos_delivery_time || null,
+      normalizedOrderNo
+    );
+
+    db.prepare('DELETE FROM sorting_items WHERE order_no = ?').run(normalizedOrderNo);
+    const insertItem = db.prepare(
+      `INSERT INTO sorting_items (order_no, item_name, qty_required, qty_sorted, qty_ironed, qty_packed, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    );
+
+    for (const item of snapshot.items) {
+      const required = Math.max(1, Number(item.qty_required) || 1);
+      const sorted = Math.min(required, remainingSorted);
+      remainingSorted -= sorted;
+      const ironed = Math.min(required, remainingIroned);
+      remainingIroned -= ironed;
+      const packed = Math.min(required, remainingPacked);
+      remainingPacked -= packed;
+      insertItem.run(
+        normalizedOrderNo,
+        item.item_name || QUANTITY_ONLY_SORTING_ITEM_NAME,
+        required,
+        sorted,
+        ironed,
+        packed,
+        toSortingItemStatus(sorted, required)
+      );
+    }
+  });
+  replaceTx();
+  syncSortingOrderProgress(normalizedOrderNo);
+  return { order_no: normalizedOrderNo, synced: true, pos_quantity: snapshot.totalRequired };
+};
+
+const syncActiveSortingOrdersWithPos = async (limit = 12) => {
+  const safeLimit = Math.max(1, Math.min(40, Math.floor(Number(limit) || 12)));
+  const orders = db
+    .prepare(
+      `SELECT *
+       FROM sorting_orders
+       WHERE status IN ('sorting_pending', 'sorting_partial', 'sorted_complete')
+       ORDER BY updated_at DESC
+       LIMIT ?`
+    )
+    .all(safeLimit) as SortingOrderRecord[];
+  const results: Array<{ order_no: string; synced: boolean; reason?: string; pos_quantity?: number; error?: string }> = [];
+  for (const batch of chunk(orders, 4)) {
+    const batchResults = await Promise.all(
+      batch.map(async (order) => {
+        try {
+          return await syncSortingOrderQuantityFromPos(order.order_no);
+        } catch (error: any) {
+          return {
+            order_no: order.order_no,
+            synced: false,
+            error: error?.message || 'POS sync failed',
+          };
+        }
+      })
+    );
+    results.push(...batchResults);
+  }
+  return {
+    checked: orders.length,
+    synced: results.filter((result) => result.synced).length,
+    results,
+  };
 };
 
 const applySortingScan = (params: {
@@ -2866,8 +5392,205 @@ const applySortingScan = (params: {
   return {
     consumed,
     overflow: remaining,
+    updated_items: items
+      .filter((item) => (increments.get(item.id) ?? 0) > 0)
+      .map((item) => ({
+        id: item.id,
+        item_name: item.item_name,
+        qty: increments.get(item.id) ?? 0,
+      })),
     ...(synced ?? {}),
   };
+};
+
+const normalizeIroningTeamMembers = (raw: unknown, fallbackWorker = 'system') => {
+  const values = Array.isArray(raw)
+    ? raw
+    : String(raw ?? '')
+        .split(/[,\n،]+/g)
+        .map((item) => item.trim());
+  const members = values
+    .map((item) => String(item ?? '').trim())
+    .filter(Boolean)
+    .slice(0, 4);
+  if (members.length > 0) return Array.from(new Set(members));
+  return [fallbackWorker].filter(Boolean).slice(0, 1);
+};
+
+const normalizeIroningSessionStatus = (raw: unknown): SortingIroningSessionRecord['status'] => {
+  const status = String(raw ?? '').trim().toLowerCase();
+  if (status === 'completed' || status === 'paused') return status;
+  return 'in_progress';
+};
+
+const coerceQualityScore = (raw: unknown) => {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return null;
+  return Math.max(0, Math.min(5, value));
+};
+
+const serializeIroningSession = (session: SortingIroningSessionRecord) => {
+  const startedAt = session.started_at ? new Date(session.started_at) : null;
+  const endedAt = session.ended_at ? new Date(session.ended_at) : null;
+  const durationMinutes =
+    startedAt && endedAt && !Number.isNaN(startedAt.getTime()) && !Number.isNaN(endedAt.getTime())
+      ? Math.max(0, Math.round((endedAt.getTime() - startedAt.getTime()) / 60000))
+      : null;
+  return {
+    ...session,
+    status: normalizeIroningSessionStatus(session.status),
+    team_members: String(session.team_members ?? '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean),
+    pieces_target: Math.max(0, Number(session.pieces_target) || 0),
+    pieces_ironed: Math.max(0, Number(session.pieces_ironed) || 0),
+    quality_score: session.quality_score === null || session.quality_score === undefined ? null : Number(session.quality_score),
+    duration_minutes: durationMinutes,
+  };
+};
+
+const getIroningSessionById = (sessionId: unknown) => {
+  const id = Math.max(0, Number(sessionId) || 0);
+  if (!id) return null;
+  return db.prepare('SELECT * FROM sorting_ironing_sessions WHERE id = ?').get(id) as SortingIroningSessionRecord | undefined;
+};
+
+const listIroningSessions = (params: {
+  order_no?: string;
+  worker?: string;
+  status?: string;
+  q?: string;
+  limit?: number;
+  offset?: number;
+}) => {
+  const limit = Math.max(1, Math.min(200, Number(params.limit ?? 40) || 40));
+  const offset = Math.max(0, Number(params.offset ?? 0) || 0);
+  const where: string[] = [];
+  const values: unknown[] = [];
+
+  const orderNo = normalizeSortingOrderNo(params.order_no ?? '');
+  if (orderNo) {
+    where.push('s.order_no = ?');
+    values.push(orderNo);
+  }
+
+  const worker = String(params.worker ?? '').trim();
+  if (worker) {
+    where.push('(s.worker = ? OR s.team_members LIKE ?)');
+    values.push(worker, `%${worker}%`);
+  }
+
+  const status = String(params.status ?? '').trim().toLowerCase();
+  if (status === 'in_progress' || status === 'completed' || status === 'paused') {
+    where.push('s.status = ?');
+    values.push(status);
+  }
+
+  const q = String(params.q ?? '').trim();
+  if (q) {
+    const like = `%${q}%`;
+    where.push('(s.order_no LIKE ? OR s.worker LIKE ? OR s.team_members LIKE ? OR o.customer_name LIKE ?)');
+    values.push(like, like, like, like);
+  }
+
+  const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+  const rows = db
+    .prepare(
+      `SELECT s.*, o.customer_name, o.customer_phone
+       FROM sorting_ironing_sessions s
+       LEFT JOIN sorting_orders o ON o.order_no = s.order_no
+       ${whereSql}
+       ORDER BY datetime(s.started_at) DESC, s.id DESC
+       LIMIT ? OFFSET ?`
+    )
+    .all(...values, limit, offset) as Array<SortingIroningSessionRecord & { customer_name?: string | null; customer_phone?: string | null }>;
+  const total = db
+    .prepare(
+      `SELECT COUNT(*) AS count
+       FROM sorting_ironing_sessions s
+       LEFT JOIN sorting_orders o ON o.order_no = s.order_no
+       ${whereSql}`
+    )
+    .get(...values) as { count: number };
+  return {
+    rows: rows.map((row) => serializeIroningSession(row)),
+    total: Number(total?.count ?? 0),
+    limit,
+  };
+};
+
+const startIroningSession = (params: {
+  order_no: string;
+  worker?: string;
+  team_members?: unknown;
+  pieces_target?: number;
+  request_id?: string;
+}) => {
+  const orderNo = normalizeSortingOrderNo(params.order_no);
+  if (!orderNo) throw new Error('Order number is required.');
+  const worker = String(params.worker ?? 'system').trim() || 'system';
+  const teamMembers = normalizeIroningTeamMembers(params.team_members, worker);
+  const piecesTarget = coercePositiveInt(params.pieces_target, 1);
+
+  const bundle = getSortingOrderBundle(orderNo);
+  if (!bundle) throw new Error('Sorting order not found.');
+  if (bundle.order.status === 'packed_complete') throw new Error('Order is already packed complete.');
+
+  const clothesItems = bundle.items.filter((item) => detectSortingItemCategory(item.item_name) === 'clothes');
+  const sortedAvailable = clothesItems.reduce((sum, item) => {
+    const sorted = Math.min(item.qty_sorted, item.qty_required);
+    return sum + Math.max(0, sorted - item.qty_ironed);
+  }, 0);
+  if (clothesItems.length === 0) throw new Error('No clothes items found in this order.');
+  if (sortedAvailable <= 0) throw new Error('No sorted clothes are available for ironing yet.');
+
+  const active = db
+    .prepare(
+      `SELECT * FROM sorting_ironing_sessions
+       WHERE order_no = ? AND status = 'in_progress'
+       ORDER BY datetime(started_at) DESC, id DESC
+       LIMIT 1`
+    )
+    .get(orderNo) as SortingIroningSessionRecord | undefined;
+  if (active) return serializeIroningSession(active);
+
+  const requestId = String(params.request_id ?? '').trim() || null;
+  const result = db
+    .prepare(
+      `INSERT INTO sorting_ironing_sessions
+       (order_no, status, worker, team_members, pieces_target, pieces_ironed, request_id, started_at, created_at, updated_at)
+       VALUES (?, 'in_progress', ?, ?, ?, 0, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+    )
+    .run(orderNo, worker, teamMembers.join(','), Math.min(piecesTarget, sortedAvailable), requestId);
+  const created = db
+    .prepare('SELECT * FROM sorting_ironing_sessions WHERE id = ?')
+    .get(result.lastInsertRowid) as SortingIroningSessionRecord;
+  return serializeIroningSession(created);
+};
+
+const finishIroningSession = (params: {
+  session_id: number;
+  quality_score?: unknown;
+  notes?: unknown;
+}) => {
+  const session = getIroningSessionById(params.session_id);
+  if (!session) throw new Error('Ironing session not found.');
+  if (session.status === 'completed') return serializeIroningSession(session);
+  const qualityScore = coerceQualityScore(params.quality_score);
+  const notes = String(params.notes ?? '').trim().slice(0, 1000) || null;
+  db.prepare(
+    `UPDATE sorting_ironing_sessions
+     SET status = 'completed',
+         ended_at = COALESCE(ended_at, CURRENT_TIMESTAMP),
+         quality_score = ?,
+         notes = ?,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`
+  ).run(qualityScore, notes, session.id);
+  const updated = getIroningSessionById(session.id) as SortingIroningSessionRecord;
+  return serializeIroningSession(updated);
 };
 
 const applySortingIroningStart = (params: {
@@ -2875,6 +5598,7 @@ const applySortingIroningStart = (params: {
   qty?: number;
   user?: string;
   request_id?: string;
+  session_id?: number;
 }) => {
   const normalizedOrderNo = normalizeSortingOrderNo(params.order_no);
   const inputQty = coercePositiveInt(params.qty, 1);
@@ -2925,6 +5649,16 @@ const applySortingIroningStart = (params: {
   }
 
   const firstItemWithDelta = clothesItems.find((item) => (increments.get(item.id) ?? 0) > 0);
+  const session = getIroningSessionById(params.session_id);
+  if (params.session_id && !session) {
+    throw new Error('Ironing session not found.');
+  }
+  if (session && session.order_no !== normalizedOrderNo) {
+    throw new Error('Ironing session belongs to another order.');
+  }
+  if (session && session.status !== 'in_progress') {
+    throw new Error('Ironing session is not active.');
+  }
 
   const commitTx = db.transaction(() => {
     for (const item of clothesItems) {
@@ -2956,6 +5690,15 @@ const applySortingIroningStart = (params: {
       ironingUser,
       requestId
     );
+
+    if (session) {
+      db.prepare(
+        `UPDATE sorting_ironing_sessions
+         SET pieces_ironed = pieces_ironed + ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`
+      ).run(consumed, session.id);
+    }
   });
 
   commitTx();
@@ -2972,7 +5715,515 @@ const applySortingIroningStart = (params: {
       required,
       complete: required > 0 && ironed >= required,
     },
+    session: session ? serializeIroningSession(getIroningSessionById(session.id) as SortingIroningSessionRecord) : null,
     ...(synced ?? {}),
+  };
+};
+
+const toBlanketPackingStatus = (
+  packed: number,
+  required: number,
+  hasError = false
+): BlanketPackingLogRecord['status'] => {
+  if (hasError) return 'error';
+  const safeRequired = Math.max(0, Number(required) || 0);
+  const safePacked = Math.max(0, Number(packed) || 0);
+  if (safeRequired <= 0 || safePacked <= 0) return 'not_packed';
+  if (safePacked >= safeRequired) return 'fully_packed';
+  return 'partially_packed';
+};
+
+const resolveBlanketItemBySequenceIndex = (items: SortingItemRecord[], sequenceIndex: number) => {
+  const target = Math.max(1, Number(sequenceIndex) || 1);
+  let cursor = 0;
+  for (const item of items) {
+    const required = Math.max(0, Number(item.qty_required) || 0);
+    if (required <= 0) continue;
+    const nextCursor = cursor + required;
+    if (target <= nextCursor) {
+      return {
+        item_id: item.id,
+        item_name: item.item_name,
+        item_index: target - cursor,
+        item_total: required,
+      };
+    }
+    cursor = nextCursor;
+  }
+  return null;
+};
+
+const readBlanketPackingLogs = (orderNo: string, limit = 20) => {
+  const normalizedOrderNo = normalizeSortingOrderNo(orderNo);
+  const capped = Math.max(1, Math.min(100, Number(limit) || 20));
+  return db
+    .prepare(
+      `SELECT id, order_number, customer_name, customer_phone, blanket_index, total_blankets, action, status, printed_at, packed_by, created_at, request_id
+       FROM blanket_packing_logs
+       WHERE order_number = ?
+       ORDER BY id DESC
+       LIMIT ?`
+    )
+    .all(normalizedOrderNo, capped) as BlanketPackingLogRecord[];
+};
+
+const searchBlanketPackingLogs = (params: {
+  order_no?: string;
+  action?: string;
+  status?: string;
+  q?: string;
+  limit?: number;
+  offset?: number;
+}) => {
+  const whereParts: string[] = [];
+  const values: Array<string | number> = [];
+  const normalizedOrderNo = normalizeSortingOrderNo(params.order_no ?? '');
+  const normalizedAction = String(params.action ?? '').trim().toLowerCase();
+  const normalizedStatus = String(params.status ?? '').trim().toLowerCase();
+  const normalizedQuery = String(params.q ?? '').trim().toLowerCase();
+
+  if (normalizedOrderNo) {
+    whereParts.push('order_number = ?');
+    values.push(normalizedOrderNo);
+  }
+  if (normalizedAction && ['printed', 'reprinted', 'packed'].includes(normalizedAction)) {
+    whereParts.push('action = ?');
+    values.push(normalizedAction);
+  }
+  if (normalizedStatus && ['not_packed', 'partially_packed', 'fully_packed', 'error'].includes(normalizedStatus)) {
+    whereParts.push('status = ?');
+    values.push(normalizedStatus);
+  }
+  if (normalizedQuery) {
+    whereParts.push(
+      `(lower(COALESCE(order_number, '')) LIKE ? OR lower(COALESCE(customer_name, '')) LIKE ? OR lower(COALESCE(customer_phone, '')) LIKE ? OR lower(COALESCE(packed_by, '')) LIKE ?)`
+    );
+    const like = `%${normalizedQuery}%`;
+    values.push(like, like, like, like);
+  }
+
+  const whereSql = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
+  const safeLimit = Math.max(1, Math.min(200, Number(params.limit ?? 30) || 30));
+  const safeOffset = Math.max(0, Number(params.offset ?? 0) || 0);
+
+  const rows = db
+    .prepare(
+      `SELECT id, order_number, customer_name, customer_phone, blanket_index, total_blankets, action, status, printed_at, packed_by, created_at, request_id
+       FROM blanket_packing_logs
+       ${whereSql}
+       ORDER BY id DESC
+       LIMIT ? OFFSET ?`
+    )
+    .all(...values, safeLimit, safeOffset) as BlanketPackingLogRecord[];
+
+  const totalRow = db
+    .prepare(
+      `SELECT COUNT(1) AS total
+       FROM blanket_packing_logs
+       ${whereSql}`
+    )
+    .get(...values) as { total?: number } | undefined;
+
+  return {
+    rows,
+    total: Math.max(0, Number(totalRow?.total ?? 0) || 0),
+    limit: safeLimit,
+    offset: safeOffset,
+  };
+};
+
+const insertBlanketPackingLog = (payload: {
+  order_number: string;
+  customer_name: string;
+  customer_phone: string;
+  blanket_index: number;
+  total_blankets: number;
+  action: BlanketPackingLogRecord['action'];
+  status: BlanketPackingLogRecord['status'];
+  packed_by: string;
+  request_id?: string | null;
+}) => {
+  const normalizedOrderNo = normalizeSortingOrderNo(payload.order_number);
+  const requestId = payload.request_id ? String(payload.request_id).trim() : '';
+  if (requestId) {
+    const existing = db
+      .prepare(
+        `SELECT id, order_number, customer_name, customer_phone, blanket_index, total_blankets, action, status, printed_at, packed_by, created_at, request_id
+         FROM blanket_packing_logs
+         WHERE order_number = ? AND action = ? AND request_id = ?
+         ORDER BY id DESC
+         LIMIT 1`
+      )
+      .get(normalizedOrderNo, payload.action, requestId) as BlanketPackingLogRecord | undefined;
+    if (existing) return existing;
+  }
+
+  const result = db.prepare(
+    `INSERT INTO blanket_packing_logs
+     (order_number, customer_name, customer_phone, blanket_index, total_blankets, action, status, printed_at, packed_by, request_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, CURRENT_TIMESTAMP)`
+  ).run(
+    normalizedOrderNo,
+    String(payload.customer_name ?? '').trim() || null,
+    normalizeDriverPhone(payload.customer_phone ?? '') || null,
+    Math.max(0, Number(payload.blanket_index) || 0),
+    Math.max(0, Number(payload.total_blankets) || 0),
+    payload.action,
+    payload.status,
+    String(payload.packed_by ?? 'system').trim() || 'system',
+    requestId || null
+  );
+
+  return db
+    .prepare(
+      `SELECT id, order_number, customer_name, customer_phone, blanket_index, total_blankets, action, status, printed_at, packed_by, created_at, request_id
+       FROM blanket_packing_logs
+       WHERE id = ?`
+    )
+    .get(Number(result.lastInsertRowid)) as BlanketPackingLogRecord | undefined;
+};
+
+const getLastBlanketPackingLog = (
+  orderNo: string,
+  actions: Array<BlanketPackingLogRecord['action']> = ['printed', 'reprinted', 'packed']
+) => {
+  const normalizedOrderNo = normalizeSortingOrderNo(orderNo);
+  if (!actions.length) return null;
+  const placeholders = actions.map(() => '?').join(', ');
+  return db
+    .prepare(
+      `SELECT id, order_number, customer_name, customer_phone, blanket_index, total_blankets, action, status, printed_at, packed_by, created_at, request_id
+       FROM blanket_packing_logs
+       WHERE order_number = ?
+         AND action IN (${placeholders})
+       ORDER BY id DESC
+       LIMIT 1`
+    )
+    .get(normalizedOrderNo, ...actions) as BlanketPackingLogRecord | undefined;
+};
+
+const resolveBlanketStatusLabel = (status: BlanketPackingLogRecord['status']) => {
+  if (status === 'fully_packed') return 'Fully Packed';
+  if (status === 'partially_packed') return 'Partially Packed';
+  if (status === 'error') return 'Error';
+  return 'Not Packed';
+};
+
+const resolveBlanketPackingItemTotals = (items: SortingItemRecord[]) => {
+  return items.reduce(
+    (acc, item) => {
+      const required = Math.max(0, Number(item.qty_required) || 0);
+      const packed = Math.max(0, Math.min(required, Number(item.qty_packed) || 0));
+      acc.required += required;
+      acc.packed += packed;
+      return acc;
+    },
+    { required: 0, packed: 0 }
+  );
+};
+
+const buildBlanketLabelPreview = (params: {
+  order_no: string;
+  customer_name: string;
+  blanket_index: number;
+  total_blankets: number;
+  generated_at?: Date;
+}) => {
+  const safeTotal = Math.max(0, Number(params.total_blankets) || 0);
+  const safeIndex = Math.max(0, Math.min(safeTotal || Number.MAX_SAFE_INTEGER, Number(params.blanket_index) || 0));
+  const dateObj = params.generated_at instanceof Date ? params.generated_at : new Date();
+  const barcode_payload = params.order_no;
+  return {
+    order_no: params.order_no,
+    customer_name: String(params.customer_name ?? '').trim(),
+    blanket_index: safeIndex,
+    total_blankets: safeTotal,
+    sequence_label: safeTotal > 0 && safeIndex > 0 ? `${safeIndex} of ${safeTotal}` : '-',
+    barcode_payload,
+    printed_at: dateObj.toISOString(),
+    date_text: dateObj.toLocaleString('en-US'),
+    lines: [
+      'IN & OUT LAUNDRY',
+      `Order: ${params.order_no}`,
+      `Customer: ${String(params.customer_name ?? '').trim() || '-'}`,
+      `Blanket: ${safeTotal > 0 && safeIndex > 0 ? `${safeIndex} of ${safeTotal}` : '-'}`,
+      `Date: ${dateObj.toLocaleString('en-US')}`,
+      `Barcode: ${barcode_payload}`,
+    ],
+  };
+};
+
+const buildBlanketPackingUiBundle = async (orderNo: string, activityLimit = 30) => {
+  const normalizedOrderNo = normalizeSortingOrderNo(orderNo);
+  const base = getBlanketPackingBundle(normalizedOrderNo);
+  if (!base) return null;
+  const orderWithDetails = await tryHydrateSortingOrderCustomerDetailsFromPos(base.order);
+  const refreshed = getBlanketPackingBundle(normalizedOrderNo);
+  if (!refreshed) return null;
+
+  const required = Math.max(0, Number(refreshed.totals.required) || 0);
+  const packed = Math.max(0, Number(refreshed.totals.packed) || 0);
+  const remaining = Math.max(0, required - packed);
+  const matched = required > 0 && packed === required;
+  const hasQuantityError = packed > required;
+  const status = toBlanketPackingStatus(packed, required, hasQuantityError);
+  const statusLabel = resolveBlanketStatusLabel(status);
+  const nextIndex = remaining > 0 ? packed + 1 : null;
+  const lastActivity = getLastBlanketPackingLog(normalizedOrderNo);
+  const previewIndex = nextIndex ?? Math.max(0, Number(lastActivity?.blanket_index ?? 0));
+  const labelPreview =
+    required > 0 && previewIndex > 0
+      ? buildBlanketLabelPreview({
+          order_no: normalizedOrderNo,
+          customer_name: orderWithDetails.customer_name || refreshed.order.customer_name || '',
+          blanket_index: previewIndex,
+          total_blankets: required,
+        })
+      : null;
+  const activity = readBlanketPackingLogs(normalizedOrderNo, activityLimit);
+
+  return {
+    order: {
+      ...refreshed.order,
+      customer_name: orderWithDetails.customer_name || refreshed.order.customer_name || '',
+      customer_phone: orderWithDetails.customer_phone || refreshed.order.customer_phone || null,
+    },
+    items: refreshed.items,
+    totals: {
+      required,
+      packed,
+      remaining,
+      complete: matched,
+    },
+    packing: {
+      quantity_in_order: required,
+      quantity_in_store: packed,
+      matched,
+      status,
+      status_label: statusLabel,
+      can_print_next: required > 0 && packed < required,
+      next_blanket_index: nextIndex,
+      sequence_label: nextIndex ? `${nextIndex} of ${required}` : required > 0 ? `${required} of ${required}` : '-',
+    },
+    label_preview: labelPreview,
+    last_label: lastActivity
+      ? {
+          blanket_index: Math.max(0, Number(lastActivity.blanket_index) || 0),
+          total_blankets: Math.max(0, Number(lastActivity.total_blankets) || 0),
+          action: lastActivity.action,
+          printed_at: lastActivity.printed_at,
+          packed_by: lastActivity.packed_by,
+        }
+      : null,
+    activity,
+  };
+};
+
+const applyBlanketPackingPrintNext = async (params: {
+  order_no: string;
+  user?: string;
+  request_id?: string | null;
+}) => {
+  const normalizedOrderNo = normalizeSortingOrderNo(params.order_no);
+  const packedByUser = String(params.user ?? 'system').trim() || 'system';
+  const requestId = params.request_id ? String(params.request_id).trim() : '';
+
+  const order = db
+    .prepare('SELECT * FROM sorting_orders WHERE order_no = ?')
+    .get(normalizedOrderNo) as SortingOrderRecord | undefined;
+  if (!order) {
+    throw new Error('Sorting order was not initialized.');
+  }
+
+  const customerDetails = await tryHydrateSortingOrderCustomerDetailsFromPos(order);
+
+  const txResult = db.transaction(() => {
+    const allItems = db
+      .prepare('SELECT * FROM sorting_items WHERE order_no = ? ORDER BY id ASC')
+      .all(normalizedOrderNo) as SortingItemRecord[];
+    const blanketItems = allItems.filter((item) => isBlanketPackingOnlyItem(item.item_name));
+    if (blanketItems.length === 0) {
+      throw new Error(`No ${BLANKET_PACKING_ITEM_LABEL} found in this order.`);
+    }
+
+    const totalsBefore = resolveBlanketPackingItemTotals(blanketItems);
+    const required = totalsBefore.required;
+    const packedBefore = totalsBefore.packed;
+    if (required <= 0) {
+      throw new Error('Packing quantity is invalid for this order.');
+    }
+    if (packedBefore >= required) {
+      throw new Error('All blankets already packed for this order.');
+    }
+
+    const nextItem = blanketItems.find((item) => {
+      const requiredQty = Math.max(0, Number(item.qty_required) || 0);
+      const packedQty = Math.max(0, Number(item.qty_packed) || 0);
+      return packedQty < requiredQty;
+    });
+    if (!nextItem) {
+      throw new Error('No pending blanket item found for this order.');
+    }
+
+    const nextItemPacked = Math.max(0, Number(nextItem.qty_packed) || 0) + 1;
+    const nextItemRequired = Math.max(0, Number(nextItem.qty_required) || 0);
+    const nextPackedForItem = Math.min(nextItemRequired, nextItemPacked);
+    db.prepare(
+      `UPDATE sorting_items
+       SET qty_packed = ?
+       WHERE id = ?`
+    ).run(nextPackedForItem, nextItem.id);
+
+    const packedAfter = packedBefore + 1;
+    const status = toBlanketPackingStatus(packedAfter, required, packedAfter > required);
+    const blanketIndex = packedAfter;
+    const inserted = insertBlanketPackingLog({
+      order_number: normalizedOrderNo,
+      customer_name: customerDetails.customer_name || order.customer_name || '',
+      customer_phone: customerDetails.customer_phone || order.customer_phone || '',
+      blanket_index: blanketIndex,
+      total_blankets: required,
+      action: 'packed',
+      status,
+      packed_by: packedByUser,
+      request_id: requestId || null,
+    });
+
+    db.prepare(
+      `INSERT INTO sorting_blanket_packing_events (order_no, item_name, qty, user, request_id, timestamp)
+       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+    ).run(normalizedOrderNo, nextItem.item_name, 1, packedByUser, requestId || null);
+
+    db.prepare(
+      `INSERT INTO logs (blanket_number, action, user, store, row, column, status, request_id, device, ip, notes, timestamp)
+       VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, NULL, NULL, ?, CURRENT_TIMESTAMP)`
+    ).run(
+      normalizedOrderNo,
+      'packed',
+      packedByUser,
+      'blanket_packing',
+      status,
+      requestId || null,
+      `Packed blanket ${blanketIndex}/${required} and printed label`
+    );
+
+    return {
+      blanket_index: blanketIndex,
+      total_blankets: required,
+      status,
+      inserted_log_id: inserted?.id ?? null,
+    };
+  })();
+
+  const bundle = await buildBlanketPackingUiBundle(normalizedOrderNo);
+  if (!bundle) {
+    throw new Error('Failed to refresh blanket packing order.');
+  }
+
+  return {
+    ...bundle,
+    printed: txResult,
+    label_preview: buildBlanketLabelPreview({
+      order_no: normalizedOrderNo,
+      customer_name: bundle.order.customer_name || '',
+      blanket_index: txResult.blanket_index,
+      total_blankets: txResult.total_blankets,
+    }),
+  };
+};
+
+const applyBlanketPackingReprintLast = async (params: {
+  order_no: string;
+  user?: string;
+  request_id?: string | null;
+  confirm?: boolean;
+}) => {
+  const normalizedOrderNo = normalizeSortingOrderNo(params.order_no);
+  const packedByUser = String(params.user ?? 'system').trim() || 'system';
+  const requestId = params.request_id ? String(params.request_id).trim() : '';
+  if (!params.confirm) {
+    throw new Error('Reprint confirmation is required.');
+  }
+
+  const order = db
+    .prepare('SELECT * FROM sorting_orders WHERE order_no = ?')
+    .get(normalizedOrderNo) as SortingOrderRecord | undefined;
+  if (!order) {
+    throw new Error('Sorting order was not initialized.');
+  }
+
+  const customerDetails = await tryHydrateSortingOrderCustomerDetailsFromPos(order);
+
+  const reprintResult = db.transaction(() => {
+    const allItems = db
+      .prepare('SELECT * FROM sorting_items WHERE order_no = ? ORDER BY id ASC')
+      .all(normalizedOrderNo) as SortingItemRecord[];
+    const blanketItems = allItems.filter((item) => isBlanketPackingOnlyItem(item.item_name));
+    if (blanketItems.length === 0) {
+      throw new Error(`No ${BLANKET_PACKING_ITEM_LABEL} found in this order.`);
+    }
+
+    const totals = resolveBlanketPackingItemTotals(blanketItems);
+    const required = totals.required;
+    const packed = totals.packed;
+    if (required <= 0) {
+      throw new Error('Packing quantity is invalid for this order.');
+    }
+
+    const lastLog = getLastBlanketPackingLog(normalizedOrderNo);
+    const fallbackIndex = packed > 0 ? packed : 0;
+    const targetIndex = Math.max(0, Number(lastLog?.blanket_index ?? fallbackIndex) || 0);
+    if (targetIndex <= 0) {
+      throw new Error('No previous label found to reprint.');
+    }
+
+    const status = toBlanketPackingStatus(packed, required, packed > required);
+    insertBlanketPackingLog({
+      order_number: normalizedOrderNo,
+      customer_name: customerDetails.customer_name || order.customer_name || '',
+      customer_phone: customerDetails.customer_phone || order.customer_phone || '',
+      blanket_index: targetIndex,
+      total_blankets: required,
+      action: 'reprinted',
+      status,
+      packed_by: packedByUser,
+      request_id: requestId || null,
+    });
+
+    db.prepare(
+      `INSERT INTO logs (blanket_number, action, user, store, row, column, status, request_id, device, ip, notes, timestamp)
+       VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, NULL, NULL, ?, CURRENT_TIMESTAMP)`
+    ).run(
+      normalizedOrderNo,
+      'reprinted',
+      packedByUser,
+      'blanket_packing',
+      status,
+      requestId || null,
+      `Reprint blanket label ${targetIndex}/${required}`
+    );
+
+    return {
+      blanket_index: targetIndex,
+      total_blankets: required,
+      status,
+    };
+  })();
+
+  const bundle = await buildBlanketPackingUiBundle(normalizedOrderNo);
+  if (!bundle) {
+    throw new Error('Failed to refresh blanket packing order.');
+  }
+
+  return {
+    ...bundle,
+    reprinted: reprintResult,
+    label_preview: buildBlanketLabelPreview({
+      order_no: normalizedOrderNo,
+      customer_name: bundle.order.customer_name || '',
+      blanket_index: reprintResult.blanket_index,
+      total_blankets: reprintResult.total_blankets,
+    }),
   };
 };
 
@@ -2985,15 +6236,8 @@ const getBlanketPackingBundle = (orderNo: string) => {
   const items = db
     .prepare('SELECT * FROM sorting_items WHERE order_no = ? ORDER BY id ASC')
     .all(normalizedOrderNo) as SortingItemRecord[];
-  const blanketItems = items.filter((item) => detectSortingItemCategory(item.item_name) === 'blanket_phase3');
-  const totals = blanketItems.reduce(
-    (acc, item) => {
-      acc.required += Math.max(0, Number(item.qty_required) || 0);
-      acc.packed += Math.max(0, Math.min(Number(item.qty_required) || 0, Number(item.qty_packed) || 0));
-      return acc;
-    },
-    { required: 0, packed: 0 }
-  );
+  const blanketItems = items.filter((item) => isBlanketPackingOnlyItem(item.item_name));
+  const totals = resolveBlanketPackingItemTotals(blanketItems);
   return {
     order,
     items: blanketItems,
@@ -3029,9 +6273,9 @@ const applyBlanketPackingScan = (params: {
   const allItems = db
     .prepare('SELECT * FROM sorting_items WHERE order_no = ? ORDER BY id ASC')
     .all(normalizedOrderNo) as SortingItemRecord[];
-  const blanketItems = allItems.filter((item) => detectSortingItemCategory(item.item_name) === 'blanket_phase3');
+  const blanketItems = allItems.filter((item) => isBlanketPackingOnlyItem(item.item_name));
   if (blanketItems.length === 0) {
-    throw new Error('No blanket or pillow items found in this order.');
+    throw new Error(`No ${BLANKET_PACKING_ITEM_LABEL} found in this order.`);
   }
 
   let remaining = scanQty;
@@ -3066,16 +6310,19 @@ const applyBlanketPackingScan = (params: {
 
   const consumed = scanQty - remaining;
   if (consumed <= 0) {
-    throw new Error('Blanket/pillow quantities are already fully packed for this order.');
+    throw new Error('Packing quantities are already fully packed for this order.');
   }
 
   const firstTouched = blanketItems.find((item) => (increments.get(item.id) ?? 0) > 0);
+  const totalsBefore = resolveBlanketPackingItemTotals(blanketItems);
+  const packedBefore = totalsBefore.packed;
+  const required = totalsBefore.required;
   const commitTx = db.transaction(() => {
     for (const item of blanketItems) {
       const delta = increments.get(item.id) ?? 0;
       if (delta <= 0) continue;
-      const required = Math.max(0, Number(item.qty_required) || 0);
-      const nextPacked = Math.min(required, Math.max(0, Number(item.qty_packed) || 0) + delta);
+      const requiredQty = Math.max(0, Number(item.qty_required) || 0);
+      const nextPacked = Math.min(requiredQty, Math.max(0, Number(item.qty_packed) || 0) + delta);
       db.prepare(
         `UPDATE sorting_items
          SET qty_packed = ?
@@ -3101,6 +6348,22 @@ const applyBlanketPackingScan = (params: {
       requestId,
       `Blanket packing scan${firstTouched?.item_name ? ` • ${firstTouched.item_name}` : ''} • qty ${consumed}`
     );
+
+    for (let step = 1; step <= consumed; step += 1) {
+      const blanketIndex = Math.min(required, packedBefore + step);
+      const status = toBlanketPackingStatus(blanketIndex, required, blanketIndex > required);
+      insertBlanketPackingLog({
+        order_number: normalizedOrderNo,
+        customer_name: order.customer_name || '',
+        customer_phone: order.customer_phone || '',
+        blanket_index: blanketIndex,
+        total_blankets: required,
+        action: 'packed',
+        status,
+        packed_by: packedByUser,
+        request_id: requestId ? `${requestId}:packed:${step}` : null,
+      });
+    }
   });
 
   commitTx();
@@ -3114,6 +6377,51 @@ const applyBlanketPackingScan = (params: {
     overflow: remaining,
     ...bundle,
   };
+};
+const tryHydrateSortingOrderCustomerDetailsFromPos = async (order: SortingOrderRecord) => {
+  const currentName = String(order.customer_name ?? '').trim();
+  const currentPhone = normalizeDriverPhone((order as any).customer_phone ?? '');
+  if (currentName && currentPhone) {
+    return { customer_name: currentName, customer_phone: currentPhone };
+  }
+
+  try {
+    let details: PosOrderDetailsResult | null = null;
+    const sourceOrdersId = String(order.source_orders_id ?? '').trim();
+    const sourceInvoiceId = String(order.source_invoice_id ?? '').trim();
+    if (sourceOrdersId || sourceInvoiceId) {
+      details = await fetchPosOrderDetails({
+        order_id: sourceInvoiceId || '0',
+        s_order_id: sourceOrdersId || '0',
+        mode: '0',
+        open_type: 'preview',
+      });
+    } else {
+      details = await resolvePosOrderDetailsByOrderNo(order.order_no);
+    }
+    const posName = String(details?.general?.customer_name ?? '').trim();
+    const posPhone = normalizeDriverPhone(details?.general?.customer_mobile ?? '');
+    const nextName = posName || currentName;
+    const nextPhone = posPhone || currentPhone;
+    if (nextName !== currentName || nextPhone !== currentPhone) {
+      db.prepare(
+        `UPDATE sorting_orders
+         SET customer_name = ?,
+             customer_phone = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE order_no = ?`
+      ).run(nextName || currentName || '', nextPhone || null, order.order_no);
+    }
+    return {
+      customer_name: nextName || currentName || '',
+      customer_phone: nextPhone || currentPhone || '',
+    };
+  } catch {
+    return {
+      customer_name: currentName || '',
+      customer_phone: currentPhone || '',
+    };
+  }
 };
 
 const buildSortingState = () => {
@@ -4409,6 +7717,10 @@ const normalizeSQLiteUser = (user: SQLiteUserRecord): ApiUser => ({
   created_at: user.created_at ?? null,
   updated_at: user.updated_at ?? null,
   last_login_at: user.last_login_at ?? null,
+  branch_id: user.branch_id == null ? 1 : Number(user.branch_id),
+  branch_name:
+    (db.prepare('SELECT name FROM branches WHERE id = ?').get(user.branch_id ?? 1) as { name?: string } | undefined)?.name ??
+    null,
 });
 
 const deriveBlanketAction = (
@@ -4480,6 +7792,58 @@ const normalizeStoreRequirePickScan = (value: unknown, storeType: unknown) => {
   return String(storeType ?? '').toLowerCase() === 'hanger';
 };
 
+const extractPickScanOrderNumber = (raw: unknown) => {
+  const value = String(raw ?? '').trim();
+  if (!value) return '';
+  try {
+    const url = new URL(value);
+    const fromQuery =
+      url.searchParams.get('blanket') ||
+      url.searchParams.get('blanket_number') ||
+      url.searchParams.get('invoice') ||
+      url.searchParams.get('ticket') ||
+      url.searchParams.get('n') ||
+      url.searchParams.get('number');
+    if (fromQuery?.trim()) return fromQuery.trim();
+  } catch {
+    // Continue with raw barcode text.
+  }
+  const labeledMatch = value.match(/(?:order|invoice|ticket|job\s*order)\s*[:#\-]?\s*([A-Za-z]{0,3}\d{3,})/i);
+  if (labeledMatch?.[1]) return labeledMatch[1].trim();
+  const normalized = value.replace(/\*/g, ' ').replace(/\s+/g, ' ').trim();
+  const strongMixedTokens = normalized.match(/\b[A-Za-z]{1,3}\d{3,}\b/g);
+  if (strongMixedTokens?.length) return strongMixedTokens[0].trim();
+  const splitTokens = normalized.split(/[^0-9A-Za-z]+/).filter(Boolean);
+  const splitMixed = splitTokens.find((token) => /^[A-Za-z]{1,3}\d{3,}$/.test(token));
+  if (splitMixed) return splitMixed.trim();
+  const compact = normalized.replace(/^[^0-9A-Za-z]+|[^0-9A-Za-z]+$/g, '').replace(/\s+/g, '');
+  if (!compact) return '';
+  if (!/[A-Za-z]/.test(compact)) return compact.replace(/\D+/g, '');
+  return compact.replace(/[^0-9A-Za-z_-]/g, '') || compact;
+};
+
+const normalizePickScanCompare = (value: unknown) => String(value ?? '').trim().toLowerCase();
+
+const validatePickScanForStore = (params: {
+  requirePickScan: unknown;
+  storeType: unknown;
+  scannedValue: unknown;
+  expectedOrderNo: unknown;
+}) => {
+  const required = normalizeStoreRequirePickScan(params.requirePickScan, params.storeType);
+  if (!required) return { ok: true as const, extracted: '' };
+  const extracted = extractPickScanOrderNumber(params.scannedValue);
+  const scanned = normalizePickScanCompare(extracted);
+  const expected = normalizePickScanCompare(params.expectedOrderNo);
+  if (!scanned) {
+    return { ok: false as const, extracted, error: 'Pick scan required before marking this order as picked.' };
+  }
+  if (scanned !== expected) {
+    return { ok: false as const, extracted, error: `Scanned order ${extracted} does not match required order ${params.expectedOrderNo}.` };
+  }
+  return { ok: true as const, extracted };
+};
+
 const deriveDefaultCellWidth = (columns: unknown) =>
   STORE_LOCAL_FOOTPRINT / Math.max(1, Number(columns ?? 1) || 1);
 
@@ -4497,20 +7861,153 @@ const normalizeStoreCellDimension = (value: unknown, fallback: number) => {
   return clamped < 0 || Object.is(clamped, -0) ? -0.001 : 0.001;
 };
 
+const parseBranchPayload = (body: any) => ({
+  name: clampText(body?.name, 120) || 'New Branch',
+  city: clampText(body?.city, 80),
+  trade_license: clampText(body?.trade_license, 120),
+  phone: clampText(body?.phone, 40),
+  address: clampText(body?.address, 240),
+  status: String(body?.status ?? 'active').toLowerCase() === 'inactive' ? 'inactive' : 'active',
+  notes: clampText(body?.notes, 500),
+});
+
+const normalizeBranchRow = (row: any): BranchRecord => ({
+  id: Number(row?.id ?? 0),
+  name: String(row?.name ?? ''),
+  city: String(row?.city ?? ''),
+  trade_license: row?.trade_license == null ? null : String(row.trade_license),
+  phone: row?.phone == null ? null : String(row.phone),
+  address: row?.address == null ? null : String(row.address),
+  status: String(row?.status ?? 'active') === 'inactive' ? 'inactive' : 'active',
+  notes: row?.notes == null ? null : String(row.notes),
+  created_at: row?.created_at == null ? null : String(row.created_at),
+  updated_at: row?.updated_at == null ? null : String(row.updated_at),
+});
+
+const readSqliteBranches = () =>
+  (db.prepare('SELECT * FROM branches ORDER BY id ASC').all() as any[]).map(normalizeBranchRow);
+
 const isMissingStoreColorVisibleColumnError = (error: any) => {
   const code = String(error?.code ?? '').trim();
   const message = String(error?.message ?? '').toLowerCase();
   return code === '42703' && message.includes('store_color_visible');
 };
 
+const ensurePostgresColumn = async (tableName: string, columnName: string, definition: string) => {
+  if (!USE_POSTGRES_LOCAL || !pgPool) return;
+  const existsResult = await pgPool.query(
+    `SELECT 1
+     FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = $1
+       AND column_name = $2
+     LIMIT 1`,
+    [tableName, columnName]
+  );
+  if (!Array.isArray(existsResult.rows) || existsResult.rows.length === 0) {
+    await pgPool.query(`ALTER TABLE "${tableName}" ADD COLUMN ${columnName} ${definition}`);
+  }
+};
+
+const ensurePostgresBranchSchema = async () => {
+  if (!USE_POSTGRES_LOCAL || !pgPool) return;
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS branches (
+      id serial PRIMARY KEY,
+      name text NOT NULL,
+      city text NOT NULL DEFAULT '',
+      trade_license text,
+      phone text,
+      address text,
+      status text NOT NULL DEFAULT 'active',
+      notes text,
+      created_at timestamp DEFAULT CURRENT_TIMESTAMP,
+      updated_at timestamp DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await ensurePostgresColumn('stores', 'branch_id', 'integer DEFAULT 1');
+  const existing = await pgPool.query('SELECT id FROM branches ORDER BY id ASC LIMIT 1');
+  if (!existing.rows?.[0]) {
+    await pgPool.query(
+      `INSERT INTO branches (id, name, city, trade_license, phone, address, status, notes, created_at, updated_at)
+       SELECT 1, $1, $2, $3, $4, $5, 'active', $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+       WHERE NOT EXISTS (SELECT 1 FROM branches WHERE id = 1)`,
+      ['فرع الفلاح', 'أبوظبي', '', '', 'Al Falah, Abu Dhabi', 'Default branch for existing storage and orders.']
+    );
+  }
+  await pgPool.query('UPDATE stores SET branch_id = 1 WHERE branch_id IS NULL OR branch_id <= 0');
+};
+
 const ensurePostgresLocalStoreColumns = async () => {
   if (!USE_POSTGRES_LOCAL || !pgPool) return;
-  await pgPool.query(
-    "ALTER TABLE stores ADD COLUMN IF NOT EXISTS store_color_visible integer DEFAULT 1"
+  const existsResult = await pgPool.query(
+    `SELECT 1
+     FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'stores'
+       AND column_name = 'store_color_visible'
+     LIMIT 1`
   );
+  if (!Array.isArray(existsResult.rows) || existsResult.rows.length === 0) {
+    await pgPool.query(
+      'ALTER TABLE stores ADD COLUMN store_color_visible integer DEFAULT 1'
+    );
+  }
   await pgPool.query(
     'UPDATE stores SET store_color_visible = 1 WHERE store_color_visible IS NULL'
   );
+};
+
+const ensurePostgresLocalIdentityDefaults = async () => {
+  if (!USE_POSTGRES_LOCAL || !pgPool) return;
+
+  const tables = ['blankets', 'logs'] as const;
+
+  for (const tableName of tables) {
+    const columnResult = await pgPool.query(
+      `SELECT column_default
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = $1
+         AND column_name = 'id'
+       LIMIT 1`,
+      [tableName]
+    );
+
+    if (!Array.isArray(columnResult.rows) || columnResult.rows.length === 0) {
+      continue;
+    }
+
+    const sequenceName = `${tableName}_id_seq`;
+    const sequenceResult = await pgPool.query(
+      `SELECT 1
+       FROM pg_class c
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = 'public'
+         AND c.relname = $1
+         AND c.relkind = 'S'
+       LIMIT 1`,
+      [sequenceName]
+    );
+    if (!Array.isArray(sequenceResult.rows) || sequenceResult.rows.length === 0) {
+      await pgPool.query(`CREATE SEQUENCE "${sequenceName}"`);
+    }
+    await pgPool.query(`ALTER SEQUENCE "${sequenceName}" OWNED BY "${tableName}".id`);
+    await pgPool.query(
+      `SELECT setval(
+        $1::regclass,
+        GREATEST(COALESCE((SELECT MAX(id) FROM "${tableName}"), 0), 1),
+        COALESCE((SELECT MAX(id) FROM "${tableName}"), 0) > 0
+      )`,
+      [`public.${sequenceName}`]
+    );
+
+    if (!columnResult.rows[0]?.column_default) {
+      await pgPool.query(
+        `ALTER TABLE "${tableName}" ALTER COLUMN id SET DEFAULT nextval('public.${sequenceName}'::regclass)`
+      );
+    }
+  }
 };
 
 const getLogMeta = (req: express.Request) => {
@@ -4531,6 +8028,440 @@ const getLogMeta = (req: express.Request) => {
     ip: ip || null,
     notes: notes || null,
   };
+};
+
+type PosConveyerStorageSyncResult = {
+  synced: boolean;
+  reason?: string;
+  action?: 'inserted' | 'moved' | 'unchanged';
+  order_no: string;
+  remark: string;
+  slot: number | null;
+  store: string | null;
+  row: number | null;
+  column: number | null;
+  blanket_id?: number | null;
+  occupied_by?: string | null;
+  message?: string;
+};
+
+const normalizeConveyerStoreKey = (value: unknown) => String(value ?? '').trim().toLowerCase();
+
+const getConveyerStoreAliasKeys = () => {
+  const aliases = [POS_CONVEYER_STORE_NAME, ...POS_CONVEYER_STORE_ALIASES, 'conveyer', 'conveyor', 'كونفير', 'كنفير'];
+  return Array.from(new Set(aliases.map((item) => normalizeConveyerStoreKey(item)).filter(Boolean)));
+};
+
+const parsePosConveyerSlotFromRemark = (remark: unknown): number | null => {
+  const text = String(remark ?? '').trim();
+  if (!text) return null;
+
+  const isValid = (value: unknown) => {
+    const slot = Number(value);
+    return Number.isInteger(slot) && slot >= 1 && slot <= POS_CONVEYER_MAX_SLOT ? slot : null;
+  };
+
+  const exact = isValid(text);
+  if (exact !== null) return exact;
+
+  const markerMatch = text.match(
+    /(?:\bpack\b|\bpacking\b|\bstore\b|\bstorage\b|\bconveyer\b|\bconveyor\b|كونفير|كنفير|استور)\s*[:#=\-\s]*([1-9]\d{0,2})/i
+  );
+  const markerSlot = markerMatch ? isValid(markerMatch[1]) : null;
+  if (markerSlot !== null) return markerSlot;
+
+  const compactMarkerMatch = text.match(/\[(?:pack|packing|store|storage|conveyer|conveyor|كونفير|كنفير)\s*:?\s*([1-9]\d{0,2})\]/i);
+  const compactSlot = compactMarkerMatch ? isValid(compactMarkerMatch[1]) : null;
+  if (compactSlot !== null) return compactSlot;
+
+  return null;
+};
+
+const ensureSqliteConveyerStore = (slot: number) => {
+  const aliasKeys = getConveyerStoreAliasKeys();
+  const stores = db
+    .prepare('SELECT * FROM stores ORDER BY store_name ASC')
+    .all() as Array<{
+      store_name: string;
+      position_x: number;
+      position_y: number;
+      position_z: number;
+      width: number;
+      depth: number;
+      height: number;
+      rows: number;
+      columns: number;
+      rotation_y: number;
+      auto_settle: number;
+      store_type: string;
+      hanger_slots: number;
+      slot_capacity: number;
+      require_pick_scan: number;
+      store_color: string;
+      store_color_visible: number;
+      store_opacity: number;
+      cell_width: number;
+      cell_depth: number;
+      cell_height: number;
+    }>;
+
+  let store = stores.find((candidate) => aliasKeys.includes(normalizeConveyerStoreKey(candidate.store_name)));
+  if (!store) {
+    const existingPositions = stores.map((candidate) => ({
+      position_x: Number(candidate.position_x ?? 0),
+      position_z: Number(candidate.position_z ?? 0),
+    }));
+    const availableSlot = defaultStoreSlots.find(
+      (candidate) => !existingPositions.some((pos) => pos.position_x === candidate.x && pos.position_z === candidate.z)
+    );
+    const position_x = availableSlot ? availableSlot.x : (existingPositions.length ? existingPositions[existingPositions.length - 1].position_x + 15 : 0);
+    const position_z = availableSlot ? availableSlot.z : 0;
+    const columns = Math.max(slot, POS_CONVEYER_MAX_SLOT);
+    const storeName = POS_CONVEYER_STORE_NAME;
+
+    db.prepare(`
+      INSERT INTO stores (
+        store_name, position_x, position_y, position_z, width, depth, height,
+        rows, columns, rotation_y, auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan,
+        store_color, store_color_visible, store_opacity, cell_width, cell_depth, cell_height
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      storeName,
+      position_x,
+      0,
+      position_z,
+      10,
+      1,
+      3,
+      1,
+      columns,
+      0,
+      1,
+      'grid',
+      0,
+      1,
+      0,
+      '#3b82f6',
+      1,
+      1,
+      normalizeStoreCellDimension(undefined, deriveDefaultCellWidth(columns)),
+      normalizeStoreCellDimension(undefined, deriveDefaultCellDepth(1)),
+      normalizeStoreCellDimension(undefined, deriveDefaultCellHeight())
+    );
+    store = db.prepare('SELECT * FROM stores WHERE store_name = ?').get(storeName) as any;
+  }
+
+  const nextRows = Math.max(1, Number(store.rows ?? 1) || 1);
+  const nextColumns = Math.max(Number(store.columns ?? 1) || 1, slot, POS_CONVEYER_MAX_SLOT);
+  const needsResize =
+    nextRows !== Number(store.rows ?? 1) ||
+    nextColumns !== Number(store.columns ?? 1) ||
+    String(store.store_type ?? 'grid') !== 'grid' ||
+    Math.max(1, Number(store.slot_capacity ?? 1) || 1) !== 1;
+
+  if (needsResize) {
+    db.prepare(
+      `UPDATE stores
+       SET rows = ?, columns = ?, store_type = 'grid', hanger_slots = 0, slot_capacity = 1,
+           cell_width = ?, cell_depth = ?, cell_height = ?
+       WHERE store_name = ?`
+    ).run(
+      nextRows,
+      nextColumns,
+      normalizeStoreCellDimension(undefined, deriveDefaultCellWidth(nextColumns)),
+      normalizeStoreCellDimension(undefined, deriveDefaultCellDepth(nextRows)),
+      normalizeStoreCellDimension(undefined, deriveDefaultCellHeight()),
+      store.store_name
+    );
+  }
+
+  return String(store.store_name);
+};
+
+const ensurePostgresConveyerStore = async (slot: number) => {
+  if (!pgPool) throw new Error('Postgres is not configured.');
+  const aliasKeys = getConveyerStoreAliasKeys();
+  const storesRes = await pgPool.query('SELECT * FROM stores ORDER BY store_name ASC');
+  const stores = Array.isArray(storesRes.rows) ? storesRes.rows : [];
+  let store = stores.find((candidate) => aliasKeys.includes(normalizeConveyerStoreKey(candidate.store_name)));
+
+  if (!store) {
+    const existingPositions = stores.map((candidate: any) => ({
+      position_x: Number(candidate.position_x ?? 0),
+      position_z: Number(candidate.position_z ?? 0),
+    }));
+    const availableSlot = defaultStoreSlots.find(
+      (candidate) => !existingPositions.some((pos) => pos.position_x === candidate.x && pos.position_z === candidate.z)
+    );
+    const position_x = availableSlot ? availableSlot.x : (existingPositions.length ? existingPositions[existingPositions.length - 1].position_x + 15 : 0);
+    const position_z = availableSlot ? availableSlot.z : 0;
+    const columns = Math.max(slot, POS_CONVEYER_MAX_SLOT);
+    const storeName = POS_CONVEYER_STORE_NAME;
+
+    await pgPool.query(
+      `INSERT INTO stores (
+        store_name, position_x, position_y, position_z, width, depth, height, rows, columns,
+        rotation_y, auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan,
+        store_color, store_color_visible, store_opacity, cell_width, cell_depth, cell_height
+      )
+      VALUES ($1, $2, 0, $3, 10, 1, 3, 1, $4, 0, 1, 'grid', 0, 1, 0, '#3b82f6', 1, 1, $5, $6, $7)`,
+      [
+        storeName,
+        position_x,
+        position_z,
+        columns,
+        normalizeStoreCellDimension(undefined, deriveDefaultCellWidth(columns)),
+        normalizeStoreCellDimension(undefined, deriveDefaultCellDepth(1)),
+        normalizeStoreCellDimension(undefined, deriveDefaultCellHeight()),
+      ]
+    );
+    const created = await pgPool.query('SELECT * FROM stores WHERE store_name = $1 LIMIT 1', [storeName]);
+    store = created.rows?.[0];
+  }
+
+  const nextRows = Math.max(1, Number(store.rows ?? 1) || 1);
+  const nextColumns = Math.max(Number(store.columns ?? 1) || 1, slot, POS_CONVEYER_MAX_SLOT);
+  const needsResize =
+    nextRows !== Number(store.rows ?? 1) ||
+    nextColumns !== Number(store.columns ?? 1) ||
+    String(store.store_type ?? 'grid') !== 'grid' ||
+    Math.max(1, Number(store.slot_capacity ?? 1) || 1) !== 1;
+
+  if (needsResize) {
+    await pgPool.query(
+      `UPDATE stores
+       SET rows = $1, columns = $2, store_type = 'grid', hanger_slots = 0, slot_capacity = 1,
+           cell_width = $3, cell_depth = $4, cell_height = $5
+       WHERE store_name = $6`,
+      [
+        nextRows,
+        nextColumns,
+        normalizeStoreCellDimension(undefined, deriveDefaultCellWidth(nextColumns)),
+        normalizeStoreCellDimension(undefined, deriveDefaultCellDepth(nextRows)),
+        normalizeStoreCellDimension(undefined, deriveDefaultCellHeight()),
+        store.store_name,
+      ]
+    );
+  }
+
+  return String(store.store_name);
+};
+
+const syncPosOrderToConveyerStorage = async (params: {
+  order_no: unknown;
+  remark: unknown;
+  user?: unknown;
+  meta?: ReturnType<typeof getLogMeta>;
+}): Promise<PosConveyerStorageSyncResult> => {
+  const orderNo = String(params.order_no ?? '').trim();
+  const remark = String(params.remark ?? '').trim();
+  const slot = parsePosConveyerSlotFromRemark(remark);
+  const user = String(params.user ?? 'system').trim() || 'system';
+  const meta = params.meta ?? { request_id: randomUUID(), device: null, ip: null, notes: null };
+
+  if (!orderNo) {
+    return { synced: false, reason: 'missing_order_no', order_no: '', remark, slot, store: null, row: null, column: null };
+  }
+
+  if (!POS_CONVEYER_AUTO_SYNC_ENABLED) {
+    return { synced: false, reason: 'disabled', order_no: orderNo, remark, slot, store: null, row: null, column: null };
+  }
+
+  if (slot === null) {
+    return { synced: false, reason: 'no_conveyer_slot_in_remark', order_no: orderNo, remark, slot, store: null, row: null, column: null };
+  }
+
+  const row = 1;
+  const column = slot;
+
+  if (USE_POSTGRES_LOCAL && pgPool) {
+    const store = await ensurePostgresConveyerStore(slot);
+    const client = await pgPool.connect();
+    try {
+      await client.query('BEGIN');
+      const occupiedRes = await client.query(
+        `SELECT id, blanket_number FROM blankets
+         WHERE store = $1 AND row = $2 AND "column" = $3 AND status = 'stored' AND blanket_number <> $4
+         LIMIT 1`,
+        [store, row, column, orderNo]
+      );
+      const occupied = occupiedRes.rows?.[0];
+      if (occupied) {
+        await client.query('ROLLBACK');
+        return {
+          synced: false,
+          reason: 'slot_occupied',
+          order_no: orderNo,
+          remark,
+          slot,
+          store,
+          row,
+          column,
+          occupied_by: String(occupied.blanket_number ?? ''),
+          message: `Conveyer slot ${slot} is already occupied by order ${occupied.blanket_number}.`,
+        };
+      }
+
+      const sameAtTargetRes = await client.query(
+        `SELECT id FROM blankets
+         WHERE blanket_number = $1 AND store = $2 AND row = $3 AND "column" = $4 AND status = 'stored'
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [orderNo, store, row, column]
+      );
+      const sameAtTarget = sameAtTargetRes.rows?.[0];
+      if (sameAtTarget) {
+        await client.query('COMMIT');
+        return {
+          synced: true,
+          action: 'unchanged',
+          order_no: orderNo,
+          remark,
+          slot,
+          store,
+          row,
+          column,
+          blanket_id: Number(sameAtTarget.id),
+        };
+      }
+
+      const existingRes = await client.query(
+        `SELECT id, store, row, "column", status FROM blankets
+         WHERE blanket_number = $1 AND status = 'stored'
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [orderNo]
+      );
+      const existing = existingRes.rows?.[0];
+      const logNotes = `POS remark conveyer sync: remark="${remark}" -> ${store} R${row}:C${column}`;
+
+      if (existing) {
+        await client.query(
+          `UPDATE blankets SET store = $1, row = $2, "column" = $3, status = 'stored' WHERE id = $4`,
+          [store, row, column, Number(existing.id)]
+        );
+        await client.query(
+          `INSERT INTO logs (blanket_number, action, "user", store, row, "column", status, request_id, device, ip, notes)
+           VALUES ($1, 'moved', $2, $3, $4, $5, 'stored', $6, $7, $8, $9)`,
+          [orderNo, user, store, row, column, meta.request_id, meta.device, meta.ip, logNotes]
+        );
+        await client.query('COMMIT');
+        return { synced: true, action: 'moved', order_no: orderNo, remark, slot, store, row, column, blanket_id: Number(existing.id) };
+      }
+
+      const insertRes = await client.query(
+        `INSERT INTO blankets (blanket_number, store, row, "column", status)
+         VALUES ($1, $2, $3, $4, 'stored')
+         RETURNING id`,
+        [orderNo, store, row, column]
+      );
+      const insertedId = Number(insertRes.rows?.[0]?.id ?? 0) || null;
+      await client.query(
+        `INSERT INTO logs (blanket_number, action, "user", store, row, "column", status, request_id, device, ip, notes)
+         VALUES ($1, 'stored', $2, $3, $4, $5, 'stored', $6, $7, $8, $9)`,
+        [orderNo, user, store, row, column, meta.request_id, meta.device, meta.ip, logNotes]
+      );
+      await client.query('COMMIT');
+      return { synced: true, action: 'inserted', order_no: orderNo, remark, slot, store, row, column, blanket_id: insertedId };
+    } catch (error) {
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        // ignore rollback errors
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  const store = ensureSqliteConveyerStore(slot);
+  const syncTx = db.transaction((): PosConveyerStorageSyncResult => {
+    const occupied = db
+      .prepare(
+        `SELECT id, blanket_number FROM blankets
+         WHERE store = ? AND row = ? AND column = ? AND status = 'stored' AND blanket_number <> ?
+         LIMIT 1`
+      )
+      .get(store, row, column, orderNo) as { id: number; blanket_number: string } | undefined;
+
+    if (occupied) {
+      return {
+        synced: false,
+        reason: 'slot_occupied',
+        order_no: orderNo,
+        remark,
+        slot,
+        store,
+        row,
+        column,
+        occupied_by: occupied.blanket_number,
+        message: `Conveyer slot ${slot} is already occupied by order ${occupied.blanket_number}.`,
+      };
+    }
+
+    const sameAtTarget = db
+      .prepare(
+        `SELECT id FROM blankets
+         WHERE blanket_number = ? AND store = ? AND row = ? AND column = ? AND status = 'stored'
+         ORDER BY created_at DESC
+         LIMIT 1`
+      )
+      .get(orderNo, store, row, column) as { id: number } | undefined;
+
+    if (sameAtTarget) {
+      return { synced: true, action: 'unchanged', order_no: orderNo, remark, slot, store, row, column, blanket_id: sameAtTarget.id };
+    }
+
+    const existing = db
+      .prepare(
+        `SELECT id, store, row, column, status FROM blankets
+         WHERE blanket_number = ? AND status = 'stored'
+         ORDER BY created_at DESC
+         LIMIT 1`
+      )
+      .get(orderNo) as { id: number; store: string; row: number; column: number; status: string } | undefined;
+
+    const logNotes = `POS remark conveyer sync: remark="${remark}" -> ${store} R${row}:C${column}`;
+
+    if (existing) {
+      db.prepare(`UPDATE blankets SET store = ?, row = ?, column = ?, status = 'stored' WHERE id = ?`).run(
+        store,
+        row,
+        column,
+        existing.id
+      );
+      db.prepare(
+        'INSERT INTO logs (blanket_number, action, user, store, row, column, status, request_id, device, ip, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      ).run(orderNo, 'moved', user, store, row, column, 'stored', meta.request_id, meta.device, meta.ip, logNotes);
+      return { synced: true, action: 'moved', order_no: orderNo, remark, slot, store, row, column, blanket_id: existing.id };
+    }
+
+    const result = db.prepare(`INSERT INTO blankets (blanket_number, store, row, column, status) VALUES (?, ?, ?, ?, 'stored')`).run(
+      orderNo,
+      store,
+      row,
+      column
+    );
+    db.prepare(
+      'INSERT INTO logs (blanket_number, action, user, store, row, column, status, request_id, device, ip, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(orderNo, 'stored', user, store, row, column, 'stored', meta.request_id, meta.device, meta.ip, logNotes);
+
+    return {
+      synced: true,
+      action: 'inserted',
+      order_no: orderNo,
+      remark,
+      slot,
+      store,
+      row,
+      column,
+      blanket_id: Number(result.lastInsertRowid),
+    };
+  });
+
+  return syncTx();
 };
 
 const insertSupabaseLog = async (entry: Record<string, unknown>) => {
@@ -4624,16 +8555,17 @@ const assertSqliteBlanketSlot = (storeName: string, row: number, column: number,
   }
 };
 
-const assertPostgresBlanketSlot = async (
+type PgQueryExecutor = (queryText: string, params?: any[]) => Promise<{ rows: any[] }>;
+
+const assertPostgresBlanketSlotWithQuery = async (
+  query: PgQueryExecutor,
   storeName: string,
   row: number,
   column: number,
   status: string,
   excludeBlanketId?: number
 ) => {
-  if (!pgPool) return;
-
-  const storeRes = await pgPool.query(
+  const storeRes = await query(
     'SELECT store_name, rows, columns, store_type, slot_capacity FROM stores WHERE store_name = $1 LIMIT 1',
     [storeName]
   );
@@ -4671,13 +8603,31 @@ const assertPostgresBlanketSlot = async (
     countSql += ' AND id <> $5';
     params.push(excludeBlanketId);
   }
-  const countRes = await pgPool.query(countSql, params);
+  const countRes = await query(countSql, params);
   const count = Number(countRes.rows?.[0]?.c ?? 0);
   if (count >= capacity) {
     const error = new Error(`Slot is full (capacity ${capacity})`);
     (error as any).status = 400;
     throw error;
   }
+};
+
+const assertPostgresBlanketSlot = async (
+  storeName: string,
+  row: number,
+  column: number,
+  status: string,
+  excludeBlanketId?: number
+) => {
+  if (!pgPool) return;
+  await assertPostgresBlanketSlotWithQuery(
+    pgPool.query.bind(pgPool) as PgQueryExecutor,
+    storeName,
+    row,
+    column,
+    status,
+    excludeBlanketId
+  );
 };
 
 const assertSupabaseBlanketSlot = async (
@@ -4749,6 +8699,7 @@ const parseUserPayload = (body: any) => ({
   role: (body?.role ?? 'cashier') as AppUserRole,
   is_active: body?.is_active !== false,
   password: typeof body?.password === 'string' && body.password.length > 0 ? body.password : undefined,
+  branch_id: Math.max(1, Number(body?.branch_id ?? 1) || 1),
 });
 
 const upsertSQLiteUser = (payload: ReturnType<typeof parseUserPayload>, existingId?: number) => {
@@ -4756,7 +8707,7 @@ const upsertSQLiteUser = (payload: ReturnType<typeof parseUserPayload>, existing
     if (payload.password) {
       db.prepare(`
         UPDATE users
-        SET username = ?, full_name = ?, email = ?, phone = ?, avatar_url = ?, role = ?, is_active = ?, password = ?, updated_at = CURRENT_TIMESTAMP
+        SET username = ?, full_name = ?, email = ?, phone = ?, avatar_url = ?, role = ?, is_active = ?, password = ?, branch_id = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(
         payload.username,
@@ -4767,12 +8718,13 @@ const upsertSQLiteUser = (payload: ReturnType<typeof parseUserPayload>, existing
         payload.role,
         payload.is_active ? 1 : 0,
         payload.password,
+        payload.branch_id,
         existingId
       );
     } else {
       db.prepare(`
         UPDATE users
-        SET username = ?, full_name = ?, email = ?, phone = ?, avatar_url = ?, role = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
+        SET username = ?, full_name = ?, email = ?, phone = ?, avatar_url = ?, role = ?, is_active = ?, branch_id = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(
         payload.username,
@@ -4782,6 +8734,7 @@ const upsertSQLiteUser = (payload: ReturnType<typeof parseUserPayload>, existing
         payload.avatar_url,
         payload.role,
         payload.is_active ? 1 : 0,
+        payload.branch_id,
         existingId
       );
     }
@@ -4790,8 +8743,8 @@ const upsertSQLiteUser = (payload: ReturnType<typeof parseUserPayload>, existing
   }
 
   db.prepare(`
-    INSERT INTO users (username, full_name, email, phone, avatar_url, role, password, is_active, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    INSERT INTO users (username, full_name, email, phone, avatar_url, role, password, is_active, branch_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   `).run(
     payload.username,
     payload.full_name || payload.username,
@@ -4800,7 +8753,8 @@ const upsertSQLiteUser = (payload: ReturnType<typeof parseUserPayload>, existing
     payload.avatar_url,
     payload.role,
     payload.password || '',
-    payload.is_active ? 1 : 0
+    payload.is_active ? 1 : 0,
+    payload.branch_id
   );
 
   return db.prepare('SELECT * FROM users WHERE username = ?').get(payload.username) as SQLiteUserRecord;
@@ -4851,6 +8805,8 @@ const getSupabaseUsers = async (username?: string) => {
       created_at: authUser?.created_at ?? user.created_at ?? null,
       updated_at: authUser?.updated_at ?? null,
       last_login_at: metadata.last_login_at ? String(metadata.last_login_at) : null,
+      branch_id: 1,
+      branch_name: 'فرع الفلاح',
     } satisfies ApiUser;
   });
 
@@ -4859,17 +8815,19 @@ const getSupabaseUsers = async (username?: string) => {
 
 async function startServer() {
   try {
+    await ensurePostgresBranchSchema();
+    await ensurePostgresLocalIdentityDefaults();
     await ensurePostgresLocalStoreColumns();
   } catch (error: any) {
     console.warn(
-      'Postgres stores schema check failed:',
+      'Postgres schema check failed:',
       error?.message || error
     );
   }
 
   const app = express();
   const envPort = Number(process.env.PORT);
-  const PORT = Number.isFinite(envPort) && envPort > 0 ? envPort : 3001;
+  const PORT = Number.isFinite(envPort) && envPort > 0 ? envPort : 3002;
 
   app.set('trust proxy', true);
   app.use(cors());
@@ -5686,6 +9644,8 @@ async function startServer() {
     if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid blanket id.' });
     const user = req.body?.user || req.auth?.username || 'system';
     const meta = getLogMeta(req);
+    const pickScanValue =
+      req.body?.pick_scan_value ?? req.body?.pickScanValue ?? req.body?.scanned_code ?? req.body?.scannedCode ?? '';
 
     const { data: blanket, error: fetchBlanketError } = await supabaseAdmin
       .from('blankets')
@@ -5697,11 +9657,21 @@ async function startServer() {
 
     const { data: store, error: storeError } = await supabaseAdmin
       .from('stores')
-      .select('store_name, rows, columns, auto_settle, store_type, slot_capacity')
+      .select('store_name, rows, columns, auto_settle, store_type, slot_capacity, require_pick_scan')
       .eq('store_name', blanket.store)
       .single();
     if (storeError) return res.status(500).json({ error: storeError.message, code: (storeError as any).code });
     if (!store) return res.status(400).json({ error: `Store not found: ${blanket.store}` });
+
+    const scanCheck = validatePickScanForStore({
+      requirePickScan: (store as any).require_pick_scan,
+      storeType: (store as any).store_type,
+      scannedValue: pickScanValue,
+      expectedOrderNo: blanket.blanket_number,
+    });
+    if (!scanCheck.ok) {
+      return res.status(409).json({ error: scanCheck.error });
+    }
 
     const maxRows = Math.max(1, Number((store as any).rows ?? 1));
     const maxCols = Math.max(1, Number((store as any).columns ?? 1));
@@ -6177,6 +10147,184 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  app.get('/api/branches', requireAuth, async (_req, res) => {
+    try {
+      const branches = readSqliteBranches();
+      res.json(branches);
+    } catch (error: any) {
+      console.error('Failed to load branches:', error);
+      res.status(500).json({ error: error?.message || 'Failed to load branches.' });
+    }
+  });
+
+  app.post('/api/branches', requireOperationsManager, async (req, res) => {
+    try {
+      const payload = parseBranchPayload(req.body);
+      const result = db
+        .prepare(
+          `INSERT INTO branches (name, city, trade_license, phone, address, status, notes, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+        )
+        .run(payload.name, payload.city, payload.trade_license, payload.phone, payload.address, payload.status, payload.notes);
+      const branch = db.prepare('SELECT * FROM branches WHERE id = ?').get(Number(result.lastInsertRowid)) as any;
+
+      if (USE_POSTGRES_LOCAL && pgPool) {
+        const pgUpdate = await pgPool.query(
+          `UPDATE branches
+           SET name = $2, city = $3, trade_license = $4, phone = $5, address = $6, status = $7, notes = $8, updated_at = CURRENT_TIMESTAMP
+           WHERE id = $1`,
+          [Number(branch.id), branch.name, branch.city, branch.trade_license, branch.phone, branch.address, branch.status, branch.notes]
+        );
+        if ((pgUpdate.rowCount ?? 0) === 0) {
+          await pgPool.query(
+            `INSERT INTO branches (id, name, city, trade_license, phone, address, status, notes, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            [Number(branch.id), branch.name, branch.city, branch.trade_license, branch.phone, branch.address, branch.status, branch.notes]
+          );
+        }
+      }
+
+      res.status(201).json(normalizeBranchRow(branch));
+    } catch (error: any) {
+      console.error('Failed to create branch:', error);
+      res.status(500).json({ error: error?.message || 'Failed to create branch.' });
+    }
+  });
+
+  app.put('/api/branches/:id', requireOperationsManager, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid branch id.' });
+      const payload = parseBranchPayload(req.body);
+      const result = db
+        .prepare(
+          `UPDATE branches
+           SET name = ?, city = ?, trade_license = ?, phone = ?, address = ?, status = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`
+        )
+        .run(payload.name, payload.city, payload.trade_license, payload.phone, payload.address, payload.status, payload.notes, id);
+      if (result.changes <= 0) return res.status(404).json({ error: 'Branch not found.' });
+      const branch = db.prepare('SELECT * FROM branches WHERE id = ?').get(id) as any;
+
+      if (USE_POSTGRES_LOCAL && pgPool) {
+        const pgUpdate = await pgPool.query(
+          `UPDATE branches
+           SET name = $2, city = $3, trade_license = $4, phone = $5, address = $6, status = $7, notes = $8, updated_at = CURRENT_TIMESTAMP
+           WHERE id = $1`,
+          [id, branch.name, branch.city, branch.trade_license, branch.phone, branch.address, branch.status, branch.notes]
+        );
+        if ((pgUpdate.rowCount ?? 0) === 0) {
+          await pgPool.query(
+            `INSERT INTO branches (id, name, city, trade_license, phone, address, status, notes, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            [id, branch.name, branch.city, branch.trade_license, branch.phone, branch.address, branch.status, branch.notes]
+          );
+        }
+      }
+
+      res.json(normalizeBranchRow(branch));
+    } catch (error: any) {
+      console.error('Failed to update branch:', error);
+      res.status(500).json({ error: error?.message || 'Failed to update branch.' });
+    }
+  });
+
+  app.get('/api/branches/dashboard', requireAuth, async (req: any, res) => {
+    try {
+      const auth = req.auth as SessionRecord | undefined;
+      const currentUser = auth?.user_id
+        ? (db.prepare('SELECT * FROM users WHERE id = ?').get(auth.user_id) as SQLiteUserRecord | undefined)
+        : undefined;
+      const branchFilter = Math.max(0, Number(req.query.branch_id ?? currentUser?.branch_id ?? 0) || 0);
+      const allBranches = readSqliteBranches();
+      const visibleBranches = branchFilter > 0 ? allBranches.filter((branch) => branch.id === branchFilter) : allBranches;
+
+      let storesRows: any[] = [];
+      let blanketsRows: any[] = [];
+      let logsRows: any[] = [];
+      if (USE_POSTGRES_LOCAL && pgPool) {
+        const [storesResult, blanketsResult, logsResult] = await Promise.all([
+          pgPool.query('SELECT * FROM stores'),
+          pgPool.query('SELECT * FROM blankets'),
+          pgPool.query('SELECT * FROM logs ORDER BY "timestamp" DESC, id DESC LIMIT 5000'),
+        ]);
+        storesRows = storesResult.rows ?? [];
+        blanketsRows = blanketsResult.rows ?? [];
+        logsRows = logsResult.rows ?? [];
+      } else {
+        storesRows = db.prepare('SELECT * FROM stores').all() as any[];
+        blanketsRows = db.prepare('SELECT * FROM blankets').all() as any[];
+        logsRows = db.prepare('SELECT * FROM logs ORDER BY timestamp DESC, id DESC LIMIT 5000').all() as any[];
+      }
+      const usersRows = db.prepare('SELECT * FROM users').all() as SQLiteUserRecord[];
+
+      const summaries = visibleBranches.map((branch) => {
+        const branchStores = storesRows.filter((store) => Number(store.branch_id ?? 1) === branch.id);
+        const storeNames = new Set(branchStores.map((store) => String(store.store_name)));
+        const branchBlankets = blanketsRows.filter((blanket) => storeNames.has(String(blanket.store)));
+        const branchLogs = logsRows.filter((log) => !log.store || storeNames.has(String(log.store)));
+        const branchUsers = usersRows.filter((user) => Number(user.branch_id ?? 1) === branch.id);
+        const activeUsers = branchUsers.filter((user) => user.is_active !== 0);
+        const stored = branchBlankets.filter((blanket) => String(blanket.status) === 'stored').length;
+        const picked = branchBlankets.filter((blanket) => String(blanket.status) === 'picked').length;
+        const retrieved = branchBlankets.filter((blanket) => String(blanket.status) === 'retrieved').length;
+        const capacity = branchStores.reduce((sum, store) => {
+          const rows = Math.max(1, Number(store.rows ?? 1) || 1);
+          const columns = Math.max(1, Number(store.columns ?? 1) || 1);
+          const slotCapacity = String(store.store_type ?? 'grid') === 'hanger' ? 1 : Math.max(1, Number(store.slot_capacity ?? 1) || 1);
+          return sum + rows * columns * slotCapacity;
+        }, 0);
+        const activityByUser = new Map<string, number>();
+        for (const log of branchLogs) {
+          const username = String(log.user ?? 'system') || 'system';
+          activityByUser.set(username, (activityByUser.get(username) ?? 0) + 1);
+        }
+        const topUsers = Array.from(activityByUser.entries())
+          .map(([username, count]) => ({ username, count }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 5);
+
+        return {
+          branch,
+          metrics: {
+            stores: branchStores.length,
+            users: branchUsers.length,
+            active_users: activeUsers.length,
+            stored_orders: stored,
+            picked_orders: picked,
+            retrieved_orders: retrieved,
+            total_orders: branchBlankets.length,
+            capacity,
+            utilization: capacity > 0 ? Math.round((stored / capacity) * 100) : 0,
+            activity_events: branchLogs.length,
+          },
+          top_users: topUsers,
+          recent_activity: branchLogs.slice(0, 12),
+        };
+      });
+
+      res.json({
+        branches: summaries,
+        totals: summaries.reduce(
+          (acc, item) => ({
+            stores: acc.stores + item.metrics.stores,
+            users: acc.users + item.metrics.users,
+            active_users: acc.active_users + item.metrics.active_users,
+            stored_orders: acc.stored_orders + item.metrics.stored_orders,
+            picked_orders: acc.picked_orders + item.metrics.picked_orders,
+            total_orders: acc.total_orders + item.metrics.total_orders,
+            capacity: acc.capacity + item.metrics.capacity,
+            activity_events: acc.activity_events + item.metrics.activity_events,
+          }),
+          { stores: 0, users: 0, active_users: 0, stored_orders: 0, picked_orders: 0, total_orders: 0, capacity: 0, activity_events: 0 }
+        ),
+      });
+    } catch (error: any) {
+      console.error('Failed to load branch dashboard:', error);
+      res.status(500).json({ error: error?.message || 'Failed to load branch dashboard.' });
+    }
+  });
+
   app.get('/api/stores', requireAuth, async (_req, res) => {
     try {
       if (USE_POSTGRES_LOCAL && pgPool) {
@@ -6194,6 +10342,7 @@ async function startServer() {
 
   app.post('/api/stores', requireOperationsManager, async (req, res) => {
     const { store_name, rows, columns, auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, width, depth, height, store_color, store_color_visible, store_opacity, cell_width, cell_depth, cell_height } = req.body;
+    const normalizedBranchId = Math.max(1, Number(req.body?.branch_id ?? 1) || 1);
 
     const normalizedRows = store_type === 'hanger' ? 1 : Math.max(1, Number(rows ?? 10) || 1);
     const normalizedHangerSlots = store_type === 'hanger'
@@ -6231,9 +10380,9 @@ async function startServer() {
             `
             INSERT INTO stores (
               store_name, position_x, position_z, width, depth, height, rows, columns,
-              auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_color_visible, store_opacity, cell_width, cell_depth, cell_height
+              auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_color_visible, store_opacity, cell_width, cell_depth, cell_height, branch_id
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
             `,
             [
               store_name,
@@ -6255,6 +10404,7 @@ async function startServer() {
               normalizedCellWidth,
               normalizedCellDepth,
               normalizedCellHeight,
+              normalizedBranchId,
             ]
           );
         } catch (error: any) {
@@ -6263,9 +10413,9 @@ async function startServer() {
             `
             INSERT INTO stores (
               store_name, position_x, position_z, width, depth, height, rows, columns,
-              auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_opacity, cell_width, cell_depth, cell_height
+              auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_opacity, cell_width, cell_depth, cell_height, branch_id
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
             `,
             [
               store_name,
@@ -6286,6 +10436,7 @@ async function startServer() {
               normalizedCellWidth,
               normalizedCellDepth,
               normalizedCellHeight,
+              normalizedBranchId,
             ]
           );
         }
@@ -6306,9 +10457,9 @@ async function startServer() {
     db.prepare(`
       INSERT INTO stores (
         store_name, position_x, position_z, width, depth, height, rows, columns,
-        auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_color_visible, store_opacity, cell_width, cell_depth, cell_height
+        auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_color_visible, store_opacity, cell_width, cell_depth, cell_height, branch_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       store_name,
       position_x,
@@ -6328,7 +10479,8 @@ async function startServer() {
       normalizedStoreOpacity,
       normalizedCellWidth,
       normalizedCellDepth,
-      normalizedCellHeight
+      normalizedCellHeight,
+      normalizedBranchId
     );
 
     res.json({ success: true });
@@ -6337,6 +10489,7 @@ async function startServer() {
   app.put('/api/stores/:name', requireOperationsManager, async (req, res) => {
     const { name } = req.params;
     const { position_x, position_y, position_z, width, depth, height, rows, columns, rotation_y, auto_settle, store_type, hanger_slots, slot_capacity, require_pick_scan, store_color, store_color_visible, store_opacity, cell_width, cell_depth, cell_height } = req.body;
+    const normalizedBranchId = Math.max(1, Number(req.body?.branch_id ?? 1) || 1);
 
     const normalizedRows = store_type === 'hanger' ? 1 : Math.max(1, Number(rows ?? 10) || 1);
     const normalizedHangerSlots = store_type === 'hanger'
@@ -6361,8 +10514,8 @@ async function startServer() {
           await pgPool.query(
             `
             UPDATE stores
-            SET position_x = $1, position_y = $2, position_z = $3, width = $4, depth = $5, height = $6, rows = $7, columns = $8, rotation_y = $9, auto_settle = $10, store_type = $11, hanger_slots = $12, slot_capacity = $13, require_pick_scan = $14, store_color = $15, store_color_visible = $16, store_opacity = $17, cell_width = $18, cell_depth = $19, cell_height = $20
-            WHERE store_name = $21
+            SET position_x = $1, position_y = $2, position_z = $3, width = $4, depth = $5, height = $6, rows = $7, columns = $8, rotation_y = $9, auto_settle = $10, store_type = $11, hanger_slots = $12, slot_capacity = $13, require_pick_scan = $14, store_color = $15, store_color_visible = $16, store_opacity = $17, cell_width = $18, cell_depth = $19, cell_height = $20, branch_id = $21
+            WHERE store_name = $22
             `,
             [
               position_x,
@@ -6385,6 +10538,7 @@ async function startServer() {
               normalizedCellWidth,
               normalizedCellDepth,
               normalizedCellHeight,
+              normalizedBranchId,
               name,
             ]
           );
@@ -6393,8 +10547,8 @@ async function startServer() {
           await pgPool.query(
             `
             UPDATE stores
-            SET position_x = $1, position_y = $2, position_z = $3, width = $4, depth = $5, height = $6, rows = $7, columns = $8, rotation_y = $9, auto_settle = $10, store_type = $11, hanger_slots = $12, slot_capacity = $13, require_pick_scan = $14, store_color = $15, store_opacity = $16, cell_width = $17, cell_depth = $18, cell_height = $19
-            WHERE store_name = $20
+            SET position_x = $1, position_y = $2, position_z = $3, width = $4, depth = $5, height = $6, rows = $7, columns = $8, rotation_y = $9, auto_settle = $10, store_type = $11, hanger_slots = $12, slot_capacity = $13, require_pick_scan = $14, store_color = $15, store_opacity = $16, cell_width = $17, cell_depth = $18, cell_height = $19, branch_id = $20
+            WHERE store_name = $21
             `,
             [
               position_x,
@@ -6416,20 +10570,25 @@ async function startServer() {
               normalizedCellWidth,
               normalizedCellDepth,
               normalizedCellHeight,
+              normalizedBranchId,
               name,
             ]
           );
         }
-        return res.json({ success: true });
+        const updatedStore = await pgPool.query('SELECT * FROM stores WHERE store_name = $1 LIMIT 1', [name]);
+        if (!updatedStore.rows?.[0]) {
+          return res.status(404).json({ error: `Store not found: ${name}` });
+        }
+        return res.json({ success: true, store: updatedStore.rows[0] });
       } catch (error: any) {
         return res.status(500).json({ error: error?.message || 'Failed to update store' });
       }
     }
 
     try {
-      db.prepare(`
+      const result = db.prepare(`
         UPDATE stores
-        SET position_x = ?, position_y = ?, position_z = ?, width = ?, depth = ?, height = ?, rows = ?, columns = ?, rotation_y = ?, auto_settle = ?, store_type = ?, hanger_slots = ?, slot_capacity = ?, require_pick_scan = ?, store_color = ?, store_color_visible = ?, store_opacity = ?, cell_width = ?, cell_depth = ?, cell_height = ?
+        SET position_x = ?, position_y = ?, position_z = ?, width = ?, depth = ?, height = ?, rows = ?, columns = ?, rotation_y = ?, auto_settle = ?, store_type = ?, hanger_slots = ?, slot_capacity = ?, require_pick_scan = ?, store_color = ?, store_color_visible = ?, store_opacity = ?, cell_width = ?, cell_depth = ?, cell_height = ?, branch_id = ?
         WHERE store_name = ?
       `).run(
         position_x,
@@ -6452,9 +10611,14 @@ async function startServer() {
         normalizedCellWidth,
         normalizedCellDepth,
         normalizedCellHeight,
+        normalizedBranchId,
         name
       );
-      return res.json({ success: true });
+      if (result.changes <= 0) {
+        return res.status(404).json({ error: `Store not found: ${name}` });
+      }
+      const updatedStore = db.prepare('SELECT * FROM stores WHERE store_name = ?').get(name);
+      return res.json({ success: true, store: updatedStore });
     } catch (error: any) {
       return res.status(500).json({ error: error?.message || 'Failed to update store' });
     }
@@ -6505,6 +10669,92 @@ async function startServer() {
     } catch (error: any) {
       console.error('Error fetching blankets from SQLite:', error);
       res.status(500).json({ error: error.message || 'Failed to fetch blankets' });
+    }
+  });
+
+  app.get('/api/cashier/order-status/:orderNo', requirePicker, async (req, res) => {
+    try {
+      const orderNo = normalizeSortingOrderNo(req.params.orderNo);
+      if (!orderNo) return res.status(400).json({ error: 'Order number is required.' });
+
+      let blanketRows: any[] = [];
+      let logRows: any[] = [];
+      if (USE_POSTGRES_LOCAL && pgPool) {
+        const [blanketsResult, logsResult] = await Promise.all([
+          pgPool.query('SELECT * FROM blankets WHERE upper(blanket_number) = upper($1) ORDER BY created_at DESC, id DESC', [orderNo]),
+          pgPool.query('SELECT * FROM logs WHERE upper(blanket_number) = upper($1) ORDER BY "timestamp" DESC, id DESC LIMIT 100', [orderNo]),
+        ]);
+        blanketRows = Array.isArray(blanketsResult.rows) ? blanketsResult.rows : [];
+        logRows = Array.isArray(logsResult.rows) ? logsResult.rows : [];
+      } else {
+        blanketRows = db
+          .prepare('SELECT * FROM blankets WHERE upper(COALESCE(blanket_number, \'\')) = upper(?) ORDER BY datetime(created_at) DESC, id DESC')
+          .all(orderNo) as any[];
+        logRows = db
+          .prepare('SELECT * FROM logs WHERE upper(COALESCE(blanket_number, \'\')) = upper(?) ORDER BY datetime(timestamp) DESC, id DESC LIMIT 100')
+          .all(orderNo) as any[];
+      }
+
+      let packingEntries: BlanketPackingLogRecord[] = [];
+      try {
+        packingEntries = searchBlanketPackingLogs({ order_no: orderNo, limit: 100 }).rows;
+      } catch (packingError) {
+        console.warn('Cashier order status packing lookup failed:', packingError);
+      }
+
+      const storedCount = blanketRows.filter((item) => String(item.status ?? '').toLowerCase() === 'stored').length;
+      const pickedCount = blanketRows.filter((item) => String(item.status ?? '').toLowerCase() === 'picked').length;
+      const retrievedCount = blanketRows.filter((item) => String(item.status ?? '').toLowerCase() === 'retrieved').length;
+      const pickedLogs = logRows.filter((item) => String(item.action ?? '').toLowerCase() === 'picked');
+      const packedLogs = logRows.filter(
+        (item) =>
+          String(item.action ?? '').toLowerCase() === 'packed' &&
+          String(item.store ?? '').toLowerCase() === 'blanket_packing'
+      );
+      const packedEntries = packingEntries.filter((item) => String(item.action ?? '').toLowerCase() === 'packed');
+      const packedFromEntries = packedEntries.reduce(
+        (max, item) => Math.max(max, Number(item.blanket_index) || 0),
+        0
+      );
+      const packed = Math.max(packedFromEntries, packedEntries.length, packedLogs.length);
+      const totalBlankets = packingEntries.reduce(
+        (max, item) => Math.max(max, Number(item.total_blankets) || 0),
+        0
+      );
+      const packingStatus =
+        totalBlankets > 0 && packed >= totalBlankets
+          ? 'fully_packed'
+          : packed > 0
+            ? 'partially_packed'
+            : 'not_packed';
+      const lastPacking = packingEntries[0] ?? null;
+      const lastPicked = pickedLogs[0] ?? blanketRows.find((item) => String(item.status ?? '').toLowerCase() === 'picked') ?? null;
+
+      return res.json({
+        order_no: orderNo,
+        found: blanketRows.length > 0 || logRows.length > 0 || packingEntries.length > 0,
+        storage: {
+          total: blanketRows.length,
+          stored_count: storedCount,
+          picked_count: Math.max(pickedCount, pickedLogs.length),
+          retrieved_count: retrievedCount,
+          rows: blanketRows,
+          last_picked_at: lastPicked?.timestamp ?? lastPicked?.created_at ?? null,
+        },
+        packing: {
+          packed,
+          total_blankets: totalBlankets,
+          remaining: totalBlankets > 0 ? Math.max(0, totalBlankets - packed) : null,
+          status: packingStatus,
+          last_at: lastPacking?.created_at ?? packedLogs[0]?.timestamp ?? null,
+          last_by: lastPacking?.packed_by ?? packedLogs[0]?.user ?? null,
+          entries: packingEntries.slice(0, 10),
+        },
+        logs: logRows.slice(0, 20),
+      });
+    } catch (error: any) {
+      console.error('Failed to read cashier order status:', error);
+      res.status(500).json({ error: error?.message || 'Failed to read order status.' });
     }
   });
 
@@ -6597,6 +10847,7 @@ async function startServer() {
     if (USE_POSTGRES_LOCAL && pgPool) {
       (async () => {
         const client = await pgPool.connect();
+        const skipped: Array<{ op: 'update' | 'insert'; reason: string; id?: number; store?: string; row?: number; column?: number; number?: string }> = [];
         try {
           await client.query('BEGIN');
           for (const change of storeChanges) {
@@ -6671,7 +10922,27 @@ async function startServer() {
               const nextRow = Number(data.row ?? previous.row);
               const nextColumn = Number(data.column ?? previous.column);
               const nextStatus = String(data.status ?? previous.status ?? 'stored');
-              await assertPostgresBlanketSlot(nextStore, nextRow, nextColumn, nextStatus, id);
+              try {
+                await assertPostgresBlanketSlotWithQuery(
+                  client.query.bind(client) as PgQueryExecutor,
+                  nextStore,
+                  nextRow,
+                  nextColumn,
+                  nextStatus,
+                  id
+                );
+              } catch (error: any) {
+                skipped.push({
+                  op: 'update',
+                  id,
+                  store: nextStore,
+                  row: nextRow,
+                  column: nextColumn,
+                  number: nextBlanketNumber,
+                  reason: error?.message || 'Invalid slot',
+                });
+                continue;
+              }
               await client.query(
                 'UPDATE blankets SET blanket_number = $1, store = $2, row = $3, "column" = $4, status = $5 WHERE id = $6',
                 [nextBlanketNumber, nextStore, nextRow, nextColumn, nextStatus, id]
@@ -6712,7 +10983,25 @@ async function startServer() {
               const column = Number(data.column);
               const status = String(data.status ?? 'stored');
               if (!blanketNumber || !store || !Number.isFinite(row) || !Number.isFinite(column)) continue;
-              await assertPostgresBlanketSlot(store, row, column, status);
+              try {
+                await assertPostgresBlanketSlotWithQuery(
+                  client.query.bind(client) as PgQueryExecutor,
+                  store,
+                  row,
+                  column,
+                  status
+                );
+              } catch (error: any) {
+                skipped.push({
+                  op: 'insert',
+                  store,
+                  row,
+                  column,
+                  number: blanketNumber,
+                  reason: error?.message || 'Invalid slot',
+                });
+                continue;
+              }
               await client.query(
                 'INSERT INTO blankets (blanket_number, store, row, "column", status) VALUES ($1, $2, $3, $4, $5)',
                 [blanketNumber, store, row, column, status]
@@ -6759,9 +11048,11 @@ async function startServer() {
             touchedStores: touchedStoreList,
             stores: storesRows,
             blankets: blanketsRows,
+            skipped,
           });
         } catch (error: any) {
           await client.query('ROLLBACK');
+          console.error('Postgres bulk apply failed:', error);
           return res.status(500).json({ error: error?.message || 'Bulk apply failed.' });
         } finally {
           client.release();
@@ -7142,6 +11433,8 @@ async function startServer() {
     }
 
     const meta = getLogMeta(req);
+    const pickScanValue =
+      req.body?.pick_scan_value ?? req.body?.pickScanValue ?? req.body?.scanned_code ?? req.body?.scannedCode ?? '';
 
     if (USE_POSTGRES_LOCAL && pgPool) {
       const client = await pgPool.connect();
@@ -7166,7 +11459,7 @@ async function startServer() {
         };
 
         const storeRes = await client.query(
-          'SELECT rows, auto_settle, store_type, slot_capacity FROM stores WHERE store_name = $1 LIMIT 1',
+          'SELECT rows, auto_settle, store_type, slot_capacity, require_pick_scan FROM stores WHERE store_name = $1 LIMIT 1',
           [blanket.store]
         );
         const s = storeRes.rows?.[0];
@@ -7179,7 +11472,19 @@ async function startServer() {
           auto_settle: Number(s.auto_settle),
           store_type: String(s.store_type),
           slot_capacity: Number(s.slot_capacity),
+          require_pick_scan: s.require_pick_scan,
         };
+
+        const scanCheck = validatePickScanForStore({
+          requirePickScan: store.require_pick_scan,
+          storeType: store.store_type,
+          scannedValue: pickScanValue,
+          expectedOrderNo: blanket.blanket_number,
+        });
+        if (!scanCheck.ok) {
+          await client.query('ROLLBACK');
+          return res.status(409).json({ error: scanCheck.error });
+        }
 
         const canAutoSettle =
           Number(store.auto_settle ?? 1) !== 0 &&
@@ -7239,10 +11544,20 @@ async function startServer() {
       | undefined;
     if (!blanket) return res.status(404).json({ error: 'Blanket not found.' });
 
-    const store = db.prepare('SELECT rows, auto_settle, store_type, slot_capacity FROM stores WHERE store_name = ?').get(blanket.store) as
-      | { rows: number; auto_settle: number; store_type: string; slot_capacity: number }
+    const store = db.prepare('SELECT rows, auto_settle, store_type, slot_capacity, require_pick_scan FROM stores WHERE store_name = ?').get(blanket.store) as
+      | { rows: number; auto_settle: number; store_type: string; slot_capacity: number; require_pick_scan: number }
       | undefined;
     if (!store) return res.status(400).json({ error: `Store not found: ${blanket.store}` });
+
+    const scanCheck = validatePickScanForStore({
+      requirePickScan: store.require_pick_scan,
+      storeType: store.store_type,
+      scannedValue: pickScanValue,
+      expectedOrderNo: blanket.blanket_number,
+    });
+    if (!scanCheck.ok) {
+      return res.status(409).json({ error: scanCheck.error });
+    }
 
     const canAutoSettle =
       Number(store.auto_settle ?? 1) !== 0 &&
@@ -7413,9 +11728,89 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  app.get('/api/pos/session-status', requireAuth, (_req, res) => {
+    const currentCookie = String(posCookieJar || POS_COOKIE || '').trim();
+    res.json({
+      auto_login_enabled: POS_AUTO_REFRESH_ENABLED,
+      auto_login_configured: canAutoRefreshPosSession(),
+      session_available: hasMinimalPosCookie(currentCookie),
+      session_auto_refreshed: posCookieJarAutoRefreshed,
+      login_endpoint_configured: /^https?:\/\//i.test(POS_LOGIN_ENDPOINT),
+      base_url_configured: /^https?:\/\//i.test(POS_BASE_URL),
+      last_refresh_error: posLastRefreshReason || null,
+    });
+  });
+
+  app.get('/api/pos/expenses/accounts', requireAuth, async (req, res) => {
+    try {
+      const query = String(req.query.q ?? req.query.search ?? '').trim();
+      if (query.length < 1) return res.status(400).json({ error: 'Search query is required.' });
+
+      const clientIdentifier = String(req.query.client_identifier ?? POS_LOGIN_CLIENT_IDENTIFIER ?? 'inout').trim() || 'inout';
+      const endpoint = resolvePosPurchaseApiEndpoint(
+        `/purchase_api/accountHeadList/${encodeURIComponent(clientIdentifier)}/${encodeURIComponent(query)}`
+      );
+      const response = await postPosForm(endpoint, new URLSearchParams(), {
+        fallbackToGet: false,
+        referer: POS_EXPENSES_REFERER,
+      });
+      const parsed = parsePosJsonObject(String(response.text ?? ''), 'accountHeadList');
+      const data = Array.isArray(parsed?.data) ? parsed.data : [];
+      res.json({
+        ok: true,
+        query,
+        accounts: data.map((item: any) => ({
+          id: String(item?.id ?? '').trim(),
+          text: String(item?.text ?? item?.acc_name1 ?? '').trim(),
+          raw: item,
+        })),
+        raw: parsed,
+      });
+    } catch (error: any) {
+      console.error('POS expense account search failed:', error);
+      res.status(502).json({ error: error?.message || 'Failed to search POS expense accounts.' });
+    }
+  });
+
+  app.get('/api/pos/expenses/pay-accounts', requireAuth, async (req, res) => {
+    try {
+      const clientIdentifier = String(req.query.client_identifier ?? POS_LOGIN_CLIENT_IDENTIFIER ?? 'inout').trim() || 'inout';
+      const branchId = String(req.query.branch_id ?? '1').trim() || '1';
+      const apiUserId = String(req.query.api_user_id ?? AIPSOFT_API_USER_ID ?? '').trim();
+      const parsed = await postPosPurchaseApi('/purchase_api/payAccountList', {
+        client_identifier: clientIdentifier,
+        branch_id: branchId,
+        api_user_id: apiUserId,
+      });
+      const data = Array.isArray(parsed?.data) ? parsed.data : [];
+      res.json({
+        ok: true,
+        pay_accounts: data.map((item: any) => ({
+          id: String(item?.id ?? '').trim(),
+          name: String(item?.acc_name1 ?? item?.text ?? '').trim(),
+          raw: item,
+        })),
+        raw: parsed,
+      });
+    } catch (error: any) {
+      console.error('POS pay account list failed:', error);
+      res.status(502).json({ error: error?.message || 'Failed to load POS pay accounts.' });
+    }
+  });
+
+  app.post('/api/pos/expenses/test-create', requireOperationsManager, async (req: any, res) => {
+    try {
+      const result = await createPosExpenseInvoice(req.body);
+      res.json(result);
+    } catch (error: any) {
+      console.error('POS expense creation failed:', error);
+      res.status(502).json({ error: error?.message || 'Failed to create POS expense.' });
+    }
+  });
+
   app.get('/api/pos/find-laundry-orders', requireAuth, async (req, res) => {
     try {
-      const query = String(req.query.q ?? '').trim();
+      const query = String(req.query.q ?? req.query.search ?? '').trim();
       if (query.length < 2) {
         return res.status(400).json({ error: 'Search query must be at least 2 characters.' });
       }
@@ -7425,6 +11820,1041 @@ async function startServer() {
     } catch (error: any) {
       console.error('POS order search failed:', error);
       res.status(502).json({ error: error?.message || 'Failed to fetch orders from POS system.' });
+    }
+  });
+
+  app.post('/api/pos/report/counter-cash', requireAuth, async (req, res) => {
+    try {
+      const payload = buildCounterCashReportPayload(req.body);
+      const { text } = await postPosForm(POS_COUNTER_CASH_REPORT_PATH, payload, { fallbackToGet: false });
+      const html = String(text ?? '').trim();
+
+      if (!html) {
+        return res.status(502).json({ error: 'POS returned an empty report response.' });
+      }
+
+      if (isLikelyPosLoginHtml(html)) {
+        return res.status(502).json({ error: 'POS returned the login page. Check POS auto-login settings and Counter Cash report permission.' });
+      }
+
+      const summary = parseCounterCashReportHtml(html);
+      res.json({
+        ok: true,
+        endpoint: resolvePosEndpointFromPath(POS_COUNTER_CASH_REPORT_PATH),
+        request: Object.fromEntries(payload.entries()),
+        summary,
+        html,
+      });
+    } catch (error: any) {
+      console.error('POS counter cash report failed:', error);
+      res.status(502).json({ error: error?.message || 'Failed to fetch POS counter cash report.' });
+    }
+  });
+
+  app.post('/api/pos/sync-conveyer-storage', requireOperationsManager, async (req: any, res) => {
+    try {
+      const orderNo = String(req.body?.order_no ?? req.body?.orderNo ?? '').trim();
+      const remark = String(req.body?.remark ?? '').trim();
+      const result = await syncPosOrderToConveyerStorage({
+        order_no: orderNo,
+        remark,
+        user: req.auth?.username || 'system',
+        meta: getLogMeta(req),
+      });
+      res.json(result);
+    } catch (error: any) {
+      console.error('POS conveyer storage sync failed:', error);
+      res.status(500).json({ error: error?.message || 'Failed to sync POS remark to conveyer storage.' });
+    }
+  });
+
+  const pickupCategoryLabels: Record<string, string> = {
+    hanging_clothes: 'Hanging Clothes',
+    folded_clothes: 'Folded Clothes',
+    home_phase2: 'Home Items (Phase 2)',
+    blanket_phase3: 'Blankets (Phase 3)',
+  };
+  const pickupCategoryOrder = Object.keys(pickupCategoryLabels);
+  const normalizePickupBarcode = (value: unknown) =>
+    String(value ?? '')
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '');
+  const getPickupPickState = async (orderNo: string) => {
+    const rows = USE_POSTGRES_LOCAL && pgPool
+      ? (
+          await pgPool.query(
+            `SELECT notes, store
+             FROM logs
+             WHERE upper(COALESCE(blanket_number, '')) = upper($1)
+               AND status = 'received_from_store'
+             ORDER BY timestamp ASC, id ASC`,
+            [orderNo]
+          )
+        ).rows
+      : db
+          .prepare(
+            `SELECT notes, store
+             FROM logs
+             WHERE upper(COALESCE(blanket_number, '')) = upper(?)
+               AND status = 'received_from_store'
+             ORDER BY datetime(timestamp) ASC, id ASC`
+          )
+          .all(orderNo);
+
+    const picked = new Set<string>();
+    const required = new Set<string>();
+    for (const row of rows as Array<{ notes?: unknown; store?: unknown }>) {
+      const notes = String(row?.notes ?? '');
+      const requiredIds = notes.match(/Required Categories:\s*([^|]+)/i)?.[1]?.split(',') ?? [];
+      for (const requiredId of requiredIds) {
+        const normalized = requiredId.trim();
+        if (pickupCategoryLabels[normalized]) required.add(normalized);
+      }
+
+      const categoryId = notes.match(/Category ID:\s*([^|]+)/i)?.[1]?.trim();
+      if (categoryId && pickupCategoryLabels[categoryId]) {
+        picked.add(categoryId);
+        continue;
+      }
+
+      const categoryLabel = notes.match(/Category:\s*([^|]+)/i)?.[1]?.trim() || String(row?.store ?? '').trim();
+      const fallbackCategory = pickupCategoryOrder.find(
+        (candidate) => pickupCategoryLabels[candidate].toLowerCase() === categoryLabel.toLowerCase()
+      );
+      if (fallbackCategory) picked.add(fallbackCategory);
+    }
+
+    return {
+      pickedCategories: pickupCategoryOrder.filter((category) => picked.has(category)),
+      requiredCategories: pickupCategoryOrder.filter((category) => required.has(category)),
+    };
+  };
+
+  app.get('/api/pickup-search/pick-progress', requirePicker, async (req, res) => {
+    try {
+      const orderNo = clampText(req.query.order_no ?? req.query.orderNo, 80);
+      if (!orderNo) return res.status(400).json({ error: 'Order number is required.' });
+      const state = await getPickupPickState(orderNo);
+      res.json({
+        success: true,
+        order_no: orderNo,
+        picked_categories: state.pickedCategories,
+        required_categories: state.requiredCategories,
+      });
+    } catch (error: any) {
+      console.error('Pickup progress lookup failed:', error);
+      res.status(500).json({ error: error?.message || 'Failed to load pickup progress.' });
+    }
+  });
+
+  app.post('/api/pickup-search/pick', requirePicker, async (req: any, res) => {
+    try {
+      const orderNo = clampText(req.body?.order_no ?? req.body?.orderNo, 80);
+      if (!orderNo) return res.status(400).json({ error: 'Order number is required.' });
+
+      const meta = getLogMeta(req);
+      const user = clampText(req.body?.user, 120) || req.auth?.username || 'system';
+      const category = clampText(req.body?.category, 80) || 'pickup';
+      if (!pickupCategoryLabels[category]) {
+        return res.status(400).json({ error: 'Invalid pickup category.' });
+      }
+      const requiredCategories = Array.from(
+        new Set<string>(
+          (Array.isArray(req.body?.required_categories) ? req.body.required_categories : [category])
+            .map((candidate: unknown) => clampText(candidate, 80))
+            .filter((candidate: string): candidate is string => Boolean(pickupCategoryLabels[candidate]))
+        )
+      );
+      if (!requiredCategories.includes(category)) requiredCategories.push(category);
+      const existingState = await getPickupPickState(orderNo);
+      if (existingState.pickedCategories.includes(category)) {
+        return res.json({
+          success: true,
+          already_picked: true,
+          picked_categories: existingState.pickedCategories,
+          required_categories:
+            existingState.requiredCategories.length > 0 ? existingState.requiredCategories : requiredCategories,
+        });
+      }
+      const categoryLabel = clampText(req.body?.category_label ?? req.body?.categoryLabel, 120) || category;
+      const customerName = clampText(req.body?.customer_name ?? req.body?.customerName, 160);
+      const customerPhone = clampText(req.body?.customer_phone ?? req.body?.customerPhone, 80);
+      const remark = clampText(req.body?.remark, 600);
+
+      const locations = Array.isArray(req.body?.locations) ? req.body.locations : [];
+      const normalizedLocations = locations
+        .map((location: any) => {
+          const store = clampText(location?.store, 120);
+          const row = Number(location?.row);
+          const column = Number(location?.column);
+          const label = clampText(location?.label, 220);
+          return {
+            store,
+            row: Number.isFinite(row) ? row : null,
+            column: Number.isFinite(column) ? column : null,
+            label,
+          };
+        })
+        .filter((location) => location.store || location.label)
+        .slice(0, 20);
+
+      const items = Array.isArray(req.body?.items) ? req.body.items : [];
+      const itemSummary = items
+        .map((item: any) => {
+          const name = clampText(item?.name, 120);
+          if (!name) return '';
+          const qty = Number(item?.qty);
+          return Number.isFinite(qty) && qty > 0 ? `${name} x${qty}` : name;
+        })
+        .filter(Boolean)
+        .slice(0, 30)
+        .join(', ');
+
+      const firstLocation = normalizedLocations[0];
+      const store = firstLocation?.store || categoryLabel;
+      const row = firstLocation?.row ?? null;
+      const column = firstLocation?.column ?? null;
+      const locationSummary =
+        normalizedLocations.map((location) => location.label || location.store).filter(Boolean).join(' | ') || 'No location details';
+      const notes = [
+          'تم الاستلام من الاستور',
+          `Category ID: ${category}`,
+          `Required Categories: ${requiredCategories.join(',')}`,
+          `Category: ${categoryLabel}`,
+          customerName ? `Customer: ${customerName}` : '',
+          customerPhone ? `Phone: ${customerPhone}` : '',
+          `Locations: ${locationSummary}`,
+          itemSummary ? `Items: ${itemSummary}` : '',
+          remark ? `Remark: ${remark}` : '',
+          meta.notes ? `Meta: ${meta.notes}` : '',
+        ]
+          .filter(Boolean)
+          .join(' | ');
+
+      const logEntry = {
+        blanket_number: orderNo,
+        action: 'تم الاستلام من الاستور',
+        user,
+        store,
+        row,
+        column,
+        status: 'received_from_store',
+        request_id: meta.request_id,
+        device: meta.device,
+        ip: meta.ip,
+        notes,
+      };
+
+      if (USE_POSTGRES_LOCAL && pgPool) {
+        await pgPool.query(
+          `INSERT INTO logs (blanket_number, action, "user", store, row, "column", status, request_id, device, ip, notes)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+          [
+            logEntry.blanket_number,
+            logEntry.action,
+            logEntry.user,
+            logEntry.store,
+            logEntry.row,
+            logEntry.column,
+            logEntry.status,
+            logEntry.request_id,
+            logEntry.device,
+            logEntry.ip,
+            logEntry.notes,
+          ]
+        );
+      } else {
+        db.prepare(
+          'INSERT INTO logs (blanket_number, action, user, store, row, column, status, request_id, device, ip, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        ).run(
+          logEntry.blanket_number,
+          logEntry.action,
+          logEntry.user,
+          logEntry.store,
+          logEntry.row,
+          logEntry.column,
+          logEntry.status,
+          logEntry.request_id,
+          logEntry.device,
+          logEntry.ip,
+          logEntry.notes
+        );
+      }
+
+      if (supabaseAdmin) {
+        const { error } = await insertSupabaseLog(logEntry);
+        if (error) console.warn('Pickup pick Supabase log sync failed:', error);
+      }
+
+      const state = await getPickupPickState(orderNo);
+      res.json({
+        success: true,
+        log: logEntry,
+        picked_categories: state.pickedCategories,
+        required_categories: state.requiredCategories,
+      });
+    } catch (error: any) {
+      console.error('Pickup pick log failed:', error);
+      res.status(500).json({ error: error?.message || 'Failed to log pickup pick action.' });
+    }
+  });
+
+  app.post('/api/pickup-search/pay-deliver', requirePicker, async (req: any, res) => {
+    try {
+      const orderNo = clampText(req.body?.order_no ?? req.body?.orderNo, 80);
+      const sourceOrdersId = clampText(req.body?.source_orders_id ?? req.body?.sourceOrdersId, 80);
+      const paymentMethod = String(req.body?.payment_method ?? req.body?.paymentMethod ?? '').trim().toLowerCase();
+      const scannedBarcode = clampText(req.body?.barcode ?? req.body?.scanned_barcode ?? req.body?.scannedBarcode, 120);
+      const requiredCategories: string[] = Array.from(
+        new Set<string>(
+          (Array.isArray(req.body?.required_categories) ? req.body.required_categories : [])
+            .map((category: unknown) => clampText(category, 80))
+            .filter((category: string): category is string => Boolean(pickupCategoryLabels[category]))
+        )
+      );
+      const dryRun = req.body?.dry_run === true || String(req.body?.dry_run ?? '').trim() === '1';
+      if (!orderNo) return res.status(400).json({ error: 'Order number is required.' });
+      if (paymentMethod !== 'cash' && paymentMethod !== 'credit_card') {
+        return res.status(400).json({ error: 'Payment method must be cash or credit_card.' });
+      }
+      if (requiredCategories.length === 0) {
+        return res.status(400).json({ error: 'Pickup tasks are required before payment and delivery.' });
+      }
+
+      const pickupState = await getPickupPickState(orderNo);
+      const enforcedRequiredCategories =
+        pickupState.requiredCategories.length > 0 ? pickupState.requiredCategories : requiredCategories;
+      const pickedCategories = pickupState.pickedCategories;
+      const missingCategories = enforcedRequiredCategories.filter((category) => !pickedCategories.includes(category));
+      if (missingCategories.length > 0) {
+        return res.status(409).json({
+          error: `أكمل مهام Pick أولا: ${missingCategories.map((category) => pickupCategoryLabels[category]).join(', ')}`,
+          missing_categories: missingCategories,
+          picked_categories: pickedCategories,
+        });
+      }
+
+      if (!scannedBarcode) {
+        return res.status(400).json({ error: 'يجب مسح باركود الفاتورة الموجودة على الكيس قبل الدفع والتوصيل.' });
+      }
+      if (normalizePickupBarcode(scannedBarcode) !== normalizePickupBarcode(orderNo)) {
+        return res.status(409).json({
+          error: 'الباركود الممسوح لا يطابق رقم الطلب. تأكد من الكيس الصحيح.',
+          expected_order_no: orderNo,
+        });
+      }
+
+      const result = await payAndDeliverPickupOrder({
+        order_no: orderNo,
+        source_orders_id: sourceOrdersId,
+        payment_method: paymentMethod,
+        dry_run: dryRun,
+      });
+
+      if (!dryRun) {
+        const meta = getLogMeta(req);
+        const logEntry = {
+          blanket_number: orderNo,
+          action: paymentMethod === 'cash' ? 'Cash paid Delivery' : 'Credit card Delivery',
+          user: req.auth?.username || 'system',
+          store: 'Pickup Search',
+          row: null,
+          column: null,
+          status: 'paid_and_delivered',
+          request_id: meta.request_id,
+          device: meta.device,
+          ip: meta.ip,
+          notes: [
+            `Payment: ${paymentMethod === 'cash' ? 'Cash' : 'Credit Card'}`,
+            `Amount: AED ${Number(result.amount_paid ?? 0).toFixed(2)}`,
+            `POS Sales Order ID: ${result.sales_order_id}`,
+            `Remaining balance: AED ${Number(result.remaining_balance ?? 0).toFixed(2)}`,
+          ].join(' | '),
+        };
+
+        if (USE_POSTGRES_LOCAL && pgPool) {
+          await pgPool.query(
+            `INSERT INTO logs (blanket_number, action, "user", store, row, "column", status, request_id, device, ip, notes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+            [
+              logEntry.blanket_number,
+              logEntry.action,
+              logEntry.user,
+              logEntry.store,
+              logEntry.row,
+              logEntry.column,
+              logEntry.status,
+              logEntry.request_id,
+              logEntry.device,
+              logEntry.ip,
+              logEntry.notes,
+            ]
+          );
+        } else {
+          db.prepare(
+            'INSERT INTO logs (blanket_number, action, user, store, row, column, status, request_id, device, ip, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).run(
+            logEntry.blanket_number,
+            logEntry.action,
+            logEntry.user,
+            logEntry.store,
+            logEntry.row,
+            logEntry.column,
+            logEntry.status,
+            logEntry.request_id,
+            logEntry.device,
+            logEntry.ip,
+            logEntry.notes
+          );
+        }
+
+        if (supabaseAdmin) {
+          const { error } = await insertSupabaseLog(logEntry);
+          if (error) console.warn('Pickup delivery Supabase log sync failed:', error);
+        }
+      }
+
+      res.json(result);
+    } catch (error: any) {
+      console.error('Pickup pay and deliver failed:', error);
+      res.status(502).json({ error: error?.message || 'Failed to pay and deliver the POS order.' });
+    }
+  });
+
+  app.get('/api/pickup-search/phone', requirePicker, async (req, res) => {
+    try {
+      const query = String(req.query.q ?? req.query.phone ?? req.query.order_no ?? req.query.orderNo ?? '').trim();
+      const searchMode = String(req.query.mode ?? '').trim().toLowerCase();
+      const queryDigits = normalizePosConnectPhone(query);
+      const isOrderQuery =
+        searchMode === 'order' ||
+        (searchMode !== 'phone' && isLikelyPosConnectOrderNoQuery(query) && queryDigits.length <= 8);
+
+      if (!query || (!isOrderQuery && queryDigits.length < 5)) {
+        return res.status(400).json({ error: 'Search must be a phone number or an order number.' });
+      }
+
+      const limit = Math.max(1, Math.min(50, Number(req.query.limit ?? 25) || 25));
+      const searchQueries = buildPosConnectSearchQueries(query);
+      const attempts: PosConnectSearchAttempt[] = [];
+
+      if (isOrderQuery) {
+        let order: PickupSearchOrder | null = null;
+        let lastOrderError: any = null;
+
+        try {
+          const preview = await resolvePosConnectPreviewByDisplayedOrderNo(query);
+          if (preview) {
+            let details: PosOrderDetailsResult | null = null;
+            let detailsError = '';
+            try {
+              details = await fetchCachedPosConnectDetails({
+                order_id: preview.invoice_id || '0',
+                s_order_id: preview.orders_id || '0',
+                open_type: 'preview',
+                mode: '0',
+              });
+            } catch (error: any) {
+              detailsError = String(error?.message || 'Failed to load POS order details.');
+            }
+            attempts.push({
+              query: `${query} order lookup`,
+              records_total: 1,
+              records_filtered: 1,
+              parsed_orders: 1,
+            });
+            order = await hydratePickupSearchOrder(preview, details, detailsError, query);
+          }
+        } catch (error) {
+          lastOrderError = error;
+        }
+
+        if (!order) {
+          try {
+            const directDetails = await tryFetchPosConnectDetailsByDisplayedOrderNo(query, searchQueries, attempts);
+            if (directDetails) {
+              order = await hydratePickupSearchOrder(null, directDetails, '', query);
+            }
+          } catch (error) {
+            lastOrderError = error;
+          }
+        }
+
+        if (lastOrderError && attempts.length === 0) {
+          return res.status(502).json({
+            error: `POS connection failed while searching this order. ${String(
+              lastOrderError?.cause?.message || lastOrderError?.message || ''
+            ).trim()}`,
+            query,
+            orders: [],
+            count: 0,
+            searched_queries: searchQueries,
+            attempts,
+          });
+        }
+
+        const orders = order ? [order] : [];
+        return res.json({
+          query,
+          mode: 'order',
+          orders,
+          count: orders.length,
+          searched_queries: searchQueries,
+          attempts,
+        });
+      }
+
+      const previewsByKey = new Map<string, PosOrderPreview>();
+      let lastSearchError: any = null;
+      let successfulSearches = 0;
+
+      const searchResults = await Promise.all(
+        searchQueries.map(async (candidateQuery) => {
+          try {
+            const candidateSearch = await fetchCachedPosConnectSearch(candidateQuery);
+            return { candidateQuery, candidateSearch, error: null as any };
+          } catch (error) {
+            return { candidateQuery, candidateSearch: null, error };
+          }
+        })
+      );
+
+      for (const result of searchResults) {
+        if (result.error || !result.candidateSearch) {
+          lastSearchError = result.error;
+          attempts.push({
+            query: result.candidateQuery,
+            records_total: 0,
+            records_filtered: 0,
+            parsed_orders: 0,
+          });
+          continue;
+        }
+
+        successfulSearches += 1;
+        const candidateOrders = result.candidateSearch.orders ?? [];
+        attempts.push({
+          query: result.candidateQuery,
+          records_total: Number(result.candidateSearch.recordsTotal ?? 0) || 0,
+          records_filtered: Number(result.candidateSearch.recordsFiltered ?? 0) || 0,
+          parsed_orders: candidateOrders.length,
+        });
+
+        for (const preview of candidateOrders) {
+          if (!posPhoneMatchesAnyQuery(preview.customer_phone, searchQueries)) continue;
+          const key = [
+            String(preview.orders_id ?? '').trim(),
+            String(preview.invoice_id ?? '').trim(),
+            String(preview.order_no ?? '').trim(),
+          ].join(':');
+          if (!previewsByKey.has(key)) previewsByKey.set(key, preview);
+        }
+      }
+
+      if (previewsByKey.size === 0 && successfulSearches === 0 && lastSearchError) {
+        console.warn('Pickup phone search failed because POS did not respond:', lastSearchError);
+        return res.status(502).json({
+          error: `POS connection failed while searching this phone. ${String(
+            lastSearchError?.cause?.message || lastSearchError?.message || ''
+          ).trim()}`,
+          query,
+          phone: query,
+          orders: [],
+          count: 0,
+          searched_queries: searchQueries,
+          attempts,
+        });
+      }
+
+      if (previewsByKey.size === 0 && PICKUP_PHONE_FALLBACK_ENABLED) {
+        const pageSize = POS_CONNECT_FALLBACK_PAGE_SIZE;
+        const maxPages = PICKUP_PHONE_FALLBACK_MAX_PAGES;
+        const batchSize = POS_CONNECT_FALLBACK_BATCH_SIZE;
+
+        for (let pageStart = 0; pageStart < maxPages; pageStart += batchSize) {
+          const pageNumbers = Array.from(
+            { length: Math.min(batchSize, maxPages - pageStart) },
+            (_unused, index) => pageStart + index
+          );
+
+          const batchResults = await Promise.all(
+            pageNumbers.map(async (page) => {
+              try {
+                const candidateSearch = await fetchCachedPosConnectSearch(POS_CONNECT_FALLBACK_QUERY, {
+                  start: String(page * pageSize),
+                  length: String(pageSize),
+                  job_status: '0',
+                  branch_id: '0',
+                  prevent_depot_selection: '0',
+                });
+                return { page, candidateSearch, error: null as any };
+              } catch (error) {
+                return { page, candidateSearch: null, error };
+              }
+            })
+          );
+
+          batchResults.sort((a, b) => a.page - b.page);
+
+          for (const result of batchResults) {
+            if (result.error || !result.candidateSearch) {
+              lastSearchError = result.error;
+              attempts.push({
+                query: `${POS_CONNECT_FALLBACK_QUERY} page ${result.page + 1}`,
+                records_total: 0,
+                records_filtered: 0,
+                parsed_orders: 0,
+              });
+              continue;
+            }
+
+            successfulSearches += 1;
+            const candidateOrders = result.candidateSearch.orders ?? [];
+            attempts.push({
+              query: `${POS_CONNECT_FALLBACK_QUERY} page ${result.page + 1}`,
+              records_total: Number(result.candidateSearch.recordsTotal ?? 0) || 0,
+              records_filtered: Number(result.candidateSearch.recordsFiltered ?? 0) || 0,
+              parsed_orders: candidateOrders.length,
+            });
+
+            for (const preview of candidateOrders) {
+              if (!posPhoneMatchesAnyQuery(preview.customer_phone, searchQueries)) continue;
+              const key = [
+                String(preview.orders_id ?? '').trim(),
+                String(preview.invoice_id ?? '').trim(),
+                String(preview.order_no ?? '').trim(),
+              ].join(':');
+              if (!previewsByKey.has(key)) previewsByKey.set(key, preview);
+            }
+          }
+
+          if (previewsByKey.size >= limit) break;
+          if (batchResults.some((result) => (result.candidateSearch?.orders?.length ?? 0) < pageSize)) break;
+        }
+      }
+
+      const previews = Array.from(previewsByKey.values()).slice(0, limit);
+      const hydratedOrders = await Promise.all(
+        previews.map(async (preview): Promise<PickupSearchOrder | null> => {
+          let details: PosOrderDetailsResult | null = null;
+          let detailsError = '';
+
+          try {
+            details = await fetchCachedPosConnectDetails({
+              order_id: preview.invoice_id || '0',
+              s_order_id: preview.orders_id || '0',
+              open_type: 'preview',
+              mode: '0',
+            });
+          } catch (error: any) {
+            detailsError = String(error?.message || 'Failed to load POS order details.');
+          }
+
+          return hydratePickupSearchOrder(preview, details, detailsError);
+        })
+      );
+
+      const orders = hydratedOrders
+        .filter((order): order is PickupSearchOrder => Boolean(order))
+        .sort((a, b) => {
+          const deliveredA = normalizePickupStatus(a.order_status) === 'delivered' ? 1 : 0;
+          const deliveredB = normalizePickupStatus(b.order_status) === 'delivered' ? 1 : 0;
+          if (deliveredA !== deliveredB) return deliveredA - deliveredB;
+          return String(b.order_date ?? '').localeCompare(String(a.order_date ?? ''));
+        });
+
+      res.json({
+        query,
+        phone: query,
+        mode: 'phone',
+        orders,
+        count: orders.length,
+        searched_queries: searchQueries,
+        attempts,
+      });
+    } catch (error: any) {
+      console.error('Pickup phone search failed:', error);
+      res.status(502).json({ error: error?.message || 'Failed to search pickup orders by phone.' });
+    }
+  });
+
+  app.get('/api/pos/connect-order', requireAuth, async (req, res) => {
+    try {
+      const query = String(req.query.q ?? req.query.search ?? '').trim();
+      if (query.length < 2) {
+        return res.status(400).json({ error: 'Search query must be at least 2 characters.' });
+      }
+
+      const allSearchQueries = buildPosConnectSearchQueries(query);
+      const deepSearch = /^(1|true|yes)$/i.test(String(req.query.deep ?? '').trim());
+      const fastResponse =
+        req.query.fast === undefined
+          ? POS_CONNECT_FAST_RESPONSE_ENABLED
+          : !/^(0|false|no)$/i.test(String(req.query.fast ?? '').trim());
+      const directQueryLimit = deepSearch ? allSearchQueries.length : POS_CONNECT_DIRECT_QUERY_LIMIT;
+      const searchQueries = allSearchQueries.slice(0, directQueryLimit);
+      let search: Awaited<ReturnType<typeof fetchPosOrderSearch>> | null = null;
+      let orders: PosOrderPreview[] = [];
+      let searchedQuery = query;
+      let lastSearchError: any = null;
+      const attempts: PosConnectSearchAttempt[] = [];
+
+      const directResults = await Promise.all(
+        searchQueries.map(async (candidateQuery) => {
+          try {
+            const candidateSearch = await fetchCachedPosConnectSearch(candidateQuery);
+            return { candidateQuery, candidateSearch, error: null as any };
+          } catch (error) {
+            return { candidateQuery, candidateSearch: null, error };
+          }
+        })
+      );
+
+      for (const result of directResults) {
+        if (result.error || !result.candidateSearch) {
+          lastSearchError = result.error;
+          attempts.push({
+            query: result.candidateQuery,
+            records_total: 0,
+            records_filtered: 0,
+            parsed_orders: 0,
+          });
+          continue;
+        }
+
+        const candidateOrders = result.candidateSearch.orders ?? [];
+        attempts.push({
+          query: result.candidateQuery,
+          records_total: Number(result.candidateSearch.recordsTotal ?? 0) || 0,
+          records_filtered: Number(result.candidateSearch.recordsFiltered ?? 0) || 0,
+          parsed_orders: candidateOrders.length,
+        });
+        search = result.candidateSearch;
+        if (orders.length === 0 && candidateOrders.length > 0) {
+          orders = candidateOrders;
+          searchedQuery = result.candidateQuery;
+        }
+      }
+
+      const remainingQueries = allSearchQueries.slice(searchQueries.length);
+      if (orders.length === 0 && deepSearch && remainingQueries.length > 0) {
+        const remainingResults = await Promise.all(
+          remainingQueries.map(async (candidateQuery) => {
+            try {
+              const candidateSearch = await fetchCachedPosConnectSearch(candidateQuery);
+              return { candidateQuery, candidateSearch, error: null as any };
+            } catch (error) {
+              return { candidateQuery, candidateSearch: null, error };
+            }
+          })
+        );
+
+        for (const result of remainingResults) {
+          if (result.error || !result.candidateSearch) {
+            lastSearchError = result.error;
+            attempts.push({
+              query: result.candidateQuery,
+              records_total: 0,
+              records_filtered: 0,
+              parsed_orders: 0,
+            });
+            continue;
+          }
+
+          const candidateOrders = result.candidateSearch.orders ?? [];
+          attempts.push({
+            query: result.candidateQuery,
+            records_total: Number(result.candidateSearch.recordsTotal ?? 0) || 0,
+            records_filtered: Number(result.candidateSearch.recordsFiltered ?? 0) || 0,
+            parsed_orders: candidateOrders.length,
+          });
+          search = result.candidateSearch;
+          if (orders.length === 0 && candidateOrders.length > 0) {
+            orders = candidateOrders;
+            searchedQuery = result.candidateQuery;
+          }
+        }
+      }
+
+      if (orders.length === 0 && deepSearch) {
+        const directDetails = await tryFetchPosConnectDetailsByDisplayedOrderNo(query, allSearchQueries, attempts);
+        if (directDetails) {
+          const parsedOrder = buildPosConnectOrder(null, directDetails);
+          const order = parsedOrder.order_no ? parsedOrder : { ...parsedOrder, order_no: query };
+          let storageSync: PosConveyerStorageSyncResult | null = null;
+          try {
+            storageSync = await syncPosOrderToConveyerStorage({
+              order_no: order.order_no || query,
+              remark: order.remark,
+              user: (req as any).auth?.username || 'system',
+              meta: getLogMeta(req),
+            });
+          } catch (syncError: any) {
+            console.warn('POS conveyer storage sync skipped after direct details lookup:', syncError);
+            storageSync = {
+              synced: false,
+              reason: 'sync_error',
+              order_no: order.order_no || query,
+              remark: order.remark,
+              slot: parsePosConveyerSlotFromRemark(order.remark),
+              store: null,
+              row: null,
+              column: null,
+              message: syncError?.message || 'Failed to sync POS remark to conveyer storage.',
+            };
+          }
+          return res.json({
+            order,
+            orders: [order],
+            multiple: false,
+            storage_sync: storageSync,
+            details_pending: false,
+            searched_queries: allSearchQueries,
+            attempts,
+          });
+        }
+      }
+
+      if (orders.length === 0 && (deepSearch || POS_CONNECT_FALLBACK_ENABLED)) {
+        const broadQuery = POS_CONNECT_FALLBACK_QUERY;
+        const pageSize = POS_CONNECT_FALLBACK_PAGE_SIZE;
+        const maxPages = deepSearch ? POS_CONNECT_DEEP_FALLBACK_MAX_PAGES : POS_CONNECT_FALLBACK_MAX_PAGES;
+        const batchSize = POS_CONNECT_FALLBACK_BATCH_SIZE;
+
+        for (let pageStart = 0; pageStart < maxPages; pageStart += batchSize) {
+          const pageNumbers = Array.from(
+            { length: Math.min(batchSize, maxPages - pageStart) },
+            (_unused, index) => pageStart + index
+          );
+
+          const batchResults = await Promise.all(
+            pageNumbers.map(async (page) => {
+              try {
+                const candidateSearch = await fetchCachedPosConnectSearch(broadQuery, {
+                  start: String(page * pageSize),
+                  length: String(pageSize),
+                  job_status: '0',
+                  branch_id: '0',
+                  prevent_depot_selection: '0',
+                });
+                return { page, candidateSearch, error: null as any };
+              } catch (error) {
+                return { page, candidateSearch: null, error };
+              }
+            })
+          );
+
+          batchResults.sort((a, b) => a.page - b.page);
+
+          for (const result of batchResults) {
+            if (result.error || !result.candidateSearch) {
+              lastSearchError = result.error;
+              attempts.push({
+                query: `${broadQuery} page ${result.page + 1}`,
+                records_total: 0,
+                records_filtered: 0,
+                parsed_orders: 0,
+              });
+              continue;
+            }
+
+            const candidateSearch = result.candidateSearch;
+            const candidateOrders = candidateSearch.orders ?? [];
+            const localMatches = filterPosConnectPreviewMatches(candidateOrders, allSearchQueries);
+            search = candidateSearch;
+            attempts.push({
+              query: `${broadQuery} page ${result.page + 1}`,
+              records_total: Number(candidateSearch.recordsTotal ?? 0) || 0,
+              records_filtered: Number(candidateSearch.recordsFiltered ?? 0) || 0,
+              parsed_orders: candidateOrders.length,
+            });
+            if (localMatches.length > 0) {
+              orders = localMatches;
+              searchedQuery = query;
+              break;
+            }
+          }
+
+          if (orders.length > 0) break;
+          if (batchResults.some((result) => (result.candidateSearch?.orders?.length ?? 0) < pageSize)) break;
+        }
+      }
+
+      if (!search && lastSearchError) {
+        throw lastSearchError;
+      }
+
+      if (orders.length === 0) {
+        console.warn('POS Connect no parsed orders found.', {
+          query,
+          searchQueries,
+          attempts,
+        });
+        return res.json({
+          order: null,
+          orders: [],
+          multiple: false,
+          searched_queries: deepSearch ? allSearchQueries : searchQueries,
+          attempts,
+        });
+      }
+
+      const selected = {
+        orders_id: String(req.query.orders_id ?? '').trim(),
+        invoice_id: String(req.query.invoice_id ?? '').trim(),
+      };
+
+      const queryPhone = normalizePosConnectPhone(query);
+      const phoneMatches =
+        isPosConnectPhoneQuery(query)
+          ? orders.filter((order) => {
+              const phone = normalizePosConnectPhone(order.customer_phone);
+              return phone.length >= 5 && (phone.includes(queryPhone) || queryPhone.includes(phone));
+            })
+          : [];
+      const exactOrder =
+        orders.find((order) => String(order.order_no ?? '').trim().toUpperCase() === query.toUpperCase()) ??
+        orders.find((order) => String(order.order_no ?? '').trim().toUpperCase() === searchedQuery.toUpperCase());
+      const hasExplicitSelection = Boolean(selected.orders_id || selected.invoice_id);
+
+      if (!hasExplicitSelection && !exactOrder && phoneMatches.length > 1) {
+        return res.json({
+          order: null,
+          orders: phoneMatches.map((order) => buildPosConnectOrder(order, null)),
+          multiple: true,
+          searched_queries: deepSearch ? allSearchQueries : searchQueries,
+          attempts,
+        });
+      }
+
+      const preview = findBestPosConnectPreview(orders, query, selected) ?? findBestPosConnectPreview(orders, searchedQuery, selected);
+      if (!preview) {
+        return res.json({
+          order: null,
+          orders: [],
+          multiple: false,
+          searched_queries: deepSearch ? allSearchQueries : searchQueries,
+          attempts,
+        });
+      }
+
+      const detailParams = {
+        order_id: preview.invoice_id || '0',
+        s_order_id: preview.orders_id || '0',
+        open_type: 'preview',
+        mode: '0',
+      };
+      const cachedDetails = getCachedPosConnectDetails(detailParams);
+      if (fastResponse && !cachedDetails) {
+        const previewOrder = buildPosConnectOrder(preview, null);
+        void fetchCachedPosConnectDetails(detailParams).catch((detailError) => {
+          console.warn('POS Connect details prefetch failed:', detailError);
+        });
+        return res.json({
+          order: previewOrder,
+          orders: [previewOrder],
+          multiple: false,
+          storage_sync: null,
+          details_pending: true,
+          searched_queries: deepSearch ? allSearchQueries : searchQueries,
+          attempts,
+        });
+      }
+
+      let details: PosOrderDetailsResult | null = null;
+      try {
+        details = cachedDetails ?? (await fetchCachedPosConnectDetails(detailParams));
+      } catch (detailError) {
+        console.warn('POS Connect details lookup failed, returning preview data only:', detailError);
+      }
+
+      const order = buildPosConnectOrder(preview, details);
+      let storageSync: PosConveyerStorageSyncResult | null = null;
+      try {
+        storageSync = await syncPosOrderToConveyerStorage({
+          order_no: order.order_no,
+          remark: order.remark,
+          user: (req as any).auth?.username || 'system',
+          meta: getLogMeta(req),
+        });
+      } catch (syncError: any) {
+        console.warn('POS conveyer storage sync skipped after lookup:', syncError);
+        storageSync = {
+          synced: false,
+          reason: 'sync_error',
+          order_no: order.order_no,
+          remark: order.remark,
+          slot: parsePosConveyerSlotFromRemark(order.remark),
+          store: null,
+          row: null,
+          column: null,
+          message: syncError?.message || 'Failed to sync POS remark to conveyer storage.',
+        };
+      }
+      res.json({
+        order,
+        orders: [order],
+        multiple: false,
+        storage_sync: storageSync,
+        details_pending: false,
+        searched_queries: deepSearch ? allSearchQueries : searchQueries,
+        attempts,
+      });
+    } catch (error: any) {
+      console.error('POS Connect order lookup failed:', error);
+      res.status(502).json({ error: error?.message || 'Failed to fetch order from POS system.' });
+    }
+  });
+
+  app.get('/api/pos/connect-order-details', requireAuth, async (req, res) => {
+    try {
+      const orderId = String(req.query.order_id ?? req.query.invoice_id ?? '').trim();
+      const sOrderId = String(req.query.s_order_id ?? req.query.orders_id ?? '').trim();
+      if (!orderId && !sOrderId) {
+        return res.status(400).json({
+          error: 'order_id (or invoice_id) or s_order_id (or orders_id) is required.',
+        });
+      }
+
+      const details = await fetchCachedPosConnectDetails({
+        order_id: orderId || '0',
+        s_order_id: sOrderId || '0',
+        open_type: 'preview',
+        mode: '0',
+      });
+      const order = buildPosConnectOrder(null, details);
+      let storageSync: PosConveyerStorageSyncResult | null = null;
+      try {
+        storageSync = await syncPosOrderToConveyerStorage({
+          order_no: order.order_no,
+          remark: order.remark,
+          user: (req as any).auth?.username || 'system',
+          meta: getLogMeta(req),
+        });
+      } catch (syncError: any) {
+        console.warn('POS conveyer storage sync skipped after details lookup:', syncError);
+        storageSync = {
+          synced: false,
+          reason: 'sync_error',
+          order_no: order.order_no,
+          remark: order.remark,
+          slot: parsePosConveyerSlotFromRemark(order.remark),
+          store: null,
+          row: null,
+          column: null,
+          message: syncError?.message || 'Failed to sync POS remark to conveyer storage.',
+        };
+      }
+
+      res.json({
+        order,
+        storage_sync: storageSync,
+        details_pending: false,
+      });
+    } catch (error: any) {
+      console.error('POS Connect order details lookup failed:', error);
+      res.status(502).json({ error: error?.message || 'Failed to fetch POS order details.' });
     }
   });
 
@@ -7582,7 +13012,7 @@ async function startServer() {
           `INSERT INTO customer_alert_templates (name, channel, body, is_active, created_by, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
         )
-        .run(name, channel, body, isActive, req.auth?.username || 'system');
+        .run(name, channel, body, isActive, (req as any).auth?.username || 'system');
       const row = db
         .prepare('SELECT * FROM customer_alert_templates WHERE id = ?')
         .get(Number(result.lastInsertRowid)) as CustomerAlertTemplateRecord | undefined;
@@ -7650,6 +13080,33 @@ async function startServer() {
     }
   });
 
+  app.get('/api/customer-alerts/phone-groups', requirePicker, async (req, res) => {
+    try {
+      const limit = Math.max(1, Math.min(500, Number(req.query.limit ?? 160) || 160));
+      const groups = await buildCustomerAlertPhoneGroups({
+        limit,
+        q: String(req.query.q ?? ''),
+        severity: String(req.query.severity ?? 'all'),
+        posStatus: String(req.query.posStatus ?? 'all'),
+        oldDays: Math.max(1, Math.min(90, Number(req.query.oldDays ?? 7) || 7)),
+      });
+      res.json({
+        groups,
+        summary: {
+          total_groups: groups.length,
+          critical: groups.filter((group) => group.severity === 'critical').length,
+          high: groups.filter((group) => group.severity === 'high').length,
+          medium: groups.filter((group) => group.severity === 'medium').length,
+          low: groups.filter((group) => group.severity === 'low').length,
+          delivered_stored: groups.reduce((sum, group) => sum + group.delivered_stored_count, 0),
+        },
+        generated_at: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error?.message || 'Failed to load phone alert groups.' });
+    }
+  });
+
   app.post('/api/customer-alerts/check-order', requirePicker, async (req, res) => {
     try {
       const orderNo = normalizeAlertOrderNo(req.body?.orderNo);
@@ -7713,7 +13170,7 @@ async function startServer() {
         });
       }
 
-      const sentBy = String(req.auth?.username ?? 'system');
+      const sentBy = String((req as any).auth?.username ?? 'system');
       try {
         const providerResult = await sendCustomerAlertWhatsapp(phone, renderedMessage);
         insertCustomerAlertLog({
@@ -7766,7 +13223,7 @@ async function startServer() {
       const templateId = Number.isFinite(templateIdRaw) && templateIdRaw > 0 ? templateIdRaw : null;
       const providedMessage = req.body?.message === undefined ? null : String(req.body?.message ?? '').trim();
       const messageSource = resolveAlertMessageBody(templateId, providedMessage);
-      const sentBy = String(req.auth?.username ?? 'system');
+      const sentBy = String((req as any).auth?.username ?? 'system');
 
       const baseCandidates =
         normalizedOrderNos.length > 0
@@ -7896,6 +13353,20 @@ async function startServer() {
     }
   });
 
+  app.post('/api/sorting/sync-active', requireSorting, async (req, res) => {
+    try {
+      const summary = await syncActiveSortingOrdersWithPos(req.body?.limit);
+      res.json({
+        success: true,
+        summary,
+        state: buildSortingState(),
+      });
+    } catch (error: any) {
+      console.error('Failed to sync active sorting orders with POS:', error);
+      res.status(500).json({ error: error?.message || 'Failed to sync active sorting orders with POS.' });
+    }
+  });
+
   app.get('/api/sorting/order/:orderNo', requireSorting, (req, res) => {
     try {
       const orderNo = normalizeSortingOrderNo(req.params.orderNo);
@@ -7920,10 +13391,44 @@ async function startServer() {
         allow_unsorted_fallback: false,
       });
 
-      const bundle = getBlanketPackingBundle(orderNo);
+      const posPreview = await resolvePosConnectPreviewByDisplayedOrderNo(orderNo).catch((resolveError) => {
+        console.warn('Blanket packing POS preview resolve failed:', resolveError);
+        return null;
+      });
+      if (posPreview?.orders_id || posPreview?.invoice_id) {
+        db.prepare(
+          `UPDATE sorting_orders
+           SET source_orders_id = ?,
+               source_invoice_id = ?,
+               customer_name = COALESCE(NULLIF(?, ''), customer_name),
+               customer_phone = COALESCE(NULLIF(?, ''), customer_phone),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE order_no = ?`
+        ).run(
+          String(posPreview.orders_id ?? '').trim() || null,
+          String(posPreview.invoice_id ?? '').trim() || null,
+          String(posPreview.customer_name ?? '').trim(),
+          normalizeDriverPhone(posPreview.customer_phone ?? ''),
+          orderNo
+        );
+      }
+
+      await syncSortingOrderQuantityFromPos(orderNo).catch((syncError) => {
+        console.warn('Blanket packing POS refresh failed, using local order items:', syncError);
+      });
+
+      const bundle = await buildBlanketPackingUiBundle(orderNo);
       if (!bundle) return res.status(404).json({ error: 'Order not found.' });
       if ((bundle.items ?? []).length === 0) {
-        return res.status(409).json({ error: 'No blanket or pillow items found in this order.' });
+        const localItems = db
+          .prepare('SELECT item_name FROM sorting_items WHERE order_no = ? ORDER BY id ASC')
+          .all(orderNo) as Array<{ item_name: string }>;
+        const names = localItems.map((item) => String(item.item_name ?? '').trim()).filter(Boolean).slice(0, 12);
+        return res.status(409).json({
+          error: names.length > 0
+            ? `No ${BLANKET_PACKING_ITEM_LABEL} found in this order. POS/local items: ${names.join(', ')}`
+            : `No ${BLANKET_PACKING_ITEM_LABEL} found in this order.`,
+        });
       }
       return res.json(bundle);
     } catch (error: any) {
@@ -8044,14 +13549,32 @@ async function startServer() {
       const orderNo = normalizeSortingOrderNo(req.body?.order_no ?? req.body?.orderNo ?? req.body?.scanned_code);
       if (!orderNo) return res.status(400).json({ error: 'Order number is required.' });
 
-      await ensureSortingOrderInitialized({
-        order_no: orderNo,
-        source_orders_id: req.body?.source_orders_id,
-        source_invoice_id: req.body?.source_invoice_id,
-        customer_name: req.body?.customer_name,
-        total_required: req.body?.total_required,
-        items: Array.isArray(req.body?.items) ? req.body.items : undefined,
-      });
+      try {
+        await ensureSortingOrderInitialized({
+          order_no: orderNo,
+          allow_unsorted_fallback: false,
+        });
+      } catch (initializeError) {
+        ensureQuantityOnlySortingOrderInitialized({
+          order_no: orderNo,
+          qty: req.body?.qty,
+        });
+      }
+
+      const initializedBundle = getSortingOrderBundle(orderNo);
+      const needsPosQuantityRefresh =
+        Boolean(initializedBundle?.order) &&
+        (
+          !normalizePosDocumentId(initializedBundle?.order.source_orders_id) ||
+          initializedBundle?.items.every((item) => isQuantityOnlySortingItemName(item.item_name))
+        );
+      if (needsPosQuantityRefresh) {
+        try {
+          await syncSortingOrderQuantityFromPos(orderNo);
+        } catch (syncError) {
+          console.warn(`POS quantity refresh before sorting scan failed for ${orderNo}:`, syncError);
+        }
+      }
 
       const orderBefore = db
         .prepare('SELECT status FROM sorting_orders WHERE order_no = ?')
@@ -8071,6 +13594,27 @@ async function startServer() {
       });
 
       const bundle = getSortingOrderBundle(orderNo);
+      let posSync:
+        | Awaited<ReturnType<typeof updatePosSortingDescription>>
+        | { success: false; verified: false; error: string }
+        | null = null;
+      if (scan.consumed > 0 && bundle?.order && scan.updated_items.length > 0) {
+        try {
+          posSync = await updatePosSortingDescription({
+            order: bundle.order,
+            item_names: scan.updated_items.map((item) => item.item_name),
+            description: buildSortingPosStageDescription(bundle.order.total_sorted),
+          });
+        } catch (syncError: any) {
+          posSync = {
+            success: false,
+            verified: false,
+            error: syncError?.message || 'POS Sorting description update failed.',
+          };
+          console.warn(`POS Sorting description sync failed for ${orderNo}:`, syncError);
+        }
+      }
+
       res.json({
         success: true,
         placement,
@@ -8078,13 +13622,127 @@ async function startServer() {
           consumed: scan.consumed,
           overflow: scan.overflow,
         },
+        pos_sync: posSync,
         order: bundle?.order ?? null,
         items: bundle?.items ?? [],
         state: buildSortingState(),
       });
+      void syncSortingOrderQuantityFromPos(orderNo).catch((syncError) => {
+        console.warn('Background POS sync after sorting scan failed:', syncError);
+      });
     } catch (error: any) {
       console.error('Failed to process sorting scan:', error);
       res.status(500).json({ error: error?.message || 'Failed to process sorting scan.' });
+    }
+  });
+
+  app.post('/api/sorting/orders/:orderNo/sync-pos-stage', requireSorting, async (req: any, res) => {
+    try {
+      const orderNo = normalizeSortingOrderNo(req.params.orderNo);
+      if (!orderNo) return res.status(400).json({ error: 'Order number is required.' });
+
+      const bundle = getSortingOrderBundle(orderNo);
+      if (!bundle?.order) return res.status(404).json({ error: 'Sorting order not found.' });
+      if (bundle.items.length === 0) return res.status(409).json({ error: 'Sorting order has no items.' });
+
+      const posSync = await updatePosSortingDescription({
+        order: bundle.order,
+        item_names: bundle.items.map((item) => item.item_name),
+        description: String(
+          req.body?.description ?? buildSortingPosStageDescription(bundle.order.total_sorted)
+        ),
+      });
+
+      res.json({
+        success: true,
+        pos_sync: posSync,
+        order: getSortingOrderBundle(orderNo)?.order ?? bundle.order,
+      });
+    } catch (error: any) {
+      console.error('Failed to retry POS sorting stage sync:', error);
+      res.status(502).json({ error: error?.message || 'POS Sorting description update failed.' });
+    }
+  });
+
+  app.post('/api/sorting/ironing/session/start', requireSorting, (req: any, res) => {
+    try {
+      const orderNo = normalizeSortingOrderNo(req.body?.order_no ?? req.body?.orderNo ?? req.body?.scanned_code);
+      if (!orderNo) return res.status(400).json({ error: 'Order number is required.' });
+      const meta = getLogMeta(req);
+      const session = startIroningSession({
+        order_no: orderNo,
+        worker: req.body?.worker || req.auth?.username || 'system',
+        team_members: req.body?.team_members,
+        pieces_target: req.body?.pieces_target ?? req.body?.qty,
+        request_id: meta.request_id,
+      });
+      return res.json({
+        success: true,
+        session,
+        sessions: listIroningSessions({ order_no: orderNo, limit: 20, offset: 0 }).rows,
+      });
+    } catch (error: any) {
+      console.error('Failed to start ironing session:', error);
+      const message = String(error?.message || 'Failed to start ironing session.');
+      if (/not found|already packed|no clothes|no sorted clothes|required/i.test(message)) {
+        return res.status(409).json({ error: message });
+      }
+      return res.status(500).json({ error: message });
+    }
+  });
+
+  app.post('/api/sorting/ironing/session/:id/end', requireSorting, (req: any, res) => {
+    try {
+      const sessionId = Math.max(0, Number(req.params.id) || 0);
+      if (!sessionId) return res.status(400).json({ error: 'Session id is required.' });
+      const session = finishIroningSession({
+        session_id: sessionId,
+        quality_score: req.body?.quality_score,
+        notes: req.body?.notes,
+      });
+      return res.json({
+        success: true,
+        session,
+        sessions: listIroningSessions({ order_no: session.order_no, limit: 20, offset: 0 }).rows,
+      });
+    } catch (error: any) {
+      console.error('Failed to end ironing session:', error);
+      const message = String(error?.message || 'Failed to end ironing session.');
+      if (/not found|required/i.test(message)) return res.status(404).json({ error: message });
+      return res.status(500).json({ error: message });
+    }
+  });
+
+  app.get('/api/sorting/ironing/history', requireSorting, (req: any, res) => {
+    try {
+      const auth = req.auth as SessionRecord | undefined;
+      const orderNo = normalizeSortingOrderNo(req.query.order_no ?? req.query.orderNo ?? '');
+      const status = String(req.query.status ?? '').trim().toLowerCase();
+      const q = String(req.query.q ?? req.query.search ?? '').trim();
+      const limit = Math.max(1, Math.min(200, Number(req.query.limit ?? 40) || 40));
+      const page = Math.max(1, Number(req.query.page ?? 1) || 1);
+      const offset = (page - 1) * limit;
+      const scope = String(req.query.scope ?? '').trim().toLowerCase();
+      const canViewAll = Boolean(auth?.role && (isOperationsManagerRole(auth.role) || isAdminRole(auth.role)));
+      const worker = scope === 'all' && canViewAll ? String(req.query.worker ?? '').trim() : '';
+      const result = listIroningSessions({
+        order_no: orderNo || undefined,
+        worker,
+        status,
+        q,
+        limit,
+        offset,
+      });
+      return res.json({
+        success: true,
+        sessions: result.rows,
+        total: result.total,
+        page,
+        limit: result.limit,
+      });
+    } catch (error: any) {
+      console.error('Failed to load ironing history:', error);
+      return res.status(500).json({ error: error?.message || 'Failed to load ironing history.' });
     }
   });
 
@@ -8099,6 +13757,7 @@ async function startServer() {
         qty: req.body?.qty,
         user: req.body?.user || req.auth?.username || 'system',
         request_id: meta.request_id,
+        session_id: req.body?.session_id,
       });
 
       const bundle = getSortingOrderBundle(orderNo);
@@ -8108,6 +13767,7 @@ async function startServer() {
           consumed: event.consumed,
           overflow: event.overflow,
           ironing_progress: event.ironing_progress,
+          session: event.session,
         },
         order: bundle?.order ?? null,
         items: bundle?.items ?? [],
@@ -8157,6 +13817,103 @@ async function startServer() {
     } catch (error: any) {
       console.error('Failed to process blanket packing scan:', error);
       return res.status(500).json({ error: error?.message || 'Failed to process blanket packing scan.' });
+    }
+  });
+
+  app.post('/api/sorting/blanket/print-next', requireSorting, async (req: any, res) => {
+    try {
+      const orderNo = normalizeSortingOrderNo(req.body?.order_no ?? req.body?.orderNo ?? req.body?.scanned_code);
+      if (!orderNo) return res.status(400).json({ error: 'Order number is required.' });
+
+      await ensureSortingOrderInitialized({
+        order_no: orderNo,
+        allow_unsorted_fallback: false,
+      });
+
+      const meta = getLogMeta(req);
+      const result = await applyBlanketPackingPrintNext({
+        order_no: orderNo,
+        user: req.body?.user || req.auth?.username || 'system',
+        request_id: meta.request_id,
+      });
+
+      return res.json({
+        success: true,
+        ...result,
+      });
+    } catch (error: any) {
+      console.error('Failed to print next blanket label:', error);
+      const message = String(error?.message || 'Failed to print next blanket label.');
+      if (/already packed|no pending|no blanket|invalid/i.test(message)) {
+        return res.status(409).json({ error: message });
+      }
+      return res.status(500).json({ error: message });
+    }
+  });
+
+  app.post('/api/sorting/blanket/reprint-last', requireSorting, async (req: any, res) => {
+    try {
+      const orderNo = normalizeSortingOrderNo(req.body?.order_no ?? req.body?.orderNo ?? req.body?.scanned_code);
+      const confirm = req.body?.confirm === true;
+      if (!orderNo) return res.status(400).json({ error: 'Order number is required.' });
+      if (!confirm) return res.status(400).json({ error: 'Reprint confirmation is required.' });
+
+      await ensureSortingOrderInitialized({
+        order_no: orderNo,
+        allow_unsorted_fallback: false,
+      });
+
+      const meta = getLogMeta(req);
+      const result = await applyBlanketPackingReprintLast({
+        order_no: orderNo,
+        user: req.body?.user || req.auth?.username || 'system',
+        request_id: meta.request_id,
+        confirm,
+      });
+
+      return res.json({
+        success: true,
+        ...result,
+      });
+    } catch (error: any) {
+      console.error('Failed to reprint blanket label:', error);
+      const message = String(error?.message || 'Failed to reprint blanket label.');
+      if (/confirmation|required|no previous label|no blanket|invalid/i.test(message)) {
+        return res.status(409).json({ error: message });
+      }
+      return res.status(500).json({ error: message });
+    }
+  });
+
+  app.get('/api/sorting/blanket/history', requireSorting, (req, res) => {
+    try {
+      const orderNo = normalizeSortingOrderNo(req.query.order_no ?? req.query.orderNo ?? '');
+      const action = String(req.query.action ?? '').trim().toLowerCase();
+      const status = String(req.query.status ?? '').trim().toLowerCase();
+      const q = String(req.query.q ?? req.query.search ?? '').trim();
+      const limit = Math.max(1, Math.min(200, Number(req.query.limit ?? 40) || 40));
+      const page = Math.max(1, Number(req.query.page ?? 1) || 1);
+      const offset = (page - 1) * limit;
+
+      const result = searchBlanketPackingLogs({
+        order_no: orderNo || undefined,
+        action,
+        status,
+        q,
+        limit,
+        offset,
+      });
+
+      return res.json({
+        success: true,
+        entries: result.rows,
+        total: result.total,
+        page,
+        limit: result.limit,
+      });
+    } catch (error: any) {
+      console.error('Failed to load blanket packing history:', error);
+      return res.status(500).json({ error: error?.message || 'Failed to load blanket packing history.' });
     }
   });
 
@@ -8979,6 +14736,8 @@ async function startServer() {
     ['/management', '/smart-storage-hub/management'],
     ['/sorting', '/smart-storage-hub/sorting'],
     ['/achievements', '/smart-storage-hub/achievements'],
+    ['/training-academy', '/smart-storage-hub/training-academy'],
+    ['/training-academy/translations', '/smart-storage-hub/training-academy/translations'],
   ]);
   for (const [fromPath, toPath] of hubLegacyRouteRedirects.entries()) {
     app.get(fromPath, (_req, res) => {
@@ -8991,7 +14750,10 @@ async function startServer() {
 
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: process.env.DISABLE_HMR !== 'true',
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);

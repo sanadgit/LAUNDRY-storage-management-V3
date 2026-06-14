@@ -1,0 +1,253 @@
+{
+  "name": "POS Sales And Collections Incremental Sync",
+  "active": false,
+  "nodes": [
+    {
+      "id": "sales-manual-trigger",
+      "name": "Manual Test",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        80
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "sales-schedule-trigger",
+      "name": "Every 5 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -760,
+        -80
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "sales-pos-fetch",
+      "name": "POS - Fetch Latest Sales Orders",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -500,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const trim = (value, fallback = '') => String(value ?? fallback).trim();\nconst vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst POS_USERNAME = trim(vars.POS_USERNAME);\nconst POS_PASSWORD = trim(vars.POS_PASSWORD);\nconst CLIENT_IDENTIFIER = trim(vars.AIPSOFT_CLIENT_IDENTIFIER, 'inout') || 'inout';\nconst POS_BASE_URL = trim(vars.AIPSOFT_API_BASE_URL, 'https://beta.aipsoft.com/inout').replace(/\\/$/, '');\nconst POS_LOGIN_ENDPOINT = trim(vars.POS_LOGIN_ENDPOINT, POS_BASE_URL + '/login/check');\nconst POS_REFERER = trim(vars.POS_SALES_REFERER, POS_BASE_URL + '/transaction/sales_order');\nconst POS_ORIGIN = trim(vars.POS_ORIGIN, 'https://beta.aipsoft.com');\nif (!POS_USERNAME || !POS_PASSWORD) throw new Error('Missing POS_USERNAME or POS_PASSWORD n8n Variables.');\n\nconst encode = (data) => Object.entries(data || {})\n  .map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(String(value ?? '')))\n  .join('&');\nconst cookieMap = (header) => {\n  const map = new Map();\n  for (const part of String(header || '').split(';')) {\n    const item = part.trim();\n    const eq = item.indexOf('=');\n    if (eq > 0) map.set(item.slice(0, eq), item.slice(eq + 1));\n  }\n  return map;\n};\nconst normalizeHeaders = (headers = {}) => {\n  const out = {};\n  if (headers?.forEach) headers.forEach((value, key) => { out[String(key).toLowerCase()] = value; });\n  else for (const [key, value] of Object.entries(headers || {})) out[String(key).toLowerCase()] = value;\n  if (headers?.getSetCookie) out['set-cookie'] = headers.getSetCookie();\n  return out;\n};\nconst setCookies = (headers) => {\n  const raw = normalizeHeaders(headers)['set-cookie'];\n  if (!raw) return [];\n  if (Array.isArray(raw)) return raw;\n  return String(raw).split(/,(?=\\s*[^;,\\s]+=)/g);\n};\nconst mergeCookies = (base, incoming) => {\n  const map = cookieMap(base);\n  for (const value of incoming || []) {\n    const first = String(value).split(';')[0];\n    const eq = first.indexOf('=');\n    if (eq > 0) map.set(first.slice(0, eq).trim(), first.slice(eq + 1).trim());\n  }\n  return Array.from(map.entries()).map(([key, value]) => key + '=' + value).join('; ');\n};\nconst request = async (options) => {\n  const response = await this.helpers.httpRequest({\n    method: options.method || 'POST',\n    url: options.url,\n    headers: options.headers || {},\n    body: options.body,\n    json: false,\n    returnFullResponse: true,\n    resolveWithFullResponse: true,\n    simple: false,\n    timeout: 120000,\n  });\n  if (response && typeof response === 'object' && (response.headers || Object.prototype.hasOwnProperty.call(response, 'body'))) {\n    return {\n      statusCode: response.statusCode || response.status || 0,\n      headers: response.headers || {},\n      body: typeof response.body === 'string' ? response.body : JSON.stringify(response.body ?? ''),\n    };\n  }\n  return { statusCode: 0, headers: {}, body: typeof response === 'string' ? response : JSON.stringify(response ?? '') };\n};\nconst headers = (cookie, form = true) => {\n  const result = {\n    Accept: 'application/json, text/javascript, */*; q=0.01',\n    'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ar;q=0.7',\n    Origin: POS_ORIGIN,\n    Referer: POS_REFERER,\n    'X-Requested-With': 'XMLHttpRequest',\n    Cookie: cookie,\n  };\n  if (form) result['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';\n  return result;\n};\nlet cookie = 'language=english; direction=ltr; dont_show_today=true';\nconst preflight = await request.call(this, { method: 'GET', url: POS_REFERER, headers: headers(cookie, false) });\ncookie = mergeCookies(cookie, setCookies(preflight.headers));\nconst short = POS_USERNAME.includes('@') ? POS_USERNAME.split('@')[0].trim() : POS_USERNAME;\nconst usernames = Array.from(new Set([\n  POS_USERNAME,\n  POS_USERNAME.toLowerCase(),\n  short,\n  short.toLowerCase(),\n  short + '@' + CLIENT_IDENTIFIER,\n].filter(Boolean)));\nlet loggedIn = false;\nlet lastLogin = '';\nfor (const username of usernames) {\n  const login = await request.call(this, {\n    method: 'POST',\n    url: POS_LOGIN_ENDPOINT,\n    headers: headers(cookie),\n    body: encode({\n      username,\n      password: POS_PASSWORD,\n      client_identifier: CLIENT_IDENTIFIER,\n      auto_login: 'null',\n      connection_path: 'null',\n    }),\n  });\n  cookie = mergeCookies(cookie, setCookies(login.headers));\n  lastLogin = login.body;\n  if (/login_success|password_ok/i.test(lastLogin) && /ci_session_/i.test(cookie) && /\\binout=/i.test(cookie)) {\n    loggedIn = true;\n    break;\n  }\n}\nif (!loggedIn) throw new Error('POS login failed: ' + String(lastLogin).slice(0, 240));\n\nconst form = {\n  draw: '1',\n  'columns[0][data]': '0',\n  'columns[0][name]': '',\n  'columns[0][searchable]': 'false',\n  'columns[0][orderable]': 'false',\n  'columns[0][search][value]': '',\n  'columns[0][search][regex]': 'false',\n  'columns[1][data]': '1',\n  'columns[1][name]': '',\n  'columns[1][searchable]': 'false',\n  'columns[1][orderable]': 'false',\n  'columns[1][search][value]': '',\n  'columns[1][search][regex]': 'false',\n  'order[0][column]': '0',\n  'order[0][dir]': 'DESC',\n  start: '0',\n  length: trim(vars.POS_SALES_SYNC_PAGE_SIZE, '10'),\n  'search[value]': '',\n  'search[regex]': 'false',\n  branch_sort: trim(vars.POS_SALES_BRANCH_FILTER),\n  mode: 'SALES_ORDER',\n};\nconst sales = await request.call(this, {\n  method: 'POST',\n  url: POS_BASE_URL + '/transaction/loadLatestTransEntries',\n  headers: headers(cookie),\n  body: encode(form),\n});\nif (/login\\/check|name=[\"']password/i.test(sales.body)) throw new Error('Sales endpoint returned POS login page.');\nlet response;\ntry { response = JSON.parse(sales.body); }\ncatch { throw new Error('loadLatestTransEntries returned invalid JSON: ' + sales.body.slice(0, 300)); }\nreturn [{\n  json: {\n    fetched_at: new Date().toISOString(),\n    response,\n    pos_session: {\n      base_url: POS_BASE_URL,\n      origin: POS_ORIGIN,\n      referer: POS_REFERER,\n      cookie,\n    },\n  },\n}];"
+      }
+    },
+    {
+      "id": "sales-parse",
+      "name": "Sales - Parse Pending Transactions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const trim = (value) => String(value ?? '').trim();\nconst decode = (value) => trim(value)\n  .replace(/&nbsp;/gi, ' ')\n  .replace(/&amp;/gi, '&')\n  .replace(/&quot;/gi, '\"')\n  .replace(/&#039;/gi, \"'\")\n  .replace(/&lt;/gi, '<')\n  .replace(/&gt;/gi, '>');\nconst text = (html) => decode(String(html || '').replace(/<[^>]*>/g, ' ').replace(/\\s+/g, ' '));\nconst dateIso = (value) => {\n  const match = trim(value).match(/^(\\d{1,2})-([A-Za-z]{3})-(\\d{4})$/);\n  if (!match) return trim(value);\n  const months = { jan:'01', feb:'02', mar:'03', apr:'04', may:'05', jun:'06', jul:'07', aug:'08', sep:'09', oct:'10', nov:'11', dec:'12' };\n  const month = months[match[2].toLowerCase()];\n  return month ? match[3] + '-' + month + '-' + match[1].padStart(2, '0') : trim(value);\n};\nconst rows = [];\nfor (const row of $json.response?.data || []) {\n  const html = String(row?.[0] || '');\n  const id = trim(html.match(/data-id=[\"']([^\"']+)[\"']/i)?.[1]);\n  const account = text(html.match(/<h3[^>]*>([\\s\\S]*?)<\\/h[35]>/i)?.[1]);\n  const invoice = text(html.match(/<span[^>]*>([\\s\\S]*?)<\\/span>/i)?.[1]);\n  const date = text(html.match(/<p[^>]*class=[\"'][^\"']*left_table_date[^\"']*[\"'][^>]*>([\\s\\S]*?)<\\/p>/i)?.[1]);\n  if (id && invoice) rows.push({\n    transaction_id: id,\n    invoice_no: invoice,\n    transaction_date: dateIso(date),\n    account_name: account,\n  });\n}\nconst store = $getWorkflowStaticData('global');\nif (!store.salesSync || typeof store.salesSync !== 'object') store.salesSync = {};\nconst lastId = trim(store.salesSync.last_transaction_id);\nconst pendingRows = [];\nfor (const row of rows) {\n  if (lastId && row.transaction_id === lastId) break;\n  pendingRows.push(row);\n}\nreturn [{\n  json: {\n    fetched_at: $json.fetched_at,\n    pos_session: $json.pos_session,\n    records_filtered: Number($json.response?.recordsFiltered || 0),\n    fetched_count: rows.length,\n    pending_count: pendingRows.length,\n    previous_watermark: lastId,\n    candidate_watermark: rows[0]?.transaction_id || lastId,\n    candidate_invoice_no: rows[0]?.invoice_no || '',\n    transactions: rows,\n    pending_transactions: pendingRows,\n  },\n}];"
+      }
+    },
+    {
+      "id": "sales-details",
+      "name": "POS - Fetch Full Sale Details",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        20,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const trim = (value) => String(value ?? '').trim();\nconst session = $json.pos_session || {};\nif (!session.base_url || !session.cookie) throw new Error('POS session is missing before fetching sale details.');\nconst encode = (data) => Object.entries(data || {})\n  .map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(String(value ?? '')))\n  .join('&');\nconst headers = {\n  Accept: 'application/json, text/javascript, */*; q=0.01',\n  'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ar;q=0.7',\n  Origin: session.origin || 'https://beta.aipsoft.com',\n  Referer: session.referer || (session.base_url + '/transaction/sales_order'),\n  'X-Requested-With': 'XMLHttpRequest',\n  'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',\n  Cookie: session.cookie,\n};\nconst details = [];\nfor (const transaction of $json.pending_transactions || []) {\n  const response = await this.helpers.httpRequest({\n    method: 'POST',\n    url: session.base_url + '/transaction/fetch_purchase_details',\n    headers,\n    body: encode({\n      purchase_id: transaction.transaction_id,\n      purchase_id_counter: '',\n      counter_mode: '',\n      hold: '0',\n      type: '0',\n      mode: 'SALES_ORDER',\n    }),\n    json: false,\n    returnFullResponse: true,\n    resolveWithFullResponse: true,\n    simple: false,\n    timeout: 120000,\n  });\n  const body = response && typeof response === 'object' && Object.prototype.hasOwnProperty.call(response, 'body')\n    ? response.body\n    : response;\n  let parsed;\n  try { parsed = typeof body === 'string' ? JSON.parse(body) : body; }\n  catch { throw new Error('Sale ' + transaction.invoice_no + ' returned invalid JSON: ' + String(body).slice(0, 250)); }\n  const invoice = Array.isArray(parsed?.purchase_invoice) ? parsed.purchase_invoice[0] : null;\n  if (Number(parsed?.response_code) !== 200 || !invoice || trim(invoice.id) !== transaction.transaction_id) {\n    throw new Error('Could not fetch complete details for sale ' + transaction.invoice_no + ': ' + JSON.stringify(parsed).slice(0, 500));\n  }\n  details.push({ transaction, response: parsed });\n}\nreturn [{ json: { ...$json, sale_detail_responses: details } }];"
+      }
+    },
+    {
+      "id": "sales-journal",
+      "name": "POS - Fetch Sale Journal Entries",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const session = $json.pos_session || {};\nif (!session.base_url || !session.cookie) throw new Error('POS session is missing before fetching sale journal entries.');\nconst encode = (data) => Object.entries(data || {})\n  .map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(String(value ?? '')))\n  .join('&');\nconst headers = {\n  Accept: 'application/json, text/javascript, */*; q=0.01',\n  'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ar;q=0.7',\n  Origin: session.origin || 'https://beta.aipsoft.com',\n  Referer: session.base_url + '/transaction/sales_invoice',\n  'X-Requested-With': 'XMLHttpRequest',\n  'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',\n  Cookie: session.cookie,\n};\nconst enriched = [];\nfor (const entry of $json.sale_detail_responses || []) {\n  const salesId = String(entry.transaction?.transaction_id || entry.response?.purchase_id || '').trim();\n  let journalResponse = null;\n  let journalError = '';\n  try {\n    const response = await this.helpers.httpRequest({\n      method: 'POST',\n      url: session.base_url + '/transaction/journalSalesEntryData',\n      headers,\n      body: encode({ sales_id: salesId }),\n      json: false,\n      returnFullResponse: true,\n      resolveWithFullResponse: true,\n      simple: false,\n      timeout: 120000,\n    });\n    const body = response && typeof response === 'object' && Object.prototype.hasOwnProperty.call(response, 'body')\n      ? response.body\n      : response;\n    journalResponse = typeof body === 'string' ? JSON.parse(body) : body;\n    if (!Array.isArray(journalResponse?.data)) {\n      journalError = 'journalSalesEntryData did not return a data array.';\n      journalResponse = null;\n    }\n  } catch (error) {\n    journalError = String(error?.message || error);\n  }\n  enriched.push({ ...entry, journal_response: journalResponse, journal_error: journalError });\n}\nreturn [{ json: { ...$json, sale_detail_responses: enriched } }];"
+      }
+    },
+    {
+      "id": "sales-normalize",
+      "name": "Sales - Normalize And Validate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        540,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const trim = (value, fallback = '') => String(value ?? fallback).trim();\nconst vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst num = (value, fallback = 0) => {\n  const parsed = Number(String(value ?? '').replace(/,/g, ''));\n  return Number.isFinite(parsed) ? parsed : fallback;\n};\nconst round = (value) => Math.round((num(value) + Number.EPSILON) * 100) / 100;\nconst residualTolerance = Math.max(num(vars.POS_PAYMENT_RESIDUAL_TOLERANCE, 0.5), 0);\nconst paymentAmount = (payment) => {\n  for (const key of ['amount','paid_amount','payment_amount','receipt_amount','tender_amount','received_amount']) {\n    if (payment?.[key] !== undefined && payment?.[key] !== null && payment?.[key] !== '') return num(payment[key]);\n  }\n  return 0;\n};\nconst paymentName = (payment) => trim(\n  payment?.payment_method_name\n  || payment?.payment_method\n  || payment?.payment_type\n  || payment?.account_name\n  || payment?.card_name\n  || payment?.type,\n  'Unknown',\n);\nconst classifyAccount = (account, narration) => {\n  const value = (trim(account) + ' ' + trim(narration)).toLowerCase();\n  if (/cash account|pay cash|paid with cash/.test(value)) return 'cash';\n  if (/credit card|debit card|visa|mastercard|master card|card account/.test(value)) return 'card';\n  if (/bank|adib|transfer|cheque|check/.test(value)) return 'bank';\n  if (/wallet|online|tabby|tamara/.test(value)) return 'other';\n  return '';\n};\nconst normalized = [];\nfor (const entry of $json.sale_detail_responses || []) {\n  const raw = entry.response?.purchase_invoice?.[0] || {};\n  const rawItems = Array.isArray(raw.purchase_details) ? raw.purchase_details : [];\n  const items = rawItems.map((item) => {\n    const quantity = num(item.qty);\n    const gross = num(item.sub_total, quantity * num(item.unit_price));\n    const tax = num(item.tax_amount);\n    return {\n      detail_id: trim(item.id),\n      product_id: trim(item.product_id),\n      product_name: trim(item.product_name1_long || item.product_name),\n      barcode: trim(item.barcode),\n      unit_id: trim(item.unit_id),\n      unit_name: trim(item.unitname),\n      quantity,\n      unit_price: round(item.unit_price),\n      gross_amount: round(gross),\n      discount_amount: round(item.discount || item.p_discount),\n      tax_amount: round(tax),\n      net_amount: round(gross + tax),\n      status: trim(item.status),\n      delivery_status: trim(item.delivery_status),\n    };\n  });\n  const itemQuantity = round(items.reduce((sum, item) => sum + item.quantity, 0));\n  const itemGross = round(items.reduce((sum, item) => sum + item.gross_amount, 0));\n  const itemTax = round(items.reduce((sum, item) => sum + item.tax_amount, 0));\n  const headerGross = round(raw.total_amount);\n  const gross = headerGross || itemGross;\n  const discount = round(raw.discount);\n  const adjustment = round(raw.adjustment);\n  const roundOff = round(raw.round_off);\n  const headerTax = round(raw.tax_amount);\n  const tax = headerTax || itemTax;\n  const invoiceTotal = round(gross - discount + tax + adjustment + roundOff);\n  const payments = (Array.isArray(raw.payment_details) ? raw.payment_details : []).map((payment, index) => ({\n    payment_id: trim(payment.id, String(index + 1)),\n    method_id: trim(payment.payment_method_id || payment.method_id || payment.account_id),\n    method_name: paymentName(payment),\n    amount: round(paymentAmount(payment)),\n    reference_no: trim(payment.reference_no || payment.transaction_no || payment.card_no),\n    raw: payment,\n  }));\n  const paymentTotal = round(payments.reduce((sum, payment) => sum + payment.amount, 0));\n  const received = round(raw.received_amount);\n  const tenderCash = round(raw.tender_cash);\n  const paidFromBalance = Math.max(round(invoiceTotal - num(raw.balance)), 0);\n  const paymentCollection = { cash: 0, card: 0, bank: 0, other: 0, unknown: 0 };\n  for (const payment of payments) {\n    const method = payment.method_name.toLowerCase();\n    if (/cash/.test(method)) paymentCollection.cash += payment.amount;\n    else if (/card|visa|master|credit card|debit card/.test(method)) paymentCollection.card += payment.amount;\n    else if (/bank|transfer|adib|cheque|check/.test(method)) paymentCollection.bank += payment.amount;\n    else paymentCollection.other += payment.amount;\n  }\n  if (!payments.length && tenderCash > 0) paymentCollection.cash = tenderCash;\n\n  const journalEntries = (Array.isArray(entry.journal_response?.data) ? entry.journal_response.data : []).map((row) => ({\n    branch_id: trim(row.branch_id),\n    branch_name: trim(row.branch_code),\n    account_name: trim(row.acc_name1),\n    narration: trim(row.narration),\n    debit: round(row.db_amount),\n    credit: round(row.cr_amount),\n  }));\n  const journalDebit = round(journalEntries.reduce((sum, row) => sum + row.debit, 0));\n  const journalCredit = round(journalEntries.reduce((sum, row) => sum + row.credit, 0));\n  const journalSales = round(journalEntries\n    .filter((row) => /sales account/i.test(row.account_name) && row.credit > 0)\n    .reduce((sum, row) => sum + row.credit, 0));\n  const journalVat = round(journalEntries\n    .filter((row) => /vat on sales/i.test(row.account_name) && row.credit > 0)\n    .reduce((sum, row) => sum + row.credit, 0));\n  const journalCollection = { cash: 0, card: 0, bank: 0, other: 0, unknown: 0 };\n  for (const row of journalEntries) {\n    if (row.debit <= 0) continue;\n    const type = classifyAccount(row.account_name, row.narration);\n    if (type) journalCollection[type] += row.debit;\n  }\n  const journalCollected = round(\n    journalCollection.cash\n    + journalCollection.card\n    + journalCollection.bank\n    + journalCollection.other,\n  );\n  const paymentCollected = round(\n    paymentCollection.cash\n    + paymentCollection.card\n    + paymentCollection.bank\n    + paymentCollection.other,\n  );\n  const collection = journalCollected > 0 ? journalCollection : paymentCollection;\n  const paidAmount = round(Math.max(paymentTotal, received, tenderCash, paidFromBalance, journalCollected));\n  const balance = round(num(raw.balance, Math.max(invoiceTotal - paidAmount, 0)));\n  const categorized = round(collection.cash + collection.card + collection.bank + collection.other);\n  collection.unknown = Math.max(round(paidAmount - categorized), 0);\n  for (const key of Object.keys(collection)) collection[key] = round(collection[key]);\n  const hasCompletedCollection = categorized > 0 || paidAmount > 0 || journalCollected > 0;\n  const logTexts = [];\n  const collectLogTexts = (value) => {\n    if (Array.isArray(value)) {\n      value.forEach(collectLogTexts);\n      return;\n    }\n    if (typeof value === 'string') logTexts.push(value);\n  };\n  collectLogTexts(entry.response?.logs);\n  const loggedGrandTotals = [];\n  for (const text of logTexts) {\n    for (const match of text.matchAll(/grand_total\\s*:\\s*([0-9.,]+)/gi)) {\n      loggedGrandTotals.push(round(match[1]));\n    }\n  }\n  const matchedPaidTotal = loggedGrandTotals.find((loggedTotal) => (\n    Math.abs(loggedTotal - paidAmount) <= 0.01\n    && invoiceTotal - loggedTotal > 0.01\n    && invoiceTotal - loggedTotal <= residualTolerance\n  ));\n  const hasResidualEvidence = matchedPaidTotal !== undefined;\n  const posResidual = (\n    hasCompletedCollection\n    && balance > 0\n    && balance <= residualTolerance\n    && hasResidualEvidence\n  ) ? balance : 0;\n  const posOpenBalance = round(Math.max(balance - posResidual, 0));\n  const requiresBranchConfirmation = (\n    posOpenBalance > 0\n    && trim(raw.order_status) === '3'\n    && (\n      collection.cash > 0\n      || !trim(raw.customer_name)\n      || /\\bcash\\b/i.test(trim(raw.customer_trn))\n    )\n  );\n  const branchReviewBalance = requiresBranchConfirmation ? posOpenBalance : 0;\n  const collectibleBalance = requiresBranchConfirmation ? 0 : posOpenBalance;\n  const paymentStatus = requiresBranchConfirmation\n    ? 'branch_confirmation_required'\n    : collectibleBalance <= 0.01 && hasCompletedCollection\n      ? (posResidual > 0 ? 'paid_with_pos_residual' : 'paid')\n      : (paidAmount > 0 ? 'partial' : 'unpaid');\n  const alerts = [];\n  if (Math.abs(itemGross - gross) > 0.01) alerts.push('Header gross differs from item gross by AED ' + round(gross - itemGross).toFixed(2));\n  if (Math.abs(itemTax - tax) > 0.01) alerts.push('Header VAT differs from item VAT by AED ' + round(tax - itemTax).toFixed(2));\n  if (\n    raw.total_quantity !== undefined\n    && raw.total_quantity !== null\n    && raw.total_quantity !== ''\n    && Math.abs(itemQuantity - num(raw.total_quantity)) > 0.001\n  ) {\n    alerts.push('Header quantity differs from item quantity.');\n  }\n  if (Math.abs((paidAmount + balance) - invoiceTotal) > 0.01) alerts.push('Paid plus balance does not equal invoice total.');\n  if (journalEntries.length && Math.abs(journalDebit - journalCredit) > 0.01) {\n    alerts.push('Journal entry is not balanced. Debit AED ' + journalDebit.toFixed(2) + ', Credit AED ' + journalCredit.toFixed(2));\n  }\n  if (journalSales > 0 && Math.abs(journalSales - gross) > 0.01) {\n    alerts.push('Journal Sales Account differs from invoice gross by AED ' + round(journalSales - gross).toFixed(2));\n  }\n  if (journalVat > 0 && Math.abs(journalVat - tax) > 0.01) {\n    alerts.push('Journal VAT differs from invoice VAT by AED ' + round(journalVat - tax).toFixed(2));\n  }\n  if (journalCollected > 0 && journalCollected < invoiceTotal - 0.01 && balance <= 0.01) {\n    alerts.push('Collection is short by AED ' + round(invoiceTotal - journalCollected).toFixed(2) + ' but POS balance is zero.');\n  }\n  if (posResidual > 0) {\n    alerts.push(\n      'Known POS payment residual: AED ' + posResidual.toFixed(2)\n      + '. Payment matched previous logged total AED ' + num(matchedPaidTotal).toFixed(2)\n      + '; excluded from collectible receivables.',\n    );\n  } else if (hasCompletedCollection && balance > 0 && balance <= residualTolerance) {\n    alerts.push(\n      'Small unpaid balance AED ' + balance.toFixed(2)\n      + ' has no POS recalculation evidence; it is not a POS residual.',\n    );\n  }\n  if (requiresBranchConfirmation) {\n    alerts.push(\n      'Delivered cash/anonymous sale has open balance AED ' + branchReviewBalance.toFixed(2)\n      + '; excluded from confirmed receivables pending branch confirmation.',\n    );\n  }\n  if (entry.journal_error) alerts.push('Sale journal was unavailable: ' + entry.journal_error);\n  if (paidAmount > 0 && categorized <= 0) alerts.push('Payment exists but its method could not be classified.');\n  normalized.push({\n    transaction_id: trim(raw.id || entry.transaction?.transaction_id),\n    invoice_no: trim(raw.order_no || entry.transaction?.invoice_no),\n    invoice_date: trim(raw.billing_date || raw.order_date || entry.transaction?.transaction_date),\n    invoice_time: trim(raw.billing_time || raw.order_time),\n    branch_id: trim(raw.branch_id),\n    branch_name: trim(raw.city),\n    customer_id: trim(raw.customer_id),\n    customer_type_id: trim(raw.customer_type_id),\n    customer_account_id: trim(raw.account_id),\n    customer_name: trim(raw.customer_name),\n    customer_mobile: trim(raw.customer_mobile),\n    customer_trn: trim(raw.customer_trn),\n    currency: trim(raw.currency_short, 'AED'),\n    gross_amount: gross,\n    discount_amount: discount,\n    tax_amount: tax,\n    adjustment_amount: adjustment,\n    round_off: roundOff,\n    invoice_total: invoiceTotal,\n    paid_amount: paidAmount,\n    balance_amount: balance,\n    pos_open_balance_amount: posOpenBalance,\n    collectible_balance_amount: collectibleBalance,\n    branch_review_balance_amount: branchReviewBalance,\n    pos_residual_amount: posResidual,\n    pos_residual_evidence: hasResidualEvidence ? {\n      type: 'payment_matched_previous_logged_total',\n      previous_logged_total: round(matchedPaidTotal),\n      current_invoice_total: invoiceTotal,\n    } : null,\n    payment_status: paymentStatus,\n    receivable_review_status: requiresBranchConfirmation ? 'branch_confirmation_required' : 'not_required',\n    raw_paid_status: trim(raw.paid_status),\n    order_status: trim(raw.order_status),\n    total_quantity: itemQuantity,\n    total_profit: round(raw.total_profit),\n    salesman_id: trim(raw.salesman_id),\n    driver_id: trim(raw.driver_id),\n    created_at: trim(raw.created_datetime),\n    modified_at: trim(raw.last_modified),\n    items,\n    payments,\n    journal_entries: journalEntries,\n    journal_debit: journalDebit,\n    journal_credit: journalCredit,\n    journal_sales: journalSales,\n    journal_vat: journalVat,\n    journal_collected: journalCollected,\n    journal_balanced: !journalEntries.length || Math.abs(journalDebit - journalCredit) <= 0.01,\n    collection,\n    alerts,\n  });\n}\nconst summary = {\n  invoice_count: normalized.length,\n  gross_sales: round(normalized.reduce((sum, sale) => sum + sale.gross_amount, 0)),\n  discounts: round(normalized.reduce((sum, sale) => sum + sale.discount_amount, 0)),\n  vat: round(normalized.reduce((sum, sale) => sum + sale.tax_amount, 0)),\n  net_sales: round(normalized.reduce((sum, sale) => sum + sale.gross_amount - sale.discount_amount + sale.adjustment_amount + sale.round_off, 0)),\n  invoice_total: round(normalized.reduce((sum, sale) => sum + sale.invoice_total, 0)),\n  collected: round(normalized.reduce((sum, sale) => sum + sale.paid_amount, 0)),\n  outstanding: round(normalized.reduce((sum, sale) => sum + sale.collectible_balance_amount, 0)),\n  pending_branch_review: round(normalized.reduce((sum, sale) => sum + sale.branch_review_balance_amount, 0)),\n  pos_residuals: round(normalized.reduce((sum, sale) => sum + sale.pos_residual_amount, 0)),\n  cash_collected: round(normalized.reduce((sum, sale) => sum + sale.collection.cash, 0)),\n  card_collected: round(normalized.reduce((sum, sale) => sum + sale.collection.card, 0)),\n  bank_collected: round(normalized.reduce((sum, sale) => sum + sale.collection.bank, 0)),\n  other_collected: round(normalized.reduce((sum, sale) => sum + sale.collection.other, 0)),\n  unknown_collected: round(normalized.reduce((sum, sale) => sum + sale.collection.unknown, 0)),\n  quantity: round(normalized.reduce((sum, sale) => sum + sale.total_quantity, 0)),\n  alert_count: normalized.reduce((sum, sale) => sum + sale.alerts.length, 0),\n};\nsummary.average_invoice = summary.invoice_count ? round(summary.invoice_total / summary.invoice_count) : 0;\nsummary.collection_rate = summary.invoice_total ? round((summary.collected / summary.invoice_total) * 100) : 0;\n\nconst store = $getWorkflowStaticData('global');\nif (!store.salesSync || typeof store.salesSync !== 'object') store.salesSync = {};\nif (!store.salesSync.sales || typeof store.salesSync.sales !== 'object') store.salesSync.sales = {};\nfor (const sale of normalized) {\n  store.salesSync.sales[sale.transaction_id] = {\n    transaction_id: sale.transaction_id,\n    invoice_no: sale.invoice_no,\n    invoice_date: sale.invoice_date,\n    branch_id: sale.branch_id,\n    branch_name: sale.branch_name,\n    customer_id: sale.customer_id,\n    customer_type_id: sale.customer_type_id,\n    customer_account_id: sale.customer_account_id,\n    customer_name: sale.customer_name,\n    gross_amount: sale.gross_amount,\n    tax_amount: sale.tax_amount,\n    invoice_total: sale.invoice_total,\n    paid_amount: sale.paid_amount,\n    balance_amount: sale.balance_amount,\n    pos_open_balance_amount: sale.pos_open_balance_amount,\n    collectible_balance_amount: sale.collectible_balance_amount,\n    branch_review_balance_amount: sale.branch_review_balance_amount,\n    pos_residual_amount: sale.pos_residual_amount,\n    payment_status: sale.payment_status,\n    receivable_review_status: sale.receivable_review_status,\n    synced_at: new Date().toISOString(),\n  };\n}\nconst ids = Object.keys(store.salesSync.sales);\nif (ids.length > 1000) {\n  ids.slice(0, ids.length - 1000).forEach((id) => { delete store.salesSync.sales[id]; });\n}\nif (($json.pending_transactions || []).length) {\n  store.salesSync.last_transaction_id = $json.candidate_watermark;\n  store.salesSync.last_invoice_no = $json.candidate_invoice_no;\n  store.salesSync.last_success_at = new Date().toISOString();\n}\nreturn [{\n  json: {\n    fetched_at: $json.fetched_at,\n    records_filtered: $json.records_filtered,\n    fetched_count: $json.fetched_count,\n    new_count: normalized.length,\n    previous_watermark: $json.previous_watermark,\n    current_watermark: store.salesSync.last_transaction_id || $json.previous_watermark,\n    sales: normalized,\n    summary,\n  },\n}];"
+      }
+    },
+    {
+      "id": "sales-report",
+      "name": "Sales - Build Financial Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const rows = $json.sales || [];\nconst summary = $json.summary || {};\nconst money = (value) => Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });\nconst lines = [\n  'تقرير مزامنة المبيعات والتحصيل',\n  'وقت الفحص: ' + new Date($json.fetched_at).toLocaleString('en-GB', { timeZone: 'Asia/Dubai' }),\n  'السجلات المقروءة: ' + $json.fetched_count,\n  'العمليات الجديدة: ' + $json.new_count,\n  'إجمالي السجلات حسب POS: ' + $json.records_filtered,\n];\nif (rows.length) {\n  lines.push(\n    '',\n    'Gross Sales: AED ' + money(summary.gross_sales),\n    'Discounts: AED ' + money(summary.discounts),\n    'Sales Before VAT: AED ' + money(summary.net_sales),\n    'VAT: AED ' + money(summary.vat),\n    'Invoice Total: AED ' + money(summary.invoice_total),\n    'Collected: AED ' + money(summary.collected),\n    'Cash: AED ' + money(summary.cash_collected),\n    'Card: AED ' + money(summary.card_collected),\n    'Bank: AED ' + money(summary.bank_collected),\n    'Unclassified Collection: AED ' + money(summary.unknown_collected),\n    'Outstanding: AED ' + money(summary.outstanding),\n    'Pending Branch Review: AED ' + money(summary.pending_branch_review),\n    'POS Payment Residuals: AED ' + money(summary.pos_residuals),\n    'Collection Rate: ' + Number(summary.collection_rate || 0).toFixed(2) + '%',\n    'Average Invoice: AED ' + money(summary.average_invoice),\n    'Items Quantity: ' + Number(summary.quantity || 0),\n    '',\n    'أحدث الفواتير:',\n  );\n  for (const row of rows.slice(0, 10)) {\n    lines.push(\n      '- ' + row.invoice_no\n      + ' | ' + row.customer_name\n      + ' | AED ' + money(row.invoice_total)\n      + ' | ' + (\n        row.payment_status === 'paid'\n          ? 'مدفوعة'\n          : row.payment_status === 'paid_with_pos_residual'\n            ? 'مدفوعة مع فرق POS'\n            : row.payment_status === 'branch_confirmation_required'\n              ? 'بانتظار تأكيد الفرع'\n            : row.payment_status === 'partial'\n              ? 'جزئية'\n              : 'غير مدفوعة'\n      ),\n    );\n    if (row.alerts?.length) lines.push('  تنبيه: ' + row.alerts.join(' | '));\n  }\n} else {\n  lines.push('', 'لا توجد Sales Orders جديدة منذ آخر مزامنة.');\n}\nreturn [{ json: { ...$json, chat_id: String($vars.TELEGRAM_ALLOWED_CHAT_ID || ''), telegram_text: lines.join('\\n') } }];"
+      }
+    },
+    {
+      "id": "sales-telegram",
+      "name": "Telegram - Send Sales Financial Report",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1060,
+        0
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.chat_id}}",
+        "text": "={{$json.telegram_text}}",
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "sales-note",
+      "name": "Sales Sync Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -780,
+        -420
+      ],
+      "parameters": {
+        "content": "## POS Sales And Collections Sync\n\nRead-only workflow. It does not create, edit, or delete POS sales.\n\nRequired n8n Variables:\n- POS_USERNAME\n- POS_PASSWORD\n- TELEGRAM_ALLOWED_CHAT_ID\n\nOptional:\n- AIPSOFT_API_BASE_URL\n- AIPSOFT_CLIENT_IDENTIFIER\n- POS_LOGIN_ENDPOINT\n- POS_SALES_REFERER\n- POS_ORIGIN\n- POS_SALES_SYNC_PAGE_SIZE\n- POS_SALES_BRANCH_FILTER\n- POS_PAYMENT_RESIDUAL_TOLERANCE (default 0.50 AED)\n\nSelect the Telegram Credential before activation."
+      }
+    }
+  ],
+  "connections": {
+    "Manual Test": {
+      "main": [
+        [
+          {
+            "node": "POS - Fetch Latest Sales Orders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 5 Minutes": {
+      "main": [
+        [
+          {
+            "node": "POS - Fetch Latest Sales Orders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POS - Fetch Latest Sales Orders": {
+      "main": [
+        [
+          {
+            "node": "Sales - Parse Pending Transactions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sales - Parse Pending Transactions": {
+      "main": [
+        [
+          {
+            "node": "POS - Fetch Full Sale Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POS - Fetch Full Sale Details": {
+      "main": [
+        [
+          {
+            "node": "POS - Fetch Sale Journal Entries",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POS - Fetch Sale Journal Entries": {
+      "main": [
+        [
+          {
+            "node": "Sales - Normalize And Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sales - Normalize And Validate": {
+      "main": [
+        [
+          {
+            "node": "Sales - Build Financial Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sales - Build Financial Report": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Send Sales Financial Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Dubai"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

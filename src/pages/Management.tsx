@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import axios from 'axios';
 import { useStore, Blanket, Store } from '../store/useStore';
-import { Plus, Edit2, Trash2, Search, X, Check, ChevronLeft, ChevronRight, LayoutGrid, Zap, AlertCircle, Package, Settings, History, Download, Filter, RefreshCcw, Printer, Users } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, X, Check, ChevronLeft, ChevronRight, LayoutGrid, Zap, AlertCircle, Package, Settings, History, Download, Filter, RefreshCcw, Printer, Users, Database as DatabaseIcon } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -27,8 +28,10 @@ export default function Management() {
   const { 
     blankets, 
     logs,
+    branches,
     stores, 
     fetchLogs,
+    fetchBranches,
     fetchStores,
     fetchBlankets,
     addBlanket, 
@@ -49,7 +52,7 @@ export default function Management() {
   const canOpenUsersTab = canManageUsers(role);
   const canOpenBackupTab = canUseBackupTools(role);
   
-  const [activeTab, setActiveTab] = useState<'orders' | 'stores' | 'users' | 'activity' | 'backup' | 'labels'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'stores' | 'users' | 'backup' | 'database' | 'labels'>('orders');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isStoreModalOpen, setIsStoreModalOpen] = useState(false);
@@ -77,6 +80,17 @@ export default function Management() {
   const [restoreTarget, setRestoreTarget] = useState<'sqlite' | 'supabase'>('sqlite');
   const [restoreConfirm, setRestoreConfirm] = useState('');
   const [backupLogsLimit, setBackupLogsLimit] = useState(20000);
+  const [dbStatusBusy, setDbStatusBusy] = useState(false);
+  const [dbStatusError, setDbStatusError] = useState<string | null>(null);
+  const [dbStatus, setDbStatus] = useState<any | null>(null);
+  const [dbPreviewBusy, setDbPreviewBusy] = useState(false);
+  const [dbPreviewError, setDbPreviewError] = useState<string | null>(null);
+  const [dbPreviewRows, setDbPreviewRows] = useState<any[]>([]);
+  const [dbPreviewTotal, setDbPreviewTotal] = useState(0);
+  const [dbPreviewTable, setDbPreviewTable] = useState<'stores' | 'blankets' | 'logs'>('stores');
+  const [dbPreviewQuery, setDbPreviewQuery] = useState('');
+  const [dbPreviewOffset, setDbPreviewOffset] = useState(0);
+  const [dbPreviewLimit, setDbPreviewLimit] = useState(50);
 
   // Labels / Stickers
   const [labelText, setLabelText] = useState('');
@@ -173,6 +187,7 @@ export default function Management() {
     store_name: '',
     rows: 10,
     columns: 10,
+    branch_id: 1,
     store_type: 'grid' as 'grid' | 'hanger',
     hanger_slots: 10,
     slot_capacity: 1,
@@ -221,11 +236,6 @@ export default function Management() {
   }, [storeFormData.store_name, storeFormData.store_type, storeFormData.slot_capacity, editingStore]);
 
   useEffect(() => {
-    if (activeTab !== 'activity') return;
-    fetchLogs(activityLimit);
-  }, [activeTab, activityLimit]);
-
-  useEffect(() => {
     const params = new URLSearchParams(location.search);
     if (params.get('quickadd') === '1' && canEditOps) {
       setIsQuickAddOpen(true);
@@ -233,11 +243,19 @@ export default function Management() {
   }, [location.search, canEditOps]);
 
   useEffect(() => {
+    void fetchBranches();
+  }, [fetchBranches]);
+
+  useEffect(() => {
     if (activeTab === 'users' && !canOpenUsersTab) {
       setActiveTab('orders');
       return;
     }
     if (activeTab === 'backup' && !canOpenBackupTab) {
+      setActiveTab('orders');
+      return;
+    }
+    if (activeTab === 'database' && !canOpenBackupTab) {
       setActiveTab('orders');
     }
   }, [activeTab, canOpenUsersTab, canOpenBackupTab]);
@@ -372,6 +390,60 @@ export default function Management() {
       setRestoreBusy(false);
     }
   };
+
+  const loadDbStatus = async () => {
+    setDbStatusBusy(true);
+    setDbStatusError(null);
+    try {
+      const res = await axios.get('/api/db/status');
+      setDbStatus(res.data ?? null);
+    } catch (error: any) {
+      setDbStatusError(error?.response?.data?.error || error?.message || 'Failed to load database status.');
+    } finally {
+      setDbStatusBusy(false);
+    }
+  };
+
+  const loadDbPreview = async (options?: { offset?: number; query?: string; table?: 'stores' | 'blankets' | 'logs' }) => {
+    const nextOffset = Math.max(0, options?.offset ?? dbPreviewOffset);
+    const nextQuery = options?.query ?? dbPreviewQuery;
+    const nextTable = options?.table ?? dbPreviewTable;
+    setDbPreviewBusy(true);
+    setDbPreviewError(null);
+    try {
+      const params = new URLSearchParams({
+        table: nextTable,
+        limit: String(Math.max(1, Math.min(200, dbPreviewLimit))),
+        offset: String(nextOffset),
+      });
+      if (nextQuery.trim()) params.set('q', nextQuery.trim());
+
+      const res = await axios.get(`/api/db/table-preview?${params.toString()}`);
+      const data = res.data ?? {};
+      setDbPreviewRows(Array.isArray(data?.rows) ? data.rows : []);
+      setDbPreviewTotal(Number(data?.total ?? 0) || 0);
+      setDbPreviewOffset(nextOffset);
+    } catch (error: any) {
+      setDbPreviewError(error?.response?.data?.error || error?.message || 'Failed to load table preview.');
+    } finally {
+      setDbPreviewBusy(false);
+    }
+  };
+
+  const dbPreviewColumns = useMemo(() => {
+    if (!Array.isArray(dbPreviewRows) || dbPreviewRows.length === 0) return [] as string[];
+    const keys = new Set<string>();
+    for (const row of dbPreviewRows.slice(0, 40)) {
+      for (const key of Object.keys(row || {})) keys.add(key);
+    }
+    return Array.from(keys);
+  }, [dbPreviewRows]);
+
+  useEffect(() => {
+    if (activeTab !== 'database' || !canOpenBackupTab) return;
+    void loadDbStatus();
+    void loadDbPreview({ offset: 0, table: dbPreviewTable });
+  }, [activeTab, canOpenBackupTab, dbPreviewTable]);
 
   const currentStore = useMemo(() => 
     stores.find(s => s.store_name === quickAddStore)
@@ -605,6 +677,7 @@ export default function Management() {
       : '#3b82f6';
     const storeData = {
       store_name: storeFormData.store_name,
+      branch_id: storeFormData.branch_id,
       rows: storeFormData.store_type === 'hanger' ? 1 : storeFormData.rows,
       columns: storeFormData.store_type === 'hanger' ? storeFormData.hanger_slots : storeFormData.columns,
       store_type: storeFormData.store_type,
@@ -712,6 +785,7 @@ export default function Management() {
       setEditingStore(store);
       setStoreFormData({
         store_name: store.store_name,
+        branch_id: Number((store as any).branch_id ?? 1) || 1,
         rows: store.store_type === 'hanger' ? 1 : store.rows,
         columns: store.store_type === 'hanger' ? store.hanger_slots : store.columns,
         store_type: store.store_type || 'grid',
@@ -738,6 +812,7 @@ export default function Management() {
       setEditingStore(null);
       setStoreFormData({
         store_name: '',
+        branch_id: branches[0]?.id ?? 1,
         rows: 10,
         columns: 10,
         store_type: type,
@@ -944,16 +1019,6 @@ export default function Management() {
               Users
             </button>
           )}
-          <button 
-            onClick={() => setActiveTab('activity')}
-            className={cn(
-              "px-5 sm:px-8 min-h-11 py-2 rounded-xl font-bold transition-all flex items-center gap-2 whitespace-nowrap text-sm",
-              activeTab === 'activity' ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
-            )}
-          >
-            <Filter size={16} />
-            Activity
-          </button>
           {canOpenBackupTab && (
             <button
               onClick={() => setActiveTab('backup')}
@@ -964,6 +1029,18 @@ export default function Management() {
             >
               <Download size={16} />
               Backup
+            </button>
+          )}
+          {canOpenBackupTab && (
+            <button
+              onClick={() => setActiveTab('database')}
+              className={cn(
+                "px-5 sm:px-8 min-h-11 py-2 rounded-xl font-bold transition-all flex items-center gap-2 whitespace-nowrap text-sm",
+                activeTab === 'database' ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              )}
+            >
+              <DatabaseIcon size={16} />
+              Database
             </button>
           )}
           <button
@@ -1256,6 +1333,12 @@ export default function Management() {
                     {store.store_type === 'hanger' ? 'Hanger' : 'Grid'}
                   </span>
                 </div>
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-slate-500 font-bold uppercase tracking-widest">Branch</span>
+                  <span className="text-slate-900 font-black text-right">
+                    {branches.find((branch) => branch.id === Number((store as any).branch_id ?? 1))?.name || 'فرع الفلاح'}
+                  </span>
+                </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-slate-500 font-bold uppercase tracking-widest">Configuration</span>
                   <span className="text-slate-900 font-black">
@@ -1279,10 +1362,27 @@ export default function Management() {
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-slate-500 font-bold uppercase tracking-widest">Auto-settle</span>
                   <button
-                    onClick={() => updateStore(store.store_name, { auto_settle: store.auto_settle !== false ? false : true })}
+                    onClick={() => void updateStore(store.store_name, { auto_settle: store.auto_settle !== false ? false : true })}
+                    disabled={!canEditOps}
                     className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest transition ${store.auto_settle !== false ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-700 border border-slate-200'}`}
                   >
                     {store.auto_settle !== false ? 'Enabled' : 'Disabled'}
+                  </button>
+                </div>
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-slate-500 font-bold uppercase tracking-widest">Pick Scan</span>
+                  <button
+                    onClick={() => void updateStore(store.store_name, { require_pick_scan: !store.require_pick_scan })}
+                    disabled={!canEditOps}
+                    className={cn(
+                      'px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest transition border disabled:opacity-50',
+                      store.require_pick_scan
+                        ? 'bg-amber-100 text-amber-700 border-amber-200'
+                        : 'bg-slate-100 text-slate-700 border-slate-200'
+                    )}
+                    title="Require scanning the same order barcode before Mark as Picked"
+                  >
+                    {store.require_pick_scan ? 'Scan Required' : 'No Scan'}
                   </button>
                 </div>
               </div>
@@ -1456,6 +1556,180 @@ export default function Management() {
               <RefreshCcw size={18} />
               {restoreBusy ? 'Restoring…' : 'Restore now'}
             </button>
+          </div>
+        </div>
+      ) : activeTab === 'database' && canOpenBackupTab ? (
+        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 sm:p-8 space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-bold flex items-center gap-3">
+                <DatabaseIcon className="text-indigo-500" />
+                Database Admin
+              </h2>
+              <p className="text-sm text-slate-500 mt-2">
+                Monitor database provider and preview core tables without leaving the app.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                void loadDbStatus();
+                void loadDbPreview({ offset: 0 });
+              }}
+              className="px-4 py-2.5 rounded-2xl font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-all flex items-center gap-2"
+            >
+              <RefreshCcw size={16} />
+              Refresh
+            </button>
+          </div>
+
+          {dbStatusError && (
+            <div className="rounded-3xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm font-bold text-rose-700">
+              {dbStatusError}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-xs font-black uppercase tracking-widest text-slate-500">Active Provider</div>
+              <div className="mt-2 text-xl font-black text-slate-900">{dbStatus?.active_provider ?? '-'}</div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-xs font-black uppercase tracking-widest text-slate-500">Stores</div>
+              <div className="mt-2 text-xl font-black text-slate-900">{dbStatus?.counts?.stores ?? '-'}</div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-xs font-black uppercase tracking-widest text-slate-500">Blankets</div>
+              <div className="mt-2 text-xl font-black text-slate-900">{dbStatus?.counts?.blankets ?? '-'}</div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-xs font-black uppercase tracking-widest text-slate-500">Logs</div>
+              <div className="mt-2 text-xl font-black text-slate-900">{dbStatus?.counts?.logs ?? '-'}</div>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+              <div>
+                <label className="text-xs font-black uppercase tracking-[0.25em] text-slate-500 mb-2 block">Table</label>
+                <select
+                  value={dbPreviewTable}
+                  onChange={(e) => {
+                    const next = e.target.value as 'stores' | 'blankets' | 'logs';
+                    setDbPreviewTable(next);
+                    setDbPreviewOffset(0);
+                  }}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-bold text-slate-900"
+                >
+                  <option value="stores">stores</option>
+                  <option value="blankets">blankets</option>
+                  <option value="logs">logs</option>
+                </select>
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-xs font-black uppercase tracking-[0.25em] text-slate-500 mb-2 block">Search</label>
+                <input
+                  value={dbPreviewQuery}
+                  onChange={(e) => setDbPreviewQuery(e.target.value)}
+                  placeholder="Search current table..."
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-semibold text-slate-900"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-black uppercase tracking-[0.25em] text-slate-500 mb-2 block">Limit</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={200}
+                  value={dbPreviewLimit}
+                  onChange={(e) => setDbPreviewLimit(Math.max(1, Math.min(200, Number(e.target.value) || 50)))}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-bold text-slate-900"
+                />
+              </div>
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  onClick={() => void loadDbPreview({ offset: 0 })}
+                  className="w-full rounded-2xl py-3 font-black uppercase tracking-widest bg-indigo-600 hover:bg-indigo-700 text-white"
+                >
+                  Load
+                </button>
+              </div>
+            </div>
+
+            {dbPreviewError && (
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">
+                {dbPreviewError}
+              </div>
+            )}
+
+            <div className="rounded-2xl border border-slate-200 bg-white overflow-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-100">
+                  <tr>
+                    {dbPreviewColumns.map((column) => (
+                      <th key={column} className="text-left px-3 py-2 font-black text-slate-700 whitespace-nowrap">
+                        {column}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {dbPreviewRows.map((row, rowIndex) => (
+                    <tr key={`db-row-${rowIndex}`} className="border-t border-slate-100">
+                      {dbPreviewColumns.map((column) => (
+                        <td key={`${rowIndex}-${column}`} className="px-3 py-2 text-slate-700 whitespace-nowrap">
+                          {row?.[column] === null || row?.[column] === undefined
+                            ? '-'
+                            : typeof row[column] === 'object'
+                              ? JSON.stringify(row[column])
+                              : String(row[column])}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                  {!dbPreviewBusy && dbPreviewRows.length === 0 && (
+                    <tr>
+                      <td colSpan={Math.max(1, dbPreviewColumns.length)} className="px-4 py-6 text-center text-slate-500 font-semibold">
+                        No rows found.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-semibold text-slate-600">
+                Rows: {dbPreviewRows.length} / Total: {dbPreviewTotal}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={dbPreviewOffset <= 0}
+                  onClick={() => void loadDbPreview({ offset: Math.max(0, dbPreviewOffset - dbPreviewLimit) })}
+                  className={cn(
+                    "px-4 py-2 rounded-xl font-bold",
+                    dbPreviewOffset <= 0 ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "bg-slate-200 hover:bg-slate-300 text-slate-700"
+                  )}
+                >
+                  Prev
+                </button>
+                <button
+                  type="button"
+                  disabled={dbPreviewOffset + dbPreviewRows.length >= dbPreviewTotal}
+                  onClick={() => void loadDbPreview({ offset: dbPreviewOffset + dbPreviewLimit })}
+                  className={cn(
+                    "px-4 py-2 rounded-xl font-bold",
+                    dbPreviewOffset + dbPreviewRows.length >= dbPreviewTotal
+                      ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                      : "bg-slate-200 hover:bg-slate-300 text-slate-700"
+                  )}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       ) : activeTab === 'labels' ? (
@@ -1644,206 +1918,13 @@ export default function Management() {
             </div>
           </div>
         </div>
-      ) : (
-        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 sm:p-8 space-y-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-bold flex items-center gap-3">
-                <History className="text-blue-500" />
-                Activity Log
-              </h2>
-              <p className="text-sm text-slate-500 mt-2">Filter, search, and export warehouse log events.</p>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => fetchLogs(activityLimit)}
-                className="px-4 py-2.5 rounded-2xl font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-all flex items-center gap-2"
-              >
-                <RefreshCcw size={16} />
-                Refresh
-              </button>
-              <button
-                type="button"
-                onClick={exportActivityCsv}
-                className="px-4 py-2.5 rounded-2xl font-bold text-white bg-blue-600 hover:bg-blue-700 transition-all flex items-center gap-2 shadow-lg shadow-blue-600/20"
-              >
-                <Download size={16} />
-                Export CSV
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
-            <div className="md:col-span-2">
-              <label className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 mb-2">
-                <Filter size={14} />
-                Search
-              </label>
-              <input
-                value={activityQuery}
-                onChange={(e) => setActivityQuery(e.target.value)}
-                placeholder="Blanket/user/store/request/notes..."
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-semibold"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Action</label>
-              <select
-                value={activityAction}
-                onChange={(e) => setActivityAction(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-semibold"
-              >
-                <option value="all">All</option>
-                {activityActionOptions.map((action) => (
-                  <option key={action} value={action}>
-                    {action}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">User</label>
-              <select
-                value={activityUser}
-                onChange={(e) => setActivityUser(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-semibold"
-              >
-                <option value="all">All</option>
-                {activityUserOptions.map((user) => (
-                  <option key={user} value={user}>
-                    {user}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Store</label>
-              <select
-                value={activityStore}
-                onChange={(e) => setActivityStore(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-semibold"
-              >
-                <option value="all">All</option>
-                {activityStoreOptions.map((store) => (
-                  <option key={store} value={store}>
-                    {store}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">From</label>
-              <input
-                type="date"
-                value={activityFrom}
-                onChange={(e) => setActivityFrom(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-semibold"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">To</label>
-              <input
-                type="date"
-                value={activityTo}
-                onChange={(e) => setActivityTo(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-semibold"
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-            <div className="text-sm text-slate-500 font-semibold">
-              Showing <span className="text-slate-900 font-black">{filteredActivityLogs.length}</span> of{' '}
-              <span className="text-slate-900 font-black">{logs.length}</span> loaded logs
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Load</span>
-              <button
-                type="button"
-                onClick={() => setActivityLimit(500)}
-                className={cn(
-                  'px-4 py-2 rounded-2xl font-bold transition-all border',
-                  activityLimit === 500 ? 'bg-white border-slate-300 text-slate-900 shadow-sm' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
-                )}
-              >
-                500
-              </button>
-              <button
-                type="button"
-                onClick={() => setActivityLimit(1000)}
-                className={cn(
-                  'px-4 py-2 rounded-2xl font-bold transition-all border',
-                  activityLimit === 1000 ? 'bg-white border-slate-300 text-slate-900 shadow-sm' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
-                )}
-              >
-                1000
-              </button>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead className="bg-slate-50 text-slate-500 uppercase text-xs font-black tracking-widest">
-                <tr>
-                  <th className="px-6 py-4">Time</th>
-                  <th className="px-6 py-4">Action</th>
-                  <th className="px-6 py-4">User</th>
-                  <th className="px-6 py-4">Blanket</th>
-                  <th className="px-6 py-4 hidden md:table-cell">Store</th>
-                  <th className="px-6 py-4 hidden lg:table-cell">Pos</th>
-                  <th className="px-6 py-4 hidden md:table-cell">Status</th>
-                  <th className="px-6 py-4 hidden lg:table-cell">Request</th>
-                  <th className="px-6 py-4">Notes</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredActivityLogs.map((log: any) => (
-                  <tr key={log.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-6 py-4 text-sm text-slate-700 whitespace-nowrap">
-                      {format(new Date(log.timestamp), 'yyyy-MM-dd HH:mm')}
-                    </td>
-                    <td className="px-6 py-4 text-sm font-bold text-slate-900">{log.action}</td>
-                    <td className="px-6 py-4 text-sm text-slate-700">{log.user || 'system'}</td>
-                    <td className="px-6 py-4 text-sm font-black text-slate-900">#{log.blanket_number}</td>
-                    <td className="px-6 py-4 text-sm text-slate-700 hidden md:table-cell">{log.store ?? '-'}</td>
-                    <td className="px-6 py-4 text-sm text-slate-700 hidden lg:table-cell tabular-nums">
-                      {log.row != null && log.column != null ? `${log.row},${log.column}` : '-'}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-700 hidden md:table-cell">{log.status ?? '-'}</td>
-                    <td className="px-6 py-4 text-xs text-slate-500 hidden lg:table-cell font-mono">
-                      {log.request_id ? String(log.request_id).slice(0, 8) : '-'}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">
-                      {log.notes ? String(log.notes) : <span className="text-slate-300">-</span>}
-                    </td>
-                  </tr>
-                ))}
-                {filteredActivityLogs.length === 0 && (
-                  <tr>
-                    <td colSpan={9} className="px-6 py-12 text-center text-slate-400 font-semibold">
-                      No log entries match your filters.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      ) : null}
 
       {/* Store Edit Modal */}
       {isStoreModalOpen && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-md overflow-hidden border border-slate-100 animate-in zoom-in-95 duration-200">
-            <div className="p-8 border-b border-slate-50 flex items-center justify-between">
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-start justify-center overflow-y-auto p-4 sm:items-center">
+          <div className="bg-white rounded-[28px] sm:rounded-[40px] shadow-2xl w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-hidden border border-slate-100 animate-in zoom-in-95 duration-200 flex flex-col">
+            <div className="shrink-0 p-6 sm:p-8 border-b border-slate-50 flex items-center justify-between">
               <div>
                 <h2 className="text-2xl font-black tracking-tighter text-slate-900 uppercase">
                   {editingStore ? 'Edit Store' : 'New Store'}
@@ -1857,7 +1938,7 @@ export default function Management() {
               </button>
             </div>
             
-            <form onSubmit={handleStoreSubmit} className="p-8 space-y-6">
+            <form onSubmit={handleStoreSubmit} className="min-h-0 overflow-y-auto p-6 sm:p-8 space-y-6">
               {!editingStore && (
                 <div className="space-y-2">
                   <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Store Name</label>
@@ -1871,6 +1952,23 @@ export default function Management() {
                   />
                 </div>
               )}
+
+              <div className="space-y-2">
+                <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Branch</label>
+                <select
+                  value={storeFormData.branch_id}
+                  onChange={(e) => setStoreFormData({ ...storeFormData, branch_id: Number(e.target.value) })}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-bold"
+                  title="Store branch"
+                >
+                  {branches.length === 0 && <option value={1}>فرع الفلاح</option>}
+                  {branches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>
+                      {branch.name} - {branch.city || 'No city'}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
               <div className="space-y-4">
                 <div className="space-y-2">

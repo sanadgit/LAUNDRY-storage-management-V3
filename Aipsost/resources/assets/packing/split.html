@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <!-- Meta, title, CSS, favicons, etc. -->
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- <link rel="icon" href="images/icons/favicon1.ico" type="image/ico" /> -->
+    <title>Laundry Packing System</title>
+    <!-- Bootstrap -->
+    <!-- <link rel="stylesheet" type="text/css" href="css/bootstrap.css"> -->
+    <link rel="stylesheet" type="text/css" href="css/bootstrap.min.css">
+    <link rel="stylesheet" type="text/css" href="css/pos_style.css">
+    <link rel="stylesheet" type="text/css" href="css/fontawesome.min.css">
+    <link rel="stylesheet" type="text/css" href="css/all.min.css">
+    <link rel="stylesheet" type="text/css" href="css/bootstrap-datepicker.css">
+    <link rel="stylesheet" type="text/css" href="css/bootstrap-glyphicons.min.css">
+    <link rel="stylesheet" type="text/css" href="css/bootstrap-timepicker.min.css">
+    <link rel="stylesheet" href="css/jquery-confirm.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;1,100&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/swiper/swiper-bundle.min.css" />
+    <script src="server.js"></script>
+    <style type="text/css">
+    /* Prevent horizontal scrolling */
+    html,body {
+        overflow-x: hidden;
+    }
+
+    /* Swiper Container */
+    .swiper-container {
+        width: 100%;
+        height: auto;
+        max-width: 500px;
+        margin-bottom: 20px;
+        position: relative; /* Ensure relative positioning for absolute elements */
+    }
+
+    /* Ensure images fit and do not overflow */
+    .swiper-slide img {
+        width: 100%;
+        height: auto;
+        object-fit: contain;
+        border-radius: 5px;
+    }
+
+    /* Position pagination at the bottom */
+    .swiper-pagination {
+        position: absolute;
+        bottom: -20px !important; /* Adjust as needed */
+        left: 0;
+        width: 100%;
+        text-align: center;
+        z-index: 10; /* Ensure it appears above the images */
+    }
+
+    /* Style pagination bullets */
+    .swiper-pagination-bullet {
+        background: #333; /* Dark color for visibility */
+        opacity: 0.7;
+    }
+
+    .swiper-pagination-bullet-active {
+        background: #22BC66; /* Highlight color for the active bullet */
+    }
+
+    /*.slider_comments_container{
+      margin: auto;
+      margin-top: 30px;
+      overflow: hidden;
+    }*/
+    .swiper-slide img{
+        max-height: 260px;
+    }
+    .slide-caption {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        color: white;
+        font-size: 18px;
+        background: rgb(0 0 0 / 67%);
+        padding: 10px 0;
+        text-align: center;
+        font-weight: bold;
+        font-size: 18px;
+    }
+    .slider_comments_container {
+        /*      position: absolute;*/
+      display: none;
+      width: 100%;
+      z-index: 999;
+      background: white;
+      padding: 10px;
+      margin: 2% 0;
+    }
+    .order_image_wrap {
+      padding: 1px;
+      text-align: center;
+      background: white;
+      margin-bottom: 5px;
+      color: #1691c1;
+      font-size: 17px;
+      cursor: pointer;
+    }
+    .order_image_wrap a {
+      padding-left: 10px;
+      color: #1691c1;
+    }
+     .image-modal {
+        display: none;
+        position: fixed;
+        z-index: 1;
+        padding-top: 60px;
+        left: 0;
+        top: 80px;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.9);
+    }
+    .image-modal .swiper-slide{
+        background: #fff;
+    }
+    .image-modal .swiper-slide img{
+        max-height: none;
+    }
+    /* Modal image slider */
+    .modal-swiper img {
+        margin: auto;
+        display: block;
+        width: 100%;
+        max-width: 700px;
+    }
+
+    /* Close button in the modal */
+    .close-modal {
+        position: absolute;
+        top: 15px;
+        right: 35px;
+        color: #f1f1f1;
+        font-size: 40px;
+        font-weight: bold;
+        cursor: pointer;
+    }
+
+    .close-modal:hover,
+    .close-modal:focus {
+        color: #bbb;
+        text-decoration: none;
+        cursor: pointer;
+    }
+  </style>
+</head>
+
+<body class="overflow">
+
+    <!----------- nav heder ------------>
+
+    <div class="nav_header">
+        <div class="aipsoft_logo">
+            <img src="images/aipsoft_headerLogo.png">
+        </div>        
+        <div class="nav_logo">
+            <!-- <img src="images/mobaschgrp-logo.svg"> -->
+        </div>
+        <div class="cashor_details">
+            <img src="" class="profile_avatar">
+            <p class="profile_name">-</p>
+            <h6 class="profile_type">-</h6>
+            <span class="profile_logged">Counter Opened @ -:-:-</span>
+        </div>
+        <div class="logout" data-toggle="modal" data-target="#logout_modal">
+            <img src="images/logout.svg">
+        </div>
+        <div class="header_datetime">
+            <div  id="header_date"><h5>- <span>-</span></h5>  </div>
+            <p class="profile_branch">Counter: -</p> 
+        </div>        
+    </div>
+
+    <div class="split_header"></div>
+
+    <!----------- End nav header ------------>
+
+    <div class="scrollBar">   
+
+        <div class="header_form window_view">
+            <ul>
+                <li>
+                    <label>Order: </label>
+                    <input type="" name="" class="order_no inp_field" readonly="readonly">
+                </li>            
+                <li>
+                    <label>Depot/Branch: </label>
+                    <select class="order_branch inp_field select_field"></select>
+                    <!-- <input type="" name="" class="order_branch inp_field" readonly="readonly"> -->
+                </li>            
+                <li>
+                    <label>Packing Date:  </label>
+                    <input type="" name="" class="packing_date inp_field" readonly="readonly">
+                </li>
+                <li>
+                    <label>Packing Time:  </label>
+                    <input type="" name="" class="packing_time inp_field" readonly="readonly">
+                </li>            
+                <li>
+                    <label>Delivery date:  </label>
+                    <input type="" name="" class="del_date inp_field" readonly="readonly">
+                </li>            
+                <li>
+                    <label>Delivery time:  </label>
+                    <input type="" name="" class="del_time inp_field" readonly="readonly">
+                </li>            
+                <li>
+                    <label>Salesman:   </label>
+                    <select class="salesman inp_field select_field"></select>
+                    <!-- <input type="" name="" class="salesman inp_field" readonly="readonly"> -->
+                </li>
+            </ul>
+            <p class="left cust_data">-</p>
+            <!-- <p class="right"><label class="custom_box check_label send_sms"><input type="checkbox" checked="checked"><span class="checkmark"></span> Send SMS</label></p> -->
+            <!-- <p class="right"><label class="custom_box check_label send_whatsapp"><input type="checkbox" checked="checked"><span class="checkmark"></span> Send WhatsApp</label></p> -->
+        </div>
+
+
+        <div class="">
+            <div class="tab-pane active" id="modules">
+              <div class="row major_container">
+                <div class="col-md-5 col-sm-5">
+                  <div class="availabe_module_wrp scroll-container">
+                    <div class="availabe_module">Current Invoice</div>
+                        <div class="arrow_wrap vertical_up">  
+                            <i class="fas fa-chevron-circle-up"></i>
+                        </div>
+                        <div class="modules_padd">
+                          <div id="module-left-scrollbar" class="scrollbar scroll_vertically">
+                                <div class="product_data">
+                                    <ul class="order_items">                                                            
+                                    </ul>
+                                </div>
+                          </div>
+                        </div>
+                        <div class="arrow_wrap vertical_down">  
+                            <i class="fas fa-chevron-circle-down"></i>
+                        </div> 
+                        <div class="total_details">
+                            <p>Qty: <span class="tot_ord_item_qty">0</span></p>
+                            <!-- <p>Total: <span class="ord_item_total">0.00</span></p> -->
+                        </div>               
+                  </div>
+                </div>
+                <div class="col-md-2 col-sm-2" style="padding: 0">
+                    <div class="module_button_wrp">
+                        <div class="availabe_module txt_left" style="display: flex;"><label class="custom_box check_label split_qty" style="margin-right: 0"><input type="checkbox" checked="checked"><span class="checkmark"></span>Splitting Qty</label></div>
+                        <div class="button_wrap">
+                            <button type="button" class="module_button splitnext_btn split_to_new" data-split_mode="single"><i class="fas fa-chevron-right"></i>
+                            </button>
+                            <button type="button" class="module_button splitnext_btn split_from_new" data-split_mode="single"><i class="fas fa-chevron-left"></i>
+                            </button>
+                            <button type="button" class="module_button_double split_dbl_btn split_to_new" data-split_mode="all"><i class="fas fa-angle-double-right"></i>
+                            </button>
+                            <button type="button" class="module_button_double split_dbl_btn split_from_new" data-split_mode="all"><i class="fas fa-angle-double-left"></i>
+                            </button>
+                            <button type="button" class="reset_button reset_button split_reset">Reset</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-5 col-sm-5">
+                  <div class="availabe_module_wrp scroll-container">
+                    <div class="availabe_module">Packing : <span class="next_packing_no">-</span></div>
+                        <div class="arrow_wrap vertical_up">  
+                            <i class="fas fa-chevron-circle-up"></i>
+                        </div>
+                        <div class="modules_padd">
+                          <div id="module-left-scrollbar" class="scrollbar scroll_vertically">
+                                <div class="product_data">
+                                    <ul class="packed_items">
+                                    </ul>
+                                </div>
+                          </div>
+                        </div>
+                        <div class="arrow_wrap vertical_down">  
+                            <i class="fas fa-chevron-circle-down"></i>
+                        </div> 
+                        <div class="total_details">
+                            <p>Qty: <span class="tot_packed_item_qty">0</span></p>
+                            <!-- <p>Total: <span class="packed_item_total">0.00</span></p> -->
+                        </div>               
+                  </div>
+                </div>
+              </div>
+                <div class="split_footer_button">
+                    <button type="button" class="back_btn" data-page="packing"><i class="fas fa-chevron-left backicon"></i> Back</button>
+                    <button type="button" class="SubmitBtn" data-page="packing"><i class="fas fa-check-circle backicon"></i> Submit Pack</button>
+                </div>          
+            </div>
+
+        </div>
+
+
+        <div class="split_mobile_header major_container">
+            <div class="scrollBar">
+                <div class="header_form mobile">
+                    <ul>
+                        <li>
+                            <label>Order: </label>
+                            <input type="" name="" class="order_no inp_field" readonly="readonly">
+                        </li>            
+                        <li>
+                            <label>Depot/Branch: </label>
+                            <select class="order_branch inp_field select_field"></select>
+                            <!-- <input type="" name="" class="order_branch inp_field" readonly="readonly"> -->
+                        </li>            
+                        <li>
+                            <label>Packing Date:  </label>
+                            <input type="" name="" class="packing_date inp_field" readonly="readonly">
+                        </li>
+                        <li>
+                            <label>Packing Time:  </label>
+                            <input type="" name="" class="packing_time inp_field" readonly="readonly">
+                        </li>  
+                    </ul>              
+                    <div class="accordion-panel">
+                        <dl class="accordion"> <dt><i class="fas fa-plus-circle accordion_icon"></i></dt> 
+                            <dd>
+                                <div class="content">
+                                    <ul>            
+                                        <li>
+                                            <label>Delivery date:  </label>
+                                            <input type="" name="" class="del_date inp_field" readonly="readonly">
+                                        </li>            
+                                        <li>
+                                            <label>Delivery time:  </label>
+                                            <input type="" name="" class="del_time inp_field" readonly="readonly">
+                                        </li>            
+                                        <li>
+                                            <label>Salesman:   </label>
+                                            <select class="salesman inp_field select_field"></select>
+                                            <!-- <input type="" name="" class="salesman inp_field" readonly="readonly"> -->
+                                        </li>
+                                    </ul>
+                                    <p class="cust_data">-</p>
+                                <p class=""><label class="custom_box send_sms"><input type="checkbox"><span class="checkmark"></span></label> Send SMS</p>   
+                                <p class=""><label class="custom_box send_whatsapp"><input type="checkbox"><span class="checkmark"></span></label> Send WhatsApp</p>   
+                                </div>
+                            </dd>
+                        </dl>
+                    </div>
+                </div>
+
+                <div class="mobile_body_bg">
+                    <section class="section">
+                        <div class="tab">
+                          <div class="tab__list">
+                            <div class="tab__item" data-section="order_footer">Current Order</div>
+                            <div class="tab__item" data-section="packing_footer">Packing : <span class="next_packing_no">-</span></div>
+                          </div>
+                          <div class="tab__content major_container">
+                            <div class="tab__content-item tab">
+                                <div class="mobile_product_list">
+                                    <ul class="order_items">                                   
+                                                               
+                                    </ul>
+                                </div>
+                                <div class="scan_cloth_footerdiv">
+                                    <div class="scitem_section">
+                                        <label>Scan cloth: </label>
+                                        <input type="" name="" class="cloth_scan_input focused" id="cloth_scan">
+                                        <button class="clear_cloth">x</button>
+                                    </div>                                  
+                                    <div class="scitem_section">
+                                        <div class="barcodeIco" onclick="ok.openBarcode();">
+                                            <i class="fas fa-barcode"></i>
+                                        </div>
+                                    </div>
+                                </div>   
+                                <div class="order_images_container">
+                                    <!-- order image block -->
+                                </div>
+                            </div>
+                            <div class="tab__content-item">
+                                <div class="mobile_product_list packing_scroll">
+                                    <ul class="packed_items">
+                                                                            
+                                    </ul>
+                                </div>
+                                <div class="packed_items_footerdiv">
+                                    <div class="pkitem_section">
+                                        <label>Remark: <input class="remark_final" style="border: none; background: transparent; height: 10px; width: 70%;" readonly="readonly" type="text" value=""></label>
+                                        <input type="" name="" class="remark_scan_input focused" id="remark_scan">
+                                        <button class="clear_remarks">x</button>
+                                    </div>                                  
+                                    <div class="pkitem_section">
+                                        <div class="barcodeIco" onclick="ok.openBarcode();">
+                                            <i class="fas fa-barcode"></i>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="packed_items_footerdiv" style="margin-top: 10px;">
+                                    <div class="pknote_section">
+                                        <label>Packing Note: </label>
+                                        <textarea class="packing_note"  id="packing_note"></textarea>
+                                        <button class="clear_packing_note">x</button>
+                                    </div>    
+                                    <div class="image_upload_btns_new">
+                                        <!-- <input id="file-input" class="file-input" type="file" style="display:none;" accept="image/*"> -->
+                                        <button class="upload_img" data-toggle="modal" data-target="#image_upload_modal"> </button>
+                                    </div>                              
+                                </div>
+                            </div>
+                          </div>
+                        </div>
+                    </section>               
+                </div>
+
+
+                <div class="fixed_mobile_footer">
+                    <div class="split_qty_wrap">
+                        <label class="custom_box split_qty"><input type="checkbox" checked="checked"><span class="checkmark"></span></label>Splitting Qty
+                    </div>
+                    <div class="footer_buttons_wrap">
+                        <ul class="order_footer mob_footer_btns">
+                            <li>
+                                <button type="button" class="back_btn" data-page="packing">Back</button>
+                            </li>                    
+                            <li>
+                                <button type="button" class="splitnext_btn split_to_new" data-split_mode="single"><i class="fas fa-chevron-right"></i></button>
+                            </li>                    
+                            <li>
+                                <button type="button" class="split_dbl_btn split_to_new" data-split_mode="all"><i class="fas fa-angle-double-right"></i></button>
+                            </li>                    
+                            <li>
+                                <button type="button" class="next_block">Next</button>
+                            </li>
+                        </ul>
+                        <ul class="packing_footer mob_footer_btns" style="display: none">
+                            <li>
+                                <button type="button" class="sec_back_btn" data-page="packing">Back</button>
+                            </li>                    
+                            <li>
+                                <button type="button" class="splitnext_btn split_from_new" data-split_mode="single"><i class="fas fa-chevron-left"></i></button>
+                            </li>                    
+                            <li>
+                                <button type="button" class="split_dbl_btn split_from_new" data-split_mode="all"><i class="fas fa-angle-double-left"></i></button>
+                            </li>                    
+                            <li>
+                                <button type="button" class="SubmitBtn" data-page="packing">Submit</button>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!--------------------------------------->
+
+        <div class="pos_footer">
+            <p>AipSoft-POS-Magnus World IT Solutions - Abu Dhabi - UAE-Tel :- +971 56 664 4516 , +971 56 664 4514</p>
+        </div>
+
+    <!----------------- popup modal ---------------------->
+
+
+        <div class="modal fade" id="submitpack" role="dialog">
+            <div class="modalpopup_dialoge submitpackdialoge">
+                <div class="modalpopup_content">
+                    <div class="submitpack_wrap">
+                        <i class="fas fa-check-circle submitpack_icon"></i>
+                        <h2>Packing Saved Successfully !!!</h2>
+                        <button type="button" class="nextpacking_btn">Next packing - 0.20</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+     <div class="modal fade" id="image_upload_modal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true" data-backdrop="static" data-keyboard="false">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                      <img class="popupclose_btn closeModalBtn" src="images/closebtn.png">
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <h2>Packing Images</h2>
+                    <div class="image_upload_wrap">
+                        <ul class="uploaded_images image_list_ul"></ul>
+                        <div class="image_upload_btns_new">
+                            <input id="file-input" class="file-input" type="file" style="display:none;" accept="image/*">
+                            <button class="upload_img upload_img_pop"> </button>
+                        </div>
+                        <span class="reset delete_all_uploaded hidden"><img src="images/delete_img.png" height="15px" width="15px"> Delete all images</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>   
+     <!------------------------------ Logout popup  ------------------------------------>
+
+    <div class="modal fade" id="logout_modal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                      <img class="popupclose_btn closeModalBtn" src="images/closebtn.png">
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="logout_wrap">
+                        <ul class="power_actions">
+                            <li data-action="logout">
+                                <img src="images/logout_icon.svg">
+                                <p>LogOut</p>
+                            </li>                         
+                            <li data-action="shutdown">
+                                <img src="images/shutdown_icon.svg">
+                                <p>Shut Down</p>
+                            </li>                         
+                            <li data-action="restart">
+                                <img src="images/reset_icon.svg">
+                                <p>Restart</p>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+<a href="" class="whatsapp_a" id="whatsapp_a" style="top:-100000px;" target="_blank"></a>
+
+    <!------------------------------------------------------------------>
+
+
+
+<div id="imageModal" class="image-modal">
+    <span class="close-modal">&times;</span>
+    <div class="swiper-container modal-swiper">
+        <div class="swiper-wrapper">
+            <!-- Slides will be dynamically inserted here -->
+        </div>
+        <!-- Modal slider pagination -->
+        <div class="swiper-pagination"></div>
+    </div>
+</div>
+
+    <!---------------------------- js ----------------------------------->
+
+    <script type="text/javascript" src="js/jquery-3.4.1.min.js"></script>
+    <script type="text/javascript" src="js/popper.min.js"></script>
+    <script type="text/javascript" src="js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="js/fontawesome.min.js"></script>
+    <script type="text/javascript" src="js/moment.min.js"></script>
+    <script src="https://unpkg.com/tippy.js@5"></script>
+    <script type="text/javascript" src="js/packing.js"></script>
+    <script src="js/jquery-confirm.min.js"></script>
+    <script src="https://unpkg.com/swiper/swiper-bundle.min.js"></script>
+    <script type="text/javascript" src="js/bootstrap-datepicker.min.js"></script>
+    <script type="text/javascript" src="js/bootstrap-timepicker.min.js"></script>
+    
+    <!------------------- Fadein-Out mobile card list ------------------->
+    
+
+
+
+<!------ accordion ----------->
+
+<script >$(document).ready(function() {
+  var bodyEl = $('body'),
+    accordionDT = $('.accordion').find('dt'),
+    accordionDD = accordionDT.next('dd'),
+    parentHeight = accordionDD.height(),
+    childHeight = accordionDD.children('.content').outerHeight(true),
+    newHeight = parentHeight > 0 ? 0 : childHeight,
+    accordionPanel = $('.accordion-panel'),
+    buttonsWrapper = accordionPanel.find('.buttons-wrapper'),
+    openBtn = accordionPanel.find('.open-btn'),
+    closeBtn = accordionPanel.find('.close-btn');
+
+  bodyEl.on('click', function(argument) {
+    var totalItems = $('.accordion').children('dt').length;
+    var totalItemsOpen = $('.accordion').children('dt.is-open').length;
+
+    if (totalItems == totalItemsOpen) {
+      openBtn.addClass('hidden');
+      closeBtn.removeClass('hidden');
+      buttonsWrapper.addClass('is-open');
+      //accordionDD.addClass('isActive');
+      //accordionDD.css('overflow','visible');
+      setTimeout(function(){accordionDD.css('overflow','visible');},500)
+    } else {
+      openBtn.removeClass('hidden');
+      closeBtn.addClass('hidden');
+      buttonsWrapper.removeClass('is-open');
+      //accordionDD.removeClass('isActive');
+
+      accordionDD.css('overflow','hidden');
+    }
+  });
+
+      function openAll() {
+
+        openBtn.on('click', function(argument) {
+
+          accordionDD.each(function(argument) {
+            var eachNewHeight = $(this).children('.content').outerHeight(true);
+            $(this).css({
+              height: eachNewHeight
+            });
+          });
+          accordionDT.addClass('is-open');
+        });
+      }
+
+      function closeAll() {
+
+        closeBtn.on('click', function(argument) {
+          accordionDD.css({
+            height: 0
+          });
+          accordionDT.removeClass('is-open');
+        });
+      }
+
+      function openCloseItem() {
+        accordionDT.on('click', function() {
+
+          var el = $(this),
+            target = el.next('dd'),
+            parentHeight = target.height(),
+            childHeight = target.children('.content').outerHeight(true),
+            newHeight = parentHeight > 0 ? 0 : childHeight;
+
+          // animate to new height
+          target.css({
+            height: newHeight
+          });
+
+          // remove existing classes & add class to clicked target
+          if (!el.hasClass('is-open')) {
+            el.addClass('is-open');
+          }
+
+          // if we are on clicked target then remove the class
+          else {
+            el.removeClass('is-open');
+          }
+        });
+      }
+
+      openAll();
+      closeAll();
+      openCloseItem();
+
+      let send_sms = window.localStorage.getItem('send_sms');
+      let send_whatsapp = window.localStorage.getItem('send_whatsapp');
+      if(send_sms != null && send_sms == 1)
+      {
+        $(".send_sms input[type='checkbox']").attr('checked', true);
+      }
+      if(send_whatsapp != null && send_whatsapp == 1)
+      {
+       $(".send_whatsapp input[type='checkbox']").attr('checked', true);
+      }
+
+
+    });
+    //# sourceURL=pen.js
+</script>
+
+
+
+<!----------------------- tab panal --------------------------->
+
+
+    <script type="text/javascript">
+
+        // reference from https://www.digitalocean.com/community/tutorials/js-tabs
+
+        const tabs = document.querySelectorAll(".tab");
+
+        function tabify(tab) {
+          const tabList = tab.querySelector(".tab__list");
+
+          if (tabList) {
+            const tabItems = [...tabList.children];
+            const tabContent = tab.querySelector(".tab__content");
+            const tabContentItems = [...tabContent.children];
+            let tabIndex = 0;
+
+            tabIndex = tabItems.findIndex((item, index) => {
+              return [...item.classList].indexOf("is--active") > -1;
+            });
+
+            tabIndex > -1 ? (tabIndex = tabIndex) : (tabIndex = 0);
+
+            function setTab(index) {
+              tabItems.forEach((x, index) => x.classList.remove("is--active"));
+              tabContentItems.forEach((x, index) => x.classList.remove("is--active"));
+
+              tabItems[index].classList.add("is--active");
+              tabContentItems[index].classList.add("is--active");
+            }
+
+            tabItems.forEach((x, index) =>
+              x.addEventListener("click", () => setTab(index))
+            );
+            setTab(tabIndex);
+            tab.querySelectorAll(".tab").forEach((tabContent) => tabify(tabContent));
+          }
+        }
+
+        tabs.forEach(tabify);
+
+        $('body').on('click','.next_block',function(){
+            let final_packed_product_list    = [];
+              let item_arr = [];
+              $(".splitted_item_tr").each(function(){
+                let each_db_id = $(this).data('db_id');
+                if(jQuery.inArray(each_db_id,item_arr )==-1)
+                {
+                  item_arr.push(each_db_id);
+                  let qty             = $(this).find('.pack_qty').text();
+                  final_packed_product_list.push({'item_db_id':each_db_id,'pack_qty':qty});
+                }
+              });
+              if(final_packed_product_list.length == 0)
+              { 
+                loadErrorPopup('Empty Prompt','Add atleast an item for packing to continue !')
+                return false;
+              }
+            $('.tab__item[data-section="packing_footer"]').trigger('click')
+        })
+        $('body').on('click','.sec_back_btn',function(){
+            $('.tab__item[data-section="order_footer"]').trigger('click')
+        })
+        $('body').on('click','.tab__item',function(){
+            let section = $(this).data('section');
+            $('.mob_footer_btns').hide();
+            $('.'+section).show();
+            setTimeout(function(){ $('.remark_scan_input').focus();},150);
+        })
+
+function set_remarkwithcomma()
+{
+var str = $('.remark_scan_input').val();
+if(str != '' && str != ' ' && str != '  ')
+setDelayItem(str);
+$('.remark_scan_input').val('');
+}
+
+
+function setDelayItem(str)
+{
+var exist_str = $('.remark_final').val();
+if(exist_str != '')
+{
+    var str = str+','+exist_str;
+}
+$('.remark_final').val(str);
+}
+
+
+$('.remark_scan_input').keydown(function (e){
+    if(e.keyCode == 13){
+       set_remarkwithcomma();
+    }
+})
+
+$('.cloth_scan_input').keydown(function (e){
+    if(e.keyCode == 13){
+        if(!$(this).hasClass('fetching_data')){
+            $(this).addClass('fetching_data')
+            scanClothBarcode($(this).val());
+        }
+    }
+})
+
+$('body').on('click','.clear_remarks',function(){
+    $('.remark_final').val('');
+    setTimeout(function(){ $('.remark_scan_input').focus();},100);
+})
+$('body').on('click','.clear_packing_note',function(){
+    $('.packing_note').val('');
+    setTimeout(function(){ $('.packing_note').focus();},100);
+})
+$('body').on('click','.clear_cloth',function(){
+    $('.cloth_scan_input').val('');
+    setTimeout(function(){ $('.cloth_scan_input').focus();},100);
+})
+
+    </script>
+
+
+
+</body>
+
+</html>

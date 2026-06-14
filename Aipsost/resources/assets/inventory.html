@@ -1,0 +1,1657 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <!-- Meta, title, CSS, favicons, etc. -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0 viewport-fit=cover" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Aipsoft Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;300;400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/jquery-confirm.min.css">
+    <link rel="stylesheet" type="text/css" href="css/typeahead_css.css">
+    <script type="text/javascript" src="js/jquery-3.5.1.min.js"></script>
+    <script src="js/jquery-confirm.min.js"></script>
+    <script src="js/config.js"></script>
+    <script type="text/javascript">
+    let api_user_id         = window.localStorage.getItem('api_user_id');
+    let api_url             = window.localStorage.getItem('api_url');
+    let client_identifier   = window.localStorage.getItem('client_identifier');
+    let inventory_id        = window.localStorage.getItem('inventory_id');
+    let stockType_id        = window.localStorage.getItem('stockType_id');
+    let branch_id           = window.localStorage.getItem('branch_id');
+    let currency_id         = window.localStorage.getItem('currency_id');
+    let tax_included        = window.localStorage.getItem('tax_included');
+    let module_settings;
+    let user_type;
+    let loadInventoryData = function()
+    {
+        $.ajax({
+            url: api_url+'/purchase_api/loadInventoryData',
+            method: 'POST',
+            data: {'inventory_id': inventory_id,'branch_id':branch_id,'user_id':api_user_id,'client_identifier':client_identifier},
+            success: function(response) {
+                removeAjaxLoad();
+                var data =JSON.parse(response);
+                console.log(data);
+                user_type = data.user_type;
+                module_settings  = data.module_settings;
+                if(data.status==1)
+                {
+                    let orderData  = data.data;
+                    if(orderData.data_count > 0)
+                    {
+                        let orders = orderData.data_result;
+                        let tot_qty = 0;
+                        $('.productList tbody').html('');
+                        orders.forEach(function(order, index) {
+                            let sl_no = 1;
+                            if($(".sl_no").length>0)
+                            {
+                                sl_no = Number($(".sl_no").length)+1;
+                            }
+                            let qty   = Number(order.quantity!=null?order.quantity:0);
+                            tot_qty   = qty;
+                            let tRow = '<tr data-details_id = "'+order.inv_det_id+'" class="item_row">\
+                                            <td class="sl_no" data-barcode="'+order.barcode+'">'+sl_no+'</td>\
+                                            <td>'+order.barcode+' - <br /><span class="prdt_span">'+order.product_name1+'</span></td>\
+                                            <td>'+order.unitname_short+'</td>\
+                                            <td>'+Number(order.adjusted_rate).toFixed(2)+'</td>\
+                                            <td><span class="qty_span">'+tot_qty+'</span></td>\
+                                            <td>'+Number(order.net_amount).toFixed(2)+'</td>\
+                                        </tr>';
+                            $('.productList tbody').append(tRow);
+                        })
+                    }
+                }
+            },
+            error:function (xhr, ajaxOptions, thrownError){
+                removeAjaxLoad();
+                $.alert('No Data found..!');
+                return false;                          
+            }   
+        });
+    }
+    console.log('tax_included - '+tax_included)
+    if((api_user_id == null || api_user_id == '' || api_url =='' || api_url == null)) {
+            window.location = "login.html";
+    } 
+    // if(order_id=='' || order_id==null || order_id=='0') {
+    //         window.location = "grn_supplier.html";
+    // } 
+    else{
+        $(document).ready(function() {
+
+            loadAjax();
+            loadInventoryData();
+            
+        })
+    }
+
+  
+    </script>
+</head>
+
+<style type="text/css">
+
+    body {
+        font-family: 'Roboto', sans-serif;
+        margin: 0;
+    }
+    .delete_action{cursor: pointer;float: right;position: relative;color: #e76e54;}
+    .item_row.selected{background:#2451a6;}
+    .item_padd {
+        padding: 15px;
+    }
+    .search_result_ul .selected{
+    background-color: #305bce;
+    color: #fff;
+    }
+    .search_result_ul .selected{
+        background-color: #305bce;
+        color: #fff;
+    }
+    .searchlisting_wrap {
+        overflow: hidden;
+        width: 100%;
+        padding: 15px 0;
+        height: calc(100vh - 98px);
+        overflow-y: scroll;
+        overflow-x: hidden;
+    }
+    .searchlisting_wrap ul{
+        padding: 0;
+        list-style-type: none;
+        margin: 0;
+    }
+    .searchlisting_wrap ul li{
+        width: 100%;
+        font-size: 14px;
+        font-weight: 500;
+        margin-bottom: 10px;
+        border-bottom: 1px solid #ececec;
+        padding: 10px;
+        color: #2f2f2f;
+    }
+    .hidden{
+    display: none;
+    }
+    .item_search {
+    background-color: #fff;
+    height: 100vh;
+    top: 0;
+    position: fixed;
+    width: 100%;
+    padding: 0px;
+    left: 0;
+    z-index: 9;
+}
+.item_search .close_icon {
+    position: absolute;
+    right: 20px;
+    top: 25px;
+}
+    /*.scanitem_search{position: absolute;
+    right: -35px;
+    top: 9px;}*/
+    .twitter-typeahead{
+    width: 100%;
+    }
+    .form_footerBtn.errorData {
+        background: #ff4646;
+        text-align: center;
+        font-size: 16px;
+        padding: 20px 0;
+    }
+    p.errortxt {
+        color: #fff;
+        font-size: 18px;
+    }
+    p.errortxt:last-child{
+        margin-bottom: 10px;
+    }
+    .nav_deader {
+        background-image: linear-gradient(to right, #305daf , #17a9ca);
+        /*background-image: linear-gradient(#252525, #070707);*/
+        padding: 8px;
+        color: #fff;
+        overflow: hidden;
+    }
+    .aiplogo {
+        float: left;
+        margin-right: 8px;
+    }
+    .nav_text p {
+        font-size: 14px;
+        margin: 0;
+        font-weight: 400;
+        margin-top: 2px;
+    }
+    .GRN_wrap{
+        padding: 8px 10px;
+        overflow: hidden;
+        position: relative;
+    }
+    .footer button{
+        width: 100%;
+        padding: 15px;
+        font-weight: 600;
+        font-size: 16px;
+        background-color: #2451a6;
+        color: #fff;
+        position: fixed;
+        bottom: 0px;
+        border: 1px solid #686f8c;
+    }
+    .scanitem {
+        width: 95%;
+        float: left;
+        position: relative;
+        display: flex;
+    }
+    .scanitem label {
+        color: #3b3b3b;
+        margin-bottom: 0;
+        font-size: 14px;
+        font-weight: 400;
+        width: 8%;
+        float: left;
+        position: relative;
+        top: 0;
+        padding: 8px 5px;
+    }
+    .scanitem input {
+        border: 1px solid #707070;
+        background-color: #e9e9e9;
+        padding: 8px;
+        color: #3b3b3b;
+        font-size: 14px;
+        font-weight: 400;
+        width: 100%;
+        padding-right: 35px;
+    }
+    .search_btn {
+        position: absolute;
+        right: 10px;
+        top: 10px;
+    }    
+    .center_form{
+        width: 30%;
+        float: left;
+    } 
+    .center_form p{
+    }
+    .center_form input{
+        border: 1px solid #707070;
+        background-color: #e9e9e9;
+        padding: 8px;
+        color: #3b3b3b;
+        font-size: 14px;
+        font-weight: 400;
+        margin-top: 3px;
+        width: 70%
+    }
+    .OK_Btn {
+        font-size: 14px;
+        font-weight: 600;
+        background-color: #000;
+        color: #fff;
+        border: 1px solid #707070;
+        padding: 9px 6px;
+        float: right;
+        position: relative;
+/*        top: 18px;*/
+    }
+    .grn_table {
+        width: 100%;
+        height: 300px;
+        overflow-y: auto;
+        overflow-x: hidden;
+    }    
+    .grn_table table {
+        border-spacing: 0px;
+        width: 100%
+    }
+    .grn_table th {
+        background-color: #2350a3;
+        font-size: 10px;
+        color: #fff;
+        padding: 5px;
+        border-right: 1px solid #6f6f6f;
+    }
+    .grn_table td {
+        font-size: 12px;
+        font-weight: 400;
+        color: #1e1e1e;
+        padding: 5px 3px;
+        border-right: 1px solid #6f6f6f;
+        border-bottom: 1px dotted #d7d7d7;
+    }
+    .item_popup{
+        background-color: #f3f3f3;
+        padding: 20px;
+        display: none;
+    }
+    .item_popup p {
+        color: #2f2f2f;
+        font-size: 16px;
+        font-weight: 500;
+        padding-bottom: 5px;
+        margin: 0;
+    }
+    .imp{
+        color: #a82d25 !important;
+    }
+    .imp_sp{
+        color: #a900ff !important;
+    }
+    .item_popup {
+        background-color: #f3f3f3;
+        padding: 20px;
+        position: fixed;
+        bottom: 65px;
+    }
+    .itemForm{
+        width: 50%;
+        float: left;
+        margin-bottom: 6px;
+    }
+    .itemFormFull{
+        width: 100%;
+        float: left;
+        margin-bottom: 6px;
+    }
+    .itemFormFull label {
+        color: #3e3e3e;
+        font-size: 15px;
+        font-weight: 500;
+        margin-bottom: 5px;
+    }
+    .itemFormFull input {
+        border: 1px solid #6f6f6f;
+        font-size: 14px;
+        color: #333;
+        padding: 6px;
+        width: 90%;
+    }
+    .itemForm label {
+        color: #3e3e3e;
+        font-size: 15px;
+        font-weight: 500;
+        margin-bottom: 5px;
+    }
+    .itemForm input {
+        border: 1px solid #6f6f6f;
+        font-size: 14px;
+        color: #333;
+        padding: 6px;
+        width: 80%;
+    }
+    .form_footerBtn {
+        position: fixed;
+        bottom: 0px;
+        background-color: #254fa1;
+        z-index: 9999;
+        padding: 20px;
+        width: 100%;
+        left: 0px;
+    }
+    .form_footerBtn button {
+        background-color: #fff;
+        padding: 10px;
+        font-size: 14px;
+        font-weight: 500;
+        text-transform: uppercase;
+        color: #000;
+        border: 1px solid #5f7293;
+        width: 42%;
+        /*float: left;*/
+        margin-right: 15px;
+    }
+
+.loading {
+    position: fixed;
+    z-index: 999999;
+    height: 100%;
+    width: 100%;
+    overflow: show;
+    margin: auto;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    background: #000;
+    opacity: 0.5;
+}
+img.loadingIco {
+    width: 100%;
+    position: absolute;
+    top: 25%;
+}
+.form_footerBtn.errorData {
+        background: #ff4646;
+        text-align: center;
+        font-size: 16px;
+        padding: 20px 0;
+    }
+    p.errortxt {
+        color: #fff;
+        font-size: 18px;
+    }
+    .buttonDiv {
+        overflow: hidden;
+        text-align: center;
+    }
+    .addProdData {
+        background: green;
+        padding: 5%;
+        width: 90%
+    }
+.addProdData h1 {
+    margin: 0;
+    font-size: 22px;
+    color: #fff;
+    margin-bottom: 10px;
+}
+.item_popup.addProduct {
+    background: green;
+}
+.addProdData label {
+    color: #fff;
+}
+.addProdData .form_footerBtn{
+    background: green;
+}
+label.spectTxt {
+    padding: 15px 0 0;
+    display: block;
+}
+.form_footerBtn.addProdBtns button {
+    color: #fff;
+    font-weight: bold;
+    background: #000;
+}
+.form_footerBtn.addProdBtns button.closeBtn {
+    background: red !important;
+}
+input[readonly] {
+    background: #d6d6d6;
+}
+.hidden_item{
+    display: none !important;
+}
+
+    /* CSS specific to iOS devices */ 
+
+    @supports (-webkit-touch-callout: none) {
+    .nav_deader {
+        padding-top: 50px;
+    }
+
+    } 
+
+@media only screen and (max-width: 1600px) {
+    .item_search .scanitem {
+        width: 92%;
+    }      
+}
+@media only screen and (max-width: 1200px) {
+    .item_search .scanitem {
+        width: 90%;
+    }      
+}
+
+@media only screen and (max-width: 993px) {
+    .scanitem label {
+        width: 15%;
+    }
+    .scanitem {
+        width: 92%;
+    } 
+    .item_search .scanitem {
+        width: 92%;
+    }
+    .item_search .scanitem {
+        width: 88%;
+    }           
+}
+
+@media only screen and (max-width: 800px) {
+    .item_search .scanitem {
+        width: 86%;
+    }    
+}
+
+@media only screen and (max-width: 600px) {
+    .scanitem label {
+        width: 22%;
+    }
+    .scanitem {
+        width: 90%;
+    }
+    .item_search .scanitem {
+        width: 90%;
+    } 
+    .item_search .scanitem {
+        width: 80%;
+    }
+
+}
+
+@media only screen and (max-width: 500px) {
+    .item_search .close_icon {
+        right: 10px;
+    }
+    .scanitem label {
+        width: 30%;
+    }
+    .scanitem {
+        width: 88%;
+    }  
+    .item_search .scanitem {
+        width: 88%;
+        }
+    .item_search .scanitem {
+        width: 80%;
+    }    
+}
+
+
+@media only screen and (max-width: 400px) {
+    .item_search .scanitem {
+        width: 80%;
+    }
+    .scanitem {
+        width: 85%;
+    }
+    .GRN_wrap {
+        padding: 8px 6px;
+    }
+    .scanitem label {
+        width: 50%;
+    }
+    .item_padd {
+        padding: 8px 6px;
+    }
+    .item_search .scanitem {
+        width: 85%;
+    } 
+    .item_search .scanitem {
+        width: 72%;
+    }
+
+       
+}     
+
+
+</style>
+
+<body>
+    <div class="nav_deader">
+        <div class="aiplogo">
+            <img src="images/aipsoft.png">
+        </div>
+        <div class="nav_text">
+            <p>AipSoft - <span class="grn_no">GRN_56525656</span></p>
+        </div>
+    </div>
+
+    <div class="GRN_wrap">  
+        <div class="scanitem">
+            <label>Scan Item</label>
+            <input type="text" name="" class="barcode_search" id="barcode_get" onclick="open_camera();"> <!-- ok.openBarcode(); for android sendLoginAction() for ios-->
+            <!-- <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-search scanitem_search" viewBox="0 0 16 16">
+                  <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                </svg>   --> 
+            <div class="search_btn">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-search scanitem_search" viewBox="0 0 16 16">
+                  <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                </svg>   
+            </div>            
+        </div>
+        <button id="myBtn" type="button" class="OK_Btn">OK</button>
+    </div>
+    <div class="item_search hidden">
+        <div class="item_padd">
+            <div class="close_search_btn">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-x-lg close_icon" viewBox="0 0 16 16">
+                  <path d="M1.293 1.293a1 1 0 0 1 1.414 0L8 6.586l5.293-5.293a1 1 0 1 1 1.414 1.414L9.414 8l5.293 5.293a1 1 0 0 1-1.414 1.414L8 9.414l-5.293 5.293a1 1 0 0 1-1.414-1.414L6.586 8 1.293 2.707a1 1 0 0 1 0-1.414z"/>
+                </svg>
+            </div>
+            <div class="scanitem">
+                <label>Scan Item</label>
+                <input type="text" name="" class="prod_search">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-search scanitem_search" viewBox="0 0 16 16">
+                  <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                </svg>
+            </div>
+            <div class="searchlisting_wrap">
+                <ul class="search_result_ul">
+                </ul>
+            </div>
+        </div>
+    </div>
+    <div class="grn_table">
+        <table class="productList">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Item Code</th>
+                    <th>Unit</th>
+                    <th>Cost</th>
+                    <th>Qty</th>
+                    <th>Total</th>
+                </tr>
+            </thead>
+            <tbody>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="footer">
+        <button type="button" class="saveBtn">Save & Close</button>        
+    </div>
+
+
+    <div class="item_popup prod_details">
+        <span class="delete_action hidden"><img src="images/delete.png">Delete</span>
+        <p class="prod_name">Product Name</p>
+        <p class="imp cat_name">Category Name</p>
+        <p class="imp_sp">Packet Qty: <span class="eq_base_qty"></span></p>
+        <!-- <p>Purchase Rate : <span class="purchase_rate">25:00</span></p> -->
+
+        <div class="form_wrap p_loopable">
+            <div class="itemForm">
+                <label>Purchase Rate</label>
+                <input type="text" name="" readonly="readonly" class="pur_rate numeric_only" value="1">
+            </div> 
+            <div class="itemForm">
+                <label>Sale Rate</label>
+                <input type="text" name="" readonly="readonly" class="s_rate numeric_only" value="1">
+            </div> 
+            <div class="itemForm">
+                <label>Qty Available</label>
+                <input type="text" name="" readonly="readonly" class="qty_avl numeric_only" value="1">
+            </div> 
+            <div class="itemForm">
+                <label>Qty in Hand</label>
+                <input type="text" name="" class="form-control comm_inp s_width change_in change_in_qty update_fld quantity active_inp num qty_in_hand numeric_only" value="1">
+            </div> 
+            <div class="itemForm">
+                <label>Qty Adjusted</label>
+                <input type="text" name="" class="form-control comm_inp s_width change_in change_in_qty update_fld quantity active_inp num qty_adjstd numeric_only" value="1">
+            </div>           
+            <div class="itemForm">
+                <label>Adj. Qty Value</label>
+                <input type="text" name="" class="form-control comm_inp s_width update_fld_amt adjsted_amount active_inp numeric_only">
+            </div>            
+            <div class="itemForm">
+                <label>Net Amount</label>
+                <input type="text" readonly="readonly" name="" class="form-control comm_inp s_width net_amount update_fld_amt disable_style numeric_only" value="0">
+            </div>            
+            <div class="form_footerBtn">
+                <button type="button" class="addBtn">ADD</button>
+                <button type="button" class="closeBtn">Close</button>
+            </div>
+        </div>
+
+    </div>
+    <div class="item_popup addProduct">
+    </div>
+<script type="text/javascript" src="js/jquery-3.5.1.min.js"></script>
+<script type="text/javascript" src="js/typeahead.bundle.js"></script>
+<script src="js/jquery-confirm.min.js"></script>
+<script>
+    $(document).ready(function() {
+        // loadAjax()
+        getDefaultBarcode();
+        mainSearchBarcode();
+        $('.grn_no').text('INV_'+inventory_id);
+        $('.barcode_search').focus(function(){
+            $(this).select();
+        })
+        setTimeout(function(){$('.barcode_search').focus()},100);
+    })
+    let getDefaultBarcode = function()
+    {
+        $.ajax({
+                url: api_url+'/purchase_api/default_barcode',
+                method: 'POST',
+                data: {'branch_id':branch_id,'client_identifier':client_identifier},
+                success: function(response) {
+                    var data =JSON.parse(response);
+                    $('.OK_Btn').data('def_barcode','0');
+                    if(data.status==1)
+                    {
+                        $('.OK_Btn').data('def_barcode',data.default_barcode.default_barcode)
+                    }
+                },
+                error:function (xhr, ajaxOptions, thrownError){
+                }   
+            });
+    }
+    function clearCart(){
+        $('.productList tbody tr').removeClass('selected')
+        $('.prod_name').html('')
+        $('.cat_name').html('')
+        $('.current_stock').html('')
+        $('.s_rate').val('')
+        $('.prod_qty').val('')
+        $('.delete_action').addClass('hidden')
+        $('.addBtn').attr('data-details_id', 0)
+        $('.addBtn').html('ADD')
+        $('.prod_details').hide();
+        $(".prod_details").find('.itemForm').eq(0).show();
+        $(".prod_details").find('.itemForm').eq(1).show();
+        $(".prod_details").find('.itemForm').eq(2).show();
+        $(".prod_details").find('.itemForm').eq(3).show();
+        $(".prod_details").find('.itemForm').eq(5).show();
+        $(".prod_details").find('.itemForm').eq(6).show();
+    }
+    function deleteItemRequestRow(details_id){
+
+      loadAjax();
+        $.ajax({
+            url: api_url+'/purchase_api/deleteInventoryRow',
+            method: 'POST',
+            data: {'details_id':details_id,'client_identifier':client_identifier},
+            success: function(response) {
+                removeAjaxLoad();
+                $('.barcode_search').select()
+                var data =JSON.parse(response);
+                console.log(data);
+                if(data.status==1)
+                {
+                    $('.productList tbody tr.selected').toggle("slow")
+                    clearCart();
+                    loadInventoryData();
+                }
+            },
+            error:function (xhr, ajaxOptions, thrownError){
+                    removeAjaxLoad();
+                    $.alert('Error Occurred..!');
+                    return false;                          
+                }   
+        });
+ }
+    function mainSearchBarcode()
+    {
+        let search_sale_products = new Bloodhound(
+        {
+            datumTokenizer: function(datum) {
+              return Bloodhound.tokenizers.whitespace(datum.value);
+            },
+            queryTokenizer: Bloodhound.tokenizers.whitespace,
+            remote: 
+            {
+                url: api_url+"/pos_api/getProductsUsingHints",
+                prepare:function(query, settings)
+                {
+                  $('.notify').remove();
+                  $(".spin_loader_cp").removeClass('hidden_section');
+                  $('.search_result').html('');
+                  settings.url = this.url + "/"+branch_id+'/'+client_identifier+'/'+query;
+                  return settings;
+                },
+                transform: function(response) 
+                {
+                      $(".spin_loader_cp").addClass('hidden_section');
+                      $('.search_result').html('');
+                      console.log(response)
+                      if(response != null && response.length > 0)
+                      {
+                          // $('.barcode_scan_field').parents('.label_style').find('.tt-menu').addClass('box_ul searchbox_arrow');
+                          // return response;
+                          let displayHtml = ``;
+                          $.each(response,function(indx,item)
+                          {
+                              let price = Number(item.sale_rate_new?item.sale_rate_new:0).toFixed(2);
+                              let prod_name = item.product_name1;
+                              displayHtml += `<li class="ItemData item_${item.id}" data-id="${item.id}" data-barcode="${item.barcode}">${prod_name} ${item.packing_description?` - ${item.packing_description}`:``} <p style="margin-top:4px"> ${item.avail_units} (${item.avail_unit_eq_to_base} ${item.baseunit}) - ${item.barcode}</p></li>`;
+                              
+                          })
+                          $('.search_result_ul').html(displayHtml);
+                          $('.search_result_ul').find('li:first-child').addClass('selected');
+                      }
+                      else
+                      {
+                          $('.search_result_ul').html('<li> No items found!...</li>');
+                          //$('.prod_search').removeData();
+                          $('.prod_search').focus();
+                      }
+                }
+            }
+        });
+        search_sale_prdt_ahead = $('.prod_search').typeahead(
+        {
+            hint: false,
+            highlight: true,
+            minLength: 1
+        },
+        {
+            limit: 50,
+            name: 'Search_sale_products',
+            source: search_sale_products,
+            display:function(data)
+            {
+                data.product_name
+            },
+            templates: 
+            {
+                suggestion: function(item) 
+                {
+                    // let price = Number(item.sale_rate).toFixed(no_of_decimals);
+                    // let displayHtml = `<tr data-id="${item.barcode}" tabindex="0">
+                    //                     <td>${item.product_name}</td>
+                    //                     <td>${item.cat_name}</td>
+                    //                     <td>${Number(item.cost).toFixed(no_of_decimals)}</td>
+                    //                     <td>${price}</td>
+                    //                     <td>${item.stock?item.stock:'0'}</td>
+                    //                 </tr>`;
+                    // $('.search_result').append(displayHtml);
+                    // $('.search_result').find('tr:first-child').addClass('selected');
+                    // return displayHtml;
+                }
+            }
+        });
+        $('.prod_search').bind('typeahead:selected', function(obj, datum, name) 
+        {  
+            $(".notify").remove();
+            $('.searchbox_arrow').hide();
+            $('.tt-dataset').empty();
+            selectedItemFromList(datum.barcode);
+        });
+    }
+    $(document).on('keyup','.barcode_search',function(e){
+        // let val = $(this).val();
+        // if(val!='' && (e.which == 13  || e.keyCode == 13))
+        // {
+        //     $('.OK_Btn').click();
+        // }
+        let val = $(this).val();
+        let val_array = val.split("");
+        console.log('length', val_array.length)
+        console.log('numeric', !$.isNumeric(val))
+        console.log({val});
+        if (val_array.length >= 3 && !$.isNumeric(val)) {
+
+            $('.prod_search').val(val);
+            $('.item_search').removeClass('hidden');
+            $('.prod_search').focus();
+            $('.prod_search').trigger('input');
+        }
+        if(val!='' && (e.which == 13  || e.keyCode == 13))
+        {
+            $('.OK_Btn').click();
+        }
+    })
+    $(document).on('click','.delete_action',function(e){
+
+        let thisRow = $('.productList tbody tr.selected');
+        let details_id = thisRow.attr('data-details_id')?thisRow.attr('data-details_id'):'';
+
+        if(details_id!= 0)
+        {
+            
+             $.confirm({
+                title:'Confirmation !',
+                content: 'Are you sure to delete the row ? ',
+                buttons: {
+                    Okay: function () {
+                           deleteItemRequestRow(details_id)
+                    },
+                    Cancel: function () {
+                            
+                    }
+                },
+                onOpen: function () {
+                // after the modal is displayed.
+                   
+                },
+
+            });
+
+        }
+    })
+    $(document).on('keyup','.prod_qty',function(e){
+        let val = $(this).val();
+        if(val!='' && (e.which == 13  || e.keyCode == 13))
+        {
+            $('.prod_foc').select();
+        }
+    })
+    $(document).on('keyup','.pur_rate',function(e){
+        let val = $(this).val();
+        if(val!='' && (e.which == 13  || e.keyCode == 13))
+        {
+            $('.s_rate').select();
+        }
+    })
+    $(document).on('keyup','.s_rate',function(e){
+        let val = $(this).val();
+        if(val!='' && (e.which == 13  || e.keyCode == 13))
+        {
+            $('.qty_in_hand').select();
+        }
+    })
+    $(document).on('input','.pur_rate',function(e){
+        let price   = Number($(this).val()?$(this).val():1);
+        let qty     = Number($('.prod_qty').val());
+        let tot     = qty*price;
+        let assignedTax = $('.prod_name').data('product_taxes');
+        calculateTax(assignedTax,price);
+        $('.prod_total').val(tot.toFixed(2))
+    })
+    $(document).on('input','.prod_qty',function(e){
+        let qty     = Number($(this).val()?$(this).val():1);
+        let price   = Number($('.pur_rate').val());
+        let tot     = qty*price;
+        $('.prod_total').val(tot.toFixed(2))
+    })
+    $(document).on('input','.prod_foc',function(e){
+        let foc     = Number($(this).val()?$(this).val():0);
+        let qty   = Number($('.prod_qty').val());
+        let tot     = foc+qty;
+        $('.tot_qty').val(tot)
+    })
+    $(document).on('keyup','.adjsted_amount',function(e){
+        let val = $(this).val();
+        console.log(e.which)
+        if((e.which == 13  || e.keyCode == 13))
+        {
+            console.log(e.keyCode)
+            // $('.addBtn').click();
+        }
+    })
+    $(document).on('click','.addBtn',function(e){
+        $(this).attr("disabled", true);
+        let thisButton = $(this);
+        let barcode  = $('.barcode_search').val();
+        let prod_qty = Number($('.qty_adjstd').val());
+        let adj_amt  = Number($('.adjsted_amount').val());
+        let net_amt  = Number($('.net_amount').val());
+        let p_rate   = Number($('.pur_rate').val());
+        let s_rate   = Number($('.s_rate').val());
+        let p_unit   = $('.prod_name').data('unit');
+        let p_unit_id= $('.prod_name').data('unit_id');
+        let p_prod_id= $('.prod_name').data('prod_id');
+        let eq_to_base      = Number($('.prod_name').data('eq_to_base'));
+        let product_taxes   = $('.prod_name').data('product_taxes');
+        let pur_rate        = p_rate/eq_to_base;
+        let pr_name         = $('.prod_name').text();
+        let margin_perc     = 0;
+        let profit          = Number(s_rate-p_rate);
+        margin_perc         = (profit/s_rate)*100;
+        margin_perc         = Number(margin_perc).toFixed(6);
+
+
+        let product_total_tax = Number($('.prod_name').data('product_total_tax'));
+        let tot_tax_amount    = Number($('.prod_name').data('tot_tax_amount'));
+        let tax_less_amount   = Number($('.prod_name').data('tax_less_amount'));
+        let with_tax_amount   = Number($('.prod_name').data('with_tax_amount'));
+        let details_id        = thisButton.attr('data-details_id')?thisButton.attr('data-details_id'):0;
+        
+        console.log('prod_qty - '+prod_qty)
+        console.log('barcode - '+barcode)
+        if((barcode!='' && prod_qty!='' && prod_qty!='0') || details_id != 0)
+        {
+            if(!$(this).hasClass('clicked'))
+                $(this).addClass('clicked');
+            else
+                return false;
+            loadAjax();
+            $.ajax({
+                url: api_url+'/purchase_api/addProductToInvCart',
+                method: 'POST',
+                data: {'barcode': barcode,'inventory_id': inventory_id,'p_prod_id':p_prod_id,'prod_qty':prod_qty,'adj_amt':adj_amt,'net_amt':net_amt,'p_rate':p_rate,'pur_rate':pur_rate,'s_rate':s_rate,'p_unit_id':p_unit_id,'branch_id':branch_id,'eq_to_base':eq_to_base,'margin_perc':margin_perc,'product_taxes':product_taxes,'product_total_tax':product_total_tax,'tot_tax_amount':tot_tax_amount,'tax_less_amount':tax_less_amount,'with_tax_amount':with_tax_amount,'tax_included':tax_included,'client_identifier':client_identifier, 'details_id' : details_id},
+                success: function(response) {
+                    thisButton.removeAttr("disabled");
+                    $('.addBtn').removeClass('clicked');
+                    removeAjaxLoad();
+                    $('.barcode_search').val('').focus()
+                    var data =JSON.parse(response);
+                    console.log(data);
+                    if(data.status==1)
+                    {
+                        if (details_id != 0) {
+                            $('.productList tbody tr.selected').find('.qty_span').text(prod_qty)
+                            clearCart();
+                        }
+                        else
+                        {
+
+                            let sl_no = 1;
+                            if($(".sl_no").length>0)
+                            {
+                                sl_no = Number($(".sl_no").length)+1;
+                            }
+                            let totQty = prod_qty;
+                            let tRow = '<tr class="item_row" data-details_id="'+data.order_id+'">\
+                                            <td class="sl_no" data-barcode="'+barcode+'">'+sl_no+'</td>\
+                                            <td >'+barcode+' - <br /><span class="prdt_span">'+pr_name+'</span></td>\
+                                            <td >'+p_unit+'</td>\
+                                            <td >'+adj_amt.toFixed(2)+'</td>\
+                                            <td ><span class="qty_span">'+totQty+'</span></td>\
+                                            <td >'+(prod_qty*adj_amt).toFixed(2)+'</td>\
+                                        </tr>';
+                            $('.productList tbody').append(tRow);
+                        }
+                    }
+                    else
+                    {
+                        $('.prod_details').hide();
+                         $.alert(data.message);
+                         return false;
+                    }
+                    $('.closeBtn').click();
+                },
+                error:function (xhr, ajaxOptions, thrownError){
+                        $('.addBtn').removeClass('clicked');
+                        removeAjaxLoad();
+                        $.alert('No vendor found..!');
+                        return false;                          
+                    }   
+            });
+        }
+    })
+
+    $(document).on('click','.saveBtn',function(e){
+        $.confirm({
+            title:'Confirmation!',
+            content: 'Are you sure to save the updates?',
+            buttons: {
+                Okay: function () {
+                        loadAjax()
+                        $.ajax({
+                                url: api_url+'/purchase_api/submitFinalInvOrder',
+                                method: 'POST',
+                                data: {'order_id': inventory_id,'client_identifier':client_identifier},
+                                success: function(response) {
+                                    removeAjaxLoad();
+                                    $('.barcode_search').select()
+                                    var data =JSON.parse(response);
+                                    console.log(data);
+                                    if(data.status==1)
+                                    {
+                                        window.localStorage.setItem('inventory_id','0');
+                                        window.localStorage.setItem('stockType_id','0');
+                                        $.alert({
+                                                title: 'Success',
+                                                content: 'Order successfully placed.',
+                                                onContentReady: function () {
+                                                    setTimeout(function(){$(".jconfirm-buttons").find('button').focus();},100);
+                                                },
+                                                onClose: function () { window.location = "home.html";}
+                                            });
+                                       
+                                    }
+                                    else
+                                    {
+                                        $.alert(data.message);
+                                        return false;
+                                    }
+                                    $('.closeBtn').click();
+                                },
+                                error:function (xhr, ajaxOptions, thrownError){
+                                        removeAjaxLoad();
+                                        $.alert('No Data found..!');
+                                        return false;                          
+                                    }   
+                            });
+                },
+                Cancel: function () {
+                        
+                }
+            },
+            onOpen: function () {
+            // after the modal is displayed.
+               
+            },
+
+        });
+    })
+    $(document).on('click','.closeBtn',function(e){
+        $('.prod_name').text(''); 
+        $('.cat_name').text(''); 
+        $('.purchase_rate').text(''); 
+        $('.prod_qty').val(1); 
+        $('.prod_foc').val(0); 
+        $('.tot_qty').val(1); 
+        $('.prod_total').val(''); 
+        $('.prod_name').data('unit','');
+        $('.prod_name').data('unit_id','');
+        $('.prod_name').data('prod_id','');
+
+        $('.prod_name').data('eq_to_base','');
+        $('.prod_name').data('product_taxes','');
+        $('.prod_name').data('product_total_tax','');
+        $('.prod_name').data('tot_tax_amount','');
+        $('.prod_name').data('tax_less_amount','');
+        $('.prod_name').data('with_tax_amount','');
+        $('.item_popup').hide();
+        $('.barcode_search').select();
+        $(".prod_details").find('.itemForm').eq(0).show();
+        $(".prod_details").find('.itemForm').eq(1).show();
+        $(".prod_details").find('.itemForm').eq(2).show();
+        $(".prod_details").find('.itemForm').eq(3).show();
+        $(".prod_details").find('.itemForm').eq(5).show();
+        $(".prod_details").find('.itemForm').eq(6).show();
+    })
+    $(document).on('click','.addProd',function(e){
+        let barcode = $(this).data('id');
+        $('.addProduct').html('').hide();
+        let divHtml = '<div class="addProdData">\
+                            <div class="form_wrap">\
+                                <h1>Create New Product</h1>\
+                                <div class="itemFormFull rows">\
+                                    <label>Barcode</label>\
+                                    <input type="text" name="" class="prod_barcode" value="'+barcode+'" >\
+                                </div>   \
+                                <div class="itemFormFull rows">\
+                                    <label>Item Name</label>\
+                                    <input type="text" name="" class="prod_name_val" value="" >\
+                                </div>            \
+                                <div class="itemForm rows">\
+                                    <label>Purchase Rate</label>\
+                                    <input type="number" name="" class="purchase_rate_val" value="0" onkeypress="return (event.charCode == 8 || event.charCode == 0 || event.charCode == 13) ? null : event.charCode >= 48 && event.charCode <= 57">\
+                                </div>            \
+                                <div class="itemForm rows">\
+                                    <label>Sales Rate</label>\
+                                    <input type="number" name="" class="sale_rate_val" value="0" onkeypress="return (event.charCode == 8 || event.charCode == 0 || event.charCode == 13) ? null : event.charCode >= 48 && event.charCode <= 57">\
+                                </div> \
+                                <div class="itemFormFull">\
+                                    <label class="spectTxt">Tax will not add, Tax add from backoffice</label>\
+                                </div>\
+                                <div class="form_footerBtn addProdBtns">\
+                                    <button type="button" class="addProdBtn">ADD</button>\
+                                    <button type="button" class="closeBtn">Close</button>\
+                                </div>\
+                            </div>\
+                        </div>';
+        $('.addProduct').html(divHtml).show();
+        setTimeout(function(){$('.prod_name_val').select()},100);
+    })
+    $(document).on('keyup','.rows input',function(e){
+        let val = $(this).val();
+        if(val!='' && (e.which == 13  || e.keyCode == 13))
+        {
+           if($(this).parents('.rows').next('.rows').find('input').length > 0)
+           {
+                $(this).parents('.rows').next('.rows').find('input').trigger('select');
+           }
+           else
+           {
+                $('.addProdBtn').trigger('click')
+           }
+        }
+    })
+    // $(document).on('focus','input',function(e){
+    //     $(this).select();
+    // })
+    $(document).on('click','.addProdBtn',function(e){
+        let barcode  = $('.prod_barcode').val();
+        let prod_name= $('.prod_name_val').val();
+        let purchase_rate   = $('.purchase_rate_val').val();
+        let sale_rate       = $('.sale_rate_val').val();
+        let def_barcode     = $('.OK_Btn').data('def_barcode');
+        console.log(barcode+"!='' && "+prod_name+"!='' && "+purchase_rate+"!='' && "+sale_rate+"!='' && "+barcode+"!='0'")
+        if(barcode!='' && prod_name!='' && purchase_rate!='' && sale_rate!='' && barcode!='0')
+        {
+            loadAjax();
+            $.ajax({
+                url: api_url+'/purchase_api/creatProduct',
+                method: 'POST',
+                data: {'user_id':api_user_id,'barcode': barcode,'prod_name': prod_name,'purchase_rate':purchase_rate,'sale_rate':sale_rate,'def_barcode':def_barcode,'branch_id':branch_id,'currency_id':currency_id,'client_identifier':client_identifier},
+                success: function(response) {
+                    removeAjaxLoad();
+                    $('.barcode_search').select()
+                    var data =JSON.parse(response);
+                    console.log(data);
+                    if(data.status==1)
+                    {
+                        $('.closeBtn').click();
+                        $('.OK_Btn').data('def_barcode',data.default_barcode.default_barcode)
+                        // let e = jQuery.Event("keypress");
+                        // e.which = 13; // 
+                        $('.OK_Btn').trigger('click');
+                    }
+                    else
+                    {
+                        $('.prod_details').hide();
+                         $.alert(data.message);
+                         return false;
+                    }
+                },
+                error:function (xhr, ajaxOptions, thrownError){
+                        removeAjaxLoad();
+                        $.alert('No vendor found..!');
+                        return false;                          
+                    }   
+            });
+        }
+    })
+    $(document).on('click','.OK_Btn',function(e){
+        let val = $('.barcode_search').val();
+        if(val!='')
+        {
+            $('.addProduct').html('').hide();
+            loadAjax()
+            $.ajax({
+                url: api_url+'/purchase_api/loadProduct',
+                method: 'POST',
+                data: {'barcode': val,'branch_id':branch_id,'client_identifier':client_identifier},
+                success: function(response) {
+                    removeAjaxLoad();
+                    $('.barcode_search').select()
+                    var data =JSON.parse(response);
+                    console.log(data);
+                    if(data.status==1)
+                    {
+                        let productData  = data.data;
+                        let duplicate_flag = 0;
+                        $(".item_row").each(function(){
+                            if($(this).find('.sl_no').data('barcode')==val)
+                            {
+                                duplicate_flag=1;
+                                return false;
+                            }
+                            
+                        });
+                        if(duplicate_flag==1)
+                        {
+                            $.confirm({
+                                title:'Confirmation!',
+                                content: 'This product already added, Are you sure to add again?',
+                                buttons: {
+                                    Okay: function () {
+                                        proceedToAdd(productData,1);
+                                    },
+                                    Cancel: function () {
+                                        $('.closeBtn').click();    
+                                    }
+                                },
+                                onOpen: function () {
+                                // after the modal is displayed.
+                                   
+                                },
+
+                            });
+                        }
+                        else
+                        {
+                            proceedToAdd(productData)
+                        }
+                    }
+                    else
+                    {
+                        $('.prod_details').hide();
+                        addProd_cls = '';
+                        if(module_settings.add_product_from_mobile_application=='1' || user_type == 'Admin')
+                        {
+                            addProd_cls = 'hidden_item';
+                        }
+                        let divHtml = '<div class="form_footerBtn errorData">\
+                                            <p class="errortxt">'+val+'</p>\
+                                            <p class="errortxt">Product not found !!!</p>\
+                                             <p class="errortxt '+addProd_cls+'">Create New</p>\
+                                            <div class="buttonDiv">\
+                                                <button type="button" class="addProd '+addProd_cls+'" data-id="'+val+'">ADD</button>\
+                                            <div class="buttonDiv">\
+                                                <button type="button" class="closeBtn">Close</button>\
+                                            </div>\
+                                        </div>';
+                        $('.addProduct').html(divHtml).show();
+                         // $.alert(data.message);
+                         return false;
+                    }
+                },
+                error:function (xhr, ajaxOptions, thrownError){
+                        removeAjaxLoad();
+                        $.alert('No vendor found..!');
+                        return false;                          
+                    }   
+            });
+        }
+    })
+    function loadAjax()
+    {
+        $('body').append("<div class='loading'><img src='images/new_loader.gif' class='loadingIco'></div>");
+        // $('.loading').removeClass('invisibl');
+    }
+    function removeAjaxLoad()
+    {
+        $('.loading').remove();
+        // setTimeout(function(){ $('.loading').remove();},100);
+    }
+    function proceedToAdd(productData,mode=0)
+    {
+        if(productData.data_count > 0)
+        {
+            let product       = productData.data_result;
+            let assignedTax   = productData.assigned_tax;
+            let eq_to_base    = Number(product[0].avail_unit_eq_to_base!=null?product[0].avail_unit_eq_to_base:1);
+            let purchase_rate = Number(product[0].purchase_rate!=null?product[0].purchase_rate:'0.00');
+            purchase_rate     = Number(eq_to_base*purchase_rate);
+            let sale_price    = Number(product[0].sale_price!=null?product[0].sale_price:'0.00');
+            $('.prod_name').text(product[0].product_name); 
+            $('.prod_name').data('unit',product[0].avail_units);
+            $('.prod_name').data('eq_to_base',eq_to_base);
+            $('.prod_name').data('unit_id',product[0].unit_id);
+            $('.prod_name').data('prod_id',product[0].id);
+            $('.prod_name').data('product_taxes',assignedTax);
+            $('.cat_name').text(product[0].category_name);
+            $('.eq_base_qty').text(eq_to_base);
+            calculateTax(assignedTax,purchase_rate);
+            // $('.purchase_rate').text(purchase_rate).hide(); 
+            let qty_avl = Number(product[0].stock)/eq_to_base;
+            $('.qty_avl').val(qty_avl); 
+            $('.qty_in_hand').val(qty_avl); 
+            $('.qty_adjstd').val(0); 
+            $('.adjsted_amount').val(purchase_rate.toFixed(2)); 
+            $('.prod_total').val(purchase_rate.toFixed(2)); 
+            $('.pur_rate').val(purchase_rate.toFixed(2)); 
+            $('.s_rate').val(sale_price.toFixed(2)); 
+            $('.prod_details').show();
+
+            addProd_cls = '';
+            if(module_settings.focus_after_scaning_barcode=='new_qty_on_hand')
+            {
+                setTimeout(function(){$('.qty_in_hand').select()},300)
+            }
+            else if(module_settings.focus_after_scaning_barcode=='qty_adjusted')
+            {
+                setTimeout(function(){$('.qty_adjstd').select()},300)
+            }
+            else if(module_settings.focus_after_scaning_barcode=='qty_adjusted_qty_value')
+            {
+                setTimeout(function(){$('.adjsted_amount').select()},300)
+            }
+            else if(module_settings.focus_after_scaning_barcode=='purchase_rate')
+            {
+                setTimeout(function(){$('.pur_rate').select()},300)
+            }
+            else if(module_settings.focus_after_scaning_barcode=='sales_rate')
+            {
+                setTimeout(function(){$('.s_rate').select()},300)
+            }
+            else if(!$('input.pur_rate').is('[readonly]'))
+            {
+                setTimeout(function(){$('.pur_rate').select()},300)
+            }
+            else
+            {
+                setTimeout(function(){$('.qty_adjstd').select()},300)
+            }
+            if(module_settings.edit_cost_non_admin_mobile=='1' || user_type == 'Admin')
+            {
+                $('.pur_rate').attr("readonly", false); 
+            }
+            if(module_settings.edit_sale_rate_non_admin_mobile=='1' || user_type == 'Admin')
+            {
+                $('.s_rate').attr("readonly", false); 
+            }
+            // if(mode==1)
+            //     setTimeout(function(){$('.qty_in_hand').select()},300)
+            // else
+            //     setTimeout(function(){$('.qty_in_hand').select()},100)
+        }
+    }
+    function calculateTax(taxes,pur_rate)
+    {
+        let product_total_tax = 0;
+        let tax_less_amount   = Number(pur_rate);
+        let tot_tax_amount    = 0;
+        let with_tax_amount   = Number(pur_rate);
+        if(taxes!=null && taxes!= undefined)
+        {
+            $.each(taxes,function(index,each_tax){
+                let per = '%';
+                let tax_rate = 0;
+                let tax = 0;
+                let tax_value = each_tax['tax_value'];
+                if (tax_value != 0) {
+                    tax_rate = tax_value.toString().split(per);
+                    tax = Number(tax_rate[0]);
+                }
+                if (tax_rate.length > 0) {
+                     product_total_tax += tax;
+                }
+                // console.log('tax_value - ' +each_tax['tax_value']);
+            });
+            console.log('tax_included - '+tax_included)
+            if(product_total_tax > 0)
+            {
+                if (tax_included == 1) 
+                {
+                    console.log('I am here')
+                    tot_tax_amount  = Number(pur_rate - (pur_rate/(product_total_tax+100))*100);
+                    tax_less_amount = pur_rate-tot_tax_amount;
+                    with_tax_amount = Number(pur_rate);
+                }
+                else
+                {
+                     console.log('No, I am here')
+                    tot_tax_amount  = Number((product_total_tax/100)*pur_rate);
+                    tax_less_amount = Number(pur_rate);
+                    with_tax_amount = Number(pur_rate)+Number(tot_tax_amount);
+                }
+            }
+        }
+        else
+        {
+            tax_less_amount = Number(pur_rate);
+            with_tax_amount = Number(pur_rate);
+        }
+        console.log('product_total_tax - '+product_total_tax)
+        console.log('tot_tax_amount - '+tot_tax_amount)
+        console.log('tax_less_amount - '+tax_less_amount)
+        console.log('with_tax_amount - '+with_tax_amount)
+        $('.prod_name').data('product_total_tax',product_total_tax);
+        $('.prod_name').data('tot_tax_amount',tot_tax_amount);
+        $('.prod_name').data('tax_less_amount',tax_less_amount);
+        $('.prod_name').data('with_tax_amount',with_tax_amount);
+    }
+
+ function setDelayItem(str)
+   {
+    $('#barcode_get').val(str);
+    $('#myBtn').click();
+   }
+
+function setRequestFocus()
+{
+
+setTimeout(function(){ $('#barcode_get').focus(); }, 300);
+}
+$(document).on('click','.search_btn',function(e){
+    $('.item_search').removeClass('hidden');
+    $('.prod_search').focus();
+})
+$(document).on('click','.close_search_btn',function(e){
+    let val = $('.prod_search').val();
+    $('.item_search').addClass('hidden');
+    $('.barcode_search').val(val)
+    $('.barcode_search').focus()
+});
+$(document).on('click','.productList tbody tr',function(e){
+    $(".productList tbody tr").removeClass('selected');
+    $(this).addClass('selected');
+    let details_id = $("tr.selected").attr('data-details_id')?$("tr.selected").attr('data-details_id'):'';
+    let prod_name = $("tr.selected").find('.prdt_span').text();
+    let prod_qty = $("tr.selected").find('.qty_span').text();
+    console.log(prod_name);
+    console.log(prod_qty);
+    $(".prod_details").find('p.prod_name').text(prod_name);
+    $(".prod_details").find('.qty_adjstd').val(prod_qty);
+    $(".prod_details").find('.itemForm').eq(0).hide();
+    $(".prod_details").find('.itemForm').eq(1).hide();
+    $(".prod_details").find('.itemForm').eq(2).hide();
+    $(".prod_details").find('.itemForm').eq(3).hide();
+    $(".prod_details").find('.itemForm').eq(5).hide();
+    $(".prod_details").find('.itemForm').eq(6).hide();
+    $(".prod_details").find('.imp.cat_name').hide();
+    $(".prod_details").find('.imp_sp').hide();
+    $(".prod_details").find('.qty_adjstd').focus();
+    $(".delete_action").removeClass('hidden');
+    $('.addBtn').attr('data-details_id', details_id)
+    $('.addBtn').html('UPDATE')
+    $('.qty_adjstd').select();
+    $('.prod_details').show();
+
+});
+$(document).on('click','.search_result_ul li',function(e){
+    let barcode = $(this).attr('data-barcode')?$(this).attr('data-barcode'):0;
+    $('.barcode_search').val(barcode);
+    $('.OK_Btn').trigger('click')
+    $('.item_search').addClass('hidden');
+})
+$(document).on('keypress keyup blur', 'input.numeric_only', function(evt) {
+    var regex = new RegExp("^[0-9.]");
+    let charCode = event.charCode ? event.which : event.charCode;
+    var key = String.fromCharCode(charCode);
+    if (!regex.test(key)) {
+        event.preventDefault();
+        return false;
+    }
+    else
+    {
+        let existing_value = $(this).val();
+        if(charCode == 46)
+        {
+            if(existing_value.includes('.'))
+            { 
+                event.preventDefault();
+                return false;
+            }
+        }
+        else if(charCode == 45)
+        {
+            // if(existing_value.includes('-'))
+            if(existing_value!='' && existing_value!='0')
+            { 
+                event.preventDefault();
+                return false;
+            }
+        }
+        else if(charCode == 43)
+        {
+            // if(existing_value.includes('+'))
+            if(existing_value!=''  && existing_value!='0')
+            { 
+                event.preventDefault();
+                return false;
+            }
+        }
+    }
+});
+
+$(document).on('keypress keyup blur', 'input.pur_rate', function(evt) {
+    let p_rate = $(this).val();
+    $('.adjsted_amount').val(p_rate);
+});
+
+$('body').on('input', '.update_fld,.update_fld_amt', function(e) {
+    updateRowData($(this));
+})
+function updateRowData($this)
+{
+    if($this.hasClass('update_fld'))
+    {
+        $this.addClass('updating');
+        let qty_avl     = Number($this.parents('.p_loopable').find('.qty_avl').val()!=undefined?$this.parents('.p_loopable').find('.qty_avl').val():0);
+        let this_val = Number(($this.val()!=undefined) && ($this.val()!='+') && ($this.val()!='-') && ($this.val()!='.')?$this.val():0);
+        // console.log('qty_avl - '+qty_avl);
+        // console.log('this_val - '+this_val);
+        if($('.updating').hasClass('qty_in_hand'))
+        {
+            let qty_diff    = this_val - qty_avl;
+            // console.log('qty_diff inside QTH - '+qty_diff);
+            let new_qty_hnd = qty_diff>0?'+'+qty_diff:qty_diff;
+            // console.log('new_qty_hnd inside QTH - '+new_qty_hnd);
+            $this.parents('.p_loopable').find('.qty_adjstd').val(new_qty_hnd);
+        }
+        if($('.updating').hasClass('qty_adjstd'))
+        {
+            if(stockType_id == 3 || stockType_id == 4)
+            {
+                this_val = -Math.abs(this_val);
+                $('.qty_adjstd').val(this_val)
+            }
+            let new_qty_hnd = qty_avl + this_val;
+            // console.log('new_qty_hnd inside ADJ - '+new_qty_hnd);
+            $this.parents('.p_loopable').find('.qty_in_hand').val(new_qty_hnd);
+        }
+    }
+    // if($this.hasClass('update_fld_amt'))
+    // {
+        // $this.addClass('updating');
+        let adj_amt = Number(($this.parents('.p_loopable').find('.adjsted_amount').val()!=undefined) && ($this.val()!='+') && ($this.val()!='-') && ($this.val()!='.')?$this.parents('.p_loopable').find('.adjsted_amount').val():0);
+        let qty_adjstd  = Number($this.parents('.p_loopable').find('.qty_adjstd').val()!=undefined?$this.parents('.p_loopable').find('.qty_adjstd').val():0);
+        // console.log('adj_amt inside NETAMNT - '+adj_amt);
+        // console.log('qty_adjstd inside NETAMNT - '+qty_adjstd);
+        let new_net_amt = adj_amt*qty_adjstd;
+        new_net_amt = new_net_amt<0?new_net_amt*-1:new_net_amt;
+         // console.log('new_net_amt inside NETAMNT - '+new_net_amt);
+        $this.parents('.p_loopable').find('.net_amount').val(new_net_amt.toFixed(2))
+    // }   
+    setTimeout(function(){ $this.removeClass('updating'); },1000); 
+}
+$('body').on('keydown', '.p_loopable input.active_inp, .p_loopable select', function(e) {
+    // console.log('pressed key inside here')
+    let inp = $(this);
+    if (e.which == 13  || e.keyCode == 13 || e.which == 9 || e.which == 39) {
+      if (inp.hasClass('latest_row') && inp.parents('tr').hasClass('cartRow')) {
+        addPrdRow(inp);
+        return false;
+       
+      }
+      else if(inp.is("select")){
+            focusable = $('.p_loopable').find('input.active_inp,select').filter(':visible');
+            next = focusable.eq(focusable.index(this)+1);
+            next.focus().select();
+            return false;
+        
+      }else{
+        focusable = $('.p_loopable').find('input.active_inp,select').filter(':visible');
+        next = focusable.eq(focusable.index(this)+1);
+        if (next.length) {
+            if(next.hasClass('select2-hidden-accessible')){
+                 next.select2('open');
+            }else if (next.hasClass('main_active_inp')) {
+                // console.log("iam in");
+                inp.focus().select();
+            }
+            else{
+                next.focus().select();  
+            }
+             
+        } else {
+            $('.total_quantity').focus();
+        }
+        return false;
+      }
+        
+    }else if (e.which == 37) { //left
+          if (inp.hasClass('barcode')) {
+            return false;
+          }
+          else if(inp.is("select")){
+            
+                focusable = $('.p_loopable').find('input.active_inp,select').filter(':visible');
+                prev = focusable.eq(focusable.index(this)-1);
+                prev.focus().select();
+                return false;
+            
+          }else{
+            focusable = $('.p_loopable').find('input.active_inp,select').filter(':visible');
+            prev = focusable.eq(focusable.index(this)-1);
+            // console.log(prev.length)
+            if (prev.length) {
+                prev.focus().select(); 
+                 
+            }
+            return false;
+          }
+            
+        }
+      else if(e.which == 40 && ip.attr('type')=='text'){ //down
+        // console.log('up')
+        if(inp.closest('tr').next('tr').find('td').length > 0)
+        {
+            let className = '.'+inp.attr('class').split(' ').join('.');
+            
+            //$('.table tr').removeClass('focussed');
+            //inp.closest('tr').next('tr').addClass('focussed');
+            // console.log(inp.closest('tr').next('tr').find(className).attr('class'))
+            inp.closest('tr').next('tr').find(className).focus();
+            setTimeout(function(){inp.closest('tr').next('tr').find(className).select();},5)
+            ;
+        }
+      }
+      else if(e.which == 38  && inp.attr('type')=='text'){ //up
+            // console.log(inp.closest('tr').prev('tr').find('td').length);
+        if(inp.closest('tr').prev('tr').find('td').length > 0)
+        {
+            let className = '.'+inp.attr('class').split(' ').join('.');
+            
+            // console.log(inp.closest('tr').prev('tr').find(className).attr('class'))
+            inp.closest('tr').prev('tr').find(className).focus();
+            setTimeout(function(){inp.closest('tr').prev('tr').find(className).select();},5)
+            ;
+        }
+      }
+      // else
+      // {
+      //       updateRowData(inp);
+      // }
+});
+
+let screenHeight = Number($(window).outerHeight());
+let grn_table_height = screenHeight-190;
+$('.grn_table').css('height',grn_table_height+'px');
+
+</script>
+</body>
+</html>

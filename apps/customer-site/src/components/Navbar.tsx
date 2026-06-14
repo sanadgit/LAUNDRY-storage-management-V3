@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Menu, X, ShoppingBag, Search, User } from 'lucide-react';
+import { Menu, X, ShoppingBag, User, Waves } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { SiteConfig } from '../types';
 
@@ -22,7 +22,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentRoute, setRoute, user, co
 
   const navLinks = [
     { name: 'الرئيسية', path: '/' },
-    { name: 'الأسعار', path: '/services' },
+    { name: 'الخدمات والأسعار', path: '/services' },
     { name: 'تتبع طلبك', path: '/track' },
     { name: 'تواصل معنا', path: '/contact' },
   ];
@@ -30,7 +30,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentRoute, setRoute, user, co
   return (
     <nav 
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        isScrolled ? 'py-4 glass border-b border-gray-200' : 'py-6 bg-transparent'
+        isScrolled ? 'py-3 bg-white/82 backdrop-blur-2xl border-b border-slate-200/70 shadow-sm' : 'py-5 bg-transparent'
       }`}
     >
       <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
@@ -39,14 +39,14 @@ export const Navbar: React.FC<NavbarProps> = ({ currentRoute, setRoute, user, co
           onClick={() => setRoute('/')}
           className="flex items-center gap-2 group cursor-pointer"
         >
-          <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-lg group-hover:rotate-6 transition-transform">
-            I&O
+          <div className="w-11 h-11 bg-primary rounded-2xl flex items-center justify-center text-white shadow-lg shadow-primary/25 group-hover:rotate-6 transition-transform">
+            <Waves size={24} />
           </div>
           <div>
-            <h1 className="font-display font-bold text-lg tracking-tight leading-none text-gray-900 text-right uppercase">
+            <h1 className="font-display font-black text-lg tracking-tight leading-none text-secondary text-right uppercase">
               {config.site_name || 'In & Out Laundry'}
             </h1>
-            <p className="text-[10px] text-gray-500 font-medium tracking-normal leading-none mt-1 text-right">
+            <p className="text-[10px] text-primary font-black tracking-[0.22em] leading-none mt-1 text-right" dir="ltr">
               مصبغة جودة واتقان
             </p>
           </div>
@@ -59,7 +59,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentRoute, setRoute, user, co
               key={link.name}
               onClick={() => setRoute(link.path)}
               className={`text-xs font-bold transition-colors cursor-pointer ${
-                currentRoute === link.path ? 'text-primary' : 'text-gray-600 hover:text-primary'
+                currentRoute === link.path ? 'text-primary' : 'text-slate-600 hover:text-primary'
               }`}
             >
               {link.name}
@@ -71,15 +71,16 @@ export const Navbar: React.FC<NavbarProps> = ({ currentRoute, setRoute, user, co
         <div className="flex items-center gap-4">
           <button 
             onClick={() => setRoute(user ? '/dashboard' : '/auth')}
-            className="hidden sm:flex items-center gap-2 px-6 py-2.5 text-xs font-bold bg-primary text-white rounded-full shadow-lg shadow-primary/20 hover:shadow-xl hover:bg-opacity-90 transition-all active:scale-95 cursor-pointer"
+            className="hidden sm:flex items-center gap-2 px-5 py-2.5 text-xs font-black bg-white text-secondary rounded-full border border-slate-200 shadow-sm hover:border-primary/30 hover:text-primary transition-all active:scale-95 cursor-pointer"
           >
             <User size={16} />
             <span>{user ? (String(user.name || '').split(' ')[0] || 'حسابي') : 'دخول'}</span>
           </button>
           <button 
             onClick={() => setRoute('/book')}
-            className="bg-gray-900 text-white px-6 py-2.5 rounded-full text-xs font-bold shadow-lg shadow-gray-200/10 hover:bg-gray-800 transition-all active:scale-95 cursor-pointer"
+            className="inline-flex items-center gap-2 bg-primary text-white px-6 py-2.5 rounded-full text-xs font-black shadow-lg shadow-primary/25 hover:bg-[#7400d1] transition-all active:scale-95 cursor-pointer"
           >
+            <ShoppingBag size={16} />
             اطلب الآن
           </button>
           
@@ -99,7 +100,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentRoute, setRoute, user, co
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="md:hidden glass border-b border-gray-200 mt-4 overflow-hidden"
+            className="md:hidden bg-white/92 backdrop-blur-2xl border-b border-slate-200 mt-4 overflow-hidden"
           >
             <div className="flex flex-col p-6 gap-4">
               {navLinks.map((link) => (
@@ -109,8 +110,8 @@ export const Navbar: React.FC<NavbarProps> = ({ currentRoute, setRoute, user, co
                     setRoute(link.path);
                     setMobileMenuOpen(false);
                   }}
-                  className={`text-lg font-semibold py-2 text-left ${
-                    currentRoute === link.path ? 'text-primary' : 'text-gray-800'
+                  className={`text-lg font-black py-2 text-left ${
+                    currentRoute === link.path ? 'text-primary' : 'text-secondary'
                   }`}
                 >
                   {link.name}
@@ -122,10 +123,20 @@ export const Navbar: React.FC<NavbarProps> = ({ currentRoute, setRoute, user, co
                   setRoute(user ? '/dashboard' : '/auth');
                   setMobileMenuOpen(false);
                 }}
-                className="flex items-center gap-2 text-lg font-semibold py-2 text-gray-800"
+                className="flex items-center gap-2 text-lg font-black py-2 text-secondary"
               >
                 <User size={20} />
                 <span>{user ? (String(user.name || '').split(' ')[0] || 'حسابي') : 'تسجيل الدخول'}</span>
+              </button>
+              <button
+                onClick={() => {
+                  setRoute('/book');
+                  setMobileMenuOpen(false);
+                }}
+                className="mt-2 flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-black text-white shadow-lg shadow-primary/20"
+              >
+                <ShoppingBag size={18} />
+                اطلب الآن
               </button>
             </div>
           </motion.div>

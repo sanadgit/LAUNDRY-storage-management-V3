@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <!-- Meta, title, CSS, favicons, etc. -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0 viewport-fit=cover" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Aipsoft Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@100;300;400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/jquery-confirm.min.css">
+    <script type="text/javascript">
+    let api_user_id         = window.localStorage.getItem('api_user_id');
+    let api_url             = window.localStorage.getItem('api_url');
+    let client_identifier   = window.localStorage.getItem('client_identifier');
+    let branch_id           = window.localStorage.getItem('branch_id');
+    let currency_id         = window.localStorage.getItem('currency_id');
+    if((api_user_id == null || api_user_id == '' || api_url =='' || api_url == null)) {
+            window.location = "login.html";
+    } 
+    // let order_id     = window.localStorage.getItem('order_id');
+    // if(order_id!=0 && order_id!=undefined && order_id!=null && order_id!='')
+    // {
+    //     window.location = "grn_item.html";
+    // }
+    </script>
+</head>
+
+<style type="text/css">
+
+        body {
+            font-family: 'Roboto', sans-serif;
+            margin: 0;
+            background-color: #f5f7fa;
+        }
+    .loading {
+        position: fixed;
+        z-index: 999999;
+        height: 100%;
+        width: 100%;
+        overflow: show;
+        margin: auto;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        right: 0;
+        background: #000;
+        opacity: 0.5;
+    }
+    img.loadingIco {
+        width: 15%;
+        position: absolute;
+        top: 44%;
+        left: 44%;
+    }
+        .nav_deader {
+            background-image: linear-gradient(to right, #305daf , #17a9ca);
+            padding: 8px;
+            color: #fff;
+            overflow: hidden;
+            text-align: center;
+        }
+        .aiplogo img {
+            height: 30px;
+        }
+        .nav_text p {
+            font-size: 14px;
+            margin: 0;
+            font-weight: 400;
+        }
+        .GRN_wrap {
+            padding: 10px;
+        }
+        .button_container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .back_btn,.add_new {
+            background-color: #2350a3;
+            font-size: 15px;
+            font-weight: 500;
+            color: #fff;
+            border: 0;
+            padding: 8px 30px;
+            border-radius: 4px;
+            letter-spacing: 1px;
+            display: block;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        .add_new{
+            float: right;
+            background-color: #1aa0c7 !important;
+        }
+        .header_type p {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 500;
+            text-align: center;
+            color: #333;
+            padding: 5px 0;
+        }
+        .content_body {
+            border: 1px solid #d6d6d6;
+            height: 65vh;
+            overflow-y: auto;
+            border-radius: 5px;
+            background-color: #fbfbfb;
+        }
+        .content_body table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        .content_body thead {
+            background-color: #d9e6f2;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .content_body th, .content_body td {
+            padding: 10px;
+            text-align: left;
+            font-size: 14px;
+            border-bottom: 1px solid #e0e0e0;
+            color: #333;
+        }
+        .content_body tbody tr:nth-child(even) {
+            background-color: #f2f9ff;
+        }
+        .content_body tbody tr {
+            cursor: pointer;
+        }
+        .footer {
+            padding: 10px 0;
+            background-color: #2451a6;
+            text-align: center;
+            position: fixed;
+            width: 100%;
+            bottom: 0;
+            left: 0;
+        }
+        .footer button {
+            width: 90%;
+            padding: 15px;
+            font-weight: 600;
+            font-size: 16px;
+            background-color: #2451a6;
+            color: #fff;
+            border: 0;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .load-more {
+            display: block;
+            width: 100%;
+            text-align: center;
+            padding: 10px;
+            background-color: #17a9ca;
+            color: #fff;
+            border: 0;
+            cursor: pointer;
+            font-weight: 500;
+            border-radius: 5px;
+            margin-top: 10px;
+        }
+        .status-icon {
+    width: 16px;
+    height: 16px;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+ .highlight_title {
+        font-size: 14px; /* Smaller font for the text */
+        font-weight: 500;
+        color: #2350a3; /* Dark blue color */
+    }
+    .highlight_amount {
+        font-size: 24px; /* Larger font for the amount */
+        font-weight: 700;
+        color: #004d80; /* Darker shade for amounts */
+    }
+.lastRefreshTime{
+    font-size: 12px;
+}
+
+        @media only screen and (max-width: 400px) {
+            .back_btn {
+                padding: 8px 20px;
+            }
+            .content_body th, .content_body td {
+                font-size: 12px;
+            }
+        }
+    </style>
+
+<body>
+
+    <div class="nav_deader">
+        <div class="aiplogo">
+            <img src="images/aipsoft.png">
+        </div>
+        <div class="nav_text">
+            <p>AipSoft - Account Transactions</p>
+        </div>
+    </div>
+
+    
+    <div class="GRN_wrap">  
+        <div class="button_container">
+            <button type="button" class="back_btn">Back</button>
+        </div>
+        
+        <div class="header_type">
+            <p>Abdul Haq Petty Cash A/c</p>
+        </div>
+
+        <div class="content_body">
+            <table>
+                <thead>
+                    <tr>
+                        <th width="15%">Entity</th>
+                        <th width="20%">Date</th>
+                        <th width="45%">Description</th>
+                        <th width="10%">Debit</th>
+                        <th width="10%">Credit</th>
+                    </tr>    
+                </thead>
+                <tbody>
+                    <!-- Dummy data -->
+                    <tr> <td>Seabird</td> <td>21/10/2024</td> <td>Description</td> <td>100.00</td> <td></td> </tr>
+                    <tr> <td>Seabird</td> <td>21/10/2024</td> <td>Description</td> <td>100.00</td> <td>200.00</td> </tr>
+                    <tr> <td>Seabird</td> <td>21/10/2024</td> <td>Description</td> <td>100.00</td> <td></td> </tr>
+                    <tr> <td>Seabird</td> <td>21/10/2024</td> <td>Description</td> <td>100.00</td> <td>200.00</td> </tr>
+                    <tr> <td>Seabird</td> <td>21/10/2024</td> <td>Description</td> <td>100.00</td> <td></td> </tr>
+                    <tr> <td>Seabird</td> <td>21/10/2024</td> <td>Description</td> <td>100.00</td> <td>200.00</td> </tr>
+                    <tr> <td>Seabird</td> <td>21/10/2024</td> <td>Description</td> <td>100.00</td> <td></td> </tr>
+                    <tr> <td>Seabird</td> <td>21/10/2024</td> <td>Description</td> <td>100.00</td> <td>200.00</td> </tr>
+                    <tr> <td>Seabird</td> <td>21/10/2024</td> <td>Description</td> <td>100.00</td> <td></td> </tr>
+                    <tr> <td>Seabird</td> <td>21/10/2024</td> <td>Description</td> <td>100.00</td> <td>200.00</td> </tr>
+                    <tr> <td>Seabird</td> <td>21/10/2024</td> <td>Description</td> <td>100.00</td> <td></td> </tr>
+                    <tr> <td>Seabird</td> <td>21/10/2024</td> <td>Description</td> <td>100.00</td> <td>200.00</td> </tr>
+                    <tr> <td>Seabird</td> <td>21/10/2024</td> <td>Description</td> <td>100.00</td> <td></td> </tr>
+                    <tr> <td>Seabird</td> <td>21/10/2024</td> <td>Description</td> <td>100.00</td> <td>200.00</td> </tr>
+                    <tr> <td>Seabird</td> <td>21/10/2024</td> <td>Description</td> <td>100.00</td> <td></td> </tr>
+                    <tr> <td>Seabird</td> <td>21/10/2024</td> <td>Description</td> <td>100.00</td> <td>200.00</td> </tr>
+                    <tr> <td>Seabird</td> <td>21/10/2024</td> <td>Description</td> <td>100.00</td> <td></td> </tr>
+                    <tr> <td>Seabird</td> <td>21/10/2024</td> <td>Description</td> <td>100.00</td> <td>200.00</td> </tr>
+                    <tr> <td>Seabird</td> <td>21/10/2024</td> <td>Description</td> <td>100.00</td> <td></td> </tr>
+                    <tr> <td>Seabird</td> <td>21/10/2024</td> <td>Description</td> <td>100.00</td> <td>200.00</td> </tr>
+                    <tr> <td>Seabird</td> <td>21/10/2024</td> <td>Description</td> <td>100.00</td> <td></td> </tr>
+                    <tr> <td>Seabird</td> <td>21/10/2024</td> <td>Description</td> <td>100.00</td> <td>200.00</td> </tr>
+                    <tr> <td>Seabird</td> <td>21/10/2024</td> <td>Description</td> <td>100.00</td> <td></td> </tr>
+                    <tr> <td>Seabird</td> <td>21/10/2024</td> <td>Description</td> <td>100.00</td> <td>200.00</td> </tr>
+                    
+                </tbody>
+            </table>
+        </div>
+
+        <p><span class="highlight_title">Current Balance:</span><br>
+           <span class="highlight_amount">AED -</span></p>
+
+        <p class="lastRefreshTime">Last Refresh: <span id="lastRefreshTime">-</span></p>           
+    
+    </div>    
+
+
+    
+<script type="text/javascript" src="js/jquery-3.5.1.min.js"></script>
+<script src="js/jquery-confirm.min.js"></script>
+<script>
+$(document).ready(function() {
+    $('.logout_btn').click(function(){
+         window.localStorage.setItem('api_user_id','');
+         window.location = "login.html";
+    })
+    $('.back_btn').click(function(){
+        window.location = "dashboard.html";
+    })
+    $('.add_new').click(function(){
+        window.location = "expense.html";
+    })
+    loadAjax();
+    removeAjaxLoad();
+
+
+    let lastRefreshTime = window.localStorage.getItem('lastRefreshTime');
+    let balance_amount = window.localStorage.getItem('balance_amount');
+    $('#lastRefreshTime').text(lastRefreshTime);
+    $('.highlight_amount').text('AED '+balance_amount);
+    
+})
+
+function loadAjax()
+{
+    $('body').append("<div class='loading'><img src='images/new_loader.gif' class='loadingIco'></div>");
+    $('.loading').removeClass('invisibl');
+}
+function removeAjaxLoad()
+{
+    $('.loading').remove();
+    setTimeout(function(){ $('.loading').remove();},100);
+}
+</script>
+</body>
+
+</html>

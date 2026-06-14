@@ -1,20 +1,25 @@
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
 import {
+  Building2,
+  Flame,
   LayoutDashboard,
   Package,
+  PackageCheck,
   Search,
   Trophy,
+  BellRing,
+  GraduationCap,
+  History,
+  ListChecks,
   Menu,
+  Phone,
+  ReceiptText,
   X,
+  Wifi,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { useStore, type AppThemeMode } from './store/useStore';
-import Dashboard from './pages/Dashboard';
-import Management from './pages/Management';
-import SearchPage from './pages/Search';
-import SortingPage from './pages/Sorting';
-import AchievementsPage from './pages/Achievements';
-import { isSupabaseEnabled } from './lib/supabaseClient';
+import { backendDbLabel, backendDbProvider } from './lib/supabaseClient';
 import { Viewer3DSettingsProvider } from './context/Viewer3DSettings';
 import {
   canAccessDashboard,
@@ -22,6 +27,10 @@ import {
   canAccessSearch,
   canAccessSorting,
   canAccessAchievements,
+  canAccessCustomerAlerts,
+  canAccessTrainingAcademy,
+  canAccessBranches,
+  allowedSortingTabs,
   defaultRouteForRole,
 } from './lib/roleAccess';
 import { clsx, type ClassValue } from 'clsx';
@@ -30,6 +39,23 @@ import { twMerge } from 'tailwind-merge';
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
+
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Management = lazy(() => import('./pages/Management'));
+const BranchesPage = lazy(() => import('./pages/Branches'));
+const CashierSearchPage = lazy(() => import('./pages/CashierSearch'));
+const PickupSearchPage = lazy(() => import('./pages/PickupSearch'));
+const SearchPage = lazy(() => import('./pages/SearchNew'));
+const SortingPage = lazy(() => import('./pages/Sorting'));
+const ActiveSortingOrdersPage = lazy(() => import('./pages/ActiveSortingOrders'));
+const AchievementsPage = lazy(() => import('./pages/Achievements'));
+const CustomerAlertsPage = lazy(() => import('./pages/CustomerAlerts'));
+const TrainingAcademyPage = lazy(() => import('./pages/TrainingAcademyPage'));
+const TrainingTranslationsPage = lazy(() => import('./pages/TrainingTranslationsPage'));
+const POSConnectPage = lazy(() => import('./pages/POSConnect'));
+const ReportPage = lazy(() => import('./pages/Report'));
+const ExpenseTestPage = lazy(() => import('./pages/ExpenseTest'));
+const ActivityLogPage = lazy(() => import('./pages/ActivityLog'));
 
 const resolveAppTheme = (mode: AppThemeMode, now = new Date()): 'night' | 'light' => {
   if (mode === 'night') return 'night';
@@ -50,9 +76,21 @@ function MobileTopBar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   const location = useLocation();
   const title = useMemo(() => {
     if (location.pathname === '/management') return 'Warehouse Management';
-    if (location.pathname === '/search') return 'Search & Retrieval';
-    if (location.pathname === '/sorting') return 'فرز الملابس';
+    if (location.pathname === '/branches') return 'Branch';
+    if (location.pathname === '/activity-log') return 'Activity Log';
+    if (location.pathname === '/cashier-search') return 'البحث';
+    if (location.pathname === '/pickup-search') return 'Phone Pickup Search';
+    if (location.pathname === '/search') return 'Stores';
+    if (location.pathname === '/sorting') return 'CLOTHES SORTING';
+    if (location.pathname === '/ironing') return 'Iron';
+    if (location.pathname === '/blanket-packing') return 'Blankets Packing';
+    if (location.pathname === '/sorting-orders') return 'Active Sorting Orders';
     if (location.pathname === '/achievements') return 'Achievements';
+    if (location.pathname === '/customer-alerts') return 'Customer Alerts';
+    if (location.pathname === '/pos-connect') return 'POS Connect';
+    if (location.pathname === '/report') return 'Report';
+    if (location.pathname === '/expense-test') return 'Expense Test';
+    if (location.pathname.startsWith('/training-academy')) return 'Training Academy';
     return 'Warehouse Dashboard';
   }, [location.pathname]);
 
@@ -90,7 +128,7 @@ function MobileTopBar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
             <span
               className={cn(
                 'shrink-0 text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-full border',
-                isSupabaseEnabled
+                backendDbProvider === 'postgres'
                   ? isDark
                     ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
                     : 'border-emerald-500/30 bg-emerald-50 text-emerald-700'
@@ -98,9 +136,9 @@ function MobileTopBar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
                     ? 'border-slate-600 bg-slate-800 text-slate-200'
                     : 'border-slate-300 bg-white text-slate-600'
               )}
-              title={isSupabaseEnabled ? 'Supabase enabled for stores/blankets/logs' : 'SQLite local database mode'}
+              title={backendDbProvider === 'postgres' ? 'PostgreSQL database mode' : 'SQLite local database mode'}
             >
-              {isSupabaseEnabled ? 'Supabase' : 'SQLite'}
+              {backendDbLabel}
             </span>
           </div>
         </div>
@@ -220,16 +258,38 @@ function Sidebar({
   const currentUserId = currentUser?.id ?? null;
   const showDashboard = canAccessDashboard(role);
   const showManagement = canAccessManagement(role);
+  const showBranches = canAccessBranches(role);
   const showSearch = canAccessSearch(role);
   const showSorting = canAccessSorting(role);
   const showAchievements = canAccessAchievements(role);
+  const showCustomerAlerts = canAccessCustomerAlerts(role);
+  const showTrainingAcademy = canAccessTrainingAcademy(role);
+  const sortingWorkflows = allowedSortingTabs(role);
 
   const navItems = [
     ...(showDashboard ? [{ name: 'Dashboard', path: '/', icon: LayoutDashboard }] : []),
+    ...(showBranches ? [{ name: 'Branch', path: '/branches', icon: Building2 }] : []),
     ...(showManagement ? [{ name: 'Management', path: '/management', icon: Package }] : []),
-    ...(showSearch ? [{ name: 'Search & Retrieval', path: '/search', icon: Search }] : []),
-    ...(showSorting ? [{ name: 'فرز الملابس', path: '/sorting', icon: Package }] : []),
+    ...(showManagement ? [{ name: 'Activity Log', path: '/activity-log', icon: History }] : []),
+    ...(showSearch ? [{ name: 'البحث', path: '/cashier-search', icon: Search }] : []),
+    ...(showSearch ? [{ name: 'Pickup Search', path: '/pickup-search', icon: Phone }] : []),
+    ...(showSearch ? [{ name: 'Stores', path: '/search', icon: Search }] : []),
+    ...(showSorting && sortingWorkflows.includes('sorting')
+      ? [{ name: 'CLOTHES SORTING', path: '/sorting', icon: Package }]
+      : []),
+    ...(showSorting && sortingWorkflows.includes('packing')
+      ? [{ name: 'Ironing', path: '/ironing', icon: Flame }]
+      : []),
+    ...(showSorting && sortingWorkflows.includes('blanket_packing')
+      ? [{ name: 'Blankets Packing ', path: '/blanket-packing', icon: PackageCheck }]
+      : []),
+    ...(showSorting ? [{ name: 'Active Sorting Orders', path: '/sorting-orders', icon: ListChecks }] : []),
     ...(showAchievements ? [{ name: 'Achievements', path: '/achievements', icon: Trophy }] : []),
+    ...(showCustomerAlerts ? [{ name: 'Alerts', path: '/customer-alerts', icon: BellRing }] : []),
+    ...(showSearch ? [{ name: 'POS Connect', path: '/pos-connect', icon: Wifi }] : []),
+    ...(showManagement ? [{ name: 'Report', path: '/report', icon: ReceiptText }] : []),
+    ...(showManagement ? [{ name: 'Expense Test', path: '/expense-test', icon: ReceiptText }] : []),
+    ...(showTrainingAcademy ? [{ name: 'Training Academy', path: '/training-academy', icon: GraduationCap }] : []),
   ];
 
   const activeLoginUsers = useMemo(
@@ -282,7 +342,7 @@ function Sidebar({
       <aside
         className={cn(
           'bg-slate-900 text-white h-screen transition-all duration-300 flex flex-col overflow-hidden z-50',
-          // Mobile drawer
+          // Mobile drawer-----------------------------------------و-
           'fixed md:static inset-y-0 left-0 md:inset-auto',
           'w-[min(90vw,26rem)] md:w-auto',
           mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
@@ -298,13 +358,13 @@ function Sidebar({
             <span
               className={cn(
                 'text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-full border shrink-0',
-                isSupabaseEnabled
+                backendDbProvider === 'postgres'
                   ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
                   : 'border-slate-700 bg-slate-800 text-slate-200'
               )}
-              title={isSupabaseEnabled ? 'Supabase enabled for stores/blankets/logs' : 'SQLite local database mode'}
+              title={backendDbProvider === 'postgres' ? 'PostgreSQL database mode' : 'SQLite local database mode'}
             >
-              {isSupabaseEnabled ? 'Supabase' : 'SQLite'}
+              {backendDbLabel}
             </span>
           </div>
         )}
@@ -432,17 +492,28 @@ function Sidebar({
 
 function AppLayout() {
   const location = useLocation();
-  const { fetchStores, fetchBlankets, fetchLogs, fetchUsers, currentUser, searchImmersive, themeMode } = useStore();
+  const { fetchStores, fetchBlankets, fetchLogs, fetchUsers, fetchBranches, currentUser, searchImmersive, themeMode } = useStore();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [clockTick, setClockTick] = useState(() => Date.now());
   const role = currentUser?.role;
   const currentUserId = currentUser?.id ?? null;
   const isManager = canAccessManagement(role);
   const canOpenDashboard = canAccessDashboard(role);
+  const canOpenBranches = canAccessBranches(role);
   const canOpenManagement = canAccessManagement(role);
+  const canOpenActivityLog = canOpenManagement;
   const canOpenSearch = canAccessSearch(role);
   const canOpenSorting = canAccessSorting(role);
+  const canOpenSortingOrders = canOpenSorting;
+  const sortingWorkflows = useMemo(() => allowedSortingTabs(role), [role]);
+  const canOpenClothesSorting = canOpenSorting && sortingWorkflows.includes('sorting');
+  const canOpenIroning = canOpenSorting && sortingWorkflows.includes('packing');
+  const canOpenBlanketPacking = canOpenSorting && sortingWorkflows.includes('blanket_packing');
   const canOpenAchievements = canAccessAchievements(role);
+  const canOpenCustomerAlerts = canAccessCustomerAlerts(role);
+  const canOpenTrainingAcademy = canAccessTrainingAcademy(role);
+  const canOpenReport = canOpenManagement;
+  const canOpenExpenseTest = canOpenManagement;
   const defaultPath = defaultRouteForRole(role);
   const hideMobileTopBar = location.pathname === '/search' && searchImmersive;
   const resolvedTheme = useMemo(
@@ -470,6 +541,7 @@ function AppLayout() {
 
   useEffect(() => {
     if (!currentUserId) return;
+    void fetchBranches();
     void fetchStores();
     void fetchBlankets();
     void fetchLogs();
@@ -488,20 +560,103 @@ function AppLayout() {
       <div className="flex-1 min-w-0 flex flex-col h-screen">
         {!hideMobileTopBar && <MobileTopBar onOpenSidebar={() => setMobileSidebarOpen(true)} />}
         <main className="flex-1 overflow-y-auto overflow-x-hidden">
-          <Routes>
-            <Route path="/" element={canOpenDashboard ? <Dashboard /> : <Navigate to={defaultPath} replace />} />
-            <Route
-              path="/management"
-              element={canOpenManagement ? <Management /> : <Navigate to={defaultPath} replace />}
-            />
-            <Route path="/search" element={canOpenSearch ? <SearchPage /> : <Navigate to={defaultPath} replace />} />
-            <Route path="/sorting" element={canOpenSorting ? <SortingPage /> : <Navigate to={defaultPath} replace />} />
-            <Route
-              path="/achievements"
-              element={canOpenAchievements ? <AchievementsPage /> : <Navigate to={defaultPath} replace />}
-            />
-            <Route path="*" element={<Navigate to={defaultPath} replace />} />
-          </Routes>
+          <Suspense
+            fallback={
+              <div className="min-h-full p-6">
+                <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm font-black text-slate-600 shadow-xl">
+                  Loading workspace...
+                </div>
+              </div>
+            }
+          >
+            <Routes>
+              <Route path="/" element={canOpenDashboard ? <Dashboard /> : <Navigate to={defaultPath} replace />} />
+              <Route
+                path="/branches"
+                element={canOpenBranches ? <BranchesPage /> : <Navigate to={defaultPath} replace />}
+              />
+              <Route
+                path="/management"
+                element={canOpenManagement ? <Management /> : <Navigate to={defaultPath} replace />}
+              />
+              <Route
+                path="/activity-log"
+                element={canOpenActivityLog ? <ActivityLogPage /> : <Navigate to={defaultPath} replace />}
+              />
+              <Route
+                path="/cashier-search"
+                element={canOpenSearch ? <CashierSearchPage /> : <Navigate to={defaultPath} replace />}
+              />
+              <Route
+                path="/pickup-search"
+                element={canOpenSearch ? <PickupSearchPage /> : <Navigate to={defaultPath} replace />}
+              />
+              <Route path="/search" element={canOpenSearch ? <SearchPage /> : <Navigate to={defaultPath} replace />} />
+              <Route
+                path="/sorting"
+                element={
+                  canOpenClothesSorting ? (
+                    <SortingPage workflow="sorting" showWorkflowTabs={false} />
+                  ) : (
+                    <Navigate to={defaultPath} replace />
+                  )
+                }
+              />
+              <Route
+                path="/ironing"
+                element={
+                  canOpenIroning ? (
+                    <SortingPage workflow="packing" showWorkflowTabs={false} />
+                  ) : (
+                    <Navigate to={defaultPath} replace />
+                  )
+                }
+              />
+              <Route
+                path="/blanket-packing"
+                element={
+                  canOpenBlanketPacking ? (
+                    <SortingPage workflow="blanket_packing" showWorkflowTabs={false} />
+                  ) : (
+                    <Navigate to={defaultPath} replace />
+                  )
+                }
+              />
+              <Route
+                path="/sorting-orders"
+                element={canOpenSortingOrders ? <ActiveSortingOrdersPage /> : <Navigate to={defaultPath} replace />}
+              />
+              <Route
+                path="/achievements"
+                element={canOpenAchievements ? <AchievementsPage /> : <Navigate to={defaultPath} replace />}
+              />
+              <Route
+                path="/customer-alerts"
+                element={canOpenCustomerAlerts ? <CustomerAlertsPage /> : <Navigate to={defaultPath} replace />}
+              />
+              <Route
+                path="/training-academy"
+                element={canOpenTrainingAcademy ? <TrainingAcademyPage /> : <Navigate to={defaultPath} replace />}
+              />
+              <Route
+                path="/training-academy/translations"
+                element={canOpenTrainingAcademy ? <TrainingTranslationsPage /> : <Navigate to={defaultPath} replace />}
+              />
+              <Route
+                path="/pos-connect"
+                element={canOpenSearch ? <POSConnectPage /> : <Navigate to={defaultPath} replace />}
+              />
+              <Route
+                path="/report"
+                element={canOpenReport ? <ReportPage /> : <Navigate to={defaultPath} replace />}
+              />
+              <Route
+                path="/expense-test"
+                element={canOpenExpenseTest ? <ExpenseTestPage /> : <Navigate to={defaultPath} replace />}
+              />
+              <Route path="*" element={<Navigate to={defaultPath} replace />} />
+            </Routes>
+          </Suspense>
         </main>
       </div>
     </div>

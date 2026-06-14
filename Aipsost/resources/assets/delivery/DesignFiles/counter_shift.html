@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.1.3/dist/css/bootstrap.min.css" integrity="sha384-MCw98/SFnGE8fJT3GXwEOngsV7Zt27NXFoaoApmYm81iuXoPkFOJwJ8ERdknLPMO" crossorigin="anonymous">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <link rel="stylesheet" href="../packing/css/jquery-confirm.min.css">
+    <title>Counter Shift Manager</title>
+  </head>
+  <body class="delivery_dashboard_body">
+    <div class="warning">
+      <p>Website only visible in Tablet & Mobile view</p>
+    </div>
+
+    <section class="conter_shift_sec_wrapper">
+      <header>
+          <nav class="navbar navbar-expand-lg navbar-dark fixed-top bg_pink">
+        
+        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarCollapse" aria-controls="navbarCollapse" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse bg-dark" id="navbarCollapse">
+          <div class="side_menu_mobile_wrapper">
+          <ul class="navbar-nav mr-auto">
+            <li class="nav-item">
+              <a class="nav-link user_profile"><span><img class="profile_avatar" src="images/profile.png"></span><h6><span class="profile_name">Muhammed</span><span class="profile_type"></span></h6></a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="landing.html">Delivery Dashboard</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="home_delivery.html">Home Delivery</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="javascript:">Pickup</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="javascript:">Pickup Request</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="javascript:">Order Details</a>
+            </li>
+            <li class="nav-item active">
+              <a class="nav-link" href="counter_shift.html">Counter Shift Manager</a>
+            </li>
+          </ul>
+            <h6 class="logout" onclick="logout()">Logout</h6>
+          </div>
+          </div>
+          <a class="navbar-brand" href="">Counter Shift Manager</a>
+          </nav>
+      </header>
+      <section class="sec_01 bg_white delivery_dashboard_sec">
+          <div class="container">
+              <div class="row row_03">
+                <h3 class="roboto-bold">Counter Info</h3>
+                <div class="counter_shift_details">
+                    <div class="info popup_info">
+                        
+                    </div>
+                </div>
+                <footer class="footer">
+                    <div class="container">
+                       <ul>
+                          <li class="view_counter"><img src="images/icon_02.svg"><span>View Details</span></li>
+                          <li class="delivery-btn close_counter">
+                            <img src="images/icon_03.svg"><span>Close Counter</span>
+                       </li></ul>
+                    </div>
+              </footer>
+              </div>
+          </div>
+      </section>
+      <div class="modal fade modal_counter_open" id="modal_counter_open" role="dialog">
+          <div class="modal-dialog modal-dialog-centered counter_open_dialoge">
+              <div class="popup-arrow-top "></div>
+              <div class="modal-content counter_open_content">
+                  <div class="modal-header">
+                    <!-- <button type="button" class="close close_popup_btn" data-dismiss="modal"><i class="fa fa-times" aria-hidden="true"></i></button> -->
+                  </div>
+                  <div class="modal-body modal_counter_open_body">
+                      
+                  </div>
+              </div>
+          </div>
+      </div>
+      <div class="modal fade modal_counter_close" id="modal_counter_close" role="dialog">
+          <div class="modal-dialog modal-dialog-centered counter_open_dialoge">
+              <div class="popup-arrow-top "></div>
+              <div class="modal-content counter_open_content">
+                  <div class="modal-header">
+                    <button type="button" class="close close_popup_btn" data-dismiss="modal">
+                      <img class="popup_close_btn" data-dismiss="modal_counter_close" src="images/close_popup_icon2.png"></button>
+                  </div>
+                  <div class="modal-body modal_counter_close_body">
+                      
+                  </div>
+              </div>
+          </div>
+      </div>
+      <div class="modal fade modal_counter_close_report" id="modal_counter_close_report" role="dialog">
+          <div class="modal-dialog modal-dialog-centered modal_counter_close_report_dialoge">
+              <div class="popup-arrow-top "></div>
+              <div class="modal-content modal_counter_close_report">
+                  <div class="modal-header">
+                    <!-- <button type="button" class="close close_popup_btn" data-dismiss="modal"><i class="fa fa-times" aria-hidden="true"></i></button> -->
+                  </div>
+                  <div class="modal-body modal_counter_close_report_body">
+                      
+                  </div>
+              </div>
+          </div>
+      </div>
+    </section>
+    <!-- Optional JavaScript -->
+    <!-- jQuery first, then Popper.js, then Bootstrap JS -->
+    <!-- <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.14.3/dist/umd/popper.min.js" integrity="sha384-ZMP7rVo3mIykV+2+9J3UJ46jBk0WLaUAdn689aCwoqbBJiSnjAK/l8WvCWPIPm49" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.1.3/dist/js/bootstrap.min.js" integrity="sha384-ChfqqxuZUCnJSK3+MXmPNIyE6ZbWh2IMqE241rYiqJxyMiZ6OW/JmZQ5stwEULTy" crossorigin="anonymous"></script>
+    <script type="text/javascript" src="js/delivery.js"></script>
+    <script src="packing/js/jquery-confirm.min.js"></script> -->
+
+    <script type="text/javascript" src="../packing/js/jquery-3.4.1.min.js"></script>
+    <script type="text/javascript" src="../packing/js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="../packing/js/fontawesome.min.js"></script>
+    <script type="text/javascript" src="../packing/js/bootstrap-datepicker.min.js"></script>
+    <script src="https://unpkg.com/popper.js@1"></script>
+    <script type="text/javascript" src="js/delivery.js"></script>
+    <script src="../packing/js/jquery-confirm.min.js"></script>
+  </body>
+</html>

@@ -1,0 +1,31 @@
+{
+   "action": {
+      "default_icon": "img/128_icon_lightmode.png",
+      "default_popup": "menu/popup_default.html"
+   },
+   "background": {
+      "service_worker": "bg_loader.js"
+   },
+   "content_scripts": [ {
+      "css": [ "content_scripts/content.css" ],
+      "js": [ "constants.js", "common_styles.js", "content_scripts/nif2_schema_monitoring.js", "content_scripts/nif2_breakpoint.js", "content_scripts/nif2_util.js", "content_scripts/nif2_ad_remover.js", "content_scripts/nif2_balloon.js", "content_scripts/nif2_rating_resources.js", "content_scripts/nif2_main.js", "content_scripts/nif2_pattern_match.js", "content_scripts/nif2_elements.js", "trusted_shopping/popup.js", "trusted_shopping/trusted_shopping_main.js" ],
+      "matches": [ "\u003Call_urls>" ]
+   } ],
+   "default_locale": "en",
+   "description": "__MSG_ext_description__",
+   "homepage_url": "https://www.withsecure.com/",
+   "host_permissions": [ "http://*/*", "https://*/*" ],
+   "icons": {
+      "128": "img/store_icon.png"
+   },
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwIhbUG+HeXqzrF9nZ5aCuGM8dpFU11h2O1Wx/HX5r/DwY9sZs4HurWzuzjQO94efk5qlT+BiFpOOCb2cVytyUP8AYi0Yjnm+SY6Yy+zEYJ32k2Zj/LNMgEbIvJf59J47nJ8/oZbdcEqS7ggv/3UezG4zsRwnQwllCeTHV4XUczOIfxHxRr5OWbpgcVsuuDuBWBNJS+DBtQCLiwJhU/8ZmO+rp5M8V6vaWkWLbfWx9uoEjwiMEuCtesK/hYG9OW6AmnKwtXGf6jDD/xwUrywjMTx8GACbrMgqm4fn1mkcVBHZ37Flypo5vK4zWuOIfH4y3KXDDINrv0WVddOJ8kvWhwIDAQAB",
+   "manifest_version": 3,
+   "name": "__MSG_ext_name__",
+   "permissions": [ "tabs", "nativeMessaging", "webNavigation", "declarativeNetRequest", "storage", "webRequest" ],
+   "update_url": "https://clients2.google.com/service/update2/crx",
+   "version": "5.0.74",
+   "web_accessible_resources": [ {
+      "matches": [ "\u003Call_urls>" ],
+      "resources": [ "img/*", "*.css" ]
+   } ]
+}
