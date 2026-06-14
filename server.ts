@@ -8814,15 +8814,20 @@ const getSupabaseUsers = async (username?: string) => {
 };
 
 async function startServer() {
-  try {
-    await ensurePostgresBranchSchema();
-    await ensurePostgresLocalIdentityDefaults();
-    await ensurePostgresLocalStoreColumns();
-  } catch (error: any) {
-    console.warn(
-      'Postgres schema check failed:',
-      error?.message || error
-    );
+  // Only run Postgres schema checks if using PostgreSQL
+  if (USE_POSTGRES_LOCAL && pgPool) {
+    try {
+      await ensurePostgresBranchSchema();
+      await ensurePostgresLocalIdentityDefaults();
+      await ensurePostgresLocalStoreColumns();
+    } catch (error: any) {
+      console.warn(
+        'Postgres schema check failed:',
+        error?.message || error
+      );
+    }
+  } else {
+    console.log(`ℹ️  Using DB_PROVIDER=${DB_PROVIDER} (skipping PostgreSQL schema checks)`);
   }
 
   const app = express();
