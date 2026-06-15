@@ -197,6 +197,7 @@ type PosOrderPreview = {
   cust_head_id: string;
   invoice_id: string;
   status_flags: string[];
+  raw_search_text: string;
 };
 
 type PosOrderDetailLineItem = {
@@ -1801,6 +1802,7 @@ const parsePosOrderPreview = (row: any[]): PosOrderPreview => {
     cust_head_id: extractHtmlAttribute(printCell, 'data-cust_head_id'),
     invoice_id: extractHtmlAttribute(printCell, 'data-invoice_id') || extractHtmlAttribute(retrieveCell, 'data-invoice_id'),
     status_flags: statusFlags,
+    raw_search_text: row.map((cell) => stripHtml(cell)).filter(Boolean).join(' '),
   };
 };
 
@@ -2006,15 +2008,26 @@ const parsePickupBranchReference = (query: string): PickupBranchReference | null
 };
 
 const posPreviewMatchesBranchReference = (order: PosOrderPreview, reference: PickupBranchReference) => {
-  const invoiceNo = normalizePosReference(order.invoice_no);
-  const branch = normalizePosReference(order.branch);
-  const invoiceMatches =
-    invoiceNo === reference.invoice_reference ||
-    invoiceNo === reference.numeric_reference ||
-    invoiceNo.endsWith(reference.invoice_reference);
+  const values = [
+    order.invoice_no,
+    order.order_no,
+    order.orders_id,
+    order.invoice_id,
+    order.raw_search_text,
+  ].map(normalizePosReference);
+  const invoiceMatches = values.some(
+    (value) =>
+      value === reference.invoice_reference ||
+      value === reference.numeric_reference ||
+      value.includes(reference.invoice_reference)
+  );
+  const parsedBranch = normalizePosReference(order.branch);
+  const rawText = normalizePosReference(order.raw_search_text);
   const branchMatches =
-    !branch ||
-    reference.branch_aliases.some((alias) => branch === alias || branch.includes(alias));
+    !parsedBranch ||
+    reference.branch_aliases.some(
+      (alias) => parsedBranch === alias || parsedBranch.includes(alias) || rawText.includes(alias)
+    );
   return invoiceMatches && branchMatches;
 };
 
