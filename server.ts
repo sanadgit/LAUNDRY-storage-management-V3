@@ -3537,6 +3537,8 @@ const payAndDeliverPickupOrder = async (input: {
   if (String(first.order_status ?? '').trim() === '3') {
     throw new Error(`Order ${orderNo} is already delivered.`);
   }
+  // POS status 2 is fully packed, so it can move straight to delivery.
+  const alreadyPackedForDelivery = String(first.order_status ?? '').trim() === '2';
 
   const branchId = String(first.branch_id ?? '').trim();
   if (!branchId) throw new Error('POS order branch is missing.');
@@ -3614,7 +3616,7 @@ const payAndDeliverPickupOrder = async (input: {
 
   let matchingDeliveryBill = await findPendingDeliveryBill(deliveryConfig);
   let packedForDelivery = false;
-  if (!matchingDeliveryBill && !input.dry_run) {
+  if (!matchingDeliveryBill && !alreadyPackedForDelivery && !input.dry_run) {
     const packingConfigPayload = new URLSearchParams();
     packingConfigPayload.set('client_identifier', POS_LOGIN_CLIENT_IDENTIFIER);
     packingConfigPayload.set('branch_id', branchId);
@@ -3811,6 +3813,7 @@ const payAndDeliverPickupOrder = async (input: {
     customer_id: customerId,
     shipping_id: shippingId,
     delivery_bill: matchingDeliveryBill ?? null,
+    already_packed_for_delivery: alreadyPackedForDelivery,
     packed_for_delivery: packedForDelivery,
   };
   if (input.dry_run) return { success: true, dry_run: true, request: requestSummary };
