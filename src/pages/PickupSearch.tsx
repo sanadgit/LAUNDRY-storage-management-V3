@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import {
   AlertCircle,
@@ -22,7 +22,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
-import { extractTicketNumberFromScan } from '../utils/barcode';
+import { extractTicketNumberFromScan, isAipLinkOrderUrl } from '../utils/barcode';
 import { getScannerSupportMessage, startCameraBarcodeScanner } from '../utils/cameraScanner';
 
 type LineItemCategory = 'clothes' | 'home_phase2' | 'blanket_phase3';
@@ -568,6 +568,7 @@ function PickModal({
   const [barcodeValue, setBarcodeValue] = useState('');
   const [barcodeVerified, setBarcodeVerified] = useState(false);
   const [barcodeError, setBarcodeError] = useState<string | null>(null);
+  const [barcodeResolving, setBarcodeResolving] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [scannerPreview, setScannerPreview] = useState<{ raw: string; extracted: string } | null>(null);
@@ -622,14 +623,29 @@ function PickModal({
     setBarcodeValue('');
     setBarcodeVerified(false);
     setBarcodeError(null);
+    setBarcodeResolving(false);
     setScannerOpen(false);
     setScannerError(null);
     setScannerPreview(null);
   }, [category]);
 
-  const normalizeBarcode = (value: string) => value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const normalizeBarcode = useCallback(
+    (value: string) => value.trim().toUpperCase().replace(/[^A-Z0-9]/g, ''),
+    []
+  );
 
-  const verifyBarcodeValue = (value: string, focusManualInput = true) => {
+  const resolveScannedOrderNo = useCallback(async (rawValue: string) => {
+    const raw = String(rawValue ?? '').trim();
+    if (!raw) return '';
+    if (!isAipLinkOrderUrl(raw)) return extractTicketNumberFromScan(raw);
+
+    const response = await axios.post<{ order_no?: string }>('/api/pickup-search/resolve-barcode', {
+      barcode: raw,
+    });
+    return String(response.data?.order_no ?? '').trim();
+  }, []);
+
+  const verifyBarcodeValue = useCallback(async (value: string, focusManualInput = true) => {
     setBarcodeError(null);
     setShowDeliveryPayment(false);
     if (!value.trim()) {
@@ -638,18 +654,35 @@ function PickModal({
       if (focusManualInput) barcodeInputRef.current?.focus();
       return;
     }
-    if (normalizeBarcode(value) !== normalizeBarcode(order.order_no)) {
-      setBarcodeVerified(false);
-      setBarcodeError('الباركود لا يطابق هذا الطلب. أعد فحص الكيس الصحيح.');
-      setBarcodeValue('');
-      if (focusManualInput) barcodeInputRef.current?.focus();
-      return;
-    }
-    setBarcodeValue(value);
-    setBarcodeVerified(true);
-  };
 
-  const verifyBarcode = () => verifyBarcodeValue(barcodeValue);
+    setBarcodeResolving(true);
+    try {
+      const resolvedValue = await resolveScannedOrderNo(value);
+      if (!resolvedValue) {
+        setBarcodeVerified(false);
+        setBarcodeError('لم يتم العثور على رقم الطلب داخل الباركود.');
+        if (focusManualInput) barcodeInputRef.current?.focus();
+        return;
+      }
+      if (normalizeBarcode(resolvedValue) !== normalizeBarcode(order.order_no)) {
+        setBarcodeVerified(false);
+        setBarcodeError('الباركود لا يطابق هذا الطلب. أعد فحص الكيس الصحيح.');
+        setBarcodeValue('');
+        if (focusManualInput) barcodeInputRef.current?.focus();
+        return;
+      }
+      setBarcodeValue(resolvedValue);
+      setBarcodeVerified(true);
+    } catch (error: any) {
+      setBarcodeVerified(false);
+      setBarcodeError(error?.response?.data?.error || error?.message || 'تعذر استخراج رقم الطلب من الباركود.');
+      if (focusManualInput) barcodeInputRef.current?.focus();
+    } finally {
+      setBarcodeResolving(false);
+    }
+  }, [normalizeBarcode, order.order_no, resolveScannedOrderNo]);
+
+  const verifyBarcode = () => void verifyBarcodeValue(barcodeValue);
 
   const closeScanner = () => {
     setScannerOpen(false);
@@ -662,6 +695,7 @@ function PickModal({
 
     let cancelled = false;
     let consumed = false;
+    let resolving = false;
     let stopSession: (() => void) | null = null;
     setScannerError(null);
     setScannerPreview(null);
@@ -673,12 +707,34 @@ function PickModal({
 
         const session = await startCameraBarcodeScanner({
           videoElement: video,
-          onDetected: (rawValue) => {
-            if (cancelled || consumed) return;
+          onDetected: async (rawValue) => {
+            if (cancelled || consumed || resolving) return;
             const raw = String(rawValue ?? '').trim();
-            const extracted = extractTicketNumberFromScan(raw);
+            const localValue = extractTicketNumberFromScan(raw);
+            const needsAipLinkResolution = isAipLinkOrderUrl(raw);
+            setScannerPreview({
+              raw,
+              extracted: needsAipLinkResolution ? 'Resolving AIPLink order...' : localValue,
+            });
+            if (!localValue && !needsAipLinkResolution) return;
+
+            resolving = true;
+            let extracted = '';
+            try {
+              extracted = await resolveScannedOrderNo(raw);
+            } catch (error: any) {
+              if (!cancelled) {
+                const message =
+                  error?.response?.data?.error || error?.message || 'تعذر استخراج رقم الطلب من رابط الباركود.';
+                setScannerError(message);
+                setBarcodeError(message);
+              }
+              resolving = false;
+              return;
+            }
+            resolving = false;
+            if (cancelled || consumed || !extracted) return;
             setScannerPreview({ raw, extracted });
-            if (!extracted) return;
 
             setBarcodeValue(extracted);
             if (normalizeBarcode(extracted) !== normalizeBarcode(order.order_no)) {
@@ -700,7 +756,7 @@ function PickModal({
             } catch {
               // Ignore vibration errors.
             }
-            verifyBarcodeValue(extracted, false);
+            void verifyBarcodeValue(extracted, false);
             setScannerError(null);
             setScannerOpen(false);
           },
@@ -724,7 +780,7 @@ function PickModal({
       cancelled = true;
       stopSession?.();
     };
-  }, [scannerOpen, order.order_no]);
+  }, [normalizeBarcode, order.order_no, resolveScannedOrderNo, scannerOpen, verifyBarcodeValue]);
 
   const pickIt = async () => {
     try {
@@ -1060,6 +1116,7 @@ function PickModal({
                         onKeyDown={(event) => {
                           if (event.key === 'Enter') verifyBarcode();
                         }}
+                        disabled={barcodeResolving}
                         dir="ltr"
                         inputMode="text"
                         autoComplete="off"
@@ -1070,10 +1127,11 @@ function PickModal({
                       <button
                         type="button"
                         onClick={verifyBarcode}
-                        className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 text-sm font-black text-white hover:bg-slate-800"
+                        disabled={barcodeResolving}
+                        className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 text-sm font-black text-white hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60"
                       >
-                        <ScanBarcode size={18} />
-                        تحقق
+                        {barcodeResolving ? <Loader2 size={18} className="animate-spin" /> : <ScanBarcode size={18} />}
+                        {barcodeResolving ? 'جاري قراءة الرابط...' : 'تحقق'}
                       </button>
                     </div>
                   </details>

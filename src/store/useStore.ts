@@ -144,6 +144,12 @@ export interface User {
   created_at: string | null;
   updated_at: string | null;
   last_login_at: string | null;
+  auth_provider?: 'local' | 'pos';
+  pos_user_id?: string | null;
+  pos_branch_id?: string | null;
+  pos_currency_id?: string | null;
+  pos_display_name?: string;
+  pos_user_type_name?: string;
 }
 
 export interface UserPayload {

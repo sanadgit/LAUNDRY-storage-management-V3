@@ -175,10 +175,10 @@ function LoginScreen() {
     <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4">
       <div className="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900/90 backdrop-blur-md p-6 sm:p-8 shadow-2xl space-y-5">
         <div className="space-y-2 text-center">
-          <div className="text-[11px] font-black uppercase tracking-[0.25em] text-slate-500">Secure Access</div>
+          <div className="text-[11px] font-black uppercase tracking-[0.25em] text-blue-400">POS Employee Access</div>
           <h1 className="text-3xl sm:text-4xl font-black tracking-tight">Smart Storage Hub</h1>
           <p className="text-sm text-slate-400 font-semibold">
-            Sign in to open the application. Access is controlled by role-based permissions.
+            سجّل الدخول بنفس اسم المستخدم وكلمة المرور الخاصة بك في نظام AIPSoft POS.
           </p>
         </div>
 
@@ -197,7 +197,7 @@ function LoginScreen() {
           )}
           <input
             type="text"
-            placeholder="Username"
+            placeholder="POS Username"
             value={username}
             onChange={(event) => setUsername(event.target.value)}
             onKeyDown={(event) => {
@@ -207,7 +207,7 @@ function LoginScreen() {
           />
           <input
             type="password"
-            placeholder="Password"
+            placeholder="POS Password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             onKeyDown={(event) => {

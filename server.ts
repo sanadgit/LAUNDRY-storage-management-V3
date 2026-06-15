@@ -7,6 +7,7 @@ import cors from 'cors';
 import Database from 'better-sqlite3';
 import { Pool } from 'pg';
 import { randomBytes, randomInt, randomUUID, scryptSync, timingSafeEqual } from 'crypto';
+import { AsyncLocalStorage } from 'async_hooks';
 import { fileURLToPath } from 'url';
 import {
   AppUserRole,
@@ -102,6 +103,24 @@ type SessionRecord = {
   user_id: number;
   username: string;
   role: AppUserRole;
+  expires_at: number;
+  auth_provider?: 'local' | 'pos';
+  pos_user_id?: string | null;
+  pos_branch_id?: string | null;
+  pos_currency_id?: string | null;
+};
+
+type PosStaffSessionRecord = {
+  token: string;
+  username: string;
+  display_name: string;
+  user_type_name: string;
+  pos_user_id: string;
+  branch_id: string;
+  branch_code: string;
+  currency_id: string;
+  client_identifier: string;
+  cookie_header: string;
   expires_at: number;
 };
 
@@ -851,6 +870,10 @@ ensureColumn('customer_sessions', 'created_at', 'DATETIME');
 ensureColumn('customer_driver_sessions', 'payload', "TEXT DEFAULT '{}'");
 ensureColumn('customer_driver_sessions', 'expires_at', 'INTEGER DEFAULT 0');
 ensureColumn('customer_driver_sessions', 'created_at', 'DATETIME');
+ensureColumn('app_sessions', 'auth_provider', "TEXT DEFAULT 'local'");
+ensureColumn('app_sessions', 'pos_user_id', 'TEXT');
+ensureColumn('app_sessions', 'pos_branch_id', 'TEXT');
+ensureColumn('app_sessions', 'pos_currency_id', 'TEXT');
 
 ensureColumn('sorting_tables', 'name', "TEXT DEFAULT ''");
 ensureColumn('sorting_tables', 'rows', 'INTEGER DEFAULT 2');
@@ -1181,6 +1204,10 @@ let posCookieJar = POS_COOKIE;
 let posCookieJarAutoRefreshed = false;
 let posRefreshInFlight: Promise<boolean> | null = null;
 let posLastRefreshReason = '';
+const posStaffSessionStore = new Map<string, PosStaffSessionRecord>();
+const posStaffRequestContext = new AsyncLocalStorage<PosStaffSessionRecord>();
+
+const getActivePosStaffSession = () => posStaffRequestContext.getStore() ?? null;
 
 const normalizeCustomerPhone = (value: unknown) => {
   let digits = String(value ?? '').replace(/\D/g, '');
@@ -1288,19 +1315,20 @@ const mergeCookieHeaders = (baseCookieHeader: string, setCookies: string[]) => {
     .join('; ');
 };
 
-const updatePosCookieJarFromResponse = (baseCookieHeader: string, response: Response) => {
+const mergeResponseCookies = (baseCookieHeader: string, response: Response) => {
   const getSetCookie = (response.headers as any)?.getSetCookie;
   if (typeof getSetCookie === 'function') {
     const setCookies = getSetCookie.call(response.headers) as string[];
     if (Array.isArray(setCookies) && setCookies.length > 0) {
-      posCookieJar = mergeCookieHeaders(baseCookieHeader, setCookies);
-      return;
+      return mergeCookieHeaders(baseCookieHeader, setCookies);
     }
   }
   const singleSetCookie = response.headers.get('set-cookie');
-  if (singleSetCookie) {
-    posCookieJar = mergeCookieHeaders(baseCookieHeader, [singleSetCookie]);
-  }
+  return singleSetCookie ? mergeCookieHeaders(baseCookieHeader, [singleSetCookie]) : baseCookieHeader;
+};
+
+const updatePosCookieJarFromResponse = (baseCookieHeader: string, response: Response) => {
+  posCookieJar = mergeResponseCookies(baseCookieHeader, response);
 };
 
 const hasMinimalPosCookie = (cookieHeader: string) => /ci_session_/i.test(cookieHeader) && /\binout=/i.test(cookieHeader);
@@ -1508,6 +1536,190 @@ const refreshPosSession = async (reason: string): Promise<boolean> => {
   } finally {
     posRefreshInFlight = null;
   }
+};
+
+const authenticatePosStaff = async (usernameInput: unknown, passwordInput: unknown) => {
+  const usernameRaw = String(usernameInput ?? '').trim();
+  const password = String(passwordInput ?? '');
+  if (!usernameRaw || !password) throw new Error('POS username and password are required.');
+
+  const usernameBeforeAt = usernameRaw.includes('@') ? usernameRaw.split('@')[0].trim() : usernameRaw;
+  const suppliedClient = usernameRaw.includes('@') ? usernameRaw.split('@')[1]?.trim() : '';
+  if (suppliedClient && suppliedClient.toLowerCase() !== POS_LOGIN_CLIENT_IDENTIFIER.toLowerCase()) {
+    throw new Error('Invalid POS username or password.');
+  }
+  const clientIdentifier = POS_LOGIN_CLIENT_IDENTIFIER;
+  const usernameVariants = Array.from(
+    new Set(
+      [
+        usernameRaw,
+        usernameRaw.toLowerCase(),
+        usernameBeforeAt,
+        usernameBeforeAt.toLowerCase(),
+        `${usernameBeforeAt}@${clientIdentifier}`,
+        `${usernameBeforeAt.toLowerCase()}@${clientIdentifier}`,
+      ].filter(Boolean)
+    )
+  );
+
+  const withTimeout = async (request: (signal: AbortSignal) => Promise<Response>) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), POS_REQUEST_TIMEOUT_MS);
+    try {
+      return await request(controller.signal);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  let cookieHeader = '';
+  try {
+    const preflight = await withTimeout((signal) =>
+      fetch(POS_LOGIN_REFERER, {
+        method: 'GET',
+        headers: {
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Cache-Control': 'no-cache',
+          Pragma: 'no-cache',
+        },
+        signal,
+      })
+    );
+    cookieHeader = mergeResponseCookies(cookieHeader, preflight);
+    await preflight.text().catch(() => '');
+  } catch {
+    // The login POST can still work without preflight cookies.
+  }
+
+  let authenticatedUsername = '';
+  for (const username of usernameVariants) {
+    const payload = new URLSearchParams();
+    payload.set('username', username);
+    payload.set('password', password);
+    payload.set('client_identifier', clientIdentifier);
+    payload.set('auto_login', 'null');
+    payload.set('connection_path', 'null');
+
+    const response = await withTimeout((signal) =>
+      fetch(POS_LOGIN_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json, text/javascript, */*; q=0.01',
+          'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ar;q=0.7',
+          'Cache-Control': 'no-cache',
+          Pragma: 'no-cache',
+          Origin: resolvePosOrigin(),
+          Referer: POS_LOGIN_REFERER,
+          'X-Requested-With': 'XMLHttpRequest',
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+        },
+        body: payload.toString(),
+        signal,
+      })
+    );
+    cookieHeader = mergeResponseCookies(cookieHeader, response);
+    const text = await response.text().catch(() => '');
+    let parsed: any = null;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      parsed = null;
+    }
+    const success =
+      response.ok &&
+      hasMinimalPosCookie(cookieHeader) &&
+      (String(parsed?.message ?? '').toLowerCase().includes('login_success') ||
+        String(text).toLowerCase().includes('login_success'));
+    if (success) {
+      authenticatedUsername = usernameBeforeAt;
+      break;
+    }
+  }
+
+  if (!authenticatedUsername) throw new Error('Invalid POS username or password.');
+
+  const purchaseLoginPayload = new URLSearchParams();
+  purchaseLoginPayload.set('username', `${usernameBeforeAt}@${clientIdentifier}`);
+  purchaseLoginPayload.set('password', password);
+  purchaseLoginPayload.set('device_id', '0');
+  const purchaseLoginResponse = await withTimeout((signal) =>
+    fetch(resolvePosPurchaseApiEndpoint('/purchase_api/login_action'), {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json, text/javascript, */*; q=0.01',
+        Origin: resolvePosOrigin(),
+        Referer: `${POS_PURCHASE_API_BASE_URL.replace(/\/+$/, '')}/`,
+        'X-Requested-With': 'XMLHttpRequest',
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+      },
+      body: purchaseLoginPayload.toString(),
+      signal,
+    })
+  );
+  cookieHeader = mergeResponseCookies(cookieHeader, purchaseLoginResponse);
+  const purchaseLoginText = await purchaseLoginResponse.text().catch(() => '');
+  let purchaseLogin: any = null;
+  try {
+    purchaseLogin = purchaseLoginText ? JSON.parse(purchaseLoginText) : null;
+  } catch {
+    purchaseLogin = null;
+  }
+  if (!purchaseLoginResponse.ok || Number(purchaseLogin?.status) !== 1 || !purchaseLogin?.data?.user_id) {
+    throw new Error(String(purchaseLogin?.message ?? 'POS user details could not be loaded.'));
+  }
+
+  const data = purchaseLogin.data;
+  const userId = String(data.user_id ?? '').trim();
+  const branchId = String(data.branch_id ?? '').trim();
+  const currencyId = String(data.currency_id ?? '').trim();
+  let canonicalUsername = usernameBeforeAt;
+  let displayName = usernameBeforeAt;
+  let userTypeName = '';
+
+  try {
+    const profilePayload = new URLSearchParams();
+    profilePayload.set('client_identifier', clientIdentifier);
+    profilePayload.set('branch_id', branchId);
+    profilePayload.set('user_id', userId);
+    const profileResponse = await withTimeout((signal) =>
+      fetch(resolvePosPurchaseApiEndpoint('/pos_api/getDeliveryData'), {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json, text/javascript, */*; q=0.01',
+          Origin: resolvePosOrigin(),
+          Referer: `${POS_PURCHASE_API_BASE_URL.replace(/\/+$/, '')}/delivery`,
+          'X-Requested-With': 'XMLHttpRequest',
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          Cookie: cookieHeader,
+        },
+        body: profilePayload.toString(),
+        signal,
+      })
+    );
+    cookieHeader = mergeResponseCookies(cookieHeader, profileResponse);
+    const profileText = await profileResponse.text().catch(() => '');
+    const profile = profileText ? JSON.parse(profileText) : null;
+    canonicalUsername = String(profile?.data?.username ?? canonicalUsername).trim() || canonicalUsername;
+    displayName = String(profile?.data?.acc_name1 ?? profile?.data?.username ?? displayName).trim() || displayName;
+    userTypeName = String(profile?.data?.user_type_name ?? '').trim();
+  } catch {
+    // Login metadata is sufficient when the optional profile request is unavailable.
+  }
+
+  return {
+    username: usernameBeforeAt,
+    pos_username: canonicalUsername,
+    display_name: displayName,
+    user_type_name: userTypeName,
+    pos_user_id: userId,
+    branch_id: branchId,
+    branch_code: String(data.branch_code ?? '').trim(),
+    currency_id: currencyId,
+    client_identifier: String(data.oem_identifier ?? clientIdentifier).trim() || clientIdentifier,
+    cookie_header: cookieHeader,
+  };
 };
 
 const resolvePosEndpoint = () => {
@@ -2112,12 +2324,13 @@ const fetchPosOrderSearch = async (
   if (!endpoint) {
     throw new Error('POS endpoint is not configured.');
   }
-  let cookieHeader = String(posCookieJar || POS_COOKIE).trim();
-  if (canAutoRefreshPosSession() && !posCookieJarAutoRefreshed) {
+  const staffSession = getActivePosStaffSession();
+  let cookieHeader = String(staffSession?.cookie_header || posCookieJar || POS_COOKIE).trim();
+  if (!staffSession && canAutoRefreshPosSession() && !posCookieJarAutoRefreshed) {
     await refreshPosSession('search_initial_refresh');
     cookieHeader = String(posCookieJar || POS_COOKIE).trim();
   }
-  if ((!cookieHeader || !hasMinimalPosCookie(cookieHeader)) && canAutoRefreshPosSession()) {
+  if (!staffSession && (!cookieHeader || !hasMinimalPosCookie(cookieHeader)) && canAutoRefreshPosSession()) {
     await refreshPosSession('search_prepare');
     cookieHeader = String(posCookieJar || POS_COOKIE).trim();
   }
@@ -2161,8 +2374,12 @@ const fetchPosOrderSearch = async (
   };
 
   const parseResponseBody = async (response: Response) => {
-    updatePosCookieJarFromResponse(cookieHeader, response);
-    cookieHeader = String(posCookieJar || cookieHeader).trim();
+    cookieHeader = mergeResponseCookies(cookieHeader, response);
+    if (staffSession) {
+      staffSession.cookie_header = cookieHeader;
+    } else {
+      posCookieJar = cookieHeader;
+    }
 
     const text = await response.text().catch(() => '');
     let parsed: any = null;
@@ -2228,14 +2445,16 @@ const fetchPosOrderSearch = async (
 
   if (!parsed || !Array.isArray(parsed?.data)) {
     if (/<!doctype|<html/i.test(text)) {
-      if (canAutoRefreshPosSession() && (await refreshPosSession('search_html_response'))) {
+      if (!staffSession && canAutoRefreshPosSession() && (await refreshPosSession('search_html_response'))) {
         cookieHeader = String(posCookieJar || POS_COOKIE).trim();
         const retry = await requestWithPayload(buildPosOrderSearchPayload(query, overrides));
         text = retry.text;
         parsed = retry.parsed;
       } else {
         throw new Error(
-          canAutoRefreshPosSession()
+          staffSession
+            ? 'POS employee session expired. Sign out and sign in again.'
+            : canAutoRefreshPosSession()
             ? `POS returned HTML and auto-refresh failed. ${posLastRefreshReason || 'Check POS credentials/session.'}`.trim()
             : 'POS returned HTML (likely login/session page). Enable POS auto login with POS_AUTO_REFRESH_ENABLED=1 and POS_LOGIN_* settings.'
         );
@@ -2348,7 +2567,9 @@ const fetchCachedPosConnectSearch = async (
   query: string,
   overrides?: Parameters<typeof buildPosOrderSearchPayload>[1]
 ) => {
+  const posStaff = getActivePosStaffSession();
   const cacheKey = JSON.stringify({
+    pos_user_id: posStaff?.pos_user_id ?? 'system',
     query,
     start: overrides?.start ?? '0',
     length: overrides?.length ?? '25',
@@ -2391,6 +2612,7 @@ const getPosConnectDetailsCacheKey = (params: {
   job_process_commision_option?: string;
 }) =>
   JSON.stringify({
+    pos_user_id: getActivePosStaffSession()?.pos_user_id ?? 'system',
     order_id: params.order_id || '0',
     s_order_id: params.s_order_id || '0',
     mode: params.mode || '0',
@@ -2570,12 +2792,13 @@ const postPosForm = async (
   const endpoint = resolvePosEndpointFromPath(endpointPath);
   if (!endpoint) throw new Error('POS endpoint is not configured.');
 
-  let cookieHeader = String(posCookieJar || POS_COOKIE).trim();
-  if (canAutoRefreshPosSession() && !posCookieJarAutoRefreshed) {
+  const staffSession = getActivePosStaffSession();
+  let cookieHeader = String(staffSession?.cookie_header || posCookieJar || POS_COOKIE).trim();
+  if (!staffSession && canAutoRefreshPosSession() && !posCookieJarAutoRefreshed) {
     await refreshPosSession('post_initial_refresh');
     cookieHeader = String(posCookieJar || POS_COOKIE).trim();
   }
-  if ((!cookieHeader || !hasMinimalPosCookie(cookieHeader)) && canAutoRefreshPosSession()) {
+  if (!staffSession && (!cookieHeader || !hasMinimalPosCookie(cookieHeader)) && canAutoRefreshPosSession()) {
     await refreshPosSession('post_prepare');
     cookieHeader = String(posCookieJar || POS_COOKIE).trim();
   }
@@ -2619,8 +2842,12 @@ const postPosForm = async (
   };
 
   const parseResponse = async (response: Response) => {
-    updatePosCookieJarFromResponse(cookieHeader, response);
-    cookieHeader = String(posCookieJar || cookieHeader).trim();
+    cookieHeader = mergeResponseCookies(cookieHeader, response);
+    if (staffSession) {
+      staffSession.cookie_header = cookieHeader;
+    } else {
+      posCookieJar = cookieHeader;
+    }
 
     const text = await response.text().catch(() => '');
     let parsed: any = null;
@@ -2657,7 +2884,11 @@ const postPosForm = async (
     responseBody = await parseResponse(getResponse);
   }
 
-  if ((isPosHtmlDocument(String(responseBody.text ?? '')) || isLikelyPosLoginHtml(String(responseBody.text ?? ''))) && canAutoRefreshPosSession()) {
+  if (
+    !staffSession &&
+    (isPosHtmlDocument(String(responseBody.text ?? '')) || isLikelyPosLoginHtml(String(responseBody.text ?? ''))) &&
+    canAutoRefreshPosSession()
+  ) {
     const refreshed = await refreshPosSession('post_html_response');
     if (refreshed) {
       cookieHeader = String(posCookieJar || POS_COOKIE).trim();
@@ -2685,6 +2916,13 @@ const postPosForm = async (
         responseBody = await parseResponse(retryGetResponse);
       }
     }
+  }
+
+  if (
+    staffSession &&
+    (isPosHtmlDocument(String(responseBody.text ?? '')) || isLikelyPosLoginHtml(String(responseBody.text ?? '')))
+  ) {
+    throw new Error('POS employee session expired. Sign out and sign in again.');
   }
 
   return responseBody;
@@ -3542,16 +3780,19 @@ const payAndDeliverPickupOrder = async (input: {
 
   const branchId = String(first.branch_id ?? '').trim();
   if (!branchId) throw new Error('POS order branch is missing.');
+  const staffSession = getActivePosStaffSession();
   const assignedDriverId = String(first.driver_id ?? '').trim();
   const userId =
-    assignedDriverId && Number(assignedDriverId) > 0
+    staffSession?.pos_user_id ||
+    (assignedDriverId && Number(assignedDriverId) > 0
       ? assignedDriverId
-      : POS_DELIVERY_USER_ID || String(first.done_by ?? first.modified_user_id ?? '').trim();
+      : POS_DELIVERY_USER_ID || String(first.done_by ?? first.modified_user_id ?? '').trim());
   if (!userId) throw new Error('POS delivery user is not configured.');
+  const clientIdentifier = staffSession?.client_identifier || POS_LOGIN_CLIENT_IDENTIFIER;
 
   const deliveryReferer = `${POS_PURCHASE_API_BASE_URL.replace(/\/+$/, '')}/delivery`;
   const deliveryOrderPayload = new URLSearchParams();
-  deliveryOrderPayload.set('client_identifier', POS_LOGIN_CLIENT_IDENTIFIER);
+  deliveryOrderPayload.set('client_identifier', clientIdentifier);
   deliveryOrderPayload.set('branch_id', branchId);
   deliveryOrderPayload.set('s_order_id', sourceOrdersId);
   deliveryOrderPayload.set('order_id', '0');
@@ -3574,7 +3815,7 @@ const payAndDeliverPickupOrder = async (input: {
   const creditSaleEnabled = String(deliveryOrderResponse[2] ?? '').trim();
 
   const deliveryConfigPayload = new URLSearchParams();
-  deliveryConfigPayload.set('client_identifier', POS_LOGIN_CLIENT_IDENTIFIER);
+  deliveryConfigPayload.set('client_identifier', clientIdentifier);
   deliveryConfigPayload.set('branch_id', branchId);
   deliveryConfigPayload.set('user_id', userId);
   let deliveryConfigResult = await postPosForm(
@@ -3597,7 +3838,7 @@ const payAndDeliverPickupOrder = async (input: {
     pendingPayload.set('order_id', '0');
     pendingPayload.set('user_id', userId);
     pendingPayload.set('branch_id', branchId);
-    pendingPayload.set('client_identifier', POS_LOGIN_CLIENT_IDENTIFIER);
+    pendingPayload.set('client_identifier', clientIdentifier);
     pendingPayload.set('filter_content', orderNo);
     pendingPayload.set('shift_id', String(config?.data?.shift_id ?? '0'));
     const pendingResult = await postPosForm(
@@ -3618,7 +3859,7 @@ const payAndDeliverPickupOrder = async (input: {
   let packedForDelivery = false;
   if (!matchingDeliveryBill && !alreadyPackedForDelivery && !input.dry_run) {
     const packingConfigPayload = new URLSearchParams();
-    packingConfigPayload.set('client_identifier', POS_LOGIN_CLIENT_IDENTIFIER);
+    packingConfigPayload.set('client_identifier', clientIdentifier);
     packingConfigPayload.set('branch_id', branchId);
     packingConfigPayload.set('user_id', userId);
     const packingReferer = `${POS_PURCHASE_API_BASE_URL.replace(/\/+$/, '')}/packing`;
@@ -3633,7 +3874,7 @@ const payAndDeliverPickupOrder = async (input: {
     }
 
     const packingOrderPayload = new URLSearchParams();
-    packingOrderPayload.set('client_identifier', POS_LOGIN_CLIENT_IDENTIFIER);
+    packingOrderPayload.set('client_identifier', clientIdentifier);
     packingOrderPayload.set('branch_id', branchId);
     packingOrderPayload.set('user_id', userId);
     packingOrderPayload.set('order_id', sourceOrdersId);
@@ -3666,7 +3907,7 @@ const payAndDeliverPickupOrder = async (input: {
 
     const packingFirst = packingRows[0];
     const savePackingPayload = new URLSearchParams();
-    savePackingPayload.set('client_identifier', POS_LOGIN_CLIENT_IDENTIFIER);
+    savePackingPayload.set('client_identifier', clientIdentifier);
     savePackingPayload.set('order_id', sourceOrdersId);
     savePackingPayload.set('branch_id', branchId);
     savePackingPayload.set('packing_date', String(packingConfig.data.pack_date ?? ''));
@@ -3789,16 +4030,20 @@ const payAndDeliverPickupOrder = async (input: {
   );
   payload.set(`${detailPrefix}[shipping_id]`, shippingId);
   payload.set('order_id', sourceOrdersId);
-  payload.set('client_identifier', POS_LOGIN_CLIENT_IDENTIFIER);
+  payload.set('client_identifier', clientIdentifier);
   payload.set('user_id', userId);
   payload.set('branch_id', branchId);
-  payload.set('currency_id', String(deliveryConfig.data.currency_id ?? POS_DELIVERY_CURRENCY_ID));
+  payload.set(
+    'currency_id',
+    String(staffSession?.currency_id ?? deliveryConfig.data.currency_id ?? POS_DELIVERY_CURRENCY_ID)
+  );
 
   const requestSummary = {
     order_no: orderNo,
     sales_order_id: sourceOrdersId,
     branch_id: branchId,
     user_id: userId,
+    pos_username: staffSession?.username ?? null,
     shift_id: shiftId,
     payment_method: input.payment_method,
     linked_account_id: payment.linked_account_id,
@@ -7155,7 +7400,12 @@ const getSessionFromRequest = (req: any): SessionRecord | null => {
   }
 
   const row = db
-    .prepare('SELECT token, user_id, username, role, expires_at FROM app_sessions WHERE token = ?')
+    .prepare(
+      `SELECT token, user_id, username, role, expires_at, auth_provider,
+              pos_user_id, pos_branch_id, pos_currency_id
+       FROM app_sessions
+       WHERE token = ?`
+    )
     .get(token) as SessionRecord | undefined;
   if (!row) return null;
   if (Number(row.expires_at) <= Date.now()) {
@@ -7168,12 +7418,24 @@ const getSessionFromRequest = (req: any): SessionRecord | null => {
     username: row.username,
     role: row.role,
     expires_at: Number(row.expires_at),
+    auth_provider: row.auth_provider === 'pos' ? 'pos' : 'local',
+    pos_user_id: row.pos_user_id ?? null,
+    pos_branch_id: row.pos_branch_id ?? null,
+    pos_currency_id: row.pos_currency_id ?? null,
   };
   sessionStore.set(token, session);
   return session;
 };
 
-const issueSession = (user: Pick<SQLiteUserRecord, 'id' | 'username' | 'role'>) => {
+const issueSession = (
+  user: Pick<SQLiteUserRecord, 'id' | 'username' | 'role'>,
+  options?: {
+    auth_provider?: 'local' | 'pos';
+    pos_user_id?: string | null;
+    pos_branch_id?: string | null;
+    pos_currency_id?: string | null;
+  }
+) => {
   const token = randomUUID();
   const session: SessionRecord = {
     token,
@@ -7181,13 +7443,31 @@ const issueSession = (user: Pick<SQLiteUserRecord, 'id' | 'username' | 'role'>) 
     username: user.username,
     role: user.role,
     expires_at: Date.now() + SESSION_TTL_MS,
+    auth_provider: options?.auth_provider ?? 'local',
+    pos_user_id: options?.pos_user_id ?? null,
+    pos_branch_id: options?.pos_branch_id ?? null,
+    pos_currency_id: options?.pos_currency_id ?? null,
   };
   sessionStore.set(token, session);
   db.prepare('DELETE FROM app_sessions WHERE token = ?').run(token);
   db.prepare(
-    `INSERT INTO app_sessions (token, user_id, username, role, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(token, session.user_id, session.username, session.role, session.expires_at, new Date().toISOString());
+    `INSERT INTO app_sessions (
+       token, user_id, username, role, expires_at, auth_provider,
+       pos_user_id, pos_branch_id, pos_currency_id, created_at
+     )
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    token,
+    session.user_id,
+    session.username,
+    session.role,
+    session.expires_at,
+    session.auth_provider,
+    session.pos_user_id,
+    session.pos_branch_id,
+    session.pos_currency_id,
+    new Date().toISOString()
+  );
   return session;
 };
 
@@ -7234,6 +7514,31 @@ const requirePicker = (req: any, res: any, next: any) => {
   }
   req.auth = session;
   next();
+};
+
+const requirePosStaffSession = (req: any, res: any, next: any) => {
+  const session = (req.auth as SessionRecord | undefined) ?? getSessionFromRequest(req);
+  if (!session || session.auth_provider !== 'pos') {
+    return res.status(401).json({
+      error: 'POS employee login is required. Sign in with your POS username and password.',
+      code: 'POS_SESSION_REQUIRED',
+    });
+  }
+
+  const posSession = posStaffSessionStore.get(session.token);
+  if (!posSession || posSession.expires_at <= Date.now()) {
+    posStaffSessionStore.delete(session.token);
+    sessionStore.delete(session.token);
+    db.prepare('DELETE FROM app_sessions WHERE token = ?').run(session.token);
+    return res.status(401).json({
+      error: 'POS employee session expired. Sign in again.',
+      code: 'POS_SESSION_EXPIRED',
+    });
+  }
+
+  req.auth = session;
+  req.posStaff = posSession;
+  return posStaffRequestContext.run(posSession, () => next());
 };
 
 const requireSorting = (req: any, res: any, next: any) => {
@@ -7724,6 +8029,57 @@ const normalizeSQLiteUser = (user: SQLiteUserRecord): ApiUser => ({
   branch_name:
     (db.prepare('SELECT name FROM branches WHERE id = ?').get(user.branch_id ?? 1) as { name?: string } | undefined)?.name ??
     null,
+});
+
+const ensurePosStaffUser = (profile: {
+  username: string;
+  display_name: string;
+  branch_id: string;
+}) => {
+  const username = profile.username.trim();
+  const existing = db
+    .prepare('SELECT * FROM users WHERE LOWER(username) = LOWER(?) LIMIT 1')
+    .get(username) as SQLiteUserRecord | undefined;
+  const branchId = Math.max(1, Number(profile.branch_id) || 1);
+
+  if (existing) {
+    const displayName = profile.display_name.trim() || existing.full_name || existing.username;
+    db.prepare(
+      `UPDATE users
+       SET full_name = ?, branch_id = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`
+    ).run(displayName, branchId, existing.id);
+    return db.prepare('SELECT * FROM users WHERE id = ?').get(existing.id) as SQLiteUserRecord;
+  }
+
+  const passwordSentinel = `pos-auth-only:${randomBytes(32).toString('hex')}`;
+  const result = db
+    .prepare(
+      `INSERT INTO users (
+         username, full_name, email, phone, avatar_url, role, password,
+         is_active, branch_id, created_at, updated_at
+       )
+       VALUES (?, ?, ?, '', '', 'cashier', ?, 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+    )
+    .run(
+      username,
+      profile.display_name.trim() || username,
+      normalizeManagedEmail({ username }),
+      passwordSentinel,
+      branchId
+    );
+
+  return db.prepare('SELECT * FROM users WHERE id = ?').get(Number(result.lastInsertRowid)) as SQLiteUserRecord;
+};
+
+const withPosSessionUser = (user: SQLiteUserRecord, session: SessionRecord, posSession: PosStaffSessionRecord) => ({
+  ...normalizeSQLiteUser(user),
+  auth_provider: 'pos' as const,
+  pos_user_id: session.pos_user_id ?? null,
+  pos_branch_id: session.pos_branch_id ?? null,
+  pos_currency_id: session.pos_currency_id ?? null,
+  pos_display_name: posSession.display_name,
+  pos_user_type_name: posSession.user_type_name,
 });
 
 const deriveBlanketAction = (
@@ -10114,24 +10470,77 @@ async function startServer() {
     }
   });
 
-  app.post('/api/login', (req, res) => {
-    const { username, password } = req.body;
-    const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username) as SQLiteUserRecord | undefined;
-
-    if (!user || user.password !== password) {
-      return res.status(401).json({ error: 'Invalid username or password' });
+  app.post('/api/login', async (req, res) => {
+    const username = String(req.body?.username ?? '').trim();
+    const password = String(req.body?.password ?? '');
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password are required.' });
     }
 
-    if (user.is_active === 0) {
-      return res.status(403).json({ error: 'This user is inactive.' });
+    try {
+      const profile = await authenticatePosStaff(username, password);
+      const user = ensurePosStaffUser(profile);
+      if (user.is_active === 0) {
+        return res.status(403).json({ error: 'This user is inactive.' });
+      }
+
+      const timestamp = new Date().toISOString();
+      touchSQLiteLastLogin(user.id, timestamp);
+      const session = issueSession(
+        { id: user.id, username: user.username, role: user.role },
+        {
+          auth_provider: 'pos',
+          pos_user_id: profile.pos_user_id,
+          pos_branch_id: profile.branch_id,
+          pos_currency_id: profile.currency_id,
+        }
+      );
+      const posSession: PosStaffSessionRecord = {
+        token: session.token,
+        username: profile.pos_username,
+        display_name: profile.display_name,
+        user_type_name: profile.user_type_name,
+        pos_user_id: profile.pos_user_id,
+        branch_id: profile.branch_id,
+        branch_code: profile.branch_code,
+        currency_id: profile.currency_id,
+        client_identifier: profile.client_identifier,
+        cookie_header: profile.cookie_header,
+        expires_at: session.expires_at,
+      };
+      posStaffSessionStore.set(session.token, posSession);
+
+      return res.json({
+        user: withPosSessionUser({ ...user, last_login_at: timestamp }, session, posSession),
+        token: session.token,
+        expires_at: session.expires_at,
+      });
+    } catch (posError) {
+      const user = db
+        .prepare('SELECT * FROM users WHERE LOWER(username) = LOWER(?) LIMIT 1')
+        .get(username) as SQLiteUserRecord | undefined;
+
+      if (!user || user.password !== password || user.password.startsWith('pos-auth-only:')) {
+        const posErrorMessage = posError instanceof Error ? posError.message : String(posError);
+        console.warn('POS employee login failed:', posErrorMessage);
+        if (posErrorMessage === 'Invalid POS username or password.') {
+          return res.status(401).json({ error: posErrorMessage });
+        }
+        return res.status(502).json({
+          error: 'POS login service is unavailable. Please try again shortly.',
+        });
+      }
+
+      if (user.is_active === 0) {
+        return res.status(403).json({ error: 'This user is inactive.' });
+      }
+
+      const timestamp = new Date().toISOString();
+      touchSQLiteLastLogin(user.id, timestamp);
+      const normalizedUser = normalizeSQLiteUser({ ...user, last_login_at: timestamp });
+      const session = issueSession({ id: user.id, username: user.username, role: user.role });
+      return res.json({ user: normalizedUser, token: session.token, expires_at: session.expires_at });
     }
-
-    const timestamp = new Date().toISOString();
-    touchSQLiteLastLogin(user.id, timestamp);
-
-    const normalizedUser = normalizeSQLiteUser({ ...user, last_login_at: timestamp });
-    const session = issueSession({ id: user.id, username: user.username, role: user.role });
-    res.json({ user: normalizedUser, token: session.token, expires_at: session.expires_at });
   });
 
   app.get('/api/session', requireAuth, (req: any, res) => {
@@ -10143,12 +10552,23 @@ async function startServer() {
       db.prepare('DELETE FROM app_sessions WHERE token = ?').run(auth.token);
       return res.status(401).json({ error: 'Session expired.' });
     }
+    if (auth.auth_provider === 'pos') {
+      const posSession = posStaffSessionStore.get(auth.token);
+      if (!posSession || posSession.expires_at <= Date.now()) {
+        posStaffSessionStore.delete(auth.token);
+        sessionStore.delete(auth.token);
+        db.prepare('DELETE FROM app_sessions WHERE token = ?').run(auth.token);
+        return res.status(401).json({ error: 'POS employee session expired. Sign in again.' });
+      }
+      return res.json(withPosSessionUser(user, auth, posSession));
+    }
     res.json(normalizeSQLiteUser(user));
   });
 
   app.post('/api/logout', requireAuth, (req: any, res) => {
     const auth = req.auth as SessionRecord | undefined;
     if (auth) {
+      posStaffSessionStore.delete(auth.token);
       sessionStore.delete(auth.token);
       db.prepare('DELETE FROM app_sessions WHERE token = ?').run(auth.token);
     }
@@ -11888,6 +12308,74 @@ async function startServer() {
       .trim()
       .toUpperCase()
       .replace(/[^A-Z0-9]/g, '');
+  const parseAipLinkOrderUrl = (rawValue: unknown) => {
+    const raw = String(rawValue ?? '').trim();
+    if (!raw || raw.length > 500) return null;
+
+    try {
+      const url = new URL(raw);
+      if (url.protocol !== 'https:' || url.hostname.toLowerCase() !== 'view.aiplink.net') return null;
+      const match = url.pathname.match(/^\/order\/([a-z0-9_-]+)\/([a-z0-9]+)\/?$/i);
+      if (!match) return null;
+      return {
+        url,
+        client_identifier: match[1].toLowerCase(),
+        share_id: match[2],
+      };
+    } catch {
+      return null;
+    }
+  };
+  const resolveAipLinkOrderNo = async (rawValue: unknown, expectedClient: string) => {
+    const parsed = parseAipLinkOrderUrl(rawValue);
+    if (!parsed) throw new Error('Unsupported barcode link. Scan a valid view.aiplink.net order barcode.');
+    if (expectedClient && parsed.client_identifier !== expectedClient.toLowerCase()) {
+      throw new Error('This barcode belongs to a different POS client.');
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), POS_REQUEST_TIMEOUT_MS);
+    try {
+      const response = await fetch(parsed.url, {
+        method: 'GET',
+        headers: {
+          Accept: 'text/html,application/xhtml+xml',
+          'Cache-Control': 'no-cache',
+          Pragma: 'no-cache',
+          'User-Agent': 'Smart-Storage-Hub/1.0',
+        },
+        redirect: 'follow',
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(`AIPLink returned HTTP ${response.status}.`);
+
+      const finalUrl = new URL(response.url || parsed.url.toString());
+      if (finalUrl.protocol !== 'https:' || finalUrl.hostname.toLowerCase() !== 'view.aiplink.net') {
+        throw new Error('AIPLink redirected to an unsupported host.');
+      }
+
+      const html = await response.text();
+      if (html.length > 2_000_000) throw new Error('AIPLink response is too large.');
+      const orderNo =
+        html.match(
+          /class=["'][^"']*\bnumber_to_arabic\b[^"']*["'][^>]*>\s*#?\s*([A-Za-z]{0,3}\d{3,})/i
+        )?.[1] ??
+        html.match(
+          /class=["'][^"']*\bpreheader\b[^"']*["'][^>]*>[\s\S]{0,600}?<b[^>]*>\s*#?\s*([A-Za-z]{0,3}\d{3,})/i
+        )?.[1] ??
+        html.match(/(?:job\s*order|recent\s*order)[\s\S]{0,300}?#\s*([A-Za-z]{0,3}\d{3,})/i)?.[1] ??
+        '';
+
+      if (!orderNo) throw new Error('The order number could not be found inside the AIPLink barcode.');
+      return {
+        order_no: orderNo.trim(),
+        client_identifier: parsed.client_identifier,
+        share_id: parsed.share_id,
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  };
   const getPickupPickState = async (orderNo: string) => {
     const rows = USE_POSTGRES_LOCAL && pgPool
       ? (
@@ -11939,7 +12427,19 @@ async function startServer() {
     };
   };
 
-  app.get('/api/pickup-search/pick-progress', requirePicker, async (req, res) => {
+  app.post('/api/pickup-search/resolve-barcode', requirePicker, requirePosStaffSession, async (req: any, res) => {
+    try {
+      const barcode = req.body?.barcode ?? req.body?.url ?? req.body?.raw;
+      const posStaff = req.posStaff as PosStaffSessionRecord;
+      const result = await resolveAipLinkOrderNo(barcode, posStaff.client_identifier);
+      res.json({ success: true, ...result });
+    } catch (error: any) {
+      console.error('AIPLink barcode resolution failed:', error);
+      res.status(422).json({ error: error?.message || 'Failed to resolve the barcode link.' });
+    }
+  });
+
+  app.get('/api/pickup-search/pick-progress', requirePicker, requirePosStaffSession, async (req, res) => {
     try {
       const orderNo = clampText(req.query.order_no ?? req.query.orderNo, 80);
       if (!orderNo) return res.status(400).json({ error: 'Order number is required.' });
@@ -11956,13 +12456,14 @@ async function startServer() {
     }
   });
 
-  app.post('/api/pickup-search/pick', requirePicker, async (req: any, res) => {
+  app.post('/api/pickup-search/pick', requirePicker, requirePosStaffSession, async (req: any, res) => {
     try {
       const orderNo = clampText(req.body?.order_no ?? req.body?.orderNo, 80);
       if (!orderNo) return res.status(400).json({ error: 'Order number is required.' });
 
       const meta = getLogMeta(req);
-      const user = clampText(req.body?.user, 120) || req.auth?.username || 'system';
+      const user = req.auth?.username || 'system';
+      const posStaff = req.posStaff as PosStaffSessionRecord;
       const category = clampText(req.body?.category, 80) || 'pickup';
       if (!pickupCategoryLabels[category]) {
         return res.status(400).json({ error: 'Invalid pickup category.' });
@@ -12035,6 +12536,8 @@ async function startServer() {
           `Locations: ${locationSummary}`,
           itemSummary ? `Items: ${itemSummary}` : '',
           remark ? `Remark: ${remark}` : '',
+          `POS User: ${posStaff.username}`,
+          `POS User ID: ${posStaff.pos_user_id}`,
           meta.notes ? `Meta: ${meta.notes}` : '',
         ]
           .filter(Boolean)
@@ -12108,7 +12611,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/pickup-search/pay-deliver', requirePicker, async (req: any, res) => {
+  app.post('/api/pickup-search/pay-deliver', requirePicker, requirePosStaffSession, async (req: any, res) => {
     try {
       const orderNo = clampText(req.body?.order_no ?? req.body?.orderNo, 80);
       const sourceOrdersId = clampText(req.body?.source_orders_id ?? req.body?.sourceOrdersId, 80);
@@ -12162,6 +12665,7 @@ async function startServer() {
 
       if (!dryRun) {
         const meta = getLogMeta(req);
+        const posStaff = req.posStaff as PosStaffSessionRecord;
         const logEntry = {
           blanket_number: orderNo,
           action: paymentMethod === 'cash' ? 'Cash paid Delivery' : 'Credit card Delivery',
@@ -12177,6 +12681,8 @@ async function startServer() {
             `Payment: ${paymentMethod === 'cash' ? 'Cash' : 'Credit Card'}`,
             `Amount: AED ${Number(result.amount_paid ?? 0).toFixed(2)}`,
             `POS Sales Order ID: ${result.sales_order_id}`,
+            `POS User: ${posStaff.username}`,
+            `POS User ID: ${posStaff.pos_user_id}`,
             `Remaining balance: AED ${Number(result.remaining_balance ?? 0).toFixed(2)}`,
           ].join(' | '),
         };
@@ -12230,7 +12736,7 @@ async function startServer() {
     }
   });
 
-  app.get('/api/pickup-search/phone', requirePicker, async (req, res) => {
+  app.get('/api/pickup-search/phone', requirePicker, requirePosStaffSession, async (req, res) => {
     try {
       const query = String(req.query.q ?? req.query.phone ?? req.query.order_no ?? req.query.orderNo ?? '').trim();
       const searchMode = String(req.query.mode ?? '').trim().toLowerCase();

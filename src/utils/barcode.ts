@@ -1,6 +1,23 @@
+export const isAipLinkOrderUrl = (raw: string) => {
+  const value = String(raw ?? '').trim();
+  if (!value) return false;
+
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === 'https:' &&
+      url.hostname.toLowerCase() === 'view.aiplink.net' &&
+      /^\/order\/[a-z0-9_-]+\/[a-z0-9]+\/?$/i.test(url.pathname)
+    );
+  } catch {
+    return false;
+  }
+};
+
 export const extractTicketNumberFromScan = (raw: string) => {
   const value = String(raw ?? '').trim();
   if (!value) return '';
+  if (isAipLinkOrderUrl(value)) return '';
 
   try {
     const url = new URL(value);
