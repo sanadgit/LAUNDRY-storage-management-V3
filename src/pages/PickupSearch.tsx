@@ -65,6 +65,9 @@ type PickupOrder = {
   remark: string;
   price: number;
   balance: number;
+  customer_outstanding_balance: number;
+  customer_ledger_balance: number;
+  customer_credit_limit: number;
   order_status: string;
   source_orders_id: string;
   source_invoice_id: string;
@@ -576,12 +579,15 @@ function PickModal({
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [scannerPreview, setScannerPreview] = useState<{ raw: string; extracted: string } | null>(null);
-  const [deliveryLoading, setDeliveryLoading] = useState<'cash' | 'credit_card' | null>(null);
+  const [deliveryLoading, setDeliveryLoading] = useState<'cash' | 'credit_card' | 'no_pay' | null>(null);
   const [deliveryError, setDeliveryError] = useState<string | null>(null);
+  const [showNoPayReasons, setShowNoPayReasons] = useState(false);
+  const [noPayReasonType, setNoPayReasonType] = useState<'monthly_account' | 'other' | null>(null);
+  const [noPayOtherReason, setNoPayOtherReason] = useState('');
   const [deliverySuccess, setDeliverySuccess] = useState<{
     amountPaid: number;
     remainingBalance: number;
-    paymentMethod: 'cash' | 'credit_card';
+    paymentMethod: 'cash' | 'credit_card' | 'no_pay';
   } | null>(null);
   const [showSlot2d, setShowSlot2d] = useState(false);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
@@ -628,6 +634,9 @@ function PickModal({
     setBarcodeVerified(false);
     setBarcodeError(null);
     setBarcodeResolving(false);
+    setShowNoPayReasons(false);
+    setNoPayReasonType(null);
+    setNoPayOtherReason('');
     setScannerOpen(false);
     setScannerError(null);
     setScannerPreview(null);
@@ -817,14 +826,24 @@ function PickModal({
     }
   };
 
-  const payAndDeliver = async (paymentMethod: 'cash' | 'credit_card') => {
+  const payAndDeliver = async (
+    paymentMethod: 'cash' | 'credit_card' | 'no_pay',
+    noPayReasonTypeValue?: 'monthly_account' | 'other'
+  ) => {
     try {
+      const noPayReason = noPayReasonTypeValue === 'other' ? noPayOtherReason.trim() : '';
+      if (paymentMethod === 'no_pay' && noPayReasonTypeValue === 'other' && !noPayReason) {
+        setDeliveryError('اكتب سبب No Pay الآخر.');
+        return;
+      }
       setDeliveryLoading(paymentMethod);
       setDeliveryError(null);
       const response = await axios.post('/api/pickup-search/pay-deliver', {
         order_no: order.order_no,
         source_orders_id: order.source_orders_id,
         payment_method: paymentMethod,
+        no_pay_reason_type: paymentMethod === 'no_pay' ? noPayReasonTypeValue : undefined,
+        no_pay_reason: paymentMethod === 'no_pay' ? noPayReason : undefined,
         required_categories: requiredCategories,
         barcode: barcodeValue,
       });
@@ -832,6 +851,7 @@ function PickModal({
       const remainingBalance = Number(response.data?.remaining_balance ?? 0);
       setDeliverySuccess({ amountPaid, remainingBalance, paymentMethod });
       setShowDeliveryPayment(false);
+      setShowNoPayReasons(false);
       onDelivered(order.order_no, remainingBalance);
     } catch (err: any) {
       setDeliveryError(err?.response?.data?.error || err?.message || 'تعذر الدفع والتوصيل في POS.');
@@ -1007,7 +1027,9 @@ function PickModal({
               {deliverySuccess ? (
                 <span className="inline-flex items-center gap-2 text-emerald-700">
                   <CheckCircle2 size={18} />
-                  تم الدفع والتوصيل في POS بمبلغ AED {deliverySuccess.amountPaid.toFixed(2)}.
+                  {deliverySuccess.paymentMethod === 'no_pay'
+                    ? `تم التوصيل بدون دفع. الرصيد المتبقي AED ${deliverySuccess.remainingBalance.toFixed(2)}.`
+                    : `تم الدفع والتوصيل في POS بمبلغ AED ${deliverySuccess.amountPaid.toFixed(2)}.`}
                 </span>
               ) : deliveryError ? (
                 <span className="inline-flex items-center gap-2 text-rose-700">
@@ -1153,12 +1175,26 @@ function PickModal({
           {showDeliveryPayment && barcodeVerified && !deliverySuccess && (
             <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <div className="text-sm font-black text-blue-950">اختر طريقة تحصيل كامل الرصيد ثم توصيل الطلب</div>
+                <div className="text-sm font-black text-blue-950">اختر طريقة الدفع أو سبب التوصيل بدون دفع</div>
                 <div dir="ltr" className="rounded-lg bg-white px-3 py-1.5 text-sm font-black text-blue-900">
-                  AED {Number(order.balance || 0).toFixed(2)}
+                  Invoice: AED {Number(order.balance || 0).toFixed(2)}
                 </div>
               </div>
-              <div className="grid gap-2 sm:grid-cols-2">
+              {Number(order.customer_outstanding_balance || 0) > 0 && (
+                <div className="mb-3 flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-100 px-4 py-3 text-amber-950">
+                  <AlertCircle size={21} className="mt-0.5 shrink-0 text-amber-700" />
+                  <div>
+                    <div className="text-sm font-black">Customer Outstanding Balance</div>
+                    <div className="mt-1 text-xs font-bold text-amber-800">
+                      على العميل رصيد مستحق إجمالي قبل إتمام العملية.
+                    </div>
+                  </div>
+                  <div dir="ltr" className="ml-auto shrink-0 rounded-lg bg-white px-3 py-2 text-sm font-black text-amber-900">
+                    AED {Number(order.customer_outstanding_balance).toFixed(2)}
+                  </div>
+                </div>
+              )}
+              <div className="grid gap-2 sm:grid-cols-3">
                 <button
                   type="button"
                   onClick={() => void payAndDeliver('cash')}
@@ -1177,7 +1213,81 @@ function PickModal({
                   {deliveryLoading === 'credit_card' ? <Loader2 size={19} className="animate-spin" /> : <CreditCard size={20} />}
                   Credit Card Delivery
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowNoPayReasons(true);
+                    setNoPayReasonType(null);
+                    setDeliveryError(null);
+                  }}
+                  disabled={Boolean(deliveryLoading)}
+                  className="inline-flex min-h-14 items-center justify-center gap-2 rounded-xl bg-amber-600 px-4 text-sm font-black text-white hover:bg-amber-500 disabled:opacity-60"
+                >
+                  {deliveryLoading === 'no_pay' ? <Loader2 size={19} className="animate-spin" /> : <AlertCircle size={20} />}
+                  No Pay Delivery
+                </button>
               </div>
+
+              {showNoPayReasons && (
+                <div className="mt-3 rounded-xl border border-amber-300 bg-white p-3">
+                  <div className="text-sm font-black text-slate-950">اختر سبب عدم الدفع</div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNoPayReasonType('monthly_account');
+                        setNoPayOtherReason('');
+                      }}
+                      disabled={Boolean(deliveryLoading)}
+                      className={`min-h-12 rounded-xl border px-4 text-sm font-black ${
+                        noPayReasonType === 'monthly_account'
+                          ? 'border-blue-700 bg-blue-700 text-white'
+                          : 'border-slate-300 bg-slate-50 text-slate-900 hover:bg-slate-100'
+                      }`}
+                    >
+                      1. حساب شهري
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNoPayReasonType('other')}
+                      disabled={Boolean(deliveryLoading)}
+                      className={`min-h-12 rounded-xl border px-4 text-sm font-black ${
+                        noPayReasonType === 'other'
+                          ? 'border-blue-700 bg-blue-700 text-white'
+                          : 'border-slate-300 bg-slate-50 text-slate-900 hover:bg-slate-100'
+                      }`}
+                    >
+                      2. سبب آخر
+                    </button>
+                  </div>
+
+                  {noPayReasonType === 'other' && (
+                    <textarea
+                      value={noPayOtherReason}
+                      onChange={(event) => {
+                        setNoPayOtherReason(event.target.value);
+                        setDeliveryError(null);
+                      }}
+                      maxLength={500}
+                      rows={3}
+                      placeholder="اكتب سبب عدم الدفع..."
+                      className="mt-3 w-full rounded-xl border-2 border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-950 outline-none focus:border-blue-600"
+                    />
+                  )}
+
+                  {noPayReasonType && (
+                    <button
+                      type="button"
+                      onClick={() => void payAndDeliver('no_pay', noPayReasonType)}
+                      disabled={Boolean(deliveryLoading)}
+                      className="mt-3 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-amber-700 px-5 text-sm font-black text-white hover:bg-amber-600 disabled:opacity-60"
+                    >
+                      {deliveryLoading === 'no_pay' ? <Loader2 size={18} className="animate-spin" /> : <Truck size={18} />}
+                      تأكيد No Pay والتوصيل
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

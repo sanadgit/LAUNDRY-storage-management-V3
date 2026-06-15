@@ -239,6 +239,9 @@ type PosOrderDetailsResult = {
     driver_id: string;
     invoice_remark1: string;
     invoice_remark2: string;
+    customer_outstanding_balance: number;
+    customer_ledger_balance: number;
+    customer_credit_limit: number;
   };
   line_items: PosOrderDetailLineItem[];
   dynamic_fields: any[];
@@ -1825,6 +1828,9 @@ type PosConnectOrder = {
   remark: string;
   price: number;
   balance: number;
+  customer_outstanding_balance: number;
+  customer_ledger_balance: number;
+  customer_credit_limit: number;
   order_status: PosSortingMeta['pos_order_status'];
   source_orders_id: string;
   source_invoice_id: string;
@@ -1976,6 +1982,9 @@ const buildPosConnectOrder = (
     remark: meta.pos_remark,
     price: meta.pos_total,
     balance: meta.pos_balance,
+    customer_outstanding_balance: Math.max(0, Number(details?.general?.customer_outstanding_balance ?? 0)),
+    customer_ledger_balance: Number(details?.general?.customer_ledger_balance ?? 0),
+    customer_credit_limit: Math.max(0, Number(details?.general?.customer_credit_limit ?? 0)),
     order_status: meta.pos_order_status,
     source_orders_id: String(preview?.orders_id || details?.general?.searched_order_id || details?.general?.order_id || '').trim(),
     source_invoice_id: String(preview?.invoice_id || details?.general?.searched_invoice_id || '').trim(),
@@ -3374,6 +3383,15 @@ const parsePosOrderDetails = (payload: any): PosOrderDetailsResult => {
       driver_id: String(firstRow.driver_id ?? '').trim(),
       invoice_remark1: String(firstRow.invoice_remark1 ?? '').trim(),
       invoice_remark2: String(firstRow.invoice_remark2 ?? '').trim(),
+      customer_outstanding_balance: Math.max(
+        0,
+        normalizePosNumberish(
+          firstRow.cust_total_credit,
+          Math.max(0, -normalizePosNumberish(firstRow.cust_ledger_balance, 0))
+        )
+      ),
+      customer_ledger_balance: normalizePosNumberish(firstRow.cust_ledger_balance, 0),
+      customer_credit_limit: Math.max(0, normalizePosNumberish(firstRow.credit_limit, 0)),
     },
     line_items: Array.from(lineByKey.values()),
     dynamic_fields: dynamicFields,
@@ -3461,6 +3479,200 @@ const formatPosDayFirstDate = (value: unknown) => {
 const normalizePosDocumentId = (value: unknown) => {
   const normalized = String(value ?? '').trim();
   return normalized === '0' ? '' : normalized;
+};
+
+type PickupNoPayReasonType = 'monthly_account' | 'other';
+
+const appendUniquePosText = (existingValue: unknown, additionValue: unknown) => {
+  const existing = String(existingValue ?? '').trim();
+  const addition = String(additionValue ?? '').trim();
+  if (!addition) return existing;
+  if (existing.toLowerCase().includes(addition.toLowerCase())) return existing;
+  return existing ? `${existing} | ${addition}` : addition;
+};
+
+const updatePosNoPayMetadata = async (params: {
+  order_no: string;
+  source_orders_id: string;
+  reason_type: PickupNoPayReasonType;
+  reason: string;
+}) => {
+  const before = await fetchRawPosOrderDetails({
+    order_id: '0',
+    s_order_id: params.source_orders_id,
+    mode: '0',
+    open_type: 'open',
+  });
+  const rowsByEntry = new Map<string, Record<string, any>>();
+  for (const row of before.rows) {
+    const entryId = String(row.each_sale_entry_id ?? '').trim();
+    if (entryId && !rowsByEntry.has(entryId)) rowsByEntry.set(entryId, row);
+  }
+  const rows = Array.from(rowsByEntry.values());
+  const first = rows[0];
+  if (!first || rows.length === 0) throw new Error('POS order has no editable product rows.');
+
+  const reasonText = params.reason_type === 'monthly_account' ? 'monthly account' : params.reason.trim();
+  if (!reasonText) throw new Error('No Pay reason is required.');
+  const updatedRemark =
+    params.reason_type === 'monthly_account'
+      ? appendUniquePosText(first.invoice_remark1, reasonText)
+      : String(first.invoice_remark1 ?? '').trim();
+
+  const payload = new URLSearchParams();
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+    const prefix = `final_product_list[final_sale_product_list][${index}]`;
+    const productId = String(row.sale_prdt_id ?? '').trim();
+    const unitPrice = normalizePosNumberish(row.sale_unit_price ?? row.sale_unit_actual_price, 0);
+    const pDiscount = normalizePosNumberish(row.esp_pdisc, 0);
+    const currentDescription = String(row.remark ?? row.other_description ?? '').trim();
+    const updatedDescription =
+      params.reason_type === 'other'
+        ? appendUniquePosText(currentDescription, reasonText)
+        : currentDescription;
+
+    payload.set(`${prefix}[sale_order_dets_id]`, String(row.each_sale_entry_id ?? ''));
+    payload.set(`${prefix}[prdt_id]`, productId);
+    payload.set(`${prefix}[sale_unit_price]`, String(row.sale_unit_price ?? row.sale_unit_actual_price ?? 0));
+    payload.set(`${prefix}[qty]`, String(row.sale_qty ?? 1));
+    payload.set(`${prefix}[sale_unit]`, String(row.sale_unit_id ?? 1));
+    payload.set(`${prefix}[sub_total]`, String(row.sale_sub_total ?? 0));
+    payload.set(`${prefix}[tax_amount]`, String(row.sale_tax_amount ?? 0));
+    payload.set(`${prefix}[pdiscount]`, String(row.esp_pdisc ?? 0));
+    payload.set(`${prefix}[barcode]`, String(row.barcode ?? ''));
+
+    const assignedTaxes = Array.isArray(before.product_assigned_tax?.[productId])
+      ? before.product_assigned_tax[productId]
+      : [];
+    for (let taxIndex = 0; taxIndex < assignedTaxes.length; taxIndex += 1) {
+      const tax = assignedTaxes[taxIndex];
+      const taxPercentage = normalizePosNumberish(String(tax.tax_value ?? '').replace('%', ''), 0);
+      const taxPrefix = `${prefix}[product_specific_taxes][${taxIndex}]`;
+      payload.set(`${taxPrefix}[tax_id]`, String(tax.id ?? tax.tax_id ?? ''));
+      payload.set(`${taxPrefix}[tax_percentage]`, String(taxPercentage));
+      payload.set(`${taxPrefix}[tax_amount]`, String(((unitPrice - pDiscount) * taxPercentage) / 100));
+    }
+
+    payload.set(`${prefix}[multirate_id]`, String(row.multirate_id ?? 0));
+    payload.set(`${prefix}[other_description]`, updatedDescription);
+    payload.set(`${prefix}[kot_enabled]`, String(row.tagFlag ?? 0));
+    payload.set(`${prefix}[others]`, String(row.others ?? ''));
+    payload.set(`${prefix}[cloth_id]`, String(row.cloth_id ?? 0));
+  }
+
+  const orderPrefix = 'order_selected_details';
+  const setOrder = (key: string, value: unknown) => payload.set(`${orderPrefix}[${key}]`, String(value ?? ''));
+  setOrder('affected_action', '');
+  setOrder('affected_inv', '');
+  setOrder('order_date', formatPosDayFirstDate(first.order_date));
+  setOrder('billing_date', first.billing_date ?? formatPosDayFirstDate(first.order_date));
+  setOrder('delivery_date', first.delivery_date ?? '');
+  setOrder('delivery_time', first.delivery_time ?? '');
+  setOrder('invoice_remark1', updatedRemark);
+  setOrder('invoice_remark2', first.invoice_remark2 ?? '');
+  setOrder('invoice_tbl_id', '');
+  setOrder('job_type', first.job_type ?? 0);
+  setOrder('delivery_type', first.delivery_type_id ?? 1);
+  setOrder('cust_type_id', first.customer_type_id ?? 76);
+  setOrder('tender_cash', first.tender_cash ?? 0);
+  setOrder('total_amount', first.total_amount ?? 0);
+  setOrder('discount', first.discount ?? 0);
+  setOrder('p_discount', first.p_discount ?? 0);
+  setOrder('round_off', first.round_off ?? 0);
+  setOrder('balance_amt', first.balance ?? 0);
+  setOrder('tax_amount', first.tax_amount ?? 0);
+  setOrder('received_amount', 0);
+  setOrder('approval_req_received_amount', 0);
+  setOrder('grand_total', first.grand_total ?? 0);
+  setOrder('paid', first.received_amount ?? 0);
+  setOrder('removed_amount_total', 0);
+  setOrder('old_customer_head_id', first.customer_account_head_id ?? '');
+  setOrder('assigned_salesman', first.assign_to_salesman ?? first.salesman_id ?? '');
+  setOrder('assigned_salesman_name', '');
+  setOrder('triggered_action', 'hold');
+  setOrder('sale_order_id', params.source_orders_id);
+  setOrder('can_create_sales_invoice', 0);
+  setOrder('branch_id', first.branch_id ?? '');
+  setOrder('single_cash_payment_entry', 0);
+  setOrder('set_bill_date_on_worktime', 0);
+  setOrder('multiple_salesman', first.multiple_salesman ?? '');
+  setOrder('order_interval', first.order_interval ?? '');
+  setOrder('extra_notes_id', 0);
+  setOrder('processing_pickup', 0);
+  setOrder('order_number', first.order_no ?? params.order_no);
+  setOrder('driver_id', first.driver_id ?? 0);
+  setOrder('split_and_merge', 0);
+  setOrder('split_and_merge_inv', 0);
+
+  const customerPrefix = 'customer_details';
+  const setCustomer = (key: string, value: unknown) =>
+    payload.set(`${customerPrefix}[${key}]`, String(value ?? ''));
+  setCustomer('customer_id', first.cust_id ?? '');
+  setCustomer('card_no', first.card_no ?? '');
+  setCustomer('mobile', first.cust_ord_mobile ?? first.customer_mobile ?? first.mobile ?? '');
+  setCustomer('customer_name', first.cust_ord_name ?? first.customer_name ?? '');
+  setCustomer('addr1', first.cust_ord_address ?? first.customer_address ?? first.address1 ?? '');
+  setCustomer('addr2', first.cust_ord_address ?? first.customer_address ?? first.address2 ?? '');
+  setCustomer('remarks', updatedRemark);
+  setCustomer('trn', first.cust_ord_trn ?? first.customer_trn ?? '');
+  setCustomer('other_details', first.other_details ?? '');
+
+  payload.set('cust_id', String(first.cust_auto_id ?? first.customer_id ?? ''));
+  payload.set('operation', 'update');
+  payload.set('order_id', '0');
+  payload.set('whatsapp_check', '0');
+
+  const financialBefore = {
+    total_amount: normalizePosNumberish(first.total_amount, 0),
+    tax_amount: normalizePosNumberish(first.tax_amount, 0),
+    grand_total: normalizePosNumberish(first.grand_total, 0),
+    received_amount: normalizePosNumberish(first.received_amount, 0),
+    balance: normalizePosNumberish(first.balance, 0),
+  };
+  const saveResult = await postPosForm(POS_SAVE_ORDER_PATH, payload, {
+    fallbackToGet: false,
+    referer: POS_REFERER || POS_BASE_URL,
+  });
+  if (!Array.isArray(saveResult.parsed) || String(saveResult.parsed[0] ?? '') !== params.source_orders_id) {
+    throw new Error(`POS did not confirm the No Pay reason update. ${saveResult.text.slice(0, 240)}`);
+  }
+
+  posConnectDetailsCache.clear();
+  posConnectSearchCache.clear();
+  const after = await fetchRawPosOrderDetails({
+    order_id: '0',
+    s_order_id: params.source_orders_id,
+    mode: '0',
+    open_type: 'open',
+  });
+  const afterFirst = after.rows[0] ?? {};
+  const metadataSaved =
+    params.reason_type === 'monthly_account'
+      ? String(afterFirst.invoice_remark1 ?? '').toLowerCase().includes(reasonText.toLowerCase())
+      : after.rows.every((row) =>
+          String(row.remark ?? row.other_description ?? '').toLowerCase().includes(reasonText.toLowerCase())
+        );
+  const financialAfter = {
+    total_amount: normalizePosNumberish(afterFirst.total_amount, 0),
+    tax_amount: normalizePosNumberish(afterFirst.tax_amount, 0),
+    grand_total: normalizePosNumberish(afterFirst.grand_total, 0),
+    received_amount: normalizePosNumberish(afterFirst.received_amount, 0),
+    balance: normalizePosNumberish(afterFirst.balance, 0),
+  };
+  const financialUnchanged = Object.keys(financialBefore).every(
+    (key) =>
+      Math.abs(financialBefore[key as keyof typeof financialBefore] - financialAfter[key as keyof typeof financialAfter]) <
+      0.001
+  );
+  if (!metadataSaved) throw new Error('POS saved the order but the No Pay reason could not be verified.');
+  if (!financialUnchanged) throw new Error('POS No Pay reason was saved but financial totals changed unexpectedly.');
+
+  return {
+    reason_type: params.reason_type,
+    reason: reasonText,
+    remark: String(afterFirst.invoice_remark1 ?? '').trim(),
+  };
 };
 
 const updatePosSortingDescription = async (params: {
@@ -3696,7 +3908,7 @@ const updatePosSortingDescription = async (params: {
   };
 };
 
-type PickupDeliveryPaymentMethod = 'cash' | 'credit_card';
+type PickupDeliveryPaymentMethod = 'cash' | 'credit_card' | 'no_pay';
 
 const formatPosDeliveryDateTime = () =>
   new Intl.DateTimeFormat('en-US', {
@@ -3744,12 +3956,28 @@ const payAndDeliverPickupOrder = async (input: {
   order_no: string;
   source_orders_id?: string;
   payment_method: PickupDeliveryPaymentMethod;
+  no_pay_reason_type?: PickupNoPayReasonType;
+  no_pay_reason?: string;
   dry_run?: boolean;
 }) => {
   const orderNo = normalizeSortingOrderNo(input.order_no);
   if (!orderNo) throw new Error('Order number is required.');
-  if (!['cash', 'credit_card'].includes(input.payment_method)) {
-    throw new Error('Payment method must be cash or credit_card.');
+  if (!['cash', 'credit_card', 'no_pay'].includes(input.payment_method)) {
+    throw new Error('Payment method must be cash, credit_card, or no_pay.');
+  }
+  if (
+    input.payment_method === 'no_pay' &&
+    input.no_pay_reason_type !== 'monthly_account' &&
+    input.no_pay_reason_type !== 'other'
+  ) {
+    throw new Error('No Pay reason type is required.');
+  }
+  if (
+    input.payment_method === 'no_pay' &&
+    input.no_pay_reason_type === 'other' &&
+    !String(input.no_pay_reason ?? '').trim()
+  ) {
+    throw new Error('Write the other No Pay reason.');
   }
 
   let sourceOrdersId = normalizePosDocumentId(input.source_orders_id);
@@ -3978,10 +4206,31 @@ const payAndDeliverPickupOrder = async (input: {
 
   const balance = Math.max(0, normalizePosNumberish(deliveryFirst.balance ?? first.balance, 0));
   if (balance <= 0) throw new Error(`Order ${orderNo} has no balance to collect.`);
-  const payment = resolvePosDeliveryPaymentAccount(
-    deliveryPaymentMethods ?? deliveryConfig.data.complete_payment_method,
-    input.payment_method
-  );
+  const noPayReason =
+    input.payment_method === 'no_pay'
+      ? input.no_pay_reason_type === 'monthly_account'
+        ? 'monthly account'
+        : String(input.no_pay_reason ?? '').trim()
+      : '';
+  if (input.payment_method === 'no_pay' && creditSaleEnabled !== '1') {
+    throw new Error('POS does not allow No Pay / credit delivery for this order.');
+  }
+  const noPayMetadata =
+    input.payment_method === 'no_pay' && !input.dry_run
+      ? await updatePosNoPayMetadata({
+          order_no: orderNo,
+          source_orders_id: sourceOrdersId,
+          reason_type: input.no_pay_reason_type as PickupNoPayReasonType,
+          reason: noPayReason,
+        })
+      : null;
+  const payment =
+    input.payment_method === 'no_pay'
+      ? null
+      : resolvePosDeliveryPaymentAccount(
+          deliveryPaymentMethods ?? deliveryConfig.data.complete_payment_method,
+          input.payment_method
+        );
   const dateTime = formatPosDeliveryDateTime();
   const customerId = String(deliveryFirst.customer_id ?? first.customer_id ?? first.cust_auto_id ?? '').trim();
   const shippingId = String(deliveryFirst.shipping_id ?? first.shipping_id ?? '0').trim() || '0';
@@ -3996,21 +4245,24 @@ const payAndDeliverPickupOrder = async (input: {
   payload.set(`${detailPrefix}[shift_id]`, shiftId);
   payload.set(`${detailPrefix}[update_location]`, '0');
   payload.set(`${detailPrefix}[send_whatsapp]`, '0');
-  payload.set(`${detailPrefix}[received_amount]`, String(balance));
+  const receivedAmount = input.payment_method === 'no_pay' ? 0 : balance;
+  payload.set(`${detailPrefix}[received_amount]`, String(receivedAmount));
 
-  const paymentPrefix = `${detailPrefix}[received_amount_details][${payment.label}]`;
-  payload.set(`${paymentPrefix}[amount]`, String(balance));
-  payload.set(`${paymentPrefix}[date_time]`, dateTime);
-  payload.set(`${paymentPrefix}[linked_account_id]`, payment.linked_account_id);
-  if (input.payment_method === 'cash') {
-    payload.set(`${paymentPrefix}[tender_cash]`, String(balance));
-    payload.set(`${paymentPrefix}[change_given]`, '0');
-  } else {
-    const cardPrefix = `${paymentPrefix}[card_details][0]`;
-    payload.set(`${cardPrefix}[card_name]`, '');
-    payload.set(`${cardPrefix}[card_no]`, '');
-    payload.set(`${cardPrefix}[card_amount]`, String(balance));
-    payload.set(`${cardPrefix}[date]`, dateTime);
+  if (payment) {
+    const paymentPrefix = `${detailPrefix}[received_amount_details][${payment.label}]`;
+    payload.set(`${paymentPrefix}[amount]`, String(balance));
+    payload.set(`${paymentPrefix}[date_time]`, dateTime);
+    payload.set(`${paymentPrefix}[linked_account_id]`, payment.linked_account_id);
+    if (input.payment_method === 'cash') {
+      payload.set(`${paymentPrefix}[tender_cash]`, String(balance));
+      payload.set(`${paymentPrefix}[change_given]`, '0');
+    } else {
+      const cardPrefix = `${paymentPrefix}[card_details][0]`;
+      payload.set(`${cardPrefix}[card_name]`, '');
+      payload.set(`${cardPrefix}[card_no]`, '');
+      payload.set(`${cardPrefix}[card_amount]`, String(balance));
+      payload.set(`${cardPrefix}[date]`, dateTime);
+    }
   }
 
   payload.set(
@@ -4049,8 +4301,12 @@ const payAndDeliverPickupOrder = async (input: {
     assigned_driver_id: assignedDriverId || null,
     shift_id: shiftId,
     payment_method: input.payment_method,
-    linked_account_id: payment.linked_account_id,
-    amount: balance,
+    linked_account_id: payment?.linked_account_id ?? null,
+    amount: receivedAmount,
+    invoice_balance: balance,
+    no_pay_reason_type: input.payment_method === 'no_pay' ? input.no_pay_reason_type ?? null : null,
+    no_pay_reason: noPayReason || null,
+    no_pay_metadata: noPayMetadata,
     credit_sale_enabled: creditSaleEnabled,
     delivery_order_details_loaded: true,
     delivery_payment_methods: Object.keys(
@@ -4096,7 +4352,11 @@ const payAndDeliverPickupOrder = async (input: {
   const paymentRecorded = afterReceived + 0.01 >= balance || afterBalance <= 0.5;
   // Aipsoft can return stale order_status from findOrderDetails immediately
   // after delivery, while the zero balance and response_code=200 are current.
-  const verified = paymentRecorded && (delivered || afterBalance <= 0.5);
+  const noPayBalancePreserved = Math.abs(afterBalance - balance) < 0.01;
+  const verified =
+    input.payment_method === 'no_pay'
+      ? delivered && noPayBalancePreserved
+      : paymentRecorded && (delivered || afterBalance <= 0.5);
   if (!verified) {
     throw new Error(
       `POS returned success but verification failed (delivered=${delivered}, balance=${afterBalance.toFixed(2)}).`
@@ -4112,9 +4372,12 @@ const payAndDeliverPickupOrder = async (input: {
     assigned_driver_id: assignedDriverId || null,
     authenticated_pos_user_id: staffSession?.pos_user_id ?? null,
     payment_method: input.payment_method,
-    linked_account_id: payment.linked_account_id,
-    amount_paid: balance,
+    linked_account_id: payment?.linked_account_id ?? null,
+    amount_paid: receivedAmount,
     remaining_balance: afterBalance,
+    no_pay_reason_type: input.payment_method === 'no_pay' ? input.no_pay_reason_type ?? null : null,
+    no_pay_reason: noPayReason || null,
+    no_pay_metadata: noPayMetadata,
     order_status: delivered ? String(afterFirst.order_status ?? '3') : '3',
     response: deliveryResponse,
   };
@@ -12649,6 +12912,10 @@ async function startServer() {
       const orderNo = clampText(req.body?.order_no ?? req.body?.orderNo, 80);
       const sourceOrdersId = clampText(req.body?.source_orders_id ?? req.body?.sourceOrdersId, 80);
       const paymentMethod = String(req.body?.payment_method ?? req.body?.paymentMethod ?? '').trim().toLowerCase();
+      const noPayReasonType = String(req.body?.no_pay_reason_type ?? req.body?.noPayReasonType ?? '')
+        .trim()
+        .toLowerCase();
+      const noPayReason = clampText(req.body?.no_pay_reason ?? req.body?.noPayReason, 500);
       const scannedBarcode = clampText(req.body?.barcode ?? req.body?.scanned_barcode ?? req.body?.scannedBarcode, 120);
       const requiredCategories: string[] = Array.from(
         new Set<string>(
@@ -12659,8 +12926,18 @@ async function startServer() {
       );
       const dryRun = req.body?.dry_run === true || String(req.body?.dry_run ?? '').trim() === '1';
       if (!orderNo) return res.status(400).json({ error: 'Order number is required.' });
-      if (paymentMethod !== 'cash' && paymentMethod !== 'credit_card') {
-        return res.status(400).json({ error: 'Payment method must be cash or credit_card.' });
+      if (paymentMethod !== 'cash' && paymentMethod !== 'credit_card' && paymentMethod !== 'no_pay') {
+        return res.status(400).json({ error: 'Payment method must be cash, credit_card, or no_pay.' });
+      }
+      if (
+        paymentMethod === 'no_pay' &&
+        noPayReasonType !== 'monthly_account' &&
+        noPayReasonType !== 'other'
+      ) {
+        return res.status(400).json({ error: 'اختر سبب No Pay.' });
+      }
+      if (paymentMethod === 'no_pay' && noPayReasonType === 'other' && !noPayReason) {
+        return res.status(400).json({ error: 'اكتب سبب No Pay الآخر.' });
       }
       if (requiredCategories.length === 0) {
         return res.status(400).json({ error: 'Pickup tasks are required before payment and delivery.' });
@@ -12692,33 +12969,48 @@ async function startServer() {
       const result = await payAndDeliverPickupOrder({
         order_no: orderNo,
         source_orders_id: sourceOrdersId,
-        payment_method: paymentMethod,
+        payment_method: paymentMethod as PickupDeliveryPaymentMethod,
+        no_pay_reason_type:
+          paymentMethod === 'no_pay' ? (noPayReasonType as PickupNoPayReasonType) : undefined,
+        no_pay_reason: paymentMethod === 'no_pay' ? noPayReason : undefined,
         dry_run: dryRun,
       });
 
       if (!dryRun) {
         const meta = getLogMeta(req);
         const posStaff = req.posStaff as PosStaffSessionRecord;
+        const action =
+          paymentMethod === 'cash'
+            ? 'Cash paid Delivery'
+            : paymentMethod === 'credit_card'
+              ? 'Credit card Delivery'
+              : 'No Pay Delivery';
         const logEntry = {
           blanket_number: orderNo,
-          action: paymentMethod === 'cash' ? 'Cash paid Delivery' : 'Credit card Delivery',
+          action,
           user: req.auth?.username || 'system',
           store: 'Pickup Search',
           row: null,
           column: null,
-          status: 'paid_and_delivered',
+          status: paymentMethod === 'no_pay' ? 'delivered_no_pay' : 'paid_and_delivered',
           request_id: meta.request_id,
           device: meta.device,
           ip: meta.ip,
           notes: [
-            `Payment: ${paymentMethod === 'cash' ? 'Cash' : 'Credit Card'}`,
+            `Payment: ${
+              paymentMethod === 'cash' ? 'Cash' : paymentMethod === 'credit_card' ? 'Credit Card' : 'No Pay'
+            }`,
             `Amount: AED ${Number(result.amount_paid ?? 0).toFixed(2)}`,
+            paymentMethod === 'no_pay' ? `No Pay Reason Type: ${noPayReasonType}` : '',
+            paymentMethod === 'no_pay' ? `No Pay Reason: ${result.no_pay_reason ?? noPayReason}` : '',
             `POS Sales Order ID: ${result.sales_order_id}`,
             `POS User: ${posStaff.username}`,
             `POS User ID: ${posStaff.pos_user_id}`,
             `Assigned Driver ID: ${result.assigned_driver_id ?? ''}`,
             `Remaining balance: AED ${Number(result.remaining_balance ?? 0).toFixed(2)}`,
-          ].join(' | '),
+          ]
+            .filter(Boolean)
+            .join(' | '),
         };
 
         if (USE_POSTGRES_LOCAL && pgPool) {
