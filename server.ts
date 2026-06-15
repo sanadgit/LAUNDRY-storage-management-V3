@@ -2007,6 +2007,12 @@ const parsePickupBranchReference = (query: string): PickupBranchReference | null
   };
 };
 
+const getPickupBranchKeyById = (branchId: unknown): PickupBranchReference['key'] | '' => {
+  const normalizedBranchId = String(branchId ?? '').trim();
+  const match = Object.entries(PICKUP_BRANCH_REFERENCES).find(([, branch]) => branch.branch_id === normalizedBranchId);
+  return (match?.[0] as PickupBranchReference['key'] | undefined) ?? '';
+};
+
 const posPreviewMatchesBranchReference = (order: PosOrderPreview, reference: PickupBranchReference) => {
   const values = [
     order.invoice_no,
@@ -4214,41 +4220,107 @@ const payAndDeliverPickupOrder = async (input: {
     );
   }
 
+  const branchKey = getPickupBranchKeyById(branchId);
+  const normalizedOrderRef = normalizePosReference(orderNo);
+  const orderDigits = normalizedOrderRef.replace(/\D/g, '');
+  const branchOrderRef = branchKey && orderDigits ? `${branchKey}${orderDigits}` : '';
+  const pendingDeliveryFilters = Array.from(
+    new Set([orderNo, normalizedOrderRef, branchOrderRef, sourceOrdersId, sourceInvoiceId].filter(Boolean))
+  );
+  let lastPendingDeliverySample: any = null;
+
+  const getDeliveryBillInvoiceId = (bill: any) =>
+    [
+      bill?.invoice_id,
+      bill?.bill_invoice_id,
+      bill?.sales_invoice_id,
+      bill?.sale_invoice_id,
+      bill?.invoice_tbl_id,
+    ]
+      .map(normalizePosDocumentId)
+      .find(Boolean) ?? '';
+
+  const billMatchesPickupOrder = (bill: any) => {
+    const idCandidates = [
+      bill?.invoice_id,
+      bill?.bill_invoice_id,
+      bill?.sales_invoice_id,
+      bill?.sale_invoice_id,
+      bill?.invoice_tbl_id,
+      bill?.order_id,
+    ].map(normalizePosDocumentId);
+    if (
+      idCandidates.some(
+        (id) => id && (id === deliveryDocumentId || id === sourceOrdersId || (sourceInvoiceId && id === sourceInvoiceId))
+      )
+    ) {
+      return true;
+    }
+
+    const salesOrderCandidates = [
+      bill?.orders_id,
+      bill?.source_orders_id,
+      bill?.sales_order_id,
+      bill?.sale_order_id,
+      bill?.s_order_id,
+    ].map(normalizePosDocumentId);
+    if (salesOrderCandidates.some((id) => id && id === sourceOrdersId)) return true;
+
+    const orderCandidates = [
+      bill?.order_no,
+      bill?.order_number,
+      bill?.invoice_no,
+      bill?.bill_no,
+      bill?.display_order_no,
+    ].map(normalizePosReference);
+    return orderCandidates.some((candidate) => {
+      if (!candidate) return false;
+      if (candidate === normalizedOrderRef || (branchOrderRef && candidate === branchOrderRef)) return true;
+      const candidateDigits = candidate.replace(/\D/g, '');
+      return Boolean(orderDigits && candidateDigits && candidateDigits === orderDigits);
+    });
+  };
+
+  const findBillInList = (bills: any[]) =>
+    bills.find((bill: any) => getDeliveryBillInvoiceId(bill) && billMatchesPickupOrder(bill));
+
   const findPendingDeliveryBill = async (config: any) => {
-    const configBill = (Array.isArray(config?.data?.bills) ? config.data.bills : []).find(
-      (bill: any) =>
-        String(bill?.invoice_id ?? '').trim() === deliveryDocumentId ||
-        String(bill?.invoice_id ?? '').trim() === sourceOrdersId ||
-        (sourceInvoiceId && String(bill?.invoice_id ?? '').trim() === sourceInvoiceId) ||
-        normalizeSortingOrderNo(bill?.order_no) === orderNo
-    );
+    const configBills = Array.isArray(config?.data?.bills) ? config.data.bills : [];
+    const configBill = findBillInList(configBills);
     if (configBill) return configBill;
 
-    const pendingPayload = new URLSearchParams();
-    pendingPayload.set('order_id', '0');
-    pendingPayload.set('user_id', deliveryUserId);
-    pendingPayload.set('branch_id', branchId);
-    pendingPayload.set('client_identifier', clientIdentifier);
-    pendingPayload.set('filter_content', orderNo);
-    pendingPayload.set('shift_id', String(config?.data?.shift_id ?? '0'));
-    const pendingResult = await postPosForm(
-      resolvePosPurchaseApiEndpoint('/pos_api/fetchPendingDeliveries'),
-      pendingPayload,
-      { fallbackToGet: false, referer: deliveryReferer }
-    );
-    const pendingResponse = pendingResult.parsed;
-    const pendingBills = Array.isArray(pendingResponse?.[0]) ? pendingResponse[0] : [];
-    return pendingBills.find(
-      (bill: any) =>
-        String(bill?.invoice_id ?? '').trim() === deliveryDocumentId ||
-        String(bill?.invoice_id ?? '').trim() === sourceOrdersId ||
-        (sourceInvoiceId && String(bill?.invoice_id ?? '').trim() === sourceInvoiceId) ||
-        normalizeSortingOrderNo(bill?.order_no) === orderNo
-    );
+    for (const filterContent of pendingDeliveryFilters) {
+      const pendingPayload = new URLSearchParams();
+      pendingPayload.set('order_id', '0');
+      pendingPayload.set('user_id', shiftOwnerUserId || deliveryUserId);
+      pendingPayload.set('branch_id', branchId);
+      pendingPayload.set('client_identifier', clientIdentifier);
+      pendingPayload.set('filter_content', filterContent);
+      pendingPayload.set('shift_id', String(config?.data?.shift_id ?? '0'));
+      const pendingResult = await postPosForm(
+        resolvePosPurchaseApiEndpoint('/pos_api/fetchPendingDeliveries'),
+        pendingPayload,
+        { fallbackToGet: false, referer: deliveryReferer }
+      );
+      const pendingResponse = pendingResult.parsed;
+      const pendingBills = Array.isArray(pendingResponse?.[0]) ? pendingResponse[0] : [];
+      if (pendingBills.length > 0 && !lastPendingDeliverySample) {
+        lastPendingDeliverySample = {
+          filter_content: filterContent,
+          count: pendingBills.length,
+          keys: Object.keys(pendingBills[0] ?? {}).slice(0, 30),
+          sample: pendingBills[0],
+        };
+      }
+      const pendingBill = findBillInList(pendingBills);
+      if (pendingBill) return pendingBill;
+    }
+
+    return null;
   };
 
   const applyDeliveryBillDocumentId = (bill: any) => {
-    const billInvoiceId = normalizePosDocumentId(bill?.invoice_id);
+    const billInvoiceId = getDeliveryBillInvoiceId(bill);
     if (billInvoiceId) {
       deliveryDocumentId = billInvoiceId;
       if (!sourceInvoiceId) sourceInvoiceId = billInvoiceId;
@@ -4390,8 +4462,11 @@ const payAndDeliverPickupOrder = async (input: {
         source_invoice_id: sourceInvoiceId || null,
         delivery_document_id: deliveryDocumentId,
         branch_id: branchId,
+        branch_order_ref: branchOrderRef || null,
         user_id: deliveryUserId,
         shift_owner_user_id: shiftOwnerUserId,
+        pending_delivery_filters: pendingDeliveryFilters,
+        pending_delivery_sample: lastPendingDeliverySample,
         delivery_rows: deliveryOrderRows.length,
       });
     }
@@ -4487,6 +4562,7 @@ const payAndDeliverPickupOrder = async (input: {
     sales_order_id: sourceOrdersId,
     source_invoice_id: sourceInvoiceId || null,
     delivery_document_id: deliveryDocumentId,
+    branch_order_ref: branchOrderRef || null,
     branch_id: branchId,
     user_id: deliveryUserId,
     shift_owner_user_id: shiftOwnerUserId,
@@ -4514,7 +4590,9 @@ const payAndDeliverPickupOrder = async (input: {
     customer_id: customerId,
     shipping_id: shippingId,
     delivery_bill: matchingDeliveryBill ?? null,
-    delivery_bill_invoice_id: normalizePosDocumentId(matchingDeliveryBill?.invoice_id) || null,
+    delivery_bill_invoice_id: getDeliveryBillInvoiceId(matchingDeliveryBill) || null,
+    pending_delivery_filters: pendingDeliveryFilters,
+    pending_delivery_sample: matchingDeliveryBill ? null : lastPendingDeliverySample,
     already_packed_for_delivery: alreadyPackedForDelivery,
     packed_for_delivery: packedForDelivery,
   };
@@ -4536,7 +4614,7 @@ const payAndDeliverPickupOrder = async (input: {
       `${
         message || `POS delivery failed. ${deliveryResult.text.slice(0, 300)}`
       } (delivery user ${deliveryUserId}, shift ${shiftId}, shift owner ${shiftOwnerUserId}, delivery document ${deliveryDocumentId}, sales order ${sourceOrdersId}, invoice ${sourceInvoiceId || 'none'}, method ${input.payment_method}, credit_sale ${creditSaleEnabled}, customer ${customerId || 'none'}, shipping ${shippingId || 'none'}, bill invoice ${
-        normalizePosDocumentId(matchingDeliveryBill?.invoice_id) || 'none'
+        getDeliveryBillInvoiceId(matchingDeliveryBill) || 'none'
       })`
     );
   }
