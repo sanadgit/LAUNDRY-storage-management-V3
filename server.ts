@@ -4076,7 +4076,7 @@ const payAndDeliverPickupOrder = async (input: {
     sourceInvoiceId = normalizePosDocumentId(preview?.invoice_id);
   }
   if (!sourceOrdersId) throw new Error(`Could not resolve the POS Sales Order ID for ${orderNo}.`);
-  const deliveryDocumentId = sourceInvoiceId || sourceOrdersId;
+  let deliveryDocumentId = sourceInvoiceId || sourceOrdersId;
 
   const before = await fetchRawPosOrderDetails({
     order_id: '0',
@@ -4247,7 +4247,16 @@ const payAndDeliverPickupOrder = async (input: {
     );
   };
 
+  const applyDeliveryBillDocumentId = (bill: any) => {
+    const billInvoiceId = normalizePosDocumentId(bill?.invoice_id);
+    if (billInvoiceId) {
+      deliveryDocumentId = billInvoiceId;
+      if (!sourceInvoiceId) sourceInvoiceId = billInvoiceId;
+    }
+  };
+
   let matchingDeliveryBill = await findPendingDeliveryBill(deliveryConfig);
+  applyDeliveryBillDocumentId(matchingDeliveryBill);
   let packedForDelivery = false;
   if (!matchingDeliveryBill && !alreadyPackedForDelivery && !input.dry_run) {
     const packingConfigPayload = new URLSearchParams();
@@ -4373,6 +4382,7 @@ const payAndDeliverPickupOrder = async (input: {
       creditSaleEnabled = String(refreshedDeliveryOrderResponse[2] ?? creditSaleEnabled).trim();
     }
     matchingDeliveryBill = await findPendingDeliveryBill(deliveryConfig);
+    applyDeliveryBillDocumentId(matchingDeliveryBill);
     if (!matchingDeliveryBill) {
       console.warn('POS packing succeeded but pending delivery list did not include the order; continuing with deliveryProcess.', {
         order_no: orderNo,
@@ -4510,6 +4520,7 @@ const payAndDeliverPickupOrder = async (input: {
     customer_id: customerId,
     shipping_id: shippingId,
     delivery_bill: matchingDeliveryBill ?? null,
+    delivery_bill_invoice_id: normalizePosDocumentId(matchingDeliveryBill?.invoice_id) || null,
     already_packed_for_delivery: alreadyPackedForDelivery,
     packed_for_delivery: packedForDelivery,
   };
@@ -4530,7 +4541,9 @@ const payAndDeliverPickupOrder = async (input: {
     throw new Error(
       `${
         message || `POS delivery failed. ${deliveryResult.text.slice(0, 300)}`
-      } (delivery user ${deliveryUserId}, shift ${shiftId}, shift owner ${shiftOwnerUserId})`
+      } (delivery user ${deliveryUserId}, shift ${shiftId}, shift owner ${shiftOwnerUserId}, delivery document ${deliveryDocumentId}, sales order ${sourceOrdersId}, invoice ${sourceInvoiceId || 'none'}, method ${input.payment_method}, credit_sale ${creditSaleEnabled}, customer ${customerId || 'none'}, shipping ${shippingId || 'none'}, bill invoice ${
+        normalizePosDocumentId(matchingDeliveryBill?.invoice_id) || 'none'
+      })`
     );
   }
 
