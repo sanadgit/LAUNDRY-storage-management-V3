@@ -4010,13 +4010,20 @@ const payAndDeliverPickupOrder = async (input: {
   if (!branchId) throw new Error('POS order branch is missing.');
   const staffSession = getActivePosStaffSession();
   const assignedDriverId = String(first.driver_id ?? '').trim();
-  const userId =
-    assignedDriverId && Number(assignedDriverId) > 0
-      ? assignedDriverId
-      : staffSession?.pos_user_id ||
-        POS_DELIVERY_USER_ID ||
-        String(first.done_by ?? first.modified_user_id ?? '').trim();
-  if (!userId) throw new Error('POS delivery user is not configured.');
+  const deliveryUserCandidates = Array.from(
+    new Set(
+      [
+        assignedDriverId && Number(assignedDriverId) > 0 ? assignedDriverId : '',
+        staffSession?.pos_user_id,
+        POS_DELIVERY_USER_ID,
+        first.done_by,
+        first.modified_user_id,
+      ]
+        .map((value) => String(value ?? '').trim())
+        .filter((value) => value && Number(value) > 0)
+    )
+  );
+  if (deliveryUserCandidates.length === 0) throw new Error('POS delivery user is not configured.');
   const clientIdentifier = staffSession?.client_identifier || POS_LOGIN_CLIENT_IDENTIFIER;
 
   const deliveryReferer = `${POS_PURCHASE_API_BASE_URL.replace(/\/+$/, '')}/delivery`;
@@ -4043,18 +4050,71 @@ const payAndDeliverPickupOrder = async (input: {
   const deliveryPaymentMethods = deliveryOrderResponse[1];
   const creditSaleEnabled = String(deliveryOrderResponse[2] ?? '').trim();
 
-  const deliveryConfigPayload = new URLSearchParams();
-  deliveryConfigPayload.set('client_identifier', clientIdentifier);
-  deliveryConfigPayload.set('branch_id', branchId);
-  deliveryConfigPayload.set('user_id', userId);
-  let deliveryConfigResult = await postPosForm(
-    resolvePosPurchaseApiEndpoint('/pos_api/getDeliveryData'),
-    deliveryConfigPayload,
-    { fallbackToGet: false, referer: deliveryReferer }
-  );
-  let deliveryConfig = deliveryConfigResult.parsed;
-  if (!deliveryConfig || Number(deliveryConfig.status) !== 1 || !deliveryConfig.data) {
-    throw new Error(`POS delivery settings could not be loaded. ${deliveryConfigResult.text.slice(0, 240)}`);
+  const loadDeliveryConfig = async (candidateUserId: string) => {
+    const configPayload = new URLSearchParams();
+    configPayload.set('client_identifier', clientIdentifier);
+    configPayload.set('branch_id', branchId);
+    configPayload.set('user_id', candidateUserId);
+    const configResult = await postPosForm(
+      resolvePosPurchaseApiEndpoint('/pos_api/getDeliveryData'),
+      configPayload,
+      { fallbackToGet: false, referer: deliveryReferer }
+    );
+    return {
+      payload: configPayload,
+      result: configResult,
+      config: configResult.parsed,
+    };
+  };
+
+  let userId = '';
+  let deliveryConfigPayload = new URLSearchParams();
+  let deliveryConfigResult: Awaited<ReturnType<typeof postPosForm>> | null = null;
+  let deliveryConfig: any = null;
+  const deliveryUserShiftAttempts: Array<{
+    user_id: string;
+    shift_id: string;
+    status: number;
+    error?: string;
+  }> = [];
+
+  for (const candidateUserId of deliveryUserCandidates) {
+    try {
+      const loaded = await loadDeliveryConfig(candidateUserId);
+      const candidateShiftId = String(loaded.config?.data?.shift_id ?? '').trim();
+      deliveryUserShiftAttempts.push({
+        user_id: candidateUserId,
+        shift_id: candidateShiftId || '0',
+        status: Number(loaded.config?.status ?? 0),
+      });
+      if (
+        loaded.config &&
+        Number(loaded.config.status) === 1 &&
+        loaded.config.data &&
+        Number(candidateShiftId) > 0
+      ) {
+        userId = candidateUserId;
+        deliveryConfigPayload = loaded.payload;
+        deliveryConfigResult = loaded.result;
+        deliveryConfig = loaded.config;
+        break;
+      }
+    } catch (error: any) {
+      deliveryUserShiftAttempts.push({
+        user_id: candidateUserId,
+        shift_id: '0',
+        status: 0,
+        error: String(error?.message || error || 'Failed to load delivery settings.'),
+      });
+    }
+  }
+
+  if (!userId || !deliveryConfig || !deliveryConfigResult) {
+    throw new Error(
+      `No open POS shift for delivery users ${deliveryUserShiftAttempts
+        .map((attempt) => `${attempt.user_id}:${attempt.shift_id}`)
+        .join(', ')} in branch ${branchId}.`
+    );
   }
 
   const findPendingDeliveryBill = async (config: any) => {
@@ -4299,6 +4359,8 @@ const payAndDeliverPickupOrder = async (input: {
     pos_username: staffSession?.username ?? null,
     authenticated_pos_user_id: staffSession?.pos_user_id ?? null,
     assigned_driver_id: assignedDriverId || null,
+    delivery_user_candidates: deliveryUserCandidates,
+    delivery_user_shift_attempts: deliveryUserShiftAttempts,
     shift_id: shiftId,
     payment_method: input.payment_method,
     linked_account_id: payment?.linked_account_id ?? null,
