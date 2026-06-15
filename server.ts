@@ -1966,6 +1966,58 @@ const buildPosConnectSearchQueries = (query: string) => {
   return queries;
 };
 
+type PickupBranchReference = {
+  key: 'A' | 'M' | 'Z' | 'R';
+  branch_id: string;
+  branch_aliases: string[];
+  invoice_reference: string;
+  numeric_reference: string;
+};
+
+const PICKUP_BRANCH_REFERENCES: Record<
+  PickupBranchReference['key'],
+  Omit<PickupBranchReference, 'key' | 'invoice_reference' | 'numeric_reference'>
+> = {
+  A: { branch_id: '1', branch_aliases: ['ALFALAH'] },
+  M: { branch_id: '3', branch_aliases: ['MUSAFFAH', 'MUSSAFAH'] },
+  Z: { branch_id: '2', branch_aliases: ['MBZ', 'MOHAMMEDBINZAYED'] },
+  R: { branch_id: '4', branch_aliases: ['ALRIYADH', 'RIYADH'] },
+};
+
+const normalizePosReference = (value: unknown) =>
+  String(value ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+
+const parsePickupBranchReference = (query: string): PickupBranchReference | null => {
+  const normalized = normalizePosReference(query);
+  const match = normalized.match(/^([AMZR])(\d{3,10})$/);
+  if (!match) return null;
+
+  const key = match[1] as PickupBranchReference['key'];
+  const branch = PICKUP_BRANCH_REFERENCES[key];
+  return {
+    key,
+    ...branch,
+    invoice_reference: `${key}${match[2]}`,
+    numeric_reference: match[2],
+  };
+};
+
+const posPreviewMatchesBranchReference = (order: PosOrderPreview, reference: PickupBranchReference) => {
+  const invoiceNo = normalizePosReference(order.invoice_no);
+  const branch = normalizePosReference(order.branch);
+  const invoiceMatches =
+    invoiceNo === reference.invoice_reference ||
+    invoiceNo === reference.numeric_reference ||
+    invoiceNo.endsWith(reference.invoice_reference);
+  const branchMatches =
+    !branch ||
+    reference.branch_aliases.some((alias) => branch === alias || branch.includes(alias));
+  return invoiceMatches && branchMatches;
+};
+
 const buildPosConnectOrder = (
   preview?: PosOrderPreview | null,
   details?: PosOrderDetailsResult | null
@@ -2437,11 +2489,18 @@ const fetchPosOrderSearch = async (
     Number(parsed?.recordsFiltered ?? 0) > 0;
 
   if (needsRetry) {
-    const retryVariants = [
-      { job_status: '0', branch_id: '0', prevent_depot_selection: '0' },
-      { job_status: '0', branch_id: '0', prevent_depot_selection: '1' },
-      { job_status: '0', branch_id: POS_BRANCH_ID || '0', prevent_depot_selection: '0' },
-    ];
+    const requestedBranchId = String(overrides?.branch_id ?? '').trim();
+    const retryVariants =
+      requestedBranchId && requestedBranchId !== '0'
+        ? [
+            { job_status: '0', branch_id: requestedBranchId, prevent_depot_selection: '0' },
+            { job_status: '0', branch_id: requestedBranchId, prevent_depot_selection: '1' },
+          ]
+        : [
+            { job_status: '0', branch_id: '0', prevent_depot_selection: '0' },
+            { job_status: '0', branch_id: '0', prevent_depot_selection: '1' },
+            { job_status: '0', branch_id: POS_BRANCH_ID || '0', prevent_depot_selection: '0' },
+          ];
     for (const variant of retryVariants) {
       const retry = await requestWithPayload(buildPosOrderSearchPayload(query, variant));
       if (retry.parsed && Array.isArray(retry.parsed?.data) && retry.parsed.data.length > 0) {
@@ -2737,17 +2796,34 @@ const tryFetchPosConnectDetailsByDisplayedOrderNo = async (
   return null;
 };
 
-const resolvePosConnectPreviewByDisplayedOrderNo = async (orderNo: string) => {
-  const normalizedOrderNo = normalizeSortingOrderNo(orderNo);
+const resolvePosConnectPreviewByDisplayedOrderNo = async (
+  orderNo: string,
+  options?: { branchReference?: PickupBranchReference }
+) => {
+  const branchReference = options?.branchReference;
+  const normalizedOrderNo = normalizeSortingOrderNo(
+    branchReference?.numeric_reference ?? orderNo
+  );
   if (!normalizedOrderNo) return null;
-  const searchQueries = buildPosConnectSearchQueries(normalizedOrderNo);
+  const searchQueries = buildPosConnectSearchQueries(
+    branchReference?.invoice_reference ?? normalizedOrderNo
+  );
+  const matchesExactReference = (order: PosOrderPreview) => {
+    if (branchReference) return posPreviewMatchesBranchReference(order, branchReference);
+    const normalizedReference = normalizePosReference(normalizedOrderNo);
+    return (
+      normalizePosReference(order.order_no) === normalizedReference ||
+      normalizePosReference(order.invoice_no) === normalizedReference
+    );
+  };
 
   for (const candidateQuery of searchQueries) {
     try {
-      const search = await fetchCachedPosConnectSearch(candidateQuery);
-      const exact =
-        (search.orders ?? []).find((order) => normalizeSortingOrderNo(order.order_no) === normalizedOrderNo) ??
-        filterPosConnectPreviewMatches(search.orders ?? [], searchQueries)[0];
+      const search = await fetchCachedPosConnectSearch(
+        candidateQuery,
+        branchReference ? { branch_id: branchReference.branch_id } : undefined
+      );
+      const exact = (search.orders ?? []).find(matchesExactReference);
       if (exact) return exact;
     } catch {
       // Fall back to the broader POS list scan below.
@@ -2769,7 +2845,7 @@ const resolvePosConnectPreviewByDisplayedOrderNo = async (orderNo: string) => {
             start: String(page * pageSize),
             length: String(pageSize),
             job_status: '0',
-            branch_id: '0',
+            branch_id: branchReference?.branch_id ?? '0',
             prevent_depot_selection: '0',
           });
           return { search, error: null as any };
@@ -2781,9 +2857,7 @@ const resolvePosConnectPreviewByDisplayedOrderNo = async (orderNo: string) => {
 
     for (const result of batchResults) {
       if (result.error || !result.search) continue;
-      const exact =
-        (result.search.orders ?? []).find((order) => normalizeSortingOrderNo(order.order_no) === normalizedOrderNo) ??
-        filterPosConnectPreviewMatches(result.search.orders ?? [], searchQueries)[0];
+      const exact = (result.search.orders ?? []).find(matchesExactReference);
       if (exact) return exact;
     }
 
@@ -13182,8 +13256,10 @@ async function startServer() {
       const query = String(req.query.q ?? req.query.phone ?? req.query.order_no ?? req.query.orderNo ?? '').trim();
       const searchMode = String(req.query.mode ?? '').trim().toLowerCase();
       const queryDigits = normalizePosConnectPhone(query);
+      const branchReference = parsePickupBranchReference(query);
       const isOrderQuery =
         searchMode === 'order' ||
+        Boolean(branchReference) ||
         (searchMode !== 'phone' && isLikelyPosConnectOrderNoQuery(query) && queryDigits.length <= 8);
 
       if (!query || (!isOrderQuery && queryDigits.length < 5)) {
@@ -13191,7 +13267,8 @@ async function startServer() {
       }
 
       const limit = Math.max(1, Math.min(50, Number(req.query.limit ?? 25) || 25));
-      const searchQueries = buildPosConnectSearchQueries(query);
+      const orderLookupQuery = branchReference?.invoice_reference ?? query;
+      const searchQueries = buildPosConnectSearchQueries(orderLookupQuery);
       const attempts: PosConnectSearchAttempt[] = [];
 
       if (isOrderQuery) {
@@ -13199,7 +13276,9 @@ async function startServer() {
         let lastOrderError: any = null;
 
         try {
-          const preview = await resolvePosConnectPreviewByDisplayedOrderNo(query);
+          const preview = await resolvePosConnectPreviewByDisplayedOrderNo(orderLookupQuery, {
+            branchReference: branchReference ?? undefined,
+          });
           if (preview) {
             let details: PosOrderDetailsResult | null = null;
             let detailsError = '';
@@ -13214,7 +13293,7 @@ async function startServer() {
               detailsError = String(error?.message || 'Failed to load POS order details.');
             }
             attempts.push({
-              query: `${query} order lookup`,
+              query: `${orderLookupQuery} order lookup`,
               records_total: 1,
               records_filtered: 1,
               parsed_orders: 1,
@@ -13225,7 +13304,7 @@ async function startServer() {
           lastOrderError = error;
         }
 
-        if (!order) {
+        if (!order && !branchReference) {
           try {
             const directDetails = await tryFetchPosConnectDetailsByDisplayedOrderNo(query, searchQueries, attempts);
             if (directDetails) {
@@ -13253,6 +13332,9 @@ async function startServer() {
         return res.json({
           query,
           mode: 'order',
+          branch: branchReference
+            ? { key: branchReference.key, branch_id: branchReference.branch_id }
+            : null,
           orders,
           count: orders.length,
           searched_queries: searchQueries,

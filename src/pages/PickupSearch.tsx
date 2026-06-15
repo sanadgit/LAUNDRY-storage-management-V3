@@ -1563,8 +1563,9 @@ export default function PickupSearchPage() {
       setLoading(true);
       setError(null);
       setData(null);
+      const isBranchReference = /^[AMZR]\d{3,10}$/i.test(query);
       const response = await axios.get<PickupSearchResponse>('/api/pickup-search/phone', {
-        params: { q: query, limit: 30 },
+        params: { q: query, limit: 30, ...(isBranchReference ? { mode: 'order' } : {}) },
       });
       setData(response.data);
       setMobileKeypadHidden(true);
