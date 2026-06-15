@@ -4010,10 +4010,17 @@ const payAndDeliverPickupOrder = async (input: {
   if (!branchId) throw new Error('POS order branch is missing.');
   const staffSession = getActivePosStaffSession();
   const assignedDriverId = String(first.driver_id ?? '').trim();
+  const deliveryUserId =
+    assignedDriverId && Number(assignedDriverId) > 0
+      ? assignedDriverId
+      : staffSession?.pos_user_id ||
+        POS_DELIVERY_USER_ID ||
+        String(first.done_by ?? first.modified_user_id ?? '').trim();
+  if (!deliveryUserId) throw new Error('POS delivery user is not configured.');
   const deliveryUserCandidates = Array.from(
     new Set(
       [
-        assignedDriverId && Number(assignedDriverId) > 0 ? assignedDriverId : '',
+        deliveryUserId,
         staffSession?.pos_user_id,
         POS_DELIVERY_USER_ID,
         first.done_by,
@@ -4023,7 +4030,6 @@ const payAndDeliverPickupOrder = async (input: {
         .filter((value) => value && Number(value) > 0)
     )
   );
-  if (deliveryUserCandidates.length === 0) throw new Error('POS delivery user is not configured.');
   const clientIdentifier = staffSession?.client_identifier || POS_LOGIN_CLIENT_IDENTIFIER;
 
   const deliveryReferer = `${POS_PURCHASE_API_BASE_URL.replace(/\/+$/, '')}/delivery`;
@@ -4067,7 +4073,7 @@ const payAndDeliverPickupOrder = async (input: {
     };
   };
 
-  let userId = '';
+  let shiftOwnerUserId = '';
   let deliveryConfigPayload = new URLSearchParams();
   let deliveryConfigResult: Awaited<ReturnType<typeof postPosForm>> | null = null;
   let deliveryConfig: any = null;
@@ -4093,7 +4099,7 @@ const payAndDeliverPickupOrder = async (input: {
         loaded.config.data &&
         Number(candidateShiftId) > 0
       ) {
-        userId = candidateUserId;
+        shiftOwnerUserId = candidateUserId;
         deliveryConfigPayload = loaded.payload;
         deliveryConfigResult = loaded.result;
         deliveryConfig = loaded.config;
@@ -4109,7 +4115,7 @@ const payAndDeliverPickupOrder = async (input: {
     }
   }
 
-  if (!userId || !deliveryConfig || !deliveryConfigResult) {
+  if (!shiftOwnerUserId || !deliveryConfig || !deliveryConfigResult) {
     throw new Error(
       `No open POS shift for delivery users ${deliveryUserShiftAttempts
         .map((attempt) => `${attempt.user_id}:${attempt.shift_id}`)
@@ -4125,7 +4131,7 @@ const payAndDeliverPickupOrder = async (input: {
 
     const pendingPayload = new URLSearchParams();
     pendingPayload.set('order_id', '0');
-    pendingPayload.set('user_id', userId);
+    pendingPayload.set('user_id', deliveryUserId);
     pendingPayload.set('branch_id', branchId);
     pendingPayload.set('client_identifier', clientIdentifier);
     pendingPayload.set('filter_content', orderNo);
@@ -4150,7 +4156,7 @@ const payAndDeliverPickupOrder = async (input: {
     const packingConfigPayload = new URLSearchParams();
     packingConfigPayload.set('client_identifier', clientIdentifier);
     packingConfigPayload.set('branch_id', branchId);
-    packingConfigPayload.set('user_id', userId);
+    packingConfigPayload.set('user_id', deliveryUserId);
     const packingReferer = `${POS_PURCHASE_API_BASE_URL.replace(/\/+$/, '')}/packing`;
     const packingConfigResult = await postPosForm(
       resolvePosPurchaseApiEndpoint('/packing_api/getPackingData'),
@@ -4165,7 +4171,7 @@ const payAndDeliverPickupOrder = async (input: {
     const packingOrderPayload = new URLSearchParams();
     packingOrderPayload.set('client_identifier', clientIdentifier);
     packingOrderPayload.set('branch_id', branchId);
-    packingOrderPayload.set('user_id', userId);
+    packingOrderPayload.set('user_id', deliveryUserId);
     packingOrderPayload.set('order_id', sourceOrdersId);
     packingOrderPayload.set('time_zone', String(packingConfig.data.time_zone ?? 'Asia/Dubai'));
     const packingOrderResult = await postPosForm(
@@ -4209,7 +4215,7 @@ const payAndDeliverPickupOrder = async (input: {
       'del_time',
       String(packingFirst.delivery_time ?? deliveryFirst.delivery_time ?? first.delivery_time ?? '')
     );
-    savePackingPayload.set('salesman', String(packingFirst.done_by ?? first.done_by ?? userId));
+    savePackingPayload.set('salesman', String(packingFirst.done_by ?? first.done_by ?? deliveryUserId));
     savePackingPayload.set('send_sms', '0');
     savePackingPayload.set('send_whatsapp', '0');
     for (let index = 0; index < remainingPackingRows.length; index += 1) {
@@ -4223,7 +4229,7 @@ const payAndDeliverPickupOrder = async (input: {
       );
     }
     savePackingPayload.set('time_zone', String(packingConfig.data.time_zone ?? 'Asia/Dubai'));
-    savePackingPayload.set('user_id', userId);
+    savePackingPayload.set('user_id', deliveryUserId);
     savePackingPayload.set('full_packed', '1');
     savePackingPayload.set(
       'remark',
@@ -4261,7 +4267,7 @@ const payAndDeliverPickupOrder = async (input: {
 
   const shiftId = String(deliveryConfig.data.shift_id ?? '').trim();
   if (!shiftId || Number(shiftId) <= 0) {
-    throw new Error(`No open POS shift for delivery user ${userId} in branch ${branchId}.`);
+    throw new Error(`No open POS shift for delivery user ${shiftOwnerUserId} in branch ${branchId}.`);
   }
 
   const balance = Math.max(0, normalizePosNumberish(deliveryFirst.balance ?? first.balance, 0));
@@ -4344,7 +4350,7 @@ const payAndDeliverPickupOrder = async (input: {
   payload.set(`${detailPrefix}[shipping_id]`, shippingId);
   payload.set('order_id', sourceOrdersId);
   payload.set('client_identifier', clientIdentifier);
-  payload.set('user_id', userId);
+  payload.set('user_id', deliveryUserId);
   payload.set('branch_id', branchId);
   payload.set(
     'currency_id',
@@ -4355,7 +4361,8 @@ const payAndDeliverPickupOrder = async (input: {
     order_no: orderNo,
     sales_order_id: sourceOrdersId,
     branch_id: branchId,
-    user_id: userId,
+    user_id: deliveryUserId,
+    shift_owner_user_id: shiftOwnerUserId,
     pos_username: staffSession?.username ?? null,
     authenticated_pos_user_id: staffSession?.pos_user_id ?? null,
     assigned_driver_id: assignedDriverId || null,
@@ -4396,7 +4403,11 @@ const payAndDeliverPickupOrder = async (input: {
       request: requestSummary,
       response: deliveryResponse ?? deliveryResult.text.slice(0, 500),
     });
-    throw new Error(message || `POS delivery failed. ${deliveryResult.text.slice(0, 300)}`);
+    throw new Error(
+      `${
+        message || `POS delivery failed. ${deliveryResult.text.slice(0, 300)}`
+      } (delivery user ${deliveryUserId}, shift ${shiftId}, shift owner ${shiftOwnerUserId})`
+    );
   }
 
   posConnectDetailsCache.clear();
