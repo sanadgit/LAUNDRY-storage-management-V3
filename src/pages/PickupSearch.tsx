@@ -129,6 +129,34 @@ type PickLocation = {
 
 const emptyValue = '-';
 const NUMBER_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
+const BRANCH_KEYS = [
+  {
+    key: 'A',
+    label: 'Al Falah',
+    className: 'border-emerald-700 bg-emerald-600 text-white hover:bg-emerald-500',
+  },
+  {
+    key: 'M',
+    label: 'Musaffah',
+    className: 'border-blue-700 bg-blue-600 text-white hover:bg-blue-500',
+  },
+  {
+    key: 'Z',
+    label: 'MBZ',
+    className: 'border-violet-700 bg-violet-600 text-white hover:bg-violet-500',
+  },
+  {
+    key: 'R',
+    label: 'Al Riyadh',
+    className: 'border-orange-700 bg-orange-500 text-white hover:bg-orange-400',
+  },
+] as const;
+const ARABIC_SCRIPT_PATTERN = /\p{Script=Arabic}/u;
+
+const getEnglishApiError = (error: any, fallback: string) => {
+  const message = String(error?.response?.data?.error || error?.message || '').trim();
+  return message && !ARABIC_SCRIPT_PATTERN.test(message) ? message : fallback;
+};
 
 const categoryLabels: Record<PickupCategory, string> = {
   hanging_clothes: 'Hanging Clothes',
@@ -618,7 +646,7 @@ function PickModal({
       })
       .catch((err: any) => {
         if (!active) return;
-        setPickError(err?.response?.data?.error || err?.message || 'تعذر تحميل تقدم مهام Pick.');
+        setPickError(getEnglishApiError(err, 'Could not load pick progress.'));
       })
       .finally(() => {
         if (active) setProgressLoading(false);
@@ -663,7 +691,7 @@ function PickModal({
     setShowDeliveryPayment(false);
     if (!value.trim()) {
       setBarcodeVerified(false);
-      setBarcodeError('امسح باركود الفاتورة الملصقة على الكيس.');
+      setBarcodeError('Scan the invoice barcode attached to the bag.');
       if (focusManualInput) barcodeInputRef.current?.focus();
       return;
     }
@@ -673,13 +701,13 @@ function PickModal({
       const resolvedValue = await resolveScannedOrderNo(value);
       if (!resolvedValue) {
         setBarcodeVerified(false);
-        setBarcodeError('لم يتم العثور على رقم الطلب داخل الباركود.');
+        setBarcodeError('No order number was found in the barcode.');
         if (focusManualInput) barcodeInputRef.current?.focus();
         return;
       }
       if (normalizeBarcode(resolvedValue) !== normalizeBarcode(order.order_no)) {
         setBarcodeVerified(false);
-        setBarcodeError('الباركود لا يطابق هذا الطلب. أعد فحص الكيس الصحيح.');
+        setBarcodeError('The barcode does not match this order. Scan the correct bag.');
         setBarcodeValue('');
         if (focusManualInput) barcodeInputRef.current?.focus();
         return;
@@ -688,7 +716,7 @@ function PickModal({
       setBarcodeVerified(true);
     } catch (error: any) {
       setBarcodeVerified(false);
-      setBarcodeError(error?.response?.data?.error || error?.message || 'تعذر استخراج رقم الطلب من الباركود.');
+      setBarcodeError(getEnglishApiError(error, 'Could not extract the order number from the barcode.'));
       if (focusManualInput) barcodeInputRef.current?.focus();
     } finally {
       setBarcodeResolving(false);
@@ -737,8 +765,10 @@ function PickModal({
               extracted = await resolveScannedOrderNo(raw);
             } catch (error: any) {
               if (!cancelled) {
-                const message =
-                  error?.response?.data?.error || error?.message || 'تعذر استخراج رقم الطلب من رابط الباركود.';
+                const message = getEnglishApiError(
+                  error,
+                  'Could not extract the order number from the barcode link.'
+                );
                 setScannerError(message);
                 setBarcodeError(message);
               }
@@ -756,7 +786,7 @@ function PickModal({
               } catch {
                 // Ignore vibration errors.
               }
-              const message = `الباركود ${extracted} لا يطابق الطلب ${order.order_no}.`;
+              const message = `Barcode ${extracted} does not match order ${order.order_no}.`;
               setScannerError(message);
               setBarcodeError(message);
               return;
@@ -820,7 +850,7 @@ function PickModal({
         )
       );
     } catch (err: any) {
-      setPickError(err?.response?.data?.error || err?.message || 'فشل تسجيل الاستلام من الاستور.');
+      setPickError(getEnglishApiError(err, 'Failed to record the pickup from storage.'));
     } finally {
       setPickLoading(false);
     }
@@ -833,7 +863,7 @@ function PickModal({
     try {
       const noPayReason = noPayReasonTypeValue === 'other' ? noPayOtherReason.trim() : '';
       if (paymentMethod === 'no_pay' && noPayReasonTypeValue === 'other' && !noPayReason) {
-        setDeliveryError('اكتب سبب No Pay الآخر.');
+        setDeliveryError('Enter the other No Pay reason.');
         return;
       }
       setDeliveryLoading(paymentMethod);
@@ -854,7 +884,7 @@ function PickModal({
       setShowNoPayReasons(false);
       onDelivered(order.order_no, remainingBalance);
     } catch (err: any) {
-      setDeliveryError(err?.response?.data?.error || err?.message || 'تعذر الدفع والتوصيل في POS.');
+      setDeliveryError(getEnglishApiError(err, 'Could not complete payment and delivery in POS.'));
     } finally {
       setDeliveryLoading(null);
     }
@@ -892,13 +922,15 @@ function PickModal({
               <div>
                 <div className="text-xs font-black uppercase tracking-widest text-slate-500">Pick Progress</div>
                 <div className="mt-1 text-sm font-black text-slate-900">
-                  {progressLoading ? 'جاري تحميل التقدم...' : `${pickedCategories.length} / ${requiredCategories.length} مكتملة`}
+                  {progressLoading
+                    ? 'Loading progress...'
+                    : `${pickedCategories.length} / ${requiredCategories.length} completed`}
                 </div>
               </div>
               {allPicked && (
                 <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-100 px-3 py-2 text-xs font-black text-emerald-800">
                   <CheckCircle2 size={16} />
-                  كل القطع جاهزة
+                  All items are ready
                 </span>
               )}
             </div>
@@ -1028,8 +1060,8 @@ function PickModal({
                 <span className="inline-flex items-center gap-2 text-emerald-700">
                   <CheckCircle2 size={18} />
                   {deliverySuccess.paymentMethod === 'no_pay'
-                    ? `تم التوصيل بدون دفع. الرصيد المتبقي AED ${deliverySuccess.remainingBalance.toFixed(2)}.`
-                    : `تم الدفع والتوصيل في POS بمبلغ AED ${deliverySuccess.amountPaid.toFixed(2)}.`}
+                    ? `Delivered without payment. Remaining balance: AED ${deliverySuccess.remainingBalance.toFixed(2)}.`
+                    : `Payment and delivery completed in POS for AED ${deliverySuccess.amountPaid.toFixed(2)}.`}
                 </span>
               ) : deliveryError ? (
                 <span className="inline-flex items-center gap-2 text-rose-700">
@@ -1044,20 +1076,20 @@ function PickModal({
               ) : progressLoading ? (
                 <span className="inline-flex items-center gap-2 text-slate-500">
                   <Loader2 size={18} className="animate-spin" />
-                  جاري التحقق من مهام Pick...
+                  Checking pick tasks...
                 </span>
               ) : currentPicked && nextCategory ? (
                 <span className="inline-flex items-center gap-2 text-blue-700">
                   <ArrowRight size={18} />
-                  المهمة التالية: {categoryLabels[nextCategory]}
+                  Next task: {categoryLabels[nextCategory]}
                 </span>
               ) : currentPicked && allPicked ? (
                 <span className="inline-flex items-center gap-2 text-emerald-700">
                   <CheckCircle2 size={18} />
-                  اكتملت كل مهام Pick. امسح باركود الكيس للمتابعة.
+                  All pick tasks are complete. Scan the bag barcode to continue.
                 </span>
               ) : (
-                <span className="text-slate-500">سجل هذه المهمة ثم انتقل تلقائيا للمهمة التالية.</span>
+                <span className="text-slate-500">Record this task to continue automatically to the next one.</span>
               )}
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -1096,7 +1128,7 @@ function PickModal({
                   className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-blue-700 px-6 text-sm font-black text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Truck size={18} />
-                  {deliverySuccess ? 'تم التوصيل' : 'دفع وتوصيل'}
+                  {deliverySuccess ? 'Delivered' : 'Pay and Deliver'}
                 </button>
               ) : null}
             </div>
@@ -1110,10 +1142,10 @@ function PickModal({
                 </div>
                 <div>
                   <div className={`text-sm font-black ${barcodeVerified ? 'text-emerald-950' : 'text-amber-950'}`}>
-                    {barcodeVerified ? 'تم التحقق من الكيس الصحيح' : 'امسح باركود الفاتورة الملصقة على الكيس'}
+                    {barcodeVerified ? 'Correct bag verified' : 'Scan the invoice barcode attached to the bag'}
                   </div>
                   <div className={`mt-1 text-xs font-bold ${barcodeVerified ? 'text-emerald-700' : 'text-amber-800'}`}>
-                    لن يظهر الدفع والتوصيل حتى يطابق الباركود رقم هذا الطلب.
+                    Payment and delivery are available only after the barcode matches this order.
                   </div>
                 </div>
               </div>
@@ -1125,11 +1157,11 @@ function PickModal({
                     className="inline-flex min-h-14 w-full items-center justify-center gap-3 rounded-xl bg-blue-700 px-5 text-base font-black text-white shadow-sm hover:bg-blue-600"
                   >
                     <Camera size={21} />
-                    فتح الكاميرا ومسح الباركود
+                    Open Camera and Scan Barcode
                   </button>
                   <details className="mt-3 rounded-xl border border-amber-200 bg-white/70">
                     <summary className="cursor-pointer px-4 py-3 text-xs font-black text-amber-900">
-                      تعذر استخدام الكاميرا؟ إدخال يدوي
+                      Camera unavailable? Enter manually
                     </summary>
                     <div className="flex flex-col gap-2 border-t border-amber-200 p-3 sm:flex-row">
                       <input
@@ -1157,7 +1189,7 @@ function PickModal({
                         className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 text-sm font-black text-white hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60"
                       >
                         {barcodeResolving ? <Loader2 size={18} className="animate-spin" /> : <ScanBarcode size={18} />}
-                        {barcodeResolving ? 'جاري قراءة الرابط...' : 'تحقق'}
+                        {barcodeResolving ? 'Reading link...' : 'Verify'}
                       </button>
                     </div>
                   </details>
@@ -1175,7 +1207,7 @@ function PickModal({
           {showDeliveryPayment && barcodeVerified && !deliverySuccess && (
             <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <div className="text-sm font-black text-blue-950">اختر طريقة الدفع أو سبب التوصيل بدون دفع</div>
+                <div className="text-sm font-black text-blue-950">Select payment method or a No Pay reason</div>
                 <div dir="ltr" className="rounded-lg bg-white px-3 py-1.5 text-sm font-black text-blue-900">
                   Invoice: AED {Number(order.balance || 0).toFixed(2)}
                 </div>
@@ -1186,7 +1218,7 @@ function PickModal({
                   <div>
                     <div className="text-sm font-black">Customer Outstanding Balance</div>
                     <div className="mt-1 text-xs font-bold text-amber-800">
-                      على العميل رصيد مستحق إجمالي قبل إتمام العملية.
+                      This is the customer's total outstanding balance before this transaction.
                     </div>
                   </div>
                   <div dir="ltr" className="ml-auto shrink-0 rounded-lg bg-white px-3 py-2 text-sm font-black text-amber-900">
@@ -1230,7 +1262,7 @@ function PickModal({
 
               {showNoPayReasons && (
                 <div className="mt-3 rounded-xl border border-amber-300 bg-white p-3">
-                  <div className="text-sm font-black text-slate-950">اختر سبب عدم الدفع</div>
+                  <div className="text-sm font-black text-slate-950">Select the No Pay reason</div>
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
                     <button
                       type="button"
@@ -1245,7 +1277,7 @@ function PickModal({
                           : 'border-slate-300 bg-slate-50 text-slate-900 hover:bg-slate-100'
                       }`}
                     >
-                      1. حساب شهري
+                      1. Monthly Account
                     </button>
                     <button
                       type="button"
@@ -1257,7 +1289,7 @@ function PickModal({
                           : 'border-slate-300 bg-slate-50 text-slate-900 hover:bg-slate-100'
                       }`}
                     >
-                      2. سبب آخر
+                      2. Other Reason
                     </button>
                   </div>
 
@@ -1270,7 +1302,7 @@ function PickModal({
                       }}
                       maxLength={500}
                       rows={3}
-                      placeholder="اكتب سبب عدم الدفع..."
+                      placeholder="Enter the No Pay reason..."
                       className="mt-3 w-full rounded-xl border-2 border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-950 outline-none focus:border-blue-600"
                     />
                   )}
@@ -1283,7 +1315,7 @@ function PickModal({
                       className="mt-3 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-amber-700 px-5 text-sm font-black text-white hover:bg-amber-600 disabled:opacity-60"
                     >
                       {deliveryLoading === 'no_pay' ? <Loader2 size={18} className="animate-spin" /> : <Truck size={18} />}
-                      تأكيد No Pay والتوصيل
+                      Confirm No Pay and Deliver
                     </button>
                   )}
                 </div>
@@ -1302,7 +1334,7 @@ function PickModal({
                   <Camera size={22} />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-sm font-black">مسح باركود الفاتورة</div>
+                  <div className="text-sm font-black">Scan Invoice Barcode</div>
                   <div dir="ltr" className="truncate font-mono text-xs font-bold text-slate-400">
                     Required: #{order.order_no}
                   </div>
@@ -1312,7 +1344,7 @@ function PickModal({
                 type="button"
                 onClick={closeScanner}
                 className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-700 bg-slate-800 text-white hover:bg-slate-700"
-                aria-label="إغلاق الكاميرا"
+                aria-label="Close camera"
               >
                 <X size={21} />
               </button>
@@ -1332,7 +1364,7 @@ function PickModal({
                 </div>
               ) : (
                 <div className="mt-3 rounded-2xl border border-emerald-500/30 bg-emerald-950/50 px-4 py-3 text-sm font-bold text-emerald-100">
-                  وجّه الكاميرا إلى الباركود. سيتم التحقق والإغلاق تلقائيًا عند قراءة الكود الصحيح.
+                  Point the camera at the barcode. It will verify and close automatically after a correct scan.
                 </div>
               )}
 
@@ -1422,7 +1454,7 @@ function OrderCard({
           className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
         >
           <FileText size={16} />
-          فتح الفاتورة
+          Open Invoice
         </button>
       </div>
 
@@ -1435,7 +1467,7 @@ function OrderCard({
 
       {delivered ? (
         <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-800">
-          تم توصيل هذا الطلب بتاريخ: {formatDateTime(order.delivery_date, order.delivery_time)}
+          This order was delivered on: {formatDateTime(order.delivery_date, order.delivery_time)}
         </div>
       ) : (
         <div className="mt-4 grid gap-3 lg:grid-cols-3">
@@ -1504,6 +1536,14 @@ export default function PickupSearchPage() {
     setError(null);
   };
 
+  const selectBranch = (branchKey: string) => {
+    setSearchQuery((prev) => {
+      const normalized = prev.trim().toUpperCase().replace(/^[AMZR]/, '');
+      return `${branchKey}${normalized}`;
+    });
+    setError(null);
+  };
+
   const clearSearch = () => {
     setSearchQuery('');
     setData(null);
@@ -1514,7 +1554,7 @@ export default function PickupSearchPage() {
   const runSearch = async () => {
     const query = searchQuery.trim();
     if (!query) {
-      setError('اكتب رقم الهاتف أو رقم الطلب أولاً.');
+      setError('Enter a phone number or order number first.');
       setMobileKeypadHidden(false);
       return;
     }
@@ -1529,7 +1569,7 @@ export default function PickupSearchPage() {
       setData(response.data);
       setMobileKeypadHidden(true);
     } catch (err: any) {
-      setError(err?.response?.data?.error || err?.message || 'فشل البحث عن الطلبات.');
+      setError(getEnglishApiError(err, 'Failed to search for pickup orders.'));
       setMobileKeypadHidden(query.replace(/\D+/g, '').length >= 5);
     } finally {
       setLoading(false);
@@ -1559,8 +1599,9 @@ export default function PickupSearchPage() {
             <input
               value={searchQuery}
               dir="ltr"
-              inputMode="tel"
-              onChange={(event) => setSearchQuery(event.target.value)}
+              inputMode="text"
+              autoCapitalize="characters"
+              onChange={(event) => setSearchQuery(event.target.value.toUpperCase())}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') void runSearch();
               }}
@@ -1582,6 +1623,21 @@ export default function PickupSearchPage() {
             ))}
           </div>
 
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {BRANCH_KEYS.map((branch) => (
+              <button
+                key={branch.key}
+                type="button"
+                onClick={() => selectBranch(branch.key)}
+                aria-label={`${branch.label} branch (${branch.key})`}
+                className={`flex min-h-16 items-center justify-center gap-2 rounded-2xl border px-2 shadow-sm transition active:scale-95 sm:flex-col sm:gap-0.5 ${branch.className}`}
+              >
+                <span className="text-2xl font-black leading-none">{branch.key}</span>
+                <span className="text-[10px] font-black uppercase tracking-wide">{branch.label}</span>
+              </button>
+            ))}
+          </div>
+
           <div className="mt-3 grid grid-cols-2 gap-2">
             <button
               type="button"
@@ -1589,7 +1645,7 @@ export default function PickupSearchPage() {
               className="flex min-h-14 items-center justify-center gap-2 rounded-2xl border border-slate-300 bg-white text-sm font-black text-slate-700"
             >
               <RotateCcw size={17} />
-              حذف
+              Delete
             </button>
             <button
               type="button"
@@ -1598,7 +1654,7 @@ export default function PickupSearchPage() {
               className="flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-blue-700 text-sm font-black text-white disabled:opacity-60"
             >
               {loading ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
-              بحث
+              Search
             </button>
           </div>
 
@@ -1616,27 +1672,29 @@ export default function PickupSearchPage() {
               <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-blue-50 text-blue-600">
                 <Phone size={38} />
               </div>
-              <div className="mt-4 text-2xl font-black text-slate-900">اكتب رقم الهاتف أو رقم الطلب</div>
-              <div className="mt-2 text-sm font-bold text-slate-500">سيظهر الطلب أو كل طلبات الرقم مع أزرار Pick حسب نوع الصنف.</div>
+              <div className="mt-4 text-2xl font-black text-slate-900">Enter a phone number or order number</div>
+              <div className="mt-2 text-sm font-bold text-slate-500">
+                Matching orders will appear with Pick buttons for each item category.
+              </div>
             </div>
           ) : loading ? (
             <div className="flex h-full min-h-[480px] items-center justify-center gap-3 text-lg font-black text-slate-700">
               <Loader2 className="animate-spin text-blue-700" />
-              جاري البحث في الطلبات...
+              Searching pickup orders...
             </div>
           ) : error && !data ? (
             <div className="flex h-full min-h-[480px] flex-col items-center justify-center text-center">
               <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-rose-50 text-rose-600">
                 <AlertCircle size={38} />
               </div>
-              <div className="mt-4 text-2xl font-black text-slate-900">تعذر البحث</div>
+              <div className="mt-4 text-2xl font-black text-slate-900">Search Failed</div>
               <div className="mt-2 max-w-lg text-sm font-bold text-rose-700">{error}</div>
               <button
                 type="button"
                 onClick={clearSearch}
                 className="mt-5 flex min-h-12 min-w-44 items-center justify-center rounded-2xl bg-slate-900 px-5 text-sm font-black text-white lg:hidden"
               >
-                بحث جديد
+                New Search
               </button>
             </div>
           ) : data && data.orders.length === 0 ? (
@@ -1644,9 +1702,9 @@ export default function PickupSearchPage() {
               <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-slate-100 text-slate-400">
                 <Package size={38} />
               </div>
-              <div className="mt-4 text-2xl font-black text-slate-900">لا توجد طلبات مطابقة</div>
+              <div className="mt-4 text-2xl font-black text-slate-900">No Matching Orders</div>
               <div className="mt-2 max-w-xl text-sm font-bold text-slate-500">
-                تم الاتصال بالنظام، لكن لم نجد طلبات بالحالات المطلوبة لهذا البحث.
+                The system responded, but no orders with the required statuses matched this search.
               </div>
               {(data.attempts ?? []).length > 0 && (
                 <div className="mt-4 w-full max-w-2xl rounded-2xl border border-slate-200 bg-slate-50 p-3 text-left">
@@ -1668,7 +1726,7 @@ export default function PickupSearchPage() {
                 onClick={clearSearch}
                 className="mt-5 flex min-h-12 min-w-44 items-center justify-center rounded-2xl bg-slate-900 px-5 text-sm font-black text-white lg:hidden"
               >
-                بحث جديد
+                New Search
               </button>
             </div>
           ) : data ? (
@@ -1698,7 +1756,7 @@ export default function PickupSearchPage() {
                   onClick={clearSearch}
                   className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-black text-slate-700 lg:hidden"
                 >
-                  بحث جديد
+                  New Search
                 </button>
               </div>
 

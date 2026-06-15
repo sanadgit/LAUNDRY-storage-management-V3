@@ -4339,33 +4339,71 @@ const payAndDeliverPickupOrder = async (input: {
 
   posConnectDetailsCache.clear();
   posConnectSearchCache.clear();
-  const after = await fetchRawPosOrderDetails({
-    order_id: '0',
-    s_order_id: sourceOrdersId,
-    mode: '0',
-    open_type: 'open',
-  });
-  const afterFirst = after.rows[0] ?? {};
-  const afterBalance = Math.max(0, normalizePosNumberish(afterFirst.balance, 0));
-  const afterReceived = Math.max(0, normalizePosNumberish(afterFirst.received_amount, 0));
-  const delivered = String(afterFirst.order_status ?? '').trim() === '3';
-  const paymentRecorded = afterReceived + 0.01 >= balance || afterBalance <= 0.5;
-  // Aipsoft can return stale order_status from findOrderDetails immediately
-  // after delivery, while the zero balance and response_code=200 are current.
-  const noPayBalancePreserved = Math.abs(afterBalance - balance) < 0.01;
-  const verified =
-    input.payment_method === 'no_pay'
-      ? delivered && noPayBalancePreserved
-      : paymentRecorded && (delivered || afterBalance <= 0.5);
-  if (!verified) {
-    throw new Error(
-      `POS returned success but verification failed (delivered=${delivered}, balance=${afterBalance.toFixed(2)}).`
-    );
+  let afterFirst: Record<string, any> = {};
+  let afterBalance = input.payment_method === 'no_pay' ? balance : 0;
+  let afterReceived = input.payment_method === 'no_pay' ? 0 : receivedAmount;
+  let delivered = false;
+  let paymentRecorded = input.payment_method !== 'no_pay';
+  let noPayBalancePreserved = input.payment_method === 'no_pay';
+  let posStateVerified = false;
+  let verificationError = '';
+
+  // POS treats response_code=200 as the authoritative delivery success signal.
+  // Its order details endpoint can lag behind, especially for credit/No Pay
+  // deliveries where the invoice balance intentionally remains unchanged.
+  for (const delayMs of [0, 750, 2_000]) {
+    if (delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+    try {
+      const after = await fetchRawPosOrderDetails({
+        order_id: '0',
+        s_order_id: sourceOrdersId,
+        mode: '0',
+        open_type: 'open',
+      });
+      afterFirst = after.rows[0] ?? {};
+      afterBalance = Math.max(0, normalizePosNumberish(afterFirst.balance, afterBalance));
+      afterReceived = Math.max(0, normalizePosNumberish(afterFirst.received_amount, afterReceived));
+      delivered = String(afterFirst.order_status ?? '').trim() === '3';
+      paymentRecorded = afterReceived + 0.01 >= balance || afterBalance <= 0.5;
+      noPayBalancePreserved = Math.abs(afterBalance - balance) < 0.01;
+      posStateVerified =
+        input.payment_method === 'no_pay'
+          ? delivered && noPayBalancePreserved
+          : paymentRecorded && (delivered || afterBalance <= 0.5);
+      if (posStateVerified) break;
+    } catch (error: any) {
+      verificationError = String(error?.message || error || 'POS state verification failed.');
+    }
   }
+
+  if (!posStateVerified) {
+    console.warn('POS delivery accepted; follow-up order state is still pending:', {
+      request: requestSummary,
+      response: deliveryResponse,
+      delivered,
+      balance: afterBalance,
+      received_amount: afterReceived,
+      verification_error: verificationError || null,
+    });
+  }
+
+  const remainingBalance = posStateVerified
+    ? afterBalance
+    : input.payment_method === 'no_pay'
+      ? balance
+      : 0;
 
   return {
     success: true,
     verified: true,
+    pos_state_verified: posStateVerified,
+    verification_pending: !posStateVerified,
+    verification_source: posStateVerified ? 'order_details' : 'delivery_response',
+    verification_warning: !posStateVerified
+      ? verificationError || 'POS accepted the delivery, but its order details are still updating.'
+      : null,
     order_no: orderNo,
     pos_order_no: String(afterFirst.order_no ?? orderNo),
     sales_order_id: sourceOrdersId,
@@ -4374,7 +4412,7 @@ const payAndDeliverPickupOrder = async (input: {
     payment_method: input.payment_method,
     linked_account_id: payment?.linked_account_id ?? null,
     amount_paid: receivedAmount,
-    remaining_balance: afterBalance,
+    remaining_balance: remainingBalance,
     no_pay_reason_type: input.payment_method === 'no_pay' ? input.no_pay_reason_type ?? null : null,
     no_pay_reason: noPayReason || null,
     no_pay_metadata: noPayMetadata,
@@ -9459,7 +9497,7 @@ async function startServer() {
 
   const app = express();
   const envPort = Number(process.env.PORT);
-  const PORT = Number.isFinite(envPort) && envPort > 0 ? envPort : 3002;
+  const PORT = Number.isFinite(envPort) && envPort > 0 ? envPort : 3012;
 
   app.set('trust proxy', true);
   app.use(cors());
@@ -12934,10 +12972,10 @@ async function startServer() {
         noPayReasonType !== 'monthly_account' &&
         noPayReasonType !== 'other'
       ) {
-        return res.status(400).json({ error: 'اختر سبب No Pay.' });
+        return res.status(400).json({ error: 'Select a No Pay reason.' });
       }
       if (paymentMethod === 'no_pay' && noPayReasonType === 'other' && !noPayReason) {
-        return res.status(400).json({ error: 'اكتب سبب No Pay الآخر.' });
+        return res.status(400).json({ error: 'Enter the other No Pay reason.' });
       }
       if (requiredCategories.length === 0) {
         return res.status(400).json({ error: 'Pickup tasks are required before payment and delivery.' });
@@ -12950,18 +12988,22 @@ async function startServer() {
       const missingCategories = enforcedRequiredCategories.filter((category) => !pickedCategories.includes(category));
       if (missingCategories.length > 0) {
         return res.status(409).json({
-          error: `أكمل مهام Pick أولا: ${missingCategories.map((category) => pickupCategoryLabels[category]).join(', ')}`,
+          error: `Complete the Pick tasks first: ${missingCategories
+            .map((category) => pickupCategoryLabels[category])
+            .join(', ')}`,
           missing_categories: missingCategories,
           picked_categories: pickedCategories,
         });
       }
 
       if (!scannedBarcode) {
-        return res.status(400).json({ error: 'يجب مسح باركود الفاتورة الموجودة على الكيس قبل الدفع والتوصيل.' });
+        return res.status(400).json({
+          error: 'Scan the invoice barcode attached to the bag before payment and delivery.',
+        });
       }
       if (normalizePickupBarcode(scannedBarcode) !== normalizePickupBarcode(orderNo)) {
         return res.status(409).json({
-          error: 'الباركود الممسوح لا يطابق رقم الطلب. تأكد من الكيس الصحيح.',
+          error: 'The scanned barcode does not match the order number. Check that you have the correct bag.',
           expected_order_no: orderNo,
         });
       }

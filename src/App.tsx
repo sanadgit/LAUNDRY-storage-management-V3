@@ -78,7 +78,7 @@ function MobileTopBar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
     if (location.pathname === '/management') return 'Warehouse Management';
     if (location.pathname === '/branches') return 'Branch';
     if (location.pathname === '/activity-log') return 'Activity Log';
-    if (location.pathname === '/cashier-search') return 'البحث';
+    if (location.pathname === '/cashier-search') return 'Cashier Search';
     if (location.pathname === '/pickup-search') return 'Phone Pickup Search';
     if (location.pathname === '/search') return 'Stores';
     if (location.pathname === '/sorting') return 'CLOTHES SORTING';
@@ -178,7 +178,7 @@ function LoginScreen() {
           <div className="text-[11px] font-black uppercase tracking-[0.25em] text-blue-400">POS Employee Access</div>
           <h1 className="text-3xl sm:text-4xl font-black tracking-tight">Smart Storage Hub</h1>
           <p className="text-sm text-slate-400 font-semibold">
-            سجّل الدخول بنفس اسم المستخدم وكلمة المرور الخاصة بك في نظام AIPSoft POS.
+            Sign in with the same username and password you use in AIPSoft POS.
           </p>
         </div>
 
@@ -271,7 +271,7 @@ function Sidebar({
     ...(showBranches ? [{ name: 'Branch', path: '/branches', icon: Building2 }] : []),
     ...(showManagement ? [{ name: 'Management', path: '/management', icon: Package }] : []),
     ...(showManagement ? [{ name: 'Activity Log', path: '/activity-log', icon: History }] : []),
-    ...(showSearch ? [{ name: 'البحث', path: '/cashier-search', icon: Search }] : []),
+    ...(showSearch ? [{ name: 'Cashier Search', path: '/cashier-search', icon: Search }] : []),
     ...(showSearch ? [{ name: 'Pickup Search', path: '/pickup-search', icon: Phone }] : []),
     ...(showSearch ? [{ name: 'Stores', path: '/search', icon: Search }] : []),
     ...(showSorting && sortingWorkflows.includes('sorting')
@@ -342,7 +342,7 @@ function Sidebar({
       <aside
         className={cn(
           'bg-slate-900 text-white h-screen transition-all duration-300 flex flex-col overflow-hidden z-50',
-          // Mobile drawer-----------------------------------------و-
+          // Mobile drawer
           'fixed md:static inset-y-0 left-0 md:inset-auto',
           'w-[min(90vw,26rem)] md:w-auto',
           mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
