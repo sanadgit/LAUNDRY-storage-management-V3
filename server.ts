@@ -4413,15 +4413,8 @@ const payAndDeliverPickupOrder = async (input: {
   if (input.payment_method === 'no_pay' && creditSaleEnabled !== '1') {
     throw new Error('POS does not allow No Pay / credit delivery for this order.');
   }
-  const noPayMetadata =
-    input.payment_method === 'no_pay' && !input.dry_run
-      ? await updatePosNoPayMetadata({
-          order_no: orderNo,
-          source_orders_id: sourceOrdersId,
-          reason_type: input.no_pay_reason_type as PickupNoPayReasonType,
-          reason: noPayReason,
-        })
-      : null;
+  let noPayMetadata: Awaited<ReturnType<typeof updatePosNoPayMetadata>> | null = null;
+  let noPayMetadataError: string | null = null;
   const payment =
     input.payment_method === 'no_pay'
       ? null
@@ -4510,6 +4503,7 @@ const payAndDeliverPickupOrder = async (input: {
     no_pay_reason_type: input.payment_method === 'no_pay' ? input.no_pay_reason_type ?? null : null,
     no_pay_reason: noPayReason || null,
     no_pay_metadata: noPayMetadata,
+    no_pay_metadata_error: noPayMetadataError,
     credit_sale_enabled: creditSaleEnabled,
     delivery_order_details_loaded: true,
     delivery_payment_methods: Object.keys(
@@ -4545,6 +4539,25 @@ const payAndDeliverPickupOrder = async (input: {
         normalizePosDocumentId(matchingDeliveryBill?.invoice_id) || 'none'
       })`
     );
+  }
+
+  if (input.payment_method === 'no_pay') {
+    try {
+      noPayMetadata = await updatePosNoPayMetadata({
+        order_no: orderNo,
+        source_orders_id: sourceOrdersId,
+        reason_type: input.no_pay_reason_type as PickupNoPayReasonType,
+        reason: noPayReason,
+      });
+      requestSummary.no_pay_metadata = noPayMetadata;
+    } catch (error: any) {
+      noPayMetadataError = String(error?.message || error || 'POS No Pay reason update failed.');
+      requestSummary.no_pay_metadata_error = noPayMetadataError;
+      console.warn('POS delivery succeeded but No Pay metadata update failed:', {
+        request: requestSummary,
+        error: noPayMetadataError,
+      });
+    }
   }
 
   posConnectDetailsCache.clear();
@@ -4626,6 +4639,7 @@ const payAndDeliverPickupOrder = async (input: {
     no_pay_reason_type: input.payment_method === 'no_pay' ? input.no_pay_reason_type ?? null : null,
     no_pay_reason: noPayReason || null,
     no_pay_metadata: noPayMetadata,
+    no_pay_metadata_error: noPayMetadataError,
     order_status: delivered ? String(afterFirst.order_status ?? '3') : '3',
     response: deliveryResponse,
   };
