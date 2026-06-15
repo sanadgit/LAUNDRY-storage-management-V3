@@ -871,6 +871,7 @@ function PickModal({
       const response = await axios.post('/api/pickup-search/pay-deliver', {
         order_no: order.order_no,
         source_orders_id: order.source_orders_id,
+        source_invoice_id: order.source_invoice_id,
         payment_method: paymentMethod,
         no_pay_reason_type: paymentMethod === 'no_pay' ? noPayReasonTypeValue : undefined,
         no_pay_reason: paymentMethod === 'no_pay' ? noPayReason : undefined,

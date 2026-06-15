@@ -4042,6 +4042,7 @@ const resolvePosDeliveryPaymentAccount = (
 const payAndDeliverPickupOrder = async (input: {
   order_no: string;
   source_orders_id?: string;
+  source_invoice_id?: string;
   payment_method: PickupDeliveryPaymentMethod;
   no_pay_reason_type?: PickupNoPayReasonType;
   no_pay_reason?: string;
@@ -4068,11 +4069,14 @@ const payAndDeliverPickupOrder = async (input: {
   }
 
   let sourceOrdersId = normalizePosDocumentId(input.source_orders_id);
+  let sourceInvoiceId = normalizePosDocumentId(input.source_invoice_id);
   if (!sourceOrdersId) {
     const preview = await resolvePosConnectPreviewByDisplayedOrderNo(orderNo);
     sourceOrdersId = normalizePosDocumentId(preview?.orders_id);
+    sourceInvoiceId = normalizePosDocumentId(preview?.invoice_id);
   }
   if (!sourceOrdersId) throw new Error(`Could not resolve the POS Sales Order ID for ${orderNo}.`);
+  const deliveryDocumentId = sourceInvoiceId || sourceOrdersId;
 
   const before = await fetchRawPosOrderDetails({
     order_id: '0',
@@ -4123,7 +4127,7 @@ const payAndDeliverPickupOrder = async (input: {
   const deliveryOrderPayload = new URLSearchParams();
   deliveryOrderPayload.set('client_identifier', clientIdentifier);
   deliveryOrderPayload.set('branch_id', branchId);
-  deliveryOrderPayload.set('s_order_id', sourceOrdersId);
+  deliveryOrderPayload.set('s_order_id', deliveryDocumentId);
   deliveryOrderPayload.set('order_id', '0');
   const deliveryOrderResult = await postPosForm(
     resolvePosPurchaseApiEndpoint('/pos_api/findDeliveryOrderDetails'),
@@ -4212,7 +4216,11 @@ const payAndDeliverPickupOrder = async (input: {
 
   const findPendingDeliveryBill = async (config: any) => {
     const configBill = (Array.isArray(config?.data?.bills) ? config.data.bills : []).find(
-      (bill: any) => String(bill?.invoice_id ?? '').trim() === sourceOrdersId
+      (bill: any) =>
+        String(bill?.invoice_id ?? '').trim() === deliveryDocumentId ||
+        String(bill?.invoice_id ?? '').trim() === sourceOrdersId ||
+        (sourceInvoiceId && String(bill?.invoice_id ?? '').trim() === sourceInvoiceId) ||
+        normalizeSortingOrderNo(bill?.order_no) === orderNo
     );
     if (configBill) return configBill;
 
@@ -4232,7 +4240,9 @@ const payAndDeliverPickupOrder = async (input: {
     const pendingBills = Array.isArray(pendingResponse?.[0]) ? pendingResponse[0] : [];
     return pendingBills.find(
       (bill: any) =>
+        String(bill?.invoice_id ?? '').trim() === deliveryDocumentId ||
         String(bill?.invoice_id ?? '').trim() === sourceOrdersId ||
+        (sourceInvoiceId && String(bill?.invoice_id ?? '').trim() === sourceInvoiceId) ||
         normalizeSortingOrderNo(bill?.order_no) === orderNo
     );
   };
@@ -4367,6 +4377,8 @@ const payAndDeliverPickupOrder = async (input: {
       console.warn('POS packing succeeded but pending delivery list did not include the order; continuing with deliveryProcess.', {
         order_no: orderNo,
         sales_order_id: sourceOrdersId,
+        source_invoice_id: sourceInvoiceId || null,
+        delivery_document_id: deliveryDocumentId,
         branch_id: branchId,
         user_id: deliveryUserId,
         shift_owner_user_id: shiftOwnerUserId,
@@ -4417,7 +4429,7 @@ const payAndDeliverPickupOrder = async (input: {
   payload.set(`${detailPrefix}[lng]`, String(deliveryFirst.longitude ?? first.longitude ?? ''));
   payload.set(`${detailPrefix}[balance]`, String(balance));
   payload.set(`${detailPrefix}[customer_id]`, customerId);
-  payload.set(`${detailPrefix}[order_id]`, sourceOrdersId);
+  payload.set(`${detailPrefix}[order_id]`, deliveryDocumentId);
   payload.set(`${detailPrefix}[shift_id]`, shiftId);
   payload.set(`${detailPrefix}[update_location]`, '0');
   payload.set(`${detailPrefix}[send_whatsapp]`, '0');
@@ -4458,7 +4470,7 @@ const payAndDeliverPickupOrder = async (input: {
     String(deliveryFirst.shipping_other_info ?? first.shipping_other_info ?? '')
   );
   payload.set(`${detailPrefix}[shipping_id]`, shippingId);
-  payload.set('order_id', sourceOrdersId);
+  payload.set('order_id', deliveryDocumentId);
   payload.set('client_identifier', clientIdentifier);
   payload.set('user_id', deliveryUserId);
   payload.set('branch_id', branchId);
@@ -4470,6 +4482,8 @@ const payAndDeliverPickupOrder = async (input: {
   const requestSummary = {
     order_no: orderNo,
     sales_order_id: sourceOrdersId,
+    source_invoice_id: sourceInvoiceId || null,
+    delivery_document_id: deliveryDocumentId,
     branch_id: branchId,
     user_id: deliveryUserId,
     shift_owner_user_id: shiftOwnerUserId,
@@ -13132,6 +13146,7 @@ async function startServer() {
     try {
       const orderNo = clampText(req.body?.order_no ?? req.body?.orderNo, 80);
       const sourceOrdersId = clampText(req.body?.source_orders_id ?? req.body?.sourceOrdersId, 80);
+      const sourceInvoiceId = clampText(req.body?.source_invoice_id ?? req.body?.sourceInvoiceId, 80);
       const paymentMethod = String(req.body?.payment_method ?? req.body?.paymentMethod ?? '').trim().toLowerCase();
       const noPayReasonType = String(req.body?.no_pay_reason_type ?? req.body?.noPayReasonType ?? '')
         .trim()
@@ -13194,6 +13209,7 @@ async function startServer() {
       const result = await payAndDeliverPickupOrder({
         order_no: orderNo,
         source_orders_id: sourceOrdersId,
+        source_invoice_id: sourceInvoiceId,
         payment_method: paymentMethod as PickupDeliveryPaymentMethod,
         no_pay_reason_type:
           paymentMethod === 'no_pay' ? (noPayReasonType as PickupNoPayReasonType) : undefined,
