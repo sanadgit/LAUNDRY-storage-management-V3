@@ -22,7 +22,11 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
-import { extractTicketNumberFromScan, isAipLinkOrderUrl } from '../utils/barcode';
+import {
+  extractTicketNumberFromScan,
+  isAipLinkOrderUrl,
+  normalizeAipLinkOrderUrl,
+} from '../utils/barcode';
 import { getScannerSupportMessage, startCameraBarcodeScanner } from '../utils/cameraScanner';
 
 type LineItemCategory = 'clothes' | 'home_phase2' | 'blanket_phase3';
@@ -640,7 +644,7 @@ function PickModal({
     if (!isAipLinkOrderUrl(raw)) return extractTicketNumberFromScan(raw);
 
     const response = await axios.post<{ order_no?: string }>('/api/pickup-search/resolve-barcode', {
-      barcode: raw,
+      barcode: normalizeAipLinkOrderUrl(raw),
     });
     return String(response.data?.order_no ?? '').trim();
   }, []);

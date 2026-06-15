@@ -1,18 +1,43 @@
-export const isAipLinkOrderUrl = (raw: string) => {
+const AIPLINK_COMPACT_PREFIXES = [
+  'httpsviewaiplinknetorder',
+  'httpviewaiplinknetorder',
+  'httpsaiplinknetorder',
+  'httpaiplinknetorder',
+  'viewaiplinknetorder',
+  'aiplinknetorder',
+];
+
+export const normalizeAipLinkOrderUrl = (raw: string) => {
   const value = String(raw ?? '').trim();
-  if (!value) return false;
+  if (!value) return '';
 
   try {
     const url = new URL(value);
-    return (
+    const hostname = url.hostname.toLowerCase();
+    const pathMatch = url.pathname.match(/^\/order\/([a-z0-9_-]+)\/([a-z0-9]+)\/?$/i);
+    if (
       url.protocol === 'https:' &&
-      url.hostname.toLowerCase() === 'view.aiplink.net' &&
-      /^\/order\/[a-z0-9_-]+\/[a-z0-9]+\/?$/i.test(url.pathname)
-    );
+      (hostname === 'view.aiplink.net' || hostname === 'aiplink.net' || hostname === 'www.aiplink.net') &&
+      pathMatch
+    ) {
+      return `https://view.aiplink.net/order/${pathMatch[1]}/${pathMatch[2]}`;
+    }
   } catch {
-    return false;
+    // Some camera decoders remove URL punctuation; handle that format below.
   }
+
+  const compact = value.toLowerCase().replace(/[^a-z0-9]/g, '');
+  for (const prefix of AIPLINK_COMPACT_PREFIXES) {
+    if (!compact.startsWith(prefix)) continue;
+    const orderPath = compact.slice(prefix.length);
+    const match = orderPath.match(/^(inout)([a-z0-9]{16,})$/i);
+    if (match) return `https://view.aiplink.net/order/${match[1]}/${match[2]}`;
+  }
+
+  return '';
 };
+
+export const isAipLinkOrderUrl = (raw: string) => Boolean(normalizeAipLinkOrderUrl(raw));
 
 export const extractTicketNumberFromScan = (raw: string) => {
   const value = String(raw ?? '').trim();

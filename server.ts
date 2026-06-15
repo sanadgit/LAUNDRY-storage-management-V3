@@ -12308,26 +12308,54 @@ async function startServer() {
       .trim()
       .toUpperCase()
       .replace(/[^A-Z0-9]/g, '');
-  const parseAipLinkOrderUrl = (rawValue: unknown) => {
+  const parseAipLinkOrderUrl = (rawValue: unknown, expectedClient: string) => {
     const raw = String(rawValue ?? '').trim();
     if (!raw || raw.length > 500) return null;
 
     try {
       const url = new URL(raw);
-      if (url.protocol !== 'https:' || url.hostname.toLowerCase() !== 'view.aiplink.net') return null;
+      const hostname = url.hostname.toLowerCase();
+      if (
+        url.protocol !== 'https:' ||
+        (hostname !== 'view.aiplink.net' && hostname !== 'aiplink.net' && hostname !== 'www.aiplink.net')
+      ) {
+        return null;
+      }
       const match = url.pathname.match(/^\/order\/([a-z0-9_-]+)\/([a-z0-9]+)\/?$/i);
       if (!match) return null;
       return {
-        url,
+        url: new URL(`https://view.aiplink.net/order/${match[1]}/${match[2]}`),
         client_identifier: match[1].toLowerCase(),
         share_id: match[2],
       };
     } catch {
-      return null;
+      // Some barcode decoders return the URL without punctuation.
     }
+
+    const compact = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const prefixes = [
+      'httpsviewaiplinknetorder',
+      'httpviewaiplinknetorder',
+      'httpsaiplinknetorder',
+      'httpaiplinknetorder',
+      'viewaiplinknetorder',
+      'aiplinknetorder',
+    ];
+    const prefix = prefixes.find((candidate) => compact.startsWith(candidate));
+    if (!prefix || !expectedClient) return null;
+    const orderPath = compact.slice(prefix.length);
+    const client = expectedClient.toLowerCase();
+    if (!orderPath.startsWith(client)) return null;
+    const shareId = orderPath.slice(client.length);
+    if (!/^[a-z0-9]{16,}$/i.test(shareId)) return null;
+    return {
+      url: new URL(`https://view.aiplink.net/order/${client}/${shareId}`),
+      client_identifier: client,
+      share_id: shareId,
+    };
   };
   const resolveAipLinkOrderNo = async (rawValue: unknown, expectedClient: string) => {
-    const parsed = parseAipLinkOrderUrl(rawValue);
+    const parsed = parseAipLinkOrderUrl(rawValue, expectedClient);
     if (!parsed) throw new Error('Unsupported barcode link. Scan a valid view.aiplink.net order barcode.');
     if (expectedClient && parsed.client_identifier !== expectedClient.toLowerCase()) {
       throw new Error('This barcode belongs to a different POS client.');
