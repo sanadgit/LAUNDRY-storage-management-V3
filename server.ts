@@ -3783,10 +3783,11 @@ const payAndDeliverPickupOrder = async (input: {
   const staffSession = getActivePosStaffSession();
   const assignedDriverId = String(first.driver_id ?? '').trim();
   const userId =
-    staffSession?.pos_user_id ||
-    (assignedDriverId && Number(assignedDriverId) > 0
+    assignedDriverId && Number(assignedDriverId) > 0
       ? assignedDriverId
-      : POS_DELIVERY_USER_ID || String(first.done_by ?? first.modified_user_id ?? '').trim());
+      : staffSession?.pos_user_id ||
+        POS_DELIVERY_USER_ID ||
+        String(first.done_by ?? first.modified_user_id ?? '').trim();
   if (!userId) throw new Error('POS delivery user is not configured.');
   const clientIdentifier = staffSession?.client_identifier || POS_LOGIN_CLIENT_IDENTIFIER;
 
@@ -4044,6 +4045,8 @@ const payAndDeliverPickupOrder = async (input: {
     branch_id: branchId,
     user_id: userId,
     pos_username: staffSession?.username ?? null,
+    authenticated_pos_user_id: staffSession?.pos_user_id ?? null,
+    assigned_driver_id: assignedDriverId || null,
     shift_id: shiftId,
     payment_method: input.payment_method,
     linked_account_id: payment.linked_account_id,
@@ -4106,6 +4109,8 @@ const payAndDeliverPickupOrder = async (input: {
     order_no: orderNo,
     pos_order_no: String(afterFirst.order_no ?? orderNo),
     sales_order_id: sourceOrdersId,
+    assigned_driver_id: assignedDriverId || null,
+    authenticated_pos_user_id: staffSession?.pos_user_id ?? null,
     payment_method: input.payment_method,
     linked_account_id: payment.linked_account_id,
     amount_paid: balance,
@@ -12711,6 +12716,7 @@ async function startServer() {
             `POS Sales Order ID: ${result.sales_order_id}`,
             `POS User: ${posStaff.username}`,
             `POS User ID: ${posStaff.pos_user_id}`,
+            `Assigned Driver ID: ${result.assigned_driver_id ?? ''}`,
             `Remaining balance: AED ${Number(result.remaining_balance ?? 0).toFixed(2)}`,
           ].join(' | '),
         };
