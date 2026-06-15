@@ -4,6 +4,7 @@ import {
   AlertCircle,
   ArrowRight,
   Banknote,
+  Camera,
   CheckCircle2,
   CreditCard,
   Eye,
@@ -21,6 +22,8 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
+import { extractTicketNumberFromScan } from '../utils/barcode';
+import { getScannerSupportMessage, startCameraBarcodeScanner } from '../utils/cameraScanner';
 
 type LineItemCategory = 'clothes' | 'home_phase2' | 'blanket_phase3';
 type PickupCategory = 'hanging_clothes' | 'folded_clothes' | 'home_phase2' | 'blanket_phase3';
@@ -565,6 +568,9 @@ function PickModal({
   const [barcodeValue, setBarcodeValue] = useState('');
   const [barcodeVerified, setBarcodeVerified] = useState(false);
   const [barcodeError, setBarcodeError] = useState<string | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerError, setScannerError] = useState<string | null>(null);
+  const [scannerPreview, setScannerPreview] = useState<{ raw: string; extracted: string } | null>(null);
   const [deliveryLoading, setDeliveryLoading] = useState<'cash' | 'credit_card' | null>(null);
   const [deliveryError, setDeliveryError] = useState<string | null>(null);
   const [deliverySuccess, setDeliverySuccess] = useState<{
@@ -574,6 +580,7 @@ function PickModal({
   } | null>(null);
   const [showSlot2d, setShowSlot2d] = useState(false);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
+  const scannerVideoRef = useRef<HTMLVideoElement>(null);
   const parsedRemark = useMemo(() => parseRemark(order.remark), [order.remark]);
   const groups = useMemo(() => splitItems(order.line_items, parsedRemark), [order.line_items, parsedRemark]);
   const items = groups[category];
@@ -615,34 +622,109 @@ function PickModal({
     setBarcodeValue('');
     setBarcodeVerified(false);
     setBarcodeError(null);
+    setScannerOpen(false);
+    setScannerError(null);
+    setScannerPreview(null);
   }, [category]);
-
-  useEffect(() => {
-    if (allPicked && !barcodeVerified) {
-      window.setTimeout(() => barcodeInputRef.current?.focus(), 50);
-    }
-  }, [allPicked, barcodeVerified]);
 
   const normalizeBarcode = (value: string) => value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-  const verifyBarcode = () => {
+  const verifyBarcodeValue = (value: string, focusManualInput = true) => {
     setBarcodeError(null);
     setShowDeliveryPayment(false);
-    if (!barcodeValue.trim()) {
+    if (!value.trim()) {
       setBarcodeVerified(false);
       setBarcodeError('امسح باركود الفاتورة الملصقة على الكيس.');
-      barcodeInputRef.current?.focus();
+      if (focusManualInput) barcodeInputRef.current?.focus();
       return;
     }
-    if (normalizeBarcode(barcodeValue) !== normalizeBarcode(order.order_no)) {
+    if (normalizeBarcode(value) !== normalizeBarcode(order.order_no)) {
       setBarcodeVerified(false);
       setBarcodeError('الباركود لا يطابق هذا الطلب. أعد فحص الكيس الصحيح.');
       setBarcodeValue('');
-      barcodeInputRef.current?.focus();
+      if (focusManualInput) barcodeInputRef.current?.focus();
       return;
     }
+    setBarcodeValue(value);
     setBarcodeVerified(true);
   };
+
+  const verifyBarcode = () => verifyBarcodeValue(barcodeValue);
+
+  const closeScanner = () => {
+    setScannerOpen(false);
+    setScannerError(null);
+    setScannerPreview(null);
+  };
+
+  useEffect(() => {
+    if (!scannerOpen) return;
+
+    let cancelled = false;
+    let consumed = false;
+    let stopSession: (() => void) | null = null;
+    setScannerError(null);
+    setScannerPreview(null);
+
+    const start = async () => {
+      try {
+        const video = scannerVideoRef.current;
+        if (!video) throw new Error('Scanner video element not ready.');
+
+        const session = await startCameraBarcodeScanner({
+          videoElement: video,
+          onDetected: (rawValue) => {
+            if (cancelled || consumed) return;
+            const raw = String(rawValue ?? '').trim();
+            const extracted = extractTicketNumberFromScan(raw);
+            setScannerPreview({ raw, extracted });
+            if (!extracted) return;
+
+            setBarcodeValue(extracted);
+            if (normalizeBarcode(extracted) !== normalizeBarcode(order.order_no)) {
+              try {
+                navigator.vibrate?.([40, 40, 40]);
+              } catch {
+                // Ignore vibration errors.
+              }
+              const message = `الباركود ${extracted} لا يطابق الطلب ${order.order_no}.`;
+              setScannerError(message);
+              setBarcodeError(message);
+              return;
+            }
+
+            consumed = true;
+            stopSession?.();
+            try {
+              navigator.vibrate?.(70);
+            } catch {
+              // Ignore vibration errors.
+            }
+            verifyBarcodeValue(extracted, false);
+            setScannerError(null);
+            setScannerOpen(false);
+          },
+          onRuntimeError: (error) => {
+            if (!cancelled) setScannerError(getScannerSupportMessage(error));
+          },
+        });
+
+        if (cancelled) {
+          session.stop();
+          return;
+        }
+        stopSession = session.stop;
+      } catch (error) {
+        if (!cancelled) setScannerError(getScannerSupportMessage(error));
+      }
+    };
+
+    void start();
+    return () => {
+      cancelled = true;
+      stopSession?.();
+    };
+  }, [scannerOpen, order.order_no]);
 
   const pickIt = async () => {
     try {
@@ -954,32 +1036,47 @@ function PickModal({
                 </div>
               </div>
               {!barcodeVerified && (
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <input
-                    ref={barcodeInputRef}
-                    value={barcodeValue}
-                    onChange={(event) => {
-                      setBarcodeValue(event.target.value);
-                      setBarcodeError(null);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') verifyBarcode();
-                    }}
-                    dir="ltr"
-                    inputMode="text"
-                    autoComplete="off"
-                    placeholder="SCAN ORDER BARCODE"
-                    aria-label="Scan order barcode"
-                    className="min-h-12 min-w-0 flex-1 rounded-xl border-2 border-amber-300 bg-white px-4 font-mono text-lg font-black tracking-widest text-slate-950 outline-none focus:border-blue-600"
-                  />
+                <div>
                   <button
                     type="button"
-                    onClick={verifyBarcode}
-                    className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 text-sm font-black text-white hover:bg-slate-800"
+                    onClick={() => setScannerOpen(true)}
+                    className="inline-flex min-h-14 w-full items-center justify-center gap-3 rounded-xl bg-blue-700 px-5 text-base font-black text-white shadow-sm hover:bg-blue-600"
                   >
-                    <ScanBarcode size={18} />
-                    تحقق
+                    <Camera size={21} />
+                    فتح الكاميرا ومسح الباركود
                   </button>
+                  <details className="mt-3 rounded-xl border border-amber-200 bg-white/70">
+                    <summary className="cursor-pointer px-4 py-3 text-xs font-black text-amber-900">
+                      تعذر استخدام الكاميرا؟ إدخال يدوي
+                    </summary>
+                    <div className="flex flex-col gap-2 border-t border-amber-200 p-3 sm:flex-row">
+                      <input
+                        ref={barcodeInputRef}
+                        value={barcodeValue}
+                        onChange={(event) => {
+                          setBarcodeValue(event.target.value);
+                          setBarcodeError(null);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') verifyBarcode();
+                        }}
+                        dir="ltr"
+                        inputMode="text"
+                        autoComplete="off"
+                        placeholder="ORDER BARCODE"
+                        aria-label="Enter order barcode manually"
+                        className="min-h-12 min-w-0 flex-1 rounded-xl border-2 border-amber-300 bg-white px-4 font-mono text-lg font-black tracking-widest text-slate-950 outline-none focus:border-blue-600"
+                      />
+                      <button
+                        type="button"
+                        onClick={verifyBarcode}
+                        className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 text-sm font-black text-white hover:bg-slate-800"
+                      >
+                        <ScanBarcode size={18} />
+                        تحقق
+                      </button>
+                    </div>
+                  </details>
                 </div>
               )}
               {barcodeError && (
@@ -1023,6 +1120,59 @@ function PickModal({
           )}
         </div>
       </div>
+
+      {scannerOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/95 p-3 backdrop-blur-sm">
+          <div className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-xl flex-col overflow-hidden rounded-3xl border border-slate-700 bg-slate-900 shadow-2xl">
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-800 px-4 py-3 text-white">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-600">
+                  <Camera size={22} />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-black">مسح باركود الفاتورة</div>
+                  <div dir="ltr" className="truncate font-mono text-xs font-bold text-slate-400">
+                    Required: #{order.order_no}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeScanner}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-700 bg-slate-800 text-white hover:bg-slate-700"
+                aria-label="إغلاق الكاميرا"
+              >
+                <X size={21} />
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
+              <div className="relative aspect-[3/4] max-h-[62dvh] overflow-hidden rounded-2xl border border-slate-700 bg-black sm:aspect-video">
+                <video ref={scannerVideoRef} className="h-full w-full object-cover" muted playsInline />
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <div className="h-44 w-[82%] rounded-2xl border-2 border-emerald-400 shadow-[0_0_0_999px_rgba(2,6,23,0.45)] sm:h-40 sm:w-80" />
+                </div>
+              </div>
+
+              {scannerError ? (
+                <div className="mt-3 rounded-2xl border border-rose-500/40 bg-rose-950/70 px-4 py-3 text-sm font-bold text-rose-100">
+                  {scannerError}
+                </div>
+              ) : (
+                <div className="mt-3 rounded-2xl border border-emerald-500/30 bg-emerald-950/50 px-4 py-3 text-sm font-bold text-emerald-100">
+                  وجّه الكاميرا إلى الباركود. سيتم التحقق والإغلاق تلقائيًا عند قراءة الكود الصحيح.
+                </div>
+              )}
+
+              {scannerPreview && (
+                <div dir="ltr" className="mt-3 rounded-2xl border border-slate-700 bg-slate-800 px-4 py-3 font-mono text-xs font-bold text-slate-300">
+                  Scanned: {scannerPreview.extracted || scannerPreview.raw || '-'}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
