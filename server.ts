@@ -4138,10 +4138,10 @@ const payAndDeliverPickupOrder = async (input: {
   ) {
     throw new Error(`POS delivery order details could not be loaded. ${deliveryOrderResult.text.slice(0, 240)}`);
   }
-  const deliveryOrderRows = deliveryOrderResponse[0] as Array<Record<string, any>>;
-  const deliveryFirst = deliveryOrderRows[0];
-  const deliveryPaymentMethods = deliveryOrderResponse[1];
-  const creditSaleEnabled = String(deliveryOrderResponse[2] ?? '').trim();
+  let deliveryOrderRows = deliveryOrderResponse[0] as Array<Record<string, any>>;
+  let deliveryFirst = deliveryOrderRows[0];
+  let deliveryPaymentMethods = deliveryOrderResponse[1];
+  let creditSaleEnabled = String(deliveryOrderResponse[2] ?? '').trim();
 
   const loadDeliveryConfig = async (candidateUserId: string) => {
     const configPayload = new URLSearchParams();
@@ -4346,9 +4346,32 @@ const payAndDeliverPickupOrder = async (input: {
     if (!deliveryConfig || Number(deliveryConfig.status) !== 1 || !deliveryConfig.data) {
       throw new Error('POS packing succeeded but delivery settings could not be reloaded.');
     }
+    const refreshedDeliveryOrderResult = await postPosForm(
+      resolvePosPurchaseApiEndpoint('/pos_api/findDeliveryOrderDetails'),
+      deliveryOrderPayload,
+      { fallbackToGet: false, referer: deliveryReferer }
+    );
+    const refreshedDeliveryOrderResponse = refreshedDeliveryOrderResult.parsed;
+    if (
+      Array.isArray(refreshedDeliveryOrderResponse) &&
+      Array.isArray(refreshedDeliveryOrderResponse[0]) &&
+      refreshedDeliveryOrderResponse[0].length > 0
+    ) {
+      deliveryOrderRows = refreshedDeliveryOrderResponse[0] as Array<Record<string, any>>;
+      deliveryFirst = deliveryOrderRows[0];
+      deliveryPaymentMethods = refreshedDeliveryOrderResponse[1] ?? deliveryPaymentMethods;
+      creditSaleEnabled = String(refreshedDeliveryOrderResponse[2] ?? creditSaleEnabled).trim();
+    }
     matchingDeliveryBill = await findPendingDeliveryBill(deliveryConfig);
     if (!matchingDeliveryBill) {
-      throw new Error('POS packing succeeded but the order is still not eligible for delivery.');
+      console.warn('POS packing succeeded but pending delivery list did not include the order; continuing with deliveryProcess.', {
+        order_no: orderNo,
+        sales_order_id: sourceOrdersId,
+        branch_id: branchId,
+        user_id: deliveryUserId,
+        shift_owner_user_id: shiftOwnerUserId,
+        delivery_rows: deliveryOrderRows.length,
+      });
     }
   }
 
