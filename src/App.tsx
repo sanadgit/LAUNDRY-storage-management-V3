@@ -341,7 +341,7 @@ function Sidebar({
       )}
       <aside
         className={cn(
-          'bg-slate-900 text-white h-screen transition-all duration-300 flex flex-col overflow-hidden z-50',
+          'bg-slate-900 text-white h-[100dvh] md:h-screen transition-all duration-300 flex flex-col overflow-hidden z-50',
           // Mobile drawer
           'fixed md:static inset-y-0 left-0 md:inset-auto',
           'w-[min(90vw,26rem)] md:w-auto',
@@ -351,7 +351,7 @@ function Sidebar({
           isOpen ? 'md:w-[27rem]' : 'md:w-20'
         )}
       >
-      <div className="p-4 flex items-center justify-between border-b border-slate-800">
+      <div className="shrink-0 p-4 flex items-center justify-between border-b border-slate-800">
         {expanded && (
           <div className="flex items-center gap-2 min-w-0">
             <span className="font-bold text-xl tracking-tight truncate">SMART STORAGE HUB</span>
@@ -388,6 +388,7 @@ function Sidebar({
         </div>
       </div>
 
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [touch-action:pan-y]">
       <nav className="p-4 space-y-2 border-b border-slate-800">
         {navItems.map((item) => {
           const Icon = item.icon;
@@ -411,7 +412,7 @@ function Sidebar({
         })}
       </nav>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="p-4 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-4">
         <section className="rounded-3xl border border-slate-800 bg-slate-950/50 p-4 space-y-4">
           <div className="flex items-center gap-3">
             {currentUser?.avatar_url ? (
@@ -484,6 +485,7 @@ function Sidebar({
           )}
         </section>
 
+      </div>
       </div>
       </aside>
     </>
