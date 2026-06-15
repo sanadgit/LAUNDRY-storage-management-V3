@@ -4220,14 +4220,32 @@ const payAndDeliverPickupOrder = async (input: {
     );
   }
 
+  const shiftId = String(deliveryConfig.data.shift_id ?? '').trim();
+  if (!shiftId || Number(shiftId) <= 0) {
+    throw new Error(`No open POS shift for delivery user ${shiftOwnerUserId} in branch ${branchId}.`);
+  }
+
   const branchKey = getPickupBranchKeyById(branchId);
+  const actualOrderRef = actualOrderNo || orderNo;
   const normalizedOrderRef = normalizePosReference(orderNo);
-  const orderDigits = normalizedOrderRef.replace(/\D/g, '');
+  const normalizedActualOrderRef = normalizePosReference(actualOrderRef);
+  const orderDigits = (normalizedActualOrderRef || normalizedOrderRef).replace(/\D/g, '');
   const branchOrderRef = branchKey && orderDigits ? `${branchKey}${orderDigits}` : '';
   const pendingDeliveryFilters = Array.from(
-    new Set([orderNo, normalizedOrderRef, branchOrderRef, sourceOrdersId, sourceInvoiceId].filter(Boolean))
+    new Set(
+      [
+        actualOrderRef,
+        orderNo,
+        normalizedActualOrderRef,
+        normalizedOrderRef,
+        branchOrderRef,
+        sourceOrdersId,
+        sourceInvoiceId,
+      ].filter(Boolean)
+    )
   );
   let lastPendingDeliverySample: any = null;
+  let deliveryRouteAddResult: any = null;
 
   const getDeliveryBillInvoiceId = (bill: any) =>
     [
@@ -4275,7 +4293,13 @@ const payAndDeliverPickupOrder = async (input: {
     ].map(normalizePosReference);
     return orderCandidates.some((candidate) => {
       if (!candidate) return false;
-      if (candidate === normalizedOrderRef || (branchOrderRef && candidate === branchOrderRef)) return true;
+      if (
+        candidate === normalizedActualOrderRef ||
+        candidate === normalizedOrderRef ||
+        (branchOrderRef && candidate === branchOrderRef)
+      ) {
+        return true;
+      }
       const candidateDigits = candidate.replace(/\D/g, '');
       return Boolean(orderDigits && candidateDigits && candidateDigits === orderDigits);
     });
@@ -4317,6 +4341,68 @@ const payAndDeliverPickupOrder = async (input: {
     }
 
     return null;
+  };
+
+  const addOrderToPendingDeliveryRoute = async () => {
+    const scanCandidates = Array.from(
+      new Set([actualOrderRef, branchOrderRef, orderNo, normalizedActualOrderRef, sourceOrdersId].filter(Boolean))
+    );
+    let searchData: any = null;
+    let searchReference = '';
+    let lastSearchMessage = '';
+
+    for (const scanReference of scanCandidates) {
+      const searchPayload = new URLSearchParams();
+      searchPayload.set('del_oredrno', scanReference);
+      searchPayload.set('client_identifier', clientIdentifier);
+      searchPayload.set('user_id', shiftOwnerUserId || deliveryUserId);
+      searchPayload.set('shift_id', shiftId);
+      const searchResult = await postPosForm(
+        resolvePosPurchaseApiEndpoint('/packing_api/searchdeliveryorder'),
+        searchPayload,
+        { fallbackToGet: false, referer: deliveryReferer }
+      );
+      const searchResponse = searchResult.parsed;
+      lastSearchMessage = String(searchResponse?.message ?? searchResult.text.slice(0, 240)).trim();
+      if (searchResponse?.ok && searchResponse.data && searchResponse.data !== '0') {
+        searchData = searchResponse.data;
+        searchReference = scanReference;
+        break;
+      }
+    }
+
+    if (!searchData) {
+      throw new Error(
+        `POS delivery scan could not find order ${actualOrderRef}. ${
+          lastSearchMessage || 'The order is not available for delivery route assignment.'
+        }`
+      );
+    }
+
+    const addPayload = new URLSearchParams();
+    addPayload.set('client_identifier', clientIdentifier);
+    addPayload.set('user_id', shiftOwnerUserId || deliveryUserId);
+    addPayload.set('shift_id', shiftId);
+    addPayload.set('orders', JSON.stringify([searchData]));
+    const addResult = await postPosForm(
+      resolvePosPurchaseApiEndpoint('/packing_api/adddeliveryorders'),
+      addPayload,
+      { fallbackToGet: false, referer: deliveryReferer }
+    );
+    const addResponse = addResult.parsed;
+    if (!addResponse?.ok) {
+      throw new Error(
+        `POS delivery route assignment failed for ${actualOrderRef}. ${String(
+          addResponse?.message ?? addResult.text.slice(0, 240)
+        ).trim()}`
+      );
+    }
+
+    return {
+      search_reference: searchReference,
+      search_message: lastSearchMessage || null,
+      add_message: String(addResponse.message ?? '').trim() || null,
+    };
   };
 
   const applyDeliveryBillDocumentId = (bill: any) => {
@@ -4472,9 +4558,22 @@ const payAndDeliverPickupOrder = async (input: {
     }
   }
 
-  const shiftId = String(deliveryConfig.data.shift_id ?? '').trim();
-  if (!shiftId || Number(shiftId) <= 0) {
-    throw new Error(`No open POS shift for delivery user ${shiftOwnerUserId} in branch ${branchId}.`);
+  if (!matchingDeliveryBill && !input.dry_run) {
+    deliveryRouteAddResult = await addOrderToPendingDeliveryRoute();
+    matchingDeliveryBill = await findPendingDeliveryBill(deliveryConfig);
+    applyDeliveryBillDocumentId(matchingDeliveryBill);
+  }
+
+  if (!input.dry_run && (!matchingDeliveryBill || !getDeliveryBillInvoiceId(matchingDeliveryBill))) {
+    throw new Error(
+      `POS delivery route did not return an invoice_id for ${actualOrderRef}. ` +
+        `Filters: ${pendingDeliveryFilters.join(', ')}. ` +
+        `Route add: ${
+          deliveryRouteAddResult ? JSON.stringify(deliveryRouteAddResult) : 'not added'
+        }. Pending sample: ${
+          lastPendingDeliverySample ? JSON.stringify(lastPendingDeliverySample).slice(0, 500) : 'none'
+        }.`
+    );
   }
 
   const balance = Math.max(0, normalizePosNumberish(deliveryFirst.balance ?? first.balance, 0));
@@ -4591,6 +4690,7 @@ const payAndDeliverPickupOrder = async (input: {
     shipping_id: shippingId,
     delivery_bill: matchingDeliveryBill ?? null,
     delivery_bill_invoice_id: getDeliveryBillInvoiceId(matchingDeliveryBill) || null,
+    delivery_route_add_result: deliveryRouteAddResult,
     pending_delivery_filters: pendingDeliveryFilters,
     pending_delivery_sample: matchingDeliveryBill ? null : lastPendingDeliverySample,
     already_packed_for_delivery: alreadyPackedForDelivery,
