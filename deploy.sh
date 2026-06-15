@@ -132,7 +132,10 @@ else
   echo -e "${YELLOW}⚠️  $ENV_FILE not found, continuing with process env only${NC}"
 fi
 DB_PROVIDER="${DB_PROVIDER:-sqlite}"
+PORT="${PORT:-3001}"
+export PORT
 echo -e "${BLUE}ℹ️  DB_PROVIDER=${DB_PROVIDER}${NC}"
+echo -e "${BLUE}ℹ️  PORT=${PORT}${NC}"
 echo ""
 
 print_step 3 "Backing up local SQLite database (if present)..."
@@ -208,7 +211,7 @@ echo ""
 print_step 11 "Restarting PM2 service..."
 export NODE_ENV=production
 if pm2 describe "$PM2_APP_NAME" >/dev/null 2>&1; then
-  pm2 restart "$PM2_APP_NAME"
+  pm2 restart "$PM2_APP_NAME" --update-env
 else
   pm2 start npm --name "$PM2_APP_NAME" -- start
 fi
@@ -218,8 +221,8 @@ echo ""
 
 print_step 12 "Verifying HTTP routes..."
 sleep 2
-ROOT_CODE="$(curl -o /dev/null -s -w '%{http_code}' http://127.0.0.1:3001/ || true)"
-HUB_CODE="$(curl -o /dev/null -s -w '%{http_code}' http://127.0.0.1:3001/smart-storage-hub || true)"
+ROOT_CODE="$(curl -o /dev/null -s -w '%{http_code}' "http://127.0.0.1:${PORT}/" || true)"
+HUB_CODE="$(curl -o /dev/null -s -w '%{http_code}' "http://127.0.0.1:${PORT}/smart-storage-hub" || true)"
 
 if [[ "$ROOT_CODE" == "200" && "$HUB_CODE" == "200" ]]; then
   echo -e "${GREEN}✅ Health check passed (/, /smart-storage-hub)${NC}"
@@ -237,8 +240,8 @@ echo "📊 PM2:"
 pm2 list
 echo ""
 echo "🧪 Quick checks:"
-echo "  curl -I http://127.0.0.1:3001/"
-echo "  curl -I http://127.0.0.1:3001/smart-storage-hub"
+echo "  curl -I http://127.0.0.1:${PORT}/"
+echo "  curl -I http://127.0.0.1:${PORT}/smart-storage-hub"
 if [[ "$DB_PROVIDER" == "postgres" ]]; then
   echo "  DB_PROVIDER=postgres (active)"
 else

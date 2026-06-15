@@ -9497,7 +9497,7 @@ async function startServer() {
 
   const app = express();
   const envPort = Number(process.env.PORT);
-  const PORT = Number.isFinite(envPort) && envPort > 0 ? envPort : 3012;
+  const PORT = Number.isFinite(envPort) && envPort > 0 ? envPort : 3001;
 
   app.set('trust proxy', true);
   app.use(cors());
