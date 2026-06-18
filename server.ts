@@ -585,6 +585,44 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS chat_users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel TEXT NOT NULL,
+    chat_user_id TEXT NOT NULL,
+    chat_phone TEXT,
+    display_name TEXT,
+    smart_hub_user_id INTEGER,
+    pos_user_id TEXT,
+    is_active INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(channel, chat_user_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel TEXT NOT NULL,
+    chat_user_id TEXT NOT NULL,
+    message_id TEXT,
+    direction TEXT NOT NULL,
+    body TEXT NOT NULL,
+    parsed_intent TEXT,
+    order_no TEXT,
+    status TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS chat_pending_confirmations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel TEXT NOT NULL,
+    chat_user_id TEXT NOT NULL,
+    action_type TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    expires_at DATETIME NOT NULL,
+    consumed_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE TABLE IF NOT EXISTS sorting_tables (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
@@ -731,6 +769,8 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_app_sessions_user_id ON app_sessions(user_id);
   CREATE INDEX IF NOT EXISTS idx_app_sessions_expires_at ON app_sessions(expires_at);
   CREATE INDEX IF NOT EXISTS idx_customer_driver_sessions_expires_at ON customer_driver_sessions(expires_at);
+  CREATE INDEX IF NOT EXISTS idx_chat_messages_user ON chat_messages(channel, chat_user_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_chat_pending_user ON chat_pending_confirmations(channel, chat_user_id, expires_at, consumed_at);
   CREATE INDEX IF NOT EXISTS idx_sorting_cells_table ON sorting_cells(table_id, row_no, col_no);
   CREATE INDEX IF NOT EXISTS idx_sorting_orders_status ON sorting_orders(status, updated_at);
   CREATE INDEX IF NOT EXISTS idx_sorting_scans_order_no ON sorting_scans(order_no, timestamp);
@@ -1158,6 +1198,8 @@ const CUSTOMER_ALERT_SEND_TIMEOUT_MS = Math.max(
   3000,
   Math.min(30000, Number(process.env.CUSTOMER_ALERT_SEND_TIMEOUT_MS ?? 15000) || 15000)
 );
+const TELEGRAM_BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN ?? '').trim();
+const TELEGRAM_WEBHOOK_SECRET = String(process.env.TELEGRAM_WEBHOOK_SECRET ?? '').trim();
 const POS_BASE_URL = String(process.env.POS_BASE_URL ?? 'https://magnus.aipsoft.com/inout/sales').trim();
 const POS_FIND_ORDERS_PATH = String(process.env.POS_FIND_ORDERS_PATH ?? '/findLaundryOrders').trim();
 const POS_FIND_ORDER_DETAILS_PATH = String(process.env.POS_FIND_ORDER_DETAILS_PATH ?? '/findOrderDetails').trim();
@@ -5266,6 +5308,292 @@ const resolvePosOrderDetailsByOrderNo = async (orderNo: string) => {
     mode: '0',
     open_type: 'preview',
   });
+};
+
+type ChatIntent =
+  | 'help'
+  | 'search_order'
+  | 'search_phone'
+  | 'show_location'
+  | 'update_requested'
+  | 'unknown';
+
+type ParsedChatCommand = {
+  intent: ChatIntent;
+  query?: string;
+  order_no?: string;
+  raw: string;
+};
+
+const CHAT_HELP_TEXT = [
+  'Smart Storage Hub Telegram MVP',
+  '',
+  'الأوامر المتاحة الآن:',
+  '- help',
+  '- بحث Z63588',
+  '- بحث 0504635888',
+  '- مكان Z63588',
+  '- ارسل رقم الطلب مباشرة مثل Z63588',
+  '- ارسل رقم الهاتف مباشرة مثل 0504635888',
+  '',
+  'أوامر التحديث والدفع ستحتاج ربط مستخدم وتأكيد قبل التنفيذ في المرحلة التالية.',
+].join('\n');
+
+const recordChatMessage = (params: {
+  channel: string;
+  chat_user_id: string;
+  message_id?: string;
+  direction: 'in' | 'out';
+  body: string;
+  parsed_intent?: string;
+  order_no?: string;
+  status?: string;
+}) => {
+  db.prepare(
+    `INSERT INTO chat_messages (channel, chat_user_id, message_id, direction, body, parsed_intent, order_no, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    params.channel,
+    params.chat_user_id,
+    params.message_id ?? null,
+    params.direction,
+    params.body,
+    params.parsed_intent ?? null,
+    params.order_no ?? null,
+    params.status ?? null
+  );
+};
+
+const upsertChatUser = (params: {
+  channel: string;
+  chat_user_id: string;
+  display_name?: string;
+}) => {
+  db.prepare(
+    `INSERT INTO chat_users (channel, chat_user_id, display_name, is_active, created_at, updated_at)
+     VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+     ON CONFLICT(channel, chat_user_id) DO UPDATE SET
+       display_name = COALESCE(excluded.display_name, chat_users.display_name),
+       updated_at = CURRENT_TIMESTAMP`
+  ).run(params.channel, params.chat_user_id, params.display_name ?? null);
+};
+
+const sendTelegramMessage = async (chatId: string, text: string) => {
+  const safeText = text.length > 3900 ? `${text.slice(0, 3900)}\n...` : text;
+  recordChatMessage({
+    channel: 'telegram',
+    chat_user_id: chatId,
+    direction: 'out',
+    body: safeText,
+    status: TELEGRAM_BOT_TOKEN ? 'queued' : 'mock',
+  });
+
+  if (!TELEGRAM_BOT_TOKEN) {
+    console.log('Telegram bot token is not configured; outgoing message:', { chatId, text: safeText });
+    return { ok: true, mock: true };
+  }
+
+  const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text: safeText,
+      disable_web_page_preview: true,
+    }),
+  });
+  const body = await response.text().catch(() => '');
+  if (!response.ok) {
+    throw new Error(`Telegram sendMessage failed: ${response.status} ${body.slice(0, 240)}`);
+  }
+  return body ? JSON.parse(body) : { ok: true };
+};
+
+const parseChatCommand = (message: string): ParsedChatCommand => {
+  const raw = String(message ?? '').trim();
+  const normalized = raw.replace(/\s+/g, ' ').trim();
+  const lower = normalized.toLowerCase();
+  if (!normalized || lower === '/start' || lower === 'start' || lower === 'help' || lower === '/help') {
+    return { intent: 'help', raw };
+  }
+
+  const updateWords = /(حط|ضع|خلي|خليه|في\s+\S+|معلق|مطب[قك]|picked|deliver|delivery|no\s*pay|cash|card)/i;
+  const explicitSearch = normalized.match(/^(?:بحث|ابحث|search|order|طلب|مكان|location)\s+(.+)$/i);
+  const query = String(explicitSearch?.[1] ?? normalized).trim();
+  const digits = normalizePosConnectPhone(query);
+  const hasLetters = /[A-Za-z]/.test(query);
+  const orderToken = query.match(/\b[A-Za-z]?\d{3,10}\b/i)?.[0] ?? '';
+
+  if (/^(?:مكان|location)\b/i.test(normalized)) {
+    return { intent: 'show_location', query, order_no: orderToken || query, raw };
+  }
+  if (!explicitSearch && updateWords.test(normalized) && orderToken) {
+    return { intent: 'update_requested', query, order_no: orderToken, raw };
+  }
+  if (digits.length >= 5 && !hasLetters && digits.length >= 8) {
+    return { intent: 'search_phone', query: digits, raw };
+  }
+  if (orderToken || isLikelyPosConnectOrderNoQuery(query)) {
+    return { intent: 'search_order', query: orderToken || query, order_no: orderToken || query, raw };
+  }
+  if (digits.length >= 5) {
+    return { intent: 'search_phone', query: digits, raw };
+  }
+  return { intent: 'unknown', query, raw };
+};
+
+const formatChatStorageSlots = (order: PickupSearchOrder | null) => {
+  const slots = order?.blanket_storage?.store_slots ?? [];
+  if (slots.length === 0) return 'Storage: not found';
+  return [
+    `Storage: ${order?.blanket_storage?.qty_in_store ?? slots.length} pcs`,
+    ...slots.slice(0, 8).map((slot, index) => {
+      const status = slot.status ? ` (${slot.status})` : '';
+      return `${index + 1}. ${slot.store} R${slot.row} C${slot.column}${status}`;
+    }),
+    slots.length > 8 ? `+ ${slots.length - 8} more slots` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+};
+
+const formatChatOrder = (order: PickupSearchOrder) =>
+  [
+    `Order: ${order.order_no || '-'}`,
+    `Customer: ${order.customer_name || '-'}`,
+    `Phone: ${order.customer_phone || '-'}`,
+    `Status: ${order.order_status || '-'}`,
+    `Balance: AED ${Number(order.balance ?? 0).toFixed(2)}`,
+    order.delivery_date ? `Delivery: ${order.delivery_date}${order.delivery_time ? ` ${order.delivery_time}` : ''}` : '',
+    formatChatStorageSlots(order),
+    order.remark ? `Remark: ${order.remark}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+const lookupChatOrder = async (query: string): Promise<PickupSearchOrder | null> => {
+  const cleanedQuery = String(query ?? '').trim();
+  if (!cleanedQuery) return null;
+  const branchReference = parsePickupBranchReference(cleanedQuery);
+  const orderLookupQuery = branchReference?.invoice_reference ?? cleanedQuery;
+  const searchQueries = buildPosConnectSearchQueries(orderLookupQuery);
+
+  try {
+    const preview = await resolvePosConnectPreviewByDisplayedOrderNo(orderLookupQuery, {
+      branchReference: branchReference ?? undefined,
+    });
+    if (preview) {
+      let details: PosOrderDetailsResult | null = null;
+      let detailsError = '';
+      try {
+        details = await fetchCachedPosConnectDetails({
+          order_id: preview.invoice_id || '0',
+          s_order_id: preview.orders_id || '0',
+          open_type: 'preview',
+          mode: '0',
+        });
+      } catch (error: any) {
+        detailsError = String(error?.message || 'Failed to load POS order details.');
+      }
+      return hydratePickupSearchOrder(preview, details, detailsError, cleanedQuery);
+    }
+  } catch {
+    // Try direct details below.
+  }
+
+  const directDetails = await tryFetchPosConnectDetailsByDisplayedOrderNo(cleanedQuery, searchQueries, []);
+  return directDetails ? hydratePickupSearchOrder(null, directDetails, '', cleanedQuery) : null;
+};
+
+const lookupChatPhoneOrders = async (phone: string) => {
+  const searchQueries = buildPosConnectSearchQueries(phone);
+  const previewsByKey = new Map<string, PosOrderPreview>();
+  const results = await Promise.all(
+    searchQueries.map(async (candidateQuery) => {
+      try {
+        return await fetchCachedPosConnectSearch(candidateQuery);
+      } catch {
+        return null;
+      }
+    })
+  );
+  for (const result of results) {
+    for (const preview of result?.orders ?? []) {
+      if (!posPhoneMatchesAnyQuery(preview.customer_phone, searchQueries)) continue;
+      const key = [preview.orders_id, preview.invoice_id, preview.order_no].map((value) => String(value ?? '')).join(':');
+      if (!previewsByKey.has(key)) previewsByKey.set(key, preview);
+    }
+  }
+  const previews = Array.from(previewsByKey.values()).slice(0, 8);
+  return Promise.all(
+    previews.map(async (preview) => {
+      let details: PosOrderDetailsResult | null = null;
+      try {
+        details = await fetchCachedPosConnectDetails({
+          order_id: preview.invoice_id || '0',
+          s_order_id: preview.orders_id || '0',
+          open_type: 'preview',
+          mode: '0',
+        });
+      } catch {
+        details = null;
+      }
+      return hydratePickupSearchOrder(preview, details, '', preview.order_no);
+    })
+  ).then((orders) => orders.filter(Boolean) as PickupSearchOrder[]);
+};
+
+const handleChatAutomationMessage = async (params: {
+  channel: 'telegram';
+  chat_user_id: string;
+  message_id?: string;
+  display_name?: string;
+  text: string;
+}) => {
+  upsertChatUser({
+    channel: params.channel,
+    chat_user_id: params.chat_user_id,
+    display_name: params.display_name,
+  });
+
+  const parsed = parseChatCommand(params.text);
+  recordChatMessage({
+    channel: params.channel,
+    chat_user_id: params.chat_user_id,
+    message_id: params.message_id,
+    direction: 'in',
+    body: params.text,
+    parsed_intent: parsed.intent,
+    order_no: parsed.order_no,
+    status: 'received',
+  });
+
+  if (parsed.intent === 'help') return CHAT_HELP_TEXT;
+  if (parsed.intent === 'unknown') {
+    return `لم أفهم الأمر بعد.\n\n${CHAT_HELP_TEXT}`;
+  }
+  if (parsed.intent === 'update_requested') {
+    return [
+      'وصل طلب تحديث، لكن تنفيذ التحديثات من Telegram لم يتم تفعيله بعد.',
+      'المرحلة الحالية آمنة للبحث فقط.',
+      '',
+      `الأمر المستلم: ${params.text}`,
+      'الخطوة التالية: ربط Telegram ID بمستخدم Smart Hub/POS ثم إضافة confirm قبل التنفيذ.',
+    ].join('\n');
+  }
+  if (parsed.intent === 'search_phone') {
+    const orders = await lookupChatPhoneOrders(parsed.query ?? '');
+    if (orders.length === 0) return `No matching open orders for phone ${parsed.query}.`;
+    return [
+      `Found ${orders.length} order(s) for ${parsed.query}:`,
+      '',
+      ...orders.map((order, index) => `${index + 1}. ${order.order_no} | ${order.order_status} | AED ${Number(order.balance ?? 0).toFixed(2)}\n${formatChatStorageSlots(order)}`),
+    ].join('\n\n');
+  }
+
+  const order = await lookupChatOrder(parsed.order_no ?? parsed.query ?? '');
+  if (!order) return `No matching order found for ${parsed.query ?? parsed.order_no}.`;
+  return formatChatOrder(order);
 };
 
 const readLatestAlertLogByOrderNo = () => {
@@ -9961,6 +10289,49 @@ async function startServer() {
     (fn: any) =>
     (req: any, res: any, next: any) =>
       Promise.resolve(fn(req, res, next)).catch(next);
+
+  app.get('/api/chat-automation/telegram/status', (_req, res) => {
+    res.json({
+      ok: true,
+      channel: 'telegram',
+      bot_configured: Boolean(TELEGRAM_BOT_TOKEN),
+      webhook_secret_configured: Boolean(TELEGRAM_WEBHOOK_SECRET),
+      mode: 'mvp_read_only',
+      supported_commands: ['help', 'بحث Z63588', 'بحث 0504635888', 'مكان Z63588'],
+    });
+  });
+
+  app.post(
+    '/api/chat-automation/telegram/webhook',
+    asyncHandler(async (req: any, res: any) => {
+      if (TELEGRAM_WEBHOOK_SECRET) {
+        const suppliedSecret = String(req.headers['x-telegram-bot-api-secret-token'] ?? '').trim();
+        if (suppliedSecret !== TELEGRAM_WEBHOOK_SECRET) {
+          return res.status(401).json({ ok: false, error: 'Invalid Telegram webhook secret.' });
+        }
+      }
+
+      const message = req.body?.message ?? req.body?.edited_message;
+      const chatId = String(message?.chat?.id ?? '').trim();
+      const text = String(message?.text ?? '').trim();
+      if (!chatId || !text) return res.json({ ok: true, ignored: true });
+
+      const from = message?.from ?? {};
+      const displayName = [from.first_name, from.last_name]
+        .map((part) => String(part ?? '').trim())
+        .filter(Boolean)
+        .join(' ') || String(from.username ?? '').trim();
+      const reply = await handleChatAutomationMessage({
+        channel: 'telegram',
+        chat_user_id: chatId,
+        message_id: String(message?.message_id ?? '').trim(),
+        display_name: displayName,
+        text,
+      });
+      await sendTelegramMessage(chatId, reply);
+      res.json({ ok: true });
+    })
+  );
 
   // Runtime config for static clients (optional).
   // Lets the browser read Supabase keys from the server environment without rebuilding `dist`.
