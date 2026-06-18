@@ -587,9 +587,43 @@ help
 login USERNAME PASSWORD
 whoami
 logout
-بحث Z63588
-مكان Z63588
-بحث 0504635888
+Z63588
+0504635888
+search Z63588
+location Z63588
+```
+
+### Current Telegram UX
+
+Telegram bot responses are now in English.
+
+The employee can search directly without writing `search`:
+
+```text
+0568720885
+```
+
+Expected response:
+
+```text
+Found 1-4 open order(s) for 0568720885.
+Tap an order button below to open details.
+
+1. Z63588 | Pending/Unpaid | AED 8.40
+2. A260750 | Fully Packed | AED 15.75
+```
+
+Telegram shows ready inline buttons:
+
+```text
+[1. Z63588 | AED 8.40]
+[2. A260750 | AED 15.75]
+```
+
+When the employee taps an order button, the bot opens full order details and shows quick buttons:
+
+```text
+[Refresh order] [Show storage]
 ```
 
 ### ربط موظف POS مع Telegram

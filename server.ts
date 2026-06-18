@@ -5345,18 +5345,18 @@ type ParsedChatCommand = {
 const CHAT_HELP_TEXT = [
   'Smart Storage Hub Telegram MVP',
   '',
-  'الأوامر المتاحة الآن:',
+  'Available commands:',
   '- help',
   '- login USERNAME PASSWORD',
   '- whoami',
   '- logout',
-  '- بحث Z63588',
-  '- بحث 0504635888',
-  '- مكان Z63588',
-  '- ارسل رقم الطلب مباشرة مثل Z63588',
-  '- ارسل رقم الهاتف مباشرة مثل 0504635888',
+  '- Z63588',
+  '- 0504635888',
+  '- search Z63588',
+  '- location Z63588',
   '',
-  'بعد login سيتم ربط Telegram بحساب POS حتى يتم تسجيل العمليات باسم الموظف.',
+  'You can send the order number or customer phone directly. No search word is required.',
+  'Use login to link Telegram with the employee POS account before update actions.',
 ].join('\n');
 
 const recordChatMessage = (params: {
@@ -5483,7 +5483,21 @@ const unlinkChatUser = (channel: string, chatUserId: string) => {
   ).run(channel, chatUserId);
 };
 
-const sendTelegramMessage = async (chatId: string, text: string) => {
+type TelegramInlineKeyboardMarkup = {
+  inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+};
+
+type ChatAutomationReply = {
+  text: string;
+  reply_markup?: TelegramInlineKeyboardMarkup;
+};
+
+const normalizeChatReply = (reply: string | ChatAutomationReply): ChatAutomationReply =>
+  typeof reply === 'string' ? { text: reply } : reply;
+
+const sendTelegramMessage = async (chatId: string, reply: string | ChatAutomationReply) => {
+  const normalizedReply = normalizeChatReply(reply);
+  const text = normalizedReply.text;
   const safeText = text.length > 3900 ? `${text.slice(0, 3900)}\n...` : text;
   recordChatMessage({
     channel: 'telegram',
@@ -5494,22 +5508,47 @@ const sendTelegramMessage = async (chatId: string, text: string) => {
   });
 
   if (!TELEGRAM_BOT_TOKEN) {
-    console.log('Telegram bot token is not configured; outgoing message:', { chatId, text: safeText });
+    console.log('Telegram bot token is not configured; outgoing message:', {
+      chatId,
+      text: safeText,
+      reply_markup: normalizedReply.reply_markup,
+    });
     return { ok: true, mock: true };
   }
+
+  const payload: Record<string, unknown> = {
+    chat_id: chatId,
+    text: safeText,
+    disable_web_page_preview: true,
+  };
+  if (normalizedReply.reply_markup) payload.reply_markup = normalizedReply.reply_markup;
 
   const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text: safeText,
-      disable_web_page_preview: true,
-    }),
+    body: JSON.stringify(payload),
   });
   const body = await response.text().catch(() => '');
   if (!response.ok) {
     throw new Error(`Telegram sendMessage failed: ${response.status} ${body.slice(0, 240)}`);
+  }
+  return body ? JSON.parse(body) : { ok: true };
+};
+
+const answerTelegramCallbackQuery = async (callbackQueryId: string, text = '') => {
+  if (!TELEGRAM_BOT_TOKEN || !callbackQueryId) return { ok: true, skipped: true };
+  const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      callback_query_id: callbackQueryId,
+      text,
+      show_alert: false,
+    }),
+  });
+  const body = await response.text().catch(() => '');
+  if (!response.ok) {
+    throw new Error(`Telegram answerCallbackQuery failed: ${response.status} ${body.slice(0, 240)}`);
   }
   return body ? JSON.parse(body) : { ok: true };
 };
@@ -5591,6 +5630,36 @@ const formatChatOrder = (order: PickupSearchOrder) =>
   ]
     .filter(Boolean)
     .join('\n');
+
+const buildChatOrderKeyboard = (orderNo: string): TelegramInlineKeyboardMarkup | undefined => {
+  const cleanOrderNo = normalizePosReference(orderNo);
+  if (!cleanOrderNo) return undefined;
+  return {
+    inline_keyboard: [
+      [
+        { text: 'Refresh order', callback_data: `order:${cleanOrderNo}` },
+        { text: 'Show storage', callback_data: `loc:${cleanOrderNo}` },
+      ],
+    ],
+  };
+};
+
+const buildChatPhoneOrdersKeyboard = (orders: PickupSearchOrder[]): TelegramInlineKeyboardMarkup | undefined => {
+  const buttons = orders.slice(0, 4).flatMap((order, index) => {
+    const cleanOrderNo = normalizePosReference(order.order_no);
+    if (!cleanOrderNo) return [];
+    const balance = Number(order.balance ?? 0).toFixed(2);
+    return [
+      [
+        {
+          text: `${index + 1}. ${cleanOrderNo} | AED ${balance}`,
+          callback_data: `order:${cleanOrderNo}`,
+        },
+      ],
+    ];
+  });
+  return buttons.length > 0 ? { inline_keyboard: buttons } : undefined;
+};
 
 const hydrateChatPreviewOrder = async (
   preview: PosOrderPreview,
@@ -5751,7 +5820,7 @@ const handleChatAutomationMessage = async (params: {
   if (parsed.intent === 'help') return CHAT_HELP_TEXT;
   if (parsed.intent === 'auth_login') {
     if (!parsed.username || !parsed.password) {
-      return 'اكتب الأمر بهذا الشكل:\nlogin USERNAME PASSWORD';
+      return 'Use this format:\nlogin USERNAME PASSWORD';
     }
     try {
       const linked = await linkChatUserToPosStaff({
@@ -5761,22 +5830,22 @@ const handleChatAutomationMessage = async (params: {
         password: parsed.password,
       });
       return [
-        'تم ربط Telegram بحساب POS بنجاح.',
+        'Telegram is now linked to the POS employee account.',
         `User: ${linked.profile.pos_username || linked.profile.username}`,
         `Name: ${linked.profile.display_name || '-'}`,
         `POS user ID: ${linked.profile.pos_user_id || '-'}`,
         `Branch: ${linked.profile.branch_code || linked.profile.branch_id || '-'}`,
         '',
-        'من الآن أي أوامر تنفيذ لاحقة ستسجل باسم هذا الموظف بعد إضافة التأكيد.',
+        'Future confirmed actions will be tracked under this employee.',
       ].join('\n');
     } catch (error: any) {
-      return `فشل تسجيل الدخول إلى POS.\n${String(error?.message || 'Invalid POS username or password.')}`;
+      return `POS login failed.\n${String(error?.message || 'Invalid POS username or password.')}`;
     }
   }
   if (parsed.intent === 'auth_status') {
     const chatUser = getChatUser(params.channel, params.chat_user_id);
     if (!chatUser?.smart_hub_user_id && !chatUser?.pos_user_id) {
-      return 'هذا Telegram غير مربوط بحساب POS بعد.\nاستخدم:\nlogin USERNAME PASSWORD';
+      return 'This Telegram account is not linked to POS yet.\nUse:\nlogin USERNAME PASSWORD';
     }
     return [
       'Telegram linked account:',
@@ -5789,37 +5858,102 @@ const handleChatAutomationMessage = async (params: {
   }
   if (parsed.intent === 'auth_logout') {
     unlinkChatUser(params.channel, params.chat_user_id);
-    return 'تم فك ربط Telegram من حساب POS.';
+    return 'Telegram has been unlinked from the POS account.';
   }
   if (parsed.intent === 'unknown') {
-    return `لم أفهم الأمر بعد.\n\n${CHAT_HELP_TEXT}`;
+    return `I did not understand that yet.\n\n${CHAT_HELP_TEXT}`;
   }
   if (parsed.intent === 'update_requested') {
     const chatUser = getChatUser(params.channel, params.chat_user_id);
     if (!chatUser?.smart_hub_user_id || !chatUser?.pos_user_id) {
-      return 'قبل تنفيذ أي تحديث، اربط Telegram بحساب POS:\nlogin USERNAME PASSWORD';
+      return 'Before any update action, link Telegram to a POS account:\nlogin USERNAME PASSWORD';
     }
     return [
-      'وصل طلب تحديث، لكن تنفيذ التحديثات من Telegram لم يتم تفعيله بعد.',
-      'المرحلة الحالية آمنة للبحث فقط.',
+      'Update request received, but Telegram updates are not enabled yet.',
+      'Current mode is search-only for safety.',
       '',
-      `الأمر المستلم: ${params.text}`,
-      'الخطوة التالية: ربط Telegram ID بمستخدم Smart Hub/POS ثم إضافة confirm قبل التنفيذ.',
+      `Received command: ${params.text}`,
+      'Next step: add confirm flow before executing updates.',
     ].join('\n');
   }
   if (parsed.intent === 'search_phone') {
     const orders = await lookupChatPhoneOrders(parsed.query ?? '');
     if (orders.length === 0) return `No matching open orders for phone ${parsed.query}.`;
-    return [
-      `Found ${orders.length} order(s) for ${parsed.query}:`,
-      '',
-      ...orders.map((order, index) => `${index + 1}. ${order.order_no} | ${order.order_status} | AED ${Number(order.balance ?? 0).toFixed(2)}\n${formatChatStorageSlots(order)}`),
-    ].join('\n\n');
+    return {
+      text: [
+        `Found ${orders.length} open order(s) for ${parsed.query}.`,
+        'Tap an order button below to open details.',
+        '',
+        ...orders
+          .slice(0, 4)
+          .map(
+            (order, index) =>
+              `${index + 1}. ${order.order_no} | ${order.order_status} | AED ${Number(order.balance ?? 0).toFixed(2)}`
+          ),
+        orders.length > 4 ? `+ ${orders.length - 4} more order(s). Refine the search if needed.` : '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      reply_markup: buildChatPhoneOrdersKeyboard(orders),
+    };
   }
 
   const order = await lookupChatOrder(parsed.order_no ?? parsed.query ?? '');
   if (!order) return `No matching order found for ${parsed.query ?? parsed.order_no}.`;
-  return formatChatOrder(order);
+  return {
+    text: formatChatOrder(order),
+    reply_markup: buildChatOrderKeyboard(order.order_no),
+  };
+};
+
+const handleChatAutomationCallback = async (params: {
+  channel: 'telegram';
+  chat_user_id: string;
+  message_id?: string;
+  display_name?: string;
+  data: string;
+}) => {
+  upsertChatUser({
+    channel: params.channel,
+    chat_user_id: params.chat_user_id,
+    display_name: params.display_name,
+  });
+
+  const data = String(params.data ?? '').trim();
+  const [action, rawValue = ''] = data.split(':', 2);
+  const orderNo = normalizePosReference(rawValue);
+  recordChatMessage({
+    channel: params.channel,
+    chat_user_id: params.chat_user_id,
+    message_id: params.message_id,
+    direction: 'in',
+    body: `callback:${data}`,
+    parsed_intent: action === 'loc' ? 'show_location' : action === 'order' ? 'search_order' : 'unknown',
+    order_no: orderNo || undefined,
+    status: 'received',
+  });
+
+  if (!orderNo) return 'Button data is missing an order number.';
+
+  if (action === 'order') {
+    const order = await lookupChatOrder(orderNo);
+    if (!order) return `No matching order found for ${orderNo}.`;
+    return {
+      text: formatChatOrder(order),
+      reply_markup: buildChatOrderKeyboard(order.order_no),
+    };
+  }
+
+  if (action === 'loc') {
+    const order = await lookupChatOrder(orderNo);
+    if (!order) return `No matching order found for ${orderNo}.`;
+    return {
+      text: [`Order: ${order.order_no || orderNo}`, formatChatStorageSlots(order)].join('\n'),
+      reply_markup: buildChatOrderKeyboard(order.order_no || orderNo),
+    };
+  }
+
+  return 'This button is no longer supported. Please search again.';
 };
 
 const readLatestAlertLogByOrderNo = () => {
@@ -10528,9 +10662,10 @@ async function startServer() {
         'login USERNAME PASSWORD',
         'whoami',
         'logout',
-        'بحث Z63588',
-        'بحث 0504635888',
-        'مكان Z63588',
+        'Z63588',
+        '0504635888',
+        'search Z63588',
+        'location Z63588',
       ],
     });
   });
@@ -10543,6 +10678,29 @@ async function startServer() {
         if (suppliedSecret !== TELEGRAM_WEBHOOK_SECRET) {
           return res.status(401).json({ ok: false, error: 'Invalid Telegram webhook secret.' });
         }
+      }
+
+      const callbackQuery = req.body?.callback_query;
+      if (callbackQuery) {
+        const chatId = String(callbackQuery?.message?.chat?.id ?? '').trim();
+        const data = String(callbackQuery?.data ?? '').trim();
+        if (!chatId || !data) return res.json({ ok: true, ignored: true });
+
+        const from = callbackQuery?.from ?? {};
+        const displayName = [from.first_name, from.last_name]
+          .map((part) => String(part ?? '').trim())
+          .filter(Boolean)
+          .join(' ') || String(from.username ?? '').trim();
+        await answerTelegramCallbackQuery(String(callbackQuery?.id ?? '').trim(), 'Opening...');
+        const reply = await handleChatAutomationCallback({
+          channel: 'telegram',
+          chat_user_id: chatId,
+          message_id: String(callbackQuery?.message?.message_id ?? '').trim(),
+          display_name: displayName,
+          data,
+        });
+        await sendTelegramMessage(chatId, reply);
+        return res.json({ ok: true });
       }
 
       const message = req.body?.message ?? req.body?.edited_message;
