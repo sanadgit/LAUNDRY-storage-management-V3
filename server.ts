@@ -918,6 +918,18 @@ ensureColumn('app_sessions', 'auth_provider', "TEXT DEFAULT 'local'");
 ensureColumn('app_sessions', 'pos_user_id', 'TEXT');
 ensureColumn('app_sessions', 'pos_branch_id', 'TEXT');
 ensureColumn('app_sessions', 'pos_currency_id', 'TEXT');
+ensureColumn('chat_users', 'chat_phone', 'TEXT');
+ensureColumn('chat_users', 'display_name', 'TEXT');
+ensureColumn('chat_users', 'smart_hub_user_id', 'INTEGER');
+ensureColumn('chat_users', 'pos_user_id', 'TEXT');
+ensureColumn('chat_users', 'pos_username', 'TEXT');
+ensureColumn('chat_users', 'pos_display_name', 'TEXT');
+ensureColumn('chat_users', 'pos_branch_id', 'TEXT');
+ensureColumn('chat_users', 'pos_branch_code', 'TEXT');
+ensureColumn('chat_users', 'is_active', 'INTEGER DEFAULT 1');
+ensureColumn('chat_users', 'created_at', 'DATETIME');
+ensureColumn('chat_users', 'updated_at', 'DATETIME');
+ensureColumn('chat_users', 'linked_at', 'DATETIME');
 
 ensureColumn('sorting_tables', 'name', "TEXT DEFAULT ''");
 ensureColumn('sorting_tables', 'rows', 'INTEGER DEFAULT 2');
@@ -5312,6 +5324,9 @@ const resolvePosOrderDetailsByOrderNo = async (orderNo: string) => {
 
 type ChatIntent =
   | 'help'
+  | 'auth_login'
+  | 'auth_status'
+  | 'auth_logout'
   | 'search_order'
   | 'search_phone'
   | 'show_location'
@@ -5322,6 +5337,8 @@ type ParsedChatCommand = {
   intent: ChatIntent;
   query?: string;
   order_no?: string;
+  username?: string;
+  password?: string;
   raw: string;
 };
 
@@ -5330,13 +5347,16 @@ const CHAT_HELP_TEXT = [
   '',
   'الأوامر المتاحة الآن:',
   '- help',
+  '- login USERNAME PASSWORD',
+  '- whoami',
+  '- logout',
   '- بحث Z63588',
   '- بحث 0504635888',
   '- مكان Z63588',
   '- ارسل رقم الطلب مباشرة مثل Z63588',
   '- ارسل رقم الهاتف مباشرة مثل 0504635888',
   '',
-  'أوامر التحديث والدفع ستحتاج ربط مستخدم وتأكيد قبل التنفيذ في المرحلة التالية.',
+  'بعد login سيتم ربط Telegram بحساب POS حتى يتم تسجيل العمليات باسم الموظف.',
 ].join('\n');
 
 const recordChatMessage = (params: {
@@ -5378,6 +5398,91 @@ const upsertChatUser = (params: {
   ).run(params.channel, params.chat_user_id, params.display_name ?? null);
 };
 
+type ChatUserRecord = {
+  id: number;
+  channel: string;
+  chat_user_id: string;
+  chat_phone: string | null;
+  display_name: string | null;
+  smart_hub_user_id: number | null;
+  pos_user_id: string | null;
+  pos_username: string | null;
+  pos_display_name: string | null;
+  pos_branch_id: string | null;
+  pos_branch_code: string | null;
+  is_active: number;
+  created_at: string | null;
+  updated_at: string | null;
+  linked_at: string | null;
+};
+
+const getChatUser = (channel: string, chatUserId: string) =>
+  db
+    .prepare('SELECT * FROM chat_users WHERE channel = ? AND chat_user_id = ? LIMIT 1')
+    .get(channel, chatUserId) as ChatUserRecord | undefined;
+
+const redactChatCommandBody = (parsed: ParsedChatCommand) => {
+  if (parsed.intent !== 'auth_login') return parsed.raw;
+  return `login ${parsed.username ?? ''} ********`.trim();
+};
+
+const linkChatUserToPosStaff = async (params: {
+  channel: string;
+  chat_user_id: string;
+  username: string;
+  password: string;
+}) => {
+  const profile = await authenticatePosStaff(params.username, params.password);
+  const user = ensurePosStaffUser({
+    username: profile.username,
+    display_name: profile.display_name,
+    branch_id: profile.branch_id,
+  });
+
+  db.prepare(
+    `UPDATE chat_users
+     SET smart_hub_user_id = ?,
+         pos_user_id = ?,
+         pos_username = ?,
+         pos_display_name = ?,
+         pos_branch_id = ?,
+         pos_branch_code = ?,
+         is_active = 1,
+         linked_at = CURRENT_TIMESTAMP,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE channel = ? AND chat_user_id = ?`
+  ).run(
+    user.id,
+    profile.pos_user_id,
+    profile.pos_username || profile.username,
+    profile.display_name,
+    profile.branch_id,
+    profile.branch_code,
+    params.channel,
+    params.chat_user_id
+  );
+
+  return {
+    user,
+    profile,
+  };
+};
+
+const unlinkChatUser = (channel: string, chatUserId: string) => {
+  db.prepare(
+    `UPDATE chat_users
+     SET smart_hub_user_id = NULL,
+         pos_user_id = NULL,
+         pos_username = NULL,
+         pos_display_name = NULL,
+         pos_branch_id = NULL,
+         pos_branch_code = NULL,
+         linked_at = NULL,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE channel = ? AND chat_user_id = ?`
+  ).run(channel, chatUserId);
+};
+
 const sendTelegramMessage = async (chatId: string, text: string) => {
   const safeText = text.length > 3900 ? `${text.slice(0, 3900)}\n...` : text;
   recordChatMessage({
@@ -5415,6 +5520,22 @@ const parseChatCommand = (message: string): ParsedChatCommand => {
   const lower = normalized.toLowerCase();
   if (!normalized || lower === '/start' || lower === 'start' || lower === 'help' || lower === '/help') {
     return { intent: 'help', raw };
+  }
+
+  const loginMatch = normalized.match(/^(?:\/?login|دخول)\s+(\S+)\s+(.+)$/i);
+  if (loginMatch) {
+    return {
+      intent: 'auth_login',
+      username: loginMatch[1].trim(),
+      password: loginMatch[2],
+      raw,
+    };
+  }
+  if (/^(?:\/?whoami|\/?me|حسابي|انا|من\s+انا)$/i.test(normalized)) {
+    return { intent: 'auth_status', raw };
+  }
+  if (/^(?:\/?logout|\/?unlink|خروج|الغاء\s+الربط)$/i.test(normalized)) {
+    return { intent: 'auth_logout', raw };
   }
 
   const updateWords = /(حط|ضع|خلي|خليه|في\s+\S+|معلق|مطب[قك]|picked|deliver|delivery|no\s*pay|cash|card)/i;
@@ -5621,17 +5742,63 @@ const handleChatAutomationMessage = async (params: {
     chat_user_id: params.chat_user_id,
     message_id: params.message_id,
     direction: 'in',
-    body: params.text,
+    body: redactChatCommandBody(parsed),
     parsed_intent: parsed.intent,
     order_no: parsed.order_no,
     status: 'received',
   });
 
   if (parsed.intent === 'help') return CHAT_HELP_TEXT;
+  if (parsed.intent === 'auth_login') {
+    if (!parsed.username || !parsed.password) {
+      return 'اكتب الأمر بهذا الشكل:\nlogin USERNAME PASSWORD';
+    }
+    try {
+      const linked = await linkChatUserToPosStaff({
+        channel: params.channel,
+        chat_user_id: params.chat_user_id,
+        username: parsed.username,
+        password: parsed.password,
+      });
+      return [
+        'تم ربط Telegram بحساب POS بنجاح.',
+        `User: ${linked.profile.pos_username || linked.profile.username}`,
+        `Name: ${linked.profile.display_name || '-'}`,
+        `POS user ID: ${linked.profile.pos_user_id || '-'}`,
+        `Branch: ${linked.profile.branch_code || linked.profile.branch_id || '-'}`,
+        '',
+        'من الآن أي أوامر تنفيذ لاحقة ستسجل باسم هذا الموظف بعد إضافة التأكيد.',
+      ].join('\n');
+    } catch (error: any) {
+      return `فشل تسجيل الدخول إلى POS.\n${String(error?.message || 'Invalid POS username or password.')}`;
+    }
+  }
+  if (parsed.intent === 'auth_status') {
+    const chatUser = getChatUser(params.channel, params.chat_user_id);
+    if (!chatUser?.smart_hub_user_id && !chatUser?.pos_user_id) {
+      return 'هذا Telegram غير مربوط بحساب POS بعد.\nاستخدم:\nlogin USERNAME PASSWORD';
+    }
+    return [
+      'Telegram linked account:',
+      `User: ${chatUser.pos_username || '-'}`,
+      `Name: ${chatUser.pos_display_name || chatUser.display_name || '-'}`,
+      `POS user ID: ${chatUser.pos_user_id || '-'}`,
+      `Branch: ${chatUser.pos_branch_code || chatUser.pos_branch_id || '-'}`,
+      `Linked at: ${chatUser.linked_at || '-'}`,
+    ].join('\n');
+  }
+  if (parsed.intent === 'auth_logout') {
+    unlinkChatUser(params.channel, params.chat_user_id);
+    return 'تم فك ربط Telegram من حساب POS.';
+  }
   if (parsed.intent === 'unknown') {
     return `لم أفهم الأمر بعد.\n\n${CHAT_HELP_TEXT}`;
   }
   if (parsed.intent === 'update_requested') {
+    const chatUser = getChatUser(params.channel, params.chat_user_id);
+    if (!chatUser?.smart_hub_user_id || !chatUser?.pos_user_id) {
+      return 'قبل تنفيذ أي تحديث، اربط Telegram بحساب POS:\nlogin USERNAME PASSWORD';
+    }
     return [
       'وصل طلب تحديث، لكن تنفيذ التحديثات من Telegram لم يتم تفعيله بعد.',
       'المرحلة الحالية آمنة للبحث فقط.',
@@ -10355,8 +10522,16 @@ async function startServer() {
       channel: 'telegram',
       bot_configured: Boolean(TELEGRAM_BOT_TOKEN),
       webhook_secret_configured: Boolean(TELEGRAM_WEBHOOK_SECRET),
-      mode: 'mvp_read_only',
-      supported_commands: ['help', 'بحث Z63588', 'بحث 0504635888', 'مكان Z63588'],
+      mode: 'mvp_search_with_pos_linking',
+      supported_commands: [
+        'help',
+        'login USERNAME PASSWORD',
+        'whoami',
+        'logout',
+        'بحث Z63588',
+        'بحث 0504635888',
+        'مكان Z63588',
+      ],
     });
   });
 

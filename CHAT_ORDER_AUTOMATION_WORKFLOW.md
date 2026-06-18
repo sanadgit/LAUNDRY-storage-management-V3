@@ -535,11 +535,14 @@ CREATE TABLE chat_pending_confirmations (
 - Webhook لتلقي رسائل Telegram.
 - حفظ مستخدم Telegram في جدول `chat_users`.
 - حفظ الرسائل الداخلة والخارجة في جدول `chat_messages`.
+- ربط Telegram بحساب موظف POS عبر أمر `login`.
 - أمر `help`.
+- أمر `whoami` لمعرفة الحساب المربوط.
+- أمر `logout` لفك الربط.
 - البحث برقم الطلب.
 - البحث برقم الهاتف.
 - عرض مكان الطلب في الاستور إذا كان موجوداً.
-- أوامر التحديث والدفع حالياً لا تنفذ؛ ترجع رسالة توضيح فقط إلى أن يتم ربط مستخدم Telegram بحساب Smart Hub/POS وإضافة تأكيد.
+- أوامر التحديث والدفع حالياً لا تنفذ؛ ترجع رسالة توضيح إلى أن يتم إضافة التأكيد والتنفيذ.
 
 ### Endpoints المضافة
 
@@ -581,20 +584,57 @@ curl https://www.inandoutuae.com/api/chat-automation/telegram/status
 
 ```text
 help
+login USERNAME PASSWORD
+whoami
+logout
 بحث Z63588
 مكان Z63588
 بحث 0504635888
 ```
 
+### ربط موظف POS مع Telegram
+
+الموظف يرسل للبوت:
+
+```text
+login HAPY3 password_here
+```
+
+البوت يتحقق من بيانات POS باستخدام نفس منطق تسجيل الدخول في Smart Hub، ثم يحفظ:
+
+- `smart_hub_user_id`
+- `pos_user_id`
+- `pos_username`
+- `pos_display_name`
+- `pos_branch_id`
+- `pos_branch_code`
+
+كلمة المرور لا تحفظ في قاعدة البيانات، ورسالة `login` تسجل في `chat_messages` بشكل مخفي:
+
+```text
+login HAPY3 ********
+```
+
+لمعرفة الحساب المربوط:
+
+```text
+whoami
+```
+
+لفك الربط:
+
+```text
+logout
+```
+
 ### المرحلة التالية بعد الاختبار
 
-1. صفحة صغيرة داخل Smart Hub لربط `Telegram chat_id` بمستخدم.
-2. إضافة جدول صلاحيات أو استخدام role المستخدم الحالي.
-3. تفعيل أوامر التحديث:
+1. إضافة جدول صلاحيات أو استخدام role المستخدم الحالي.
+2. تفعيل أوامر التحديث:
    - `Z63588 في B2-front R4 C6`
    - `Z63588 معلق`
    - `Z63588 مطبق`
-4. إضافة تأكيد قبل أي تحديث:
+3. إضافة تأكيد قبل أي تحديث:
    - الموظف يرسل الأمر.
    - البوت يرد بملخص.
    - الموظف يرد `confirm`.
