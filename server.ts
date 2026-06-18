@@ -5471,6 +5471,27 @@ const formatChatOrder = (order: PickupSearchOrder) =>
     .filter(Boolean)
     .join('\n');
 
+const hydrateChatPreviewOrder = async (
+  preview: PosOrderPreview,
+  fallbackOrderNo = ''
+): Promise<PickupSearchOrder | null> => {
+  let details: PosOrderDetailsResult | null = null;
+  let detailsError = '';
+
+  try {
+    details = await fetchCachedPosConnectDetails({
+      order_id: preview.invoice_id || '0',
+      s_order_id: preview.orders_id || '0',
+      open_type: 'preview',
+      mode: '0',
+    });
+  } catch (error: any) {
+    detailsError = String(error?.message || 'Failed to load POS order details.');
+  }
+
+  return hydratePickupSearchOrder(preview, details, detailsError, fallbackOrderNo || preview.order_no);
+};
+
 const lookupChatOrder = async (query: string): Promise<PickupSearchOrder | null> => {
   const cleanedQuery = String(query ?? '').trim();
   if (!cleanedQuery) return null;
@@ -5483,19 +5504,7 @@ const lookupChatOrder = async (query: string): Promise<PickupSearchOrder | null>
       branchReference: branchReference ?? undefined,
     });
     if (preview) {
-      let details: PosOrderDetailsResult | null = null;
-      let detailsError = '';
-      try {
-        details = await fetchCachedPosConnectDetails({
-          order_id: preview.invoice_id || '0',
-          s_order_id: preview.orders_id || '0',
-          open_type: 'preview',
-          mode: '0',
-        });
-      } catch (error: any) {
-        detailsError = String(error?.message || 'Failed to load POS order details.');
-      }
-      return hydratePickupSearchOrder(preview, details, detailsError, cleanedQuery);
+      return hydrateChatPreviewOrder(preview, cleanedQuery);
     }
   } catch {
     // Try direct details below.
@@ -5508,38 +5517,88 @@ const lookupChatOrder = async (query: string): Promise<PickupSearchOrder | null>
 const lookupChatPhoneOrders = async (phone: string) => {
   const searchQueries = buildPosConnectSearchQueries(phone);
   const previewsByKey = new Map<string, PosOrderPreview>();
+  let lastSearchError: any = null;
+  let successfulSearches = 0;
   const results = await Promise.all(
     searchQueries.map(async (candidateQuery) => {
       try {
-        return await fetchCachedPosConnectSearch(candidateQuery);
-      } catch {
-        return null;
+        const candidateSearch = await fetchCachedPosConnectSearch(candidateQuery);
+        return { candidateQuery, candidateSearch, error: null as any };
+      } catch (error) {
+        return { candidateQuery, candidateSearch: null, error };
       }
     })
   );
   for (const result of results) {
-    for (const preview of result?.orders ?? []) {
+    if (result.error || !result.candidateSearch) {
+      lastSearchError = result.error;
+      continue;
+    }
+
+    successfulSearches += 1;
+    for (const preview of result.candidateSearch.orders ?? []) {
       if (!posPhoneMatchesAnyQuery(preview.customer_phone, searchQueries)) continue;
       const key = [preview.orders_id, preview.invoice_id, preview.order_no].map((value) => String(value ?? '')).join(':');
       if (!previewsByKey.has(key)) previewsByKey.set(key, preview);
     }
   }
+
+  if (previewsByKey.size === 0 && PICKUP_PHONE_FALLBACK_ENABLED) {
+    const pageSize = POS_CONNECT_FALLBACK_PAGE_SIZE;
+    const maxPages = PICKUP_PHONE_FALLBACK_MAX_PAGES;
+    const batchSize = POS_CONNECT_FALLBACK_BATCH_SIZE;
+
+    for (let pageStart = 0; pageStart < maxPages; pageStart += batchSize) {
+      const pageNumbers = Array.from(
+        { length: Math.min(batchSize, maxPages - pageStart) },
+        (_unused, index) => pageStart + index
+      );
+
+      const batchResults = await Promise.all(
+        pageNumbers.map(async (page) => {
+          try {
+            const candidateSearch = await fetchCachedPosConnectSearch(POS_CONNECT_FALLBACK_QUERY, {
+              start: String(page * pageSize),
+              length: String(pageSize),
+              job_status: '0',
+              branch_id: '0',
+              prevent_depot_selection: '0',
+            });
+            return { page, candidateSearch, error: null as any };
+          } catch (error) {
+            return { page, candidateSearch: null, error };
+          }
+        })
+      );
+
+      batchResults.sort((a, b) => a.page - b.page);
+
+      for (const result of batchResults) {
+        if (result.error || !result.candidateSearch) {
+          lastSearchError = result.error;
+          continue;
+        }
+
+        successfulSearches += 1;
+        for (const preview of result.candidateSearch.orders ?? []) {
+          if (!posPhoneMatchesAnyQuery(preview.customer_phone, searchQueries)) continue;
+          const key = [preview.orders_id, preview.invoice_id, preview.order_no].map((value) => String(value ?? '')).join(':');
+          if (!previewsByKey.has(key)) previewsByKey.set(key, preview);
+        }
+      }
+
+      if (previewsByKey.size >= 8) break;
+      if (batchResults.some((result) => (result.candidateSearch?.orders?.length ?? 0) < pageSize)) break;
+    }
+  }
+
+  if (previewsByKey.size === 0 && successfulSearches === 0 && lastSearchError) {
+    throw lastSearchError;
+  }
+
   const previews = Array.from(previewsByKey.values()).slice(0, 8);
   return Promise.all(
-    previews.map(async (preview) => {
-      let details: PosOrderDetailsResult | null = null;
-      try {
-        details = await fetchCachedPosConnectDetails({
-          order_id: preview.invoice_id || '0',
-          s_order_id: preview.orders_id || '0',
-          open_type: 'preview',
-          mode: '0',
-        });
-      } catch {
-        details = null;
-      }
-      return hydratePickupSearchOrder(preview, details, '', preview.order_no);
-    })
+    previews.map(async (preview) => hydrateChatPreviewOrder(preview, preview.order_no))
   ).then((orders) => orders.filter(Boolean) as PickupSearchOrder[]);
 };
 
