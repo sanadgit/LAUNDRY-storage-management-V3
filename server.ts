@@ -4589,6 +4589,46 @@ const payAndDeliverPickupOrder = async (input: {
   }
   let noPayMetadata: Awaited<ReturnType<typeof updatePosNoPayMetadata>> | null = null;
   let noPayMetadataError: string | null = null;
+  if (input.payment_method === 'no_pay' && !input.dry_run) {
+    try {
+      noPayMetadata = await updatePosNoPayMetadata({
+        order_no: orderNo,
+        source_orders_id: sourceOrdersId,
+        reason_type: input.no_pay_reason_type as PickupNoPayReasonType,
+        reason: noPayReason,
+      });
+    } catch (error: any) {
+      noPayMetadataError = String(error?.message || error || 'POS No Pay reason update failed.');
+      console.warn('POS No Pay metadata update failed before delivery:', {
+        order_no: orderNo,
+        sales_order_id: sourceOrdersId,
+        reason_type: input.no_pay_reason_type,
+        error: noPayMetadataError,
+      });
+    }
+    if (noPayMetadata) {
+      deliveryConfigResult = await postPosForm(
+        resolvePosPurchaseApiEndpoint('/pos_api/getDeliveryData'),
+        deliveryConfigPayload,
+        { fallbackToGet: false, referer: deliveryReferer }
+      );
+      if (deliveryConfigResult.parsed && Number(deliveryConfigResult.parsed.status) === 1) {
+        deliveryConfig = deliveryConfigResult.parsed;
+        matchingDeliveryBill = await findPendingDeliveryBill(deliveryConfig);
+        applyDeliveryBillDocumentId(matchingDeliveryBill);
+      }
+      if (!matchingDeliveryBill) {
+        deliveryRouteAddResult = await addOrderToPendingDeliveryRoute();
+        matchingDeliveryBill = await findPendingDeliveryBill(deliveryConfig);
+        applyDeliveryBillDocumentId(matchingDeliveryBill);
+      }
+      if (!matchingDeliveryBill || !getDeliveryBillInvoiceId(matchingDeliveryBill)) {
+        throw new Error(
+          `POS No Pay reason was saved, but delivery route invoice_id disappeared for ${actualOrderRef}.`
+        );
+      }
+    }
+  }
   const payment =
     input.payment_method === 'no_pay'
       ? null
@@ -4717,25 +4757,6 @@ const payAndDeliverPickupOrder = async (input: {
         getDeliveryBillInvoiceId(matchingDeliveryBill) || 'none'
       })`
     );
-  }
-
-  if (input.payment_method === 'no_pay') {
-    try {
-      noPayMetadata = await updatePosNoPayMetadata({
-        order_no: orderNo,
-        source_orders_id: sourceOrdersId,
-        reason_type: input.no_pay_reason_type as PickupNoPayReasonType,
-        reason: noPayReason,
-      });
-      requestSummary.no_pay_metadata = noPayMetadata;
-    } catch (error: any) {
-      noPayMetadataError = String(error?.message || error || 'POS No Pay reason update failed.');
-      requestSummary.no_pay_metadata_error = noPayMetadataError;
-      console.warn('POS delivery succeeded but No Pay metadata update failed:', {
-        request: requestSummary,
-        error: noPayMetadataError,
-      });
-    }
   }
 
   posConnectDetailsCache.clear();
