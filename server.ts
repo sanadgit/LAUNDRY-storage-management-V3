@@ -623,6 +623,46 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS order_review_batches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel TEXT NOT NULL DEFAULT 'telegram',
+    chat_user_id TEXT,
+    submitted_by TEXT,
+    submitted_text TEXT NOT NULL DEFAULT '',
+    duplicate_groups_count INTEGER DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'created',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME
+  );
+
+  CREATE TABLE IF NOT EXISTS order_review_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id INTEGER NOT NULL,
+    store_name TEXT NOT NULL,
+    order_no TEXT NOT NULL,
+    customer_name TEXT,
+    customer_phone TEXT,
+    order_status TEXT,
+    balance REAL DEFAULT 0,
+    remark TEXT,
+    error_message TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS order_review_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel TEXT NOT NULL,
+    chat_user_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'collecting',
+    current_store_index INTEGER DEFAULT 0,
+    store_sequence_json TEXT NOT NULL,
+    batch_payload_json TEXT NOT NULL DEFAULT '{}',
+    batch_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME
+  );
+
   CREATE TABLE IF NOT EXISTS sorting_tables (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
@@ -771,6 +811,8 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_customer_driver_sessions_expires_at ON customer_driver_sessions(expires_at);
   CREATE INDEX IF NOT EXISTS idx_chat_messages_user ON chat_messages(channel, chat_user_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_chat_pending_user ON chat_pending_confirmations(channel, chat_user_id, expires_at, consumed_at);
+  CREATE INDEX IF NOT EXISTS idx_order_review_sessions_user ON order_review_sessions(channel, chat_user_id, status, updated_at);
+  CREATE INDEX IF NOT EXISTS idx_order_review_items_batch ON order_review_items(batch_id, customer_phone);
   CREATE INDEX IF NOT EXISTS idx_sorting_cells_table ON sorting_cells(table_id, row_no, col_no);
   CREATE INDEX IF NOT EXISTS idx_sorting_orders_status ON sorting_orders(status, updated_at);
   CREATE INDEX IF NOT EXISTS idx_sorting_scans_order_no ON sorting_scans(order_no, timestamp);
@@ -930,6 +972,34 @@ ensureColumn('chat_users', 'is_active', 'INTEGER DEFAULT 1');
 ensureColumn('chat_users', 'created_at', 'DATETIME');
 ensureColumn('chat_users', 'updated_at', 'DATETIME');
 ensureColumn('chat_users', 'linked_at', 'DATETIME');
+ensureColumn('order_review_batches', 'channel', "TEXT DEFAULT 'telegram'");
+ensureColumn('order_review_batches', 'chat_user_id', 'TEXT');
+ensureColumn('order_review_batches', 'submitted_by', 'TEXT');
+ensureColumn('order_review_batches', 'submitted_text', "TEXT DEFAULT ''");
+ensureColumn('order_review_batches', 'duplicate_groups_count', 'INTEGER DEFAULT 0');
+ensureColumn('order_review_batches', 'status', "TEXT DEFAULT 'created'");
+ensureColumn('order_review_batches', 'created_at', 'DATETIME');
+ensureColumn('order_review_batches', 'completed_at', 'DATETIME');
+ensureColumn('order_review_items', 'batch_id', 'INTEGER DEFAULT 0');
+ensureColumn('order_review_items', 'store_name', "TEXT DEFAULT ''");
+ensureColumn('order_review_items', 'order_no', "TEXT DEFAULT ''");
+ensureColumn('order_review_items', 'customer_name', 'TEXT');
+ensureColumn('order_review_items', 'customer_phone', 'TEXT');
+ensureColumn('order_review_items', 'order_status', 'TEXT');
+ensureColumn('order_review_items', 'balance', 'REAL DEFAULT 0');
+ensureColumn('order_review_items', 'remark', 'TEXT');
+ensureColumn('order_review_items', 'error_message', 'TEXT');
+ensureColumn('order_review_items', 'created_at', 'DATETIME');
+ensureColumn('order_review_sessions', 'channel', "TEXT DEFAULT 'telegram'");
+ensureColumn('order_review_sessions', 'chat_user_id', "TEXT DEFAULT ''");
+ensureColumn('order_review_sessions', 'status', "TEXT DEFAULT 'collecting'");
+ensureColumn('order_review_sessions', 'current_store_index', 'INTEGER DEFAULT 0');
+ensureColumn('order_review_sessions', 'store_sequence_json', "TEXT DEFAULT '[]'");
+ensureColumn('order_review_sessions', 'batch_payload_json', "TEXT DEFAULT '{}'");
+ensureColumn('order_review_sessions', 'batch_id', 'INTEGER');
+ensureColumn('order_review_sessions', 'created_at', 'DATETIME');
+ensureColumn('order_review_sessions', 'updated_at', 'DATETIME');
+ensureColumn('order_review_sessions', 'completed_at', 'DATETIME');
 
 ensureColumn('sorting_tables', 'name', "TEXT DEFAULT ''");
 ensureColumn('sorting_tables', 'rows', 'INTEGER DEFAULT 2');
@@ -5327,6 +5397,7 @@ type ChatIntent =
   | 'auth_login'
   | 'auth_status'
   | 'auth_logout'
+  | 'order_review'
   | 'search_order'
   | 'search_phone'
   | 'show_location'
@@ -5350,11 +5421,13 @@ const CHAT_HELP_TEXT = [
   '- login USERNAME PASSWORD',
   '- whoami',
   '- logout',
+  '- review',
   '- Z63588',
   '- 0504635888',
   '- search Z63588',
   '- location Z63588',
   '',
+  'Use review to start the guided store order verification workflow.',
   'You can send the order number or customer phone directly. No search word is required.',
   'Use login to link Telegram with the employee POS account before update actions.',
 ].join('\n');
@@ -5576,6 +5649,9 @@ const parseChatCommand = (message: string): ParsedChatCommand => {
   if (/^(?:\/?logout|\/?unlink|خروج|الغاء\s+الربط)$/i.test(normalized)) {
     return { intent: 'auth_logout', raw };
   }
+  if (/^(?:\/?review|order\s+review|start\s+review|مراجعة)$/i.test(normalized)) {
+    return { intent: 'order_review', raw };
+  }
 
   const updateWords = /(حط|ضع|خلي|خليه|في\s+\S+|معلق|مطب[قك]|picked|deliver|delivery|no\s*pay|cash|card)/i;
   const explicitSearch = normalized.match(/^(?:بحث|ابحث|search|order|طلب|مكان|location)\s+(.+)$/i);
@@ -5659,6 +5735,471 @@ const buildChatPhoneOrdersKeyboard = (orders: PickupSearchOrder[]): TelegramInli
     ];
   });
   return buttons.length > 0 ? { inline_keyboard: buttons } : undefined;
+};
+
+type OrderReviewStoreEntry = {
+  store_name: string;
+  orders: string[];
+  skipped?: boolean;
+};
+
+type OrderReviewPayload = {
+  stores: OrderReviewStoreEntry[];
+};
+
+type OrderReviewSessionRecord = {
+  id: number;
+  channel: string;
+  chat_user_id: string;
+  status: 'collecting' | 'processing' | 'completed' | 'cancelled';
+  current_store_index: number;
+  store_sequence_json: string;
+  batch_payload_json: string;
+  batch_id: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+  completed_at: string | null;
+};
+
+type OrderReviewProcessedItem = {
+  store_name: string;
+  order_no: string;
+  customer_name: string;
+  customer_phone: string;
+  order_status: string;
+  balance: number;
+  remark: string;
+  error_message?: string;
+};
+
+const parseJsonOr = <T,>(value: unknown, fallback: T): T => {
+  try {
+    const parsed = JSON.parse(String(value ?? ''));
+    return parsed == null ? fallback : (parsed as T);
+  } catch {
+    return fallback;
+  }
+};
+
+const getOrderReviewStoreSequence = () => {
+  const envStores = String(process.env.ORDER_REVIEW_STORE_SEQUENCE ?? '')
+    .split(/[,\n|]+/)
+    .map((store) => store.trim())
+    .filter(Boolean);
+  const sourceStores =
+    envStores.length > 0
+      ? envStores
+      : (db
+          .prepare('SELECT store_name FROM stores ORDER BY store_name ASC')
+          .all() as Array<{ store_name: string }>)
+          .map((store) => String(store.store_name ?? '').trim())
+          .filter(Boolean);
+  const stores = Array.from(new Set(sourceStores));
+  return stores.length > 0 ? stores : ['A', 'B', 'C', 'D', 'upp1', 'upp2', 'Convery'];
+};
+
+const getActiveOrderReviewSession = (channel: string, chatUserId: string) =>
+  db
+    .prepare(
+      `SELECT * FROM order_review_sessions
+       WHERE channel = ? AND chat_user_id = ? AND status IN ('collecting', 'processing')
+       ORDER BY id DESC
+       LIMIT 1`
+    )
+    .get(channel, chatUserId) as OrderReviewSessionRecord | undefined;
+
+const getOrderReviewSessionById = (sessionId: number) =>
+  db
+    .prepare('SELECT * FROM order_review_sessions WHERE id = ? LIMIT 1')
+    .get(sessionId) as OrderReviewSessionRecord | undefined;
+
+const getOrderReviewSessionStores = (session: OrderReviewSessionRecord) =>
+  parseJsonOr<string[]>(session.store_sequence_json, []);
+
+const getOrderReviewSessionPayload = (session: OrderReviewSessionRecord) =>
+  parseJsonOr<OrderReviewPayload>(session.batch_payload_json, { stores: [] });
+
+const createOrderReviewSession = (channel: string, chatUserId: string) => {
+  db.prepare(
+    `UPDATE order_review_sessions
+     SET status = 'cancelled', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+     WHERE channel = ? AND chat_user_id = ? AND status IN ('collecting', 'processing')`
+  ).run(channel, chatUserId);
+
+  const storeSequence = getOrderReviewStoreSequence();
+  const result = db
+    .prepare(
+      `INSERT INTO order_review_sessions (
+         channel, chat_user_id, status, current_store_index, store_sequence_json, batch_payload_json,
+         created_at, updated_at
+       )
+       VALUES (?, ?, 'collecting', 0, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+    )
+    .run(channel, chatUserId, JSON.stringify(storeSequence), JSON.stringify({ stores: [] }));
+
+  return getOrderReviewSessionById(Number(result.lastInsertRowid));
+};
+
+const buildOrderReviewStartReply = (): ChatAutomationReply => ({
+  text: [
+    'Order Review & Verification',
+    '',
+    'Press Start Review to begin checking stores one by one.',
+    '',
+    'The bot will ask for each store, then analyze all orders and find customers with multiple orders.',
+  ].join('\n'),
+  reply_markup: {
+    inline_keyboard: [[{ text: 'Start Review', callback_data: 'review:start' }]],
+  },
+});
+
+const buildOrderReviewStorePrompt = (
+  session: OrderReviewSessionRecord,
+  prefix = ''
+): ChatAutomationReply => {
+  const stores = getOrderReviewSessionStores(session);
+  const storeName = stores[session.current_store_index] || 'this store';
+  const text = [
+    prefix,
+    `Please send the orders currently in Store ${storeName}.`,
+    '',
+    'Send all order numbers in one message, one order per line.',
+    '',
+    'Example:',
+    '256580',
+    '255560',
+    '260555',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  return {
+    text,
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: `Skip ${storeName}`, callback_data: `review:skip:${session.id}` },
+          { text: 'Cancel', callback_data: `review:cancel:${session.id}` },
+        ],
+      ],
+    },
+  };
+};
+
+const extractOrderReviewOrderNumbers = (text: string) => {
+  const matches = String(text ?? '').match(/[A-Za-z]?\d{3,10}/g) ?? [];
+  return Array.from(new Set(matches.map(normalizePosReference).filter(Boolean)));
+};
+
+const isOrderReviewEmptyText = (text: string) => /^(empty|none|no orders|skip|فارغ|مافي|لا يوجد)$/i.test(text.trim());
+
+const isOrderReviewCancelText = (text: string) => /^(cancel|stop|خروج|الغاء|إلغاء)$/i.test(text.trim());
+
+const updateOrderReviewSessionPayload = (
+  session: OrderReviewSessionRecord,
+  entry: OrderReviewStoreEntry,
+  nextIndex: number,
+  status: OrderReviewSessionRecord['status'] = 'collecting'
+) => {
+  const payload = getOrderReviewSessionPayload(session);
+  const stores = getOrderReviewSessionStores(session);
+  const currentStore = stores[session.current_store_index] || entry.store_name;
+  const nextStores = payload.stores.filter((store) => store.store_name !== currentStore);
+  nextStores.push(entry);
+  const updatedPayload: OrderReviewPayload = { stores: nextStores };
+  db.prepare(
+    `UPDATE order_review_sessions
+     SET batch_payload_json = ?,
+         current_store_index = ?,
+         status = ?,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`
+  ).run(JSON.stringify(updatedPayload), nextIndex, status, session.id);
+};
+
+const cancelOrderReviewSession = (session: OrderReviewSessionRecord) => {
+  db.prepare(
+    `UPDATE order_review_sessions
+     SET status = 'cancelled', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`
+  ).run(session.id);
+  return 'Review cancelled. No changes were made.';
+};
+
+const buildOrderReviewCustomerKeyboard = (
+  batchId: number,
+  groups: Array<{ phone: string; customer_name: string; orders: OrderReviewProcessedItem[] }>
+): TelegramInlineKeyboardMarkup | undefined => {
+  const rows = groups.slice(0, 8).map((group) => [
+    {
+      text: `Open ${group.phone} (${group.orders.length})`,
+      callback_data: `reviewcust:${batchId}:${normalizePosConnectPhone(group.phone)}`,
+    },
+  ]);
+  return rows.length > 0 ? { inline_keyboard: rows } : undefined;
+};
+
+const formatOrderReviewCustomerGroup = (group: {
+  phone: string;
+  customer_name: string;
+  orders: OrderReviewProcessedItem[];
+}) =>
+  [
+    `Customer Phone: ${group.phone}`,
+    `Customer Name: ${group.customer_name || '-'}`,
+    `Orders found: ${group.orders.length}`,
+    '',
+    ...group.orders.map(
+      (order, index) =>
+        `${index + 1}. ${order.order_no}\n` +
+        `   Store: ${order.store_name}\n` +
+        `   Status: ${order.order_status || '-'}\n` +
+        `   Balance: AED ${Number(order.balance ?? 0).toFixed(2)}\n` +
+        `   Remark: ${order.remark || '-'}`
+    ),
+    '',
+    'Action Required:',
+    'Collect these orders into one store or one hanger before customer pickup.',
+  ].join('\n');
+
+const getOrderReviewDuplicateGroups = (batchId: number) => {
+  const rows = db
+    .prepare(
+      `SELECT *
+       FROM order_review_items
+       WHERE batch_id = ? AND COALESCE(customer_phone, '') <> '' AND COALESCE(error_message, '') = ''
+       ORDER BY customer_phone ASC, store_name ASC, order_no ASC`
+    )
+    .all(batchId) as OrderReviewProcessedItem[];
+  const byPhone = new Map<string, OrderReviewProcessedItem[]>();
+  for (const row of rows) {
+    const phone = normalizePosConnectPhone(row.customer_phone);
+    if (phone.length < 5) continue;
+    const existing = byPhone.get(phone) ?? [];
+    existing.push({ ...row, customer_phone: phone });
+    byPhone.set(phone, existing);
+  }
+
+  return Array.from(byPhone.entries())
+    .filter(([, orders]) => orders.length > 1)
+    .map(([phone, orders]) => ({
+      phone,
+      customer_name: orders.find((order) => order.customer_name)?.customer_name || '',
+      orders,
+    }))
+    .sort((a, b) => b.orders.length - a.orders.length || a.phone.localeCompare(b.phone));
+};
+
+const formatOrderReviewResult = (params: {
+  batchId: number;
+  checkedOrders: number;
+  storeCount: number;
+  failedOrders: number;
+}): ChatAutomationReply => {
+  const groups = getOrderReviewDuplicateGroups(params.batchId);
+  if (groups.length === 0) {
+    return {
+      text: [
+        'Review completed.',
+        `Checked orders: ${params.checkedOrders}`,
+        `Stores reviewed: ${params.storeCount}`,
+        params.failedOrders > 0 ? `Orders with lookup warnings: ${params.failedOrders}` : '',
+        '',
+        'No customers with multiple orders were found in the submitted stores.',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    };
+  }
+
+  return {
+    text: [
+      'Review completed.',
+      `Checked orders: ${params.checkedOrders}`,
+      `Stores reviewed: ${params.storeCount}`,
+      params.failedOrders > 0 ? `Orders with lookup warnings: ${params.failedOrders}` : '',
+      '',
+      `Found ${groups.length} customer(s) with multiple orders.`,
+      'Tap a customer button below to open the full details.',
+      '',
+      ...groups
+        .slice(0, 8)
+        .map(
+          (group, index) =>
+            `${index + 1}. ${group.phone} | ${group.orders.length} orders | ${group.customer_name || '-'}`
+        ),
+    ]
+      .filter(Boolean)
+      .join('\n'),
+    reply_markup: buildOrderReviewCustomerKeyboard(params.batchId, groups),
+  };
+};
+
+const processOrderReviewSession = async (sessionId: number): Promise<ChatAutomationReply> => {
+  const session = getOrderReviewSessionById(sessionId);
+  if (!session) return { text: 'Review session was not found.' };
+  const payload = getOrderReviewSessionPayload(session);
+  const submittedOrders = payload.stores.flatMap((store) =>
+    store.orders.map((orderNo) => ({ store_name: store.store_name, order_no: orderNo }))
+  );
+  const deduped = Array.from(
+    new Map(submittedOrders.map((order) => [`${order.store_name}:${order.order_no}`, order])).values()
+  );
+
+  const chatUser = getChatUser(session.channel, session.chat_user_id);
+  const batchResult = db
+    .prepare(
+      `INSERT INTO order_review_batches (
+         channel, chat_user_id, submitted_by, submitted_text, status, created_at
+       )
+       VALUES (?, ?, ?, ?, 'processing', CURRENT_TIMESTAMP)`
+    )
+    .run(
+      session.channel,
+      session.chat_user_id,
+      chatUser?.pos_username || chatUser?.display_name || session.chat_user_id,
+      JSON.stringify(payload)
+    );
+  const batchId = Number(batchResult.lastInsertRowid);
+  db.prepare('UPDATE order_review_sessions SET batch_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(
+    batchId,
+    session.id
+  );
+
+  const processedItems: OrderReviewProcessedItem[] = [];
+  const chunkSize = 4;
+  for (let index = 0; index < deduped.length; index += chunkSize) {
+    const chunk = deduped.slice(index, index + chunkSize);
+    const chunkResults = await Promise.all(
+      chunk.map(async (item): Promise<OrderReviewProcessedItem> => {
+        try {
+          const order = await lookupChatOrder(item.order_no);
+          if (!order) {
+            return {
+              store_name: item.store_name,
+              order_no: item.order_no,
+              customer_name: '',
+              customer_phone: '',
+              order_status: '',
+              balance: 0,
+              remark: '',
+              error_message: 'Order details could not be loaded.',
+            };
+          }
+          return {
+            store_name: item.store_name,
+            order_no: order.order_no || item.order_no,
+            customer_name: order.customer_name || '',
+            customer_phone: normalizePosConnectPhone(order.customer_phone),
+            order_status: order.order_status || '',
+            balance: Number(order.balance ?? 0) || 0,
+            remark: order.remark || '',
+          };
+        } catch (error: any) {
+          return {
+            store_name: item.store_name,
+            order_no: item.order_no,
+            customer_name: '',
+            customer_phone: '',
+            order_status: '',
+            balance: 0,
+            remark: '',
+            error_message: String(error?.message || 'POS lookup failed.'),
+          };
+        }
+      })
+    );
+    processedItems.push(...chunkResults);
+  }
+
+  const insertItem = db.prepare(
+    `INSERT INTO order_review_items (
+       batch_id, store_name, order_no, customer_name, customer_phone, order_status, balance, remark, error_message
+     )
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  const insertMany = db.transaction((items: OrderReviewProcessedItem[]) => {
+    for (const item of items) {
+      insertItem.run(
+        batchId,
+        item.store_name,
+        item.order_no,
+        item.customer_name,
+        item.customer_phone,
+        item.order_status,
+        item.balance,
+        item.remark,
+        item.error_message ?? null
+      );
+    }
+  });
+  insertMany(processedItems);
+
+  const groups = getOrderReviewDuplicateGroups(batchId);
+  db.prepare(
+    `UPDATE order_review_batches
+     SET duplicate_groups_count = ?, status = 'completed', completed_at = CURRENT_TIMESTAMP
+     WHERE id = ?`
+  ).run(groups.length, batchId);
+  db.prepare(
+    `UPDATE order_review_sessions
+     SET status = 'completed', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`
+  ).run(session.id);
+
+  return formatOrderReviewResult({
+    batchId,
+    checkedOrders: processedItems.length,
+    storeCount: payload.stores.length,
+    failedOrders: processedItems.filter((item) => item.error_message).length,
+  });
+};
+
+const finishOrderReviewCollection = (session: OrderReviewSessionRecord) => {
+  db.prepare("UPDATE order_review_sessions SET status = 'processing', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(
+    session.id
+  );
+  return [
+    'All stores received.',
+    '',
+    'Processing now. This may take some time because POS details must be loaded for every order.',
+    '',
+    'The result will be sent shortly.',
+  ].join('\n');
+};
+
+const submitOrderReviewStore = (
+  session: OrderReviewSessionRecord,
+  orders: string[],
+  options?: { skipped?: boolean }
+) => {
+  const stores = getOrderReviewSessionStores(session);
+  const storeName = stores[session.current_store_index] || `Store ${session.current_store_index + 1}`;
+  const nextIndex = session.current_store_index + 1;
+  const isLastStore = nextIndex >= stores.length;
+  updateOrderReviewSessionPayload(
+    session,
+    { store_name: storeName, orders, skipped: options?.skipped || orders.length === 0 },
+    nextIndex,
+    isLastStore ? 'processing' : 'collecting'
+  );
+
+  const updatedSession = getOrderReviewSessionById(session.id) ?? session;
+  if (isLastStore) {
+    return {
+      completed: true,
+      reply: finishOrderReviewCollection(updatedSession),
+    };
+  }
+
+  const nextStore = stores[nextIndex] || `Store ${nextIndex + 1}`;
+  const prefix = options?.skipped
+    ? `Skipped ${storeName}.\n`
+    : `Received ${orders.length} order(s) for Store ${storeName}.\n`;
+  return {
+    completed: false,
+    reply: buildOrderReviewStorePrompt(updatedSession, `${prefix}\nNext store: ${nextStore}`),
+  };
 };
 
 const hydrateChatPreviewOrder = async (
@@ -5860,6 +6401,55 @@ const handleChatAutomationMessage = async (params: {
     unlinkChatUser(params.channel, params.chat_user_id);
     return 'Telegram has been unlinked from the POS account.';
   }
+  if (parsed.intent === 'order_review') {
+    const activeSession = getActiveOrderReviewSession(params.channel, params.chat_user_id);
+    if (activeSession?.status === 'collecting') {
+      return buildOrderReviewStorePrompt(activeSession, 'A review is already in progress.');
+    }
+    if (activeSession?.status === 'processing') {
+      return 'A review is already processing. The result will be sent shortly.';
+    }
+    return buildOrderReviewStartReply();
+  }
+
+  const activeReviewSession = getActiveOrderReviewSession(params.channel, params.chat_user_id);
+  if (activeReviewSession) {
+    if (activeReviewSession.status === 'processing') {
+      return 'A review is currently processing. The result will be sent shortly.';
+    }
+    if (isOrderReviewCancelText(params.text)) {
+      return cancelOrderReviewSession(activeReviewSession);
+    }
+
+    const submission = isOrderReviewEmptyText(params.text)
+      ? submitOrderReviewStore(activeReviewSession, [], { skipped: true })
+      : (() => {
+          const orders = extractOrderReviewOrderNumbers(params.text);
+          if (orders.length === 0) {
+            return {
+              completed: false,
+              reply: buildOrderReviewStorePrompt(
+                activeReviewSession,
+                'No order numbers were detected. Please send order numbers only, or type empty to skip this store.'
+              ),
+            };
+          }
+          return submitOrderReviewStore(activeReviewSession, orders);
+        })();
+
+    if (submission.completed) {
+      void processOrderReviewSession(activeReviewSession.id)
+        .then((finalReply) => sendTelegramMessage(params.chat_user_id, finalReply))
+        .catch((error: any) =>
+          sendTelegramMessage(
+            params.chat_user_id,
+            `Order review processing failed.\n${String(error?.message || 'Unknown error')}`
+          ).catch(() => null)
+        );
+    }
+    return submission.reply;
+  }
+
   if (parsed.intent === 'unknown') {
     return `I did not understand that yet.\n\n${CHAT_HELP_TEXT}`;
   }
@@ -5932,6 +6522,58 @@ const handleChatAutomationCallback = async (params: {
     order_no: orderNo || undefined,
     status: 'received',
   });
+
+  if (action === 'review') {
+    const parts = data.split(':');
+    const reviewAction = parts[1] || '';
+    if (reviewAction === 'start') {
+      const session = createOrderReviewSession(params.channel, params.chat_user_id);
+      return session
+        ? buildOrderReviewStorePrompt(session)
+        : 'Could not start the order review session. Please try again.';
+    }
+
+    const sessionId = Number(parts[2] ?? 0);
+    const session = Number.isFinite(sessionId) && sessionId > 0 ? getOrderReviewSessionById(sessionId) : null;
+    if (!session || session.channel !== params.channel || session.chat_user_id !== params.chat_user_id) {
+      return 'Review session was not found. Please start a new review.';
+    }
+    if (session.status === 'processing') return 'This review is already processing. The result will be sent shortly.';
+    if (session.status !== 'collecting') return 'This review session is already closed. Please start a new review.';
+
+    if (reviewAction === 'cancel') {
+      return cancelOrderReviewSession(session);
+    }
+    if (reviewAction === 'skip') {
+      const submission = submitOrderReviewStore(session, [], { skipped: true });
+      if (submission.completed) {
+        void processOrderReviewSession(session.id)
+          .then((finalReply) => sendTelegramMessage(params.chat_user_id, finalReply))
+          .catch((error: any) =>
+            sendTelegramMessage(
+              params.chat_user_id,
+              `Order review processing failed.\n${String(error?.message || 'Unknown error')}`
+            ).catch(() => null)
+          );
+      }
+      return submission.reply;
+    }
+
+    return 'This review button is not supported. Please start again.';
+  }
+
+  if (action === 'reviewcust') {
+    const parts = data.split(':');
+    const batchId = Number(parts[1] ?? 0);
+    const phone = normalizePosConnectPhone(parts[2] ?? '');
+    if (!Number.isFinite(batchId) || batchId <= 0 || phone.length < 5) {
+      return 'Customer review details could not be opened.';
+    }
+    const groups = getOrderReviewDuplicateGroups(batchId);
+    const group = groups.find((candidate) => normalizePosConnectPhone(candidate.phone) === phone);
+    if (!group) return 'This customer group is no longer available.';
+    return formatOrderReviewCustomerGroup(group);
+  }
 
   if (!orderNo) return 'Button data is missing an order number.';
 
@@ -10662,6 +11304,7 @@ async function startServer() {
         'login USERNAME PASSWORD',
         'whoami',
         'logout',
+        'review',
         'Z63588',
         '0504635888',
         'search Z63588',

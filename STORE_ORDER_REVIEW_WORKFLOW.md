@@ -423,3 +423,41 @@ The employee can paste the current content of multiple stores, click sync, and i
 - Where each order currently is.
 - Whether any order has balance or special remark.
 - Which orders should be collected into one place before pickup.
+
+## Implementation Status
+
+Telegram guided review has been implemented in the existing bot.
+
+Current supported flow:
+
+1. Employee sends:
+
+```text
+review
+```
+
+2. Bot shows:
+
+```text
+[Start Review]
+```
+
+3. Bot asks for each store from the Smart Hub `stores` table.
+4. Employee sends all order numbers for the current store in one message.
+5. Employee can use `Skip Store` or `Cancel`.
+6. After the last store, bot replies:
+
+```text
+Processing now. This may take some time because POS details must be loaded for every order.
+The result will be sent shortly.
+```
+
+7. Bot sends the final duplicate-phone review result with customer buttons.
+
+Optional environment override:
+
+```bash
+ORDER_REVIEW_STORE_SEQUENCE=A,B,C,D,upp1,upp2,Convery
+```
+
+If this variable is not set, the bot loads store names dynamically from the `stores` table.
