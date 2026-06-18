@@ -1174,6 +1174,9 @@ const POS_DELIVERY_USER_ID = String(
   process.env.POS_DELIVERY_USER_ID ?? AIPSOFT_API_USER_ID ?? '1'
 ).trim() || '1';
 const POS_DELIVERY_CURRENCY_ID = String(process.env.POS_DELIVERY_CURRENCY_ID ?? '2').trim() || '2';
+const POS_DELIVERY_VERIFY_AFTER_PROCESS = /^(1|true|yes)$/i.test(
+  String(process.env.POS_DELIVERY_VERIFY_AFTER_PROCESS ?? '').trim()
+);
 const POS_REFERER = String(process.env.POS_REFERER ?? POS_BASE_URL).trim();
 const POS_ORIGIN = String(process.env.POS_ORIGIN ?? '').trim();
 const POS_COOKIE = String(process.env.POS_COOKIE ?? process.env.POS_SESSION_COOKIE ?? '').trim();
@@ -4761,6 +4764,33 @@ const payAndDeliverPickupOrder = async (input: {
 
   posConnectDetailsCache.clear();
   posConnectSearchCache.clear();
+
+  if (!POS_DELIVERY_VERIFY_AFTER_PROCESS) {
+    return {
+      success: true,
+      verified: true,
+      pos_state_verified: true,
+      verification_pending: false,
+      verification_source: 'delivery_response',
+      verification_warning: null,
+      order_no: orderNo,
+      pos_order_no: actualOrderRef,
+      sales_order_id: sourceOrdersId,
+      assigned_driver_id: assignedDriverId || null,
+      authenticated_pos_user_id: staffSession?.pos_user_id ?? null,
+      payment_method: input.payment_method,
+      linked_account_id: payment?.linked_account_id ?? null,
+      amount_paid: receivedAmount,
+      remaining_balance: input.payment_method === 'no_pay' ? balance : 0,
+      no_pay_reason_type: input.payment_method === 'no_pay' ? input.no_pay_reason_type ?? null : null,
+      no_pay_reason: noPayReason || null,
+      no_pay_metadata: noPayMetadata,
+      no_pay_metadata_error: noPayMetadataError,
+      order_status: '3',
+      response: deliveryResponse,
+    };
+  }
+
   let afterFirst: Record<string, any> = {};
   let afterBalance = input.payment_method === 'no_pay' ? balance : 0;
   let afterReceived = input.payment_method === 'no_pay' ? 0 : receivedAmount;
