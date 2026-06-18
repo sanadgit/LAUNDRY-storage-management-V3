@@ -129,7 +129,152 @@ Page sections:
 
 ## Telegram Version
 
-The employee can send:
+Telegram should support two input modes:
+
+1. Guided step-by-step mode.
+2. One-message paste mode.
+
+### Guided Telegram Flow
+
+The guided mode is better for daily store checking because the bot walks with the employee store by store.
+
+The bot starts with a ready button:
+
+```text
+Order Review & Verification
+
+Press Start to begin checking stores.
+
+[Start Review]
+```
+
+After the employee taps `Start Review`, the bot asks for the first store:
+
+```text
+Please send the orders currently in Store A.
+
+Send all order numbers in one message, one order per line.
+
+Example:
+256580
+255560
+260555
+
+[Skip Store A] [Cancel]
+```
+
+Employee sends:
+
+```text
+256580
+255560
+260555
+```
+
+The bot saves these orders under `Store A`, then asks for the next store:
+
+```text
+Received 3 orders for Store A.
+
+Please send the orders currently in Store B.
+
+Send all order numbers in one message, one order per line.
+
+[Skip Store B] [Cancel]
+```
+
+Then the same process continues:
+
+```text
+Please send the orders currently in Store C.
+```
+
+```text
+Please send the orders currently in Store D.
+```
+
+```text
+Please send the orders currently in Store upp1.
+```
+
+```text
+Please send the orders currently in Store upp2.
+```
+
+```text
+Please send the orders currently in Store Convery.
+```
+
+The store list should be dynamic. The workflow should load store names from Smart Storage Hub, then ask the employee in order.
+
+Example store sequence:
+
+```text
+A
+B
+C
+D
+upp1
+upp2
+Convery
+```
+
+If the system has more stores, they should be added automatically to the guided flow.
+
+### Finishing Guided Mode
+
+After the last store is submitted, the bot sends:
+
+```text
+All stores received.
+
+Processing now. This may take some time because POS details must be loaded for every order.
+
+The result will be sent shortly.
+```
+
+Then the bot starts processing:
+
+1. Parse all submitted order numbers.
+2. Remove duplicate order numbers inside the same review batch.
+3. Fetch POS details for each order.
+4. Group orders by customer phone.
+5. Filter only customers with two or more orders.
+6. Send the final review result.
+
+### Empty Store
+
+If a store has no orders, the employee can tap:
+
+```text
+[Skip Store A]
+```
+
+Or send:
+
+```text
+empty
+```
+
+The bot records the store as checked with zero orders and moves to the next store.
+
+### Cancel
+
+At any point:
+
+```text
+[Cancel]
+```
+
+The bot stops the review and discards the current batch:
+
+```text
+Review cancelled. No changes were made.
+```
+
+### One-Message Paste Mode
+
+The employee can also send:
 
 ```text
 review
@@ -138,7 +283,7 @@ FA: M63510, Z63591
 Hanger-3: R77210, Z63592
 ```
 
-Bot response:
+Bot response after processing:
 
 ```text
 Review completed.
@@ -188,6 +333,59 @@ CREATE TABLE order_review_items (
   remark TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE order_review_sessions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  channel TEXT NOT NULL,
+  chat_user_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'collecting',
+  current_store_index INTEGER DEFAULT 0,
+  store_sequence_json TEXT NOT NULL,
+  batch_payload_json TEXT NOT NULL DEFAULT '{}',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  completed_at DATETIME
+);
+```
+
+`order_review_sessions` stores the active Telegram step-by-step conversation:
+
+- Which store the employee is currently entering.
+- Which stores were already submitted.
+- Which stores were skipped.
+- The raw order numbers before POS sync.
+- Whether the workflow is `collecting`, `processing`, `completed`, or `cancelled`.
+
+## Telegram State Machine
+
+```text
+idle
+  |
+  | Start Review
+  v
+collecting_store_orders
+  |
+  | employee sends order list / skip
+  v
+next_store
+  |
+  | more stores
+  v
+collecting_store_orders
+  |
+  | last store received
+  v
+processing
+  |
+  | POS sync completed
+  v
+completed
+```
+
+If the employee sends `cancel` or taps `Cancel`, the session moves to:
+
+```text
+cancelled
 ```
 
 ## Rules
