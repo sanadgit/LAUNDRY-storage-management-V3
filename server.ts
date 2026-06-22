@@ -630,6 +630,9 @@ db.exec(`
     submitted_by TEXT,
     submitted_text TEXT NOT NULL DEFAULT '',
     duplicate_groups_count INTEGER DEFAULT 0,
+    total_orders INTEGER DEFAULT 0,
+    processed_orders INTEGER DEFAULT 0,
+    failed_orders INTEGER DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'created',
     error_message TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -978,6 +981,9 @@ ensureColumn('order_review_batches', 'chat_user_id', 'TEXT');
 ensureColumn('order_review_batches', 'submitted_by', 'TEXT');
 ensureColumn('order_review_batches', 'submitted_text', "TEXT DEFAULT ''");
 ensureColumn('order_review_batches', 'duplicate_groups_count', 'INTEGER DEFAULT 0');
+ensureColumn('order_review_batches', 'total_orders', 'INTEGER DEFAULT 0');
+ensureColumn('order_review_batches', 'processed_orders', 'INTEGER DEFAULT 0');
+ensureColumn('order_review_batches', 'failed_orders', 'INTEGER DEFAULT 0');
 ensureColumn('order_review_batches', 'status', "TEXT DEFAULT 'created'");
 ensureColumn('order_review_batches', 'error_message', 'TEXT');
 ensureColumn('order_review_batches', 'created_at', 'DATETIME');
@@ -6146,18 +6152,21 @@ const createOrderReviewBatch = (params: {
   chatUserId?: string;
   submittedBy: string;
 }) => {
+  const totalOrders = new Set(params.payload.stores.flatMap((store) => store.orders)).size;
   const result = db
     .prepare(
       `INSERT INTO order_review_batches (
-         channel, chat_user_id, submitted_by, submitted_text, status, created_at
+         channel, chat_user_id, submitted_by, submitted_text, total_orders, processed_orders,
+         failed_orders, status, created_at
        )
-       VALUES (?, ?, ?, ?, 'processing', CURRENT_TIMESTAMP)`
+       VALUES (?, ?, ?, ?, ?, 0, 0, 'processing', CURRENT_TIMESTAMP)`
     )
     .run(
       params.channel,
       params.chatUserId ?? null,
       params.submittedBy,
-      JSON.stringify(params.payload)
+      JSON.stringify(params.payload),
+      totalOrders
     );
   return Number(result.lastInsertRowid);
 };
@@ -6182,13 +6191,37 @@ const processOrderReviewPayload = async (params: {
   const batchId = params.batchId ?? createOrderReviewBatch(params);
 
   const processedItems: OrderReviewProcessedItem[] = [];
-  const chunkSize = 4;
+  const insertItem = db.prepare(
+    `INSERT INTO order_review_items (
+       batch_id, store_name, order_no, customer_name, customer_phone, order_status, balance, remark, error_message
+     )
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  const insertMany = db.transaction((items: OrderReviewProcessedItem[]) => {
+    for (const item of items) {
+      insertItem.run(
+        batchId,
+        item.store_name,
+        item.order_no,
+        item.customer_name,
+        item.customer_phone,
+        item.order_status,
+        item.balance,
+        item.remark,
+        item.error_message ?? null
+      );
+    }
+  });
+  const chunkSize = Math.max(
+    1,
+    Math.min(12, Number(process.env.ORDER_REVIEW_CONCURRENCY ?? 8) || 8)
+  );
   for (let index = 0; index < deduped.length; index += chunkSize) {
     const chunk = deduped.slice(index, index + chunkSize);
     const chunkResults = await Promise.all(
       chunk.map(async (item): Promise<OrderReviewProcessedItem> => {
         try {
-          const order = await lookupChatOrder(item.order_no);
+          const order = await lookupChatOrder(item.order_no, { fastOnly: true });
           if (!order) {
             return {
               store_name: item.store_name,
@@ -6225,37 +6258,30 @@ const processOrderReviewPayload = async (params: {
       })
     );
     processedItems.push(...chunkResults);
+    insertMany(chunkResults);
+    db.prepare(
+      `UPDATE order_review_batches
+       SET processed_orders = ?, failed_orders = ?
+       WHERE id = ?`
+    ).run(
+      processedItems.length,
+      processedItems.filter((item) => item.error_message).length,
+      batchId
+    );
   }
-
-  const insertItem = db.prepare(
-    `INSERT INTO order_review_items (
-       batch_id, store_name, order_no, customer_name, customer_phone, order_status, balance, remark, error_message
-     )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  );
-  const insertMany = db.transaction((items: OrderReviewProcessedItem[]) => {
-    for (const item of items) {
-      insertItem.run(
-        batchId,
-        item.store_name,
-        item.order_no,
-        item.customer_name,
-        item.customer_phone,
-        item.order_status,
-        item.balance,
-        item.remark,
-        item.error_message ?? null
-      );
-    }
-  });
-  insertMany(processedItems);
 
   const groups = getOrderReviewDuplicateGroups(batchId);
   db.prepare(
     `UPDATE order_review_batches
-     SET duplicate_groups_count = ?, status = 'completed', completed_at = CURRENT_TIMESTAMP
+     SET duplicate_groups_count = ?, processed_orders = ?, failed_orders = ?,
+         status = 'completed', completed_at = CURRENT_TIMESTAMP
      WHERE id = ?`
-  ).run(groups.length, batchId);
+  ).run(
+    groups.length,
+    processedItems.length,
+    processedItems.filter((item) => item.error_message).length,
+    batchId
+  );
 
   return {
     batch_id: batchId,
@@ -6364,7 +6390,10 @@ const hydrateChatPreviewOrder = async (
   return hydratePickupSearchOrder(preview, details, detailsError, fallbackOrderNo || preview.order_no);
 };
 
-const lookupChatOrder = async (query: string): Promise<PickupSearchOrder | null> => {
+const lookupChatOrder = async (
+  query: string,
+  options?: { fastOnly?: boolean }
+): Promise<PickupSearchOrder | null> => {
   const cleanedQuery = String(query ?? '').trim();
   if (!cleanedQuery) return null;
   const branchReference = parsePickupBranchReference(cleanedQuery);
@@ -6373,6 +6402,30 @@ const lookupChatOrder = async (query: string): Promise<PickupSearchOrder | null>
 
   const packingDetails = await tryFetchPosOrderDetailsViaPackingSearch(cleanedQuery);
   if (packingDetails) return hydratePickupSearchOrder(null, packingDetails, '', cleanedQuery);
+
+  if (options?.fastOnly) {
+    const normalizedReference = normalizePosReference(orderLookupQuery);
+    for (const candidateQuery of searchQueries) {
+      try {
+        const search = await fetchCachedPosConnectSearch(
+          candidateQuery,
+          branchReference ? { branch_id: branchReference.branch_id } : undefined
+        );
+        const preview = (search.orders ?? []).find((candidate) =>
+          branchReference
+            ? posPreviewMatchesBranchReference(candidate, branchReference)
+            : [candidate.order_no, candidate.invoice_no].some(
+                (value) => normalizePosReference(value) === normalizedReference
+              )
+        );
+        if (preview) return hydrateChatPreviewOrder(preview, cleanedQuery);
+      } catch {
+        // Try the next direct query shape.
+      }
+    }
+    const directDetails = await tryFetchPosConnectDetailsByDisplayedOrderNo(cleanedQuery, searchQueries, []);
+    return directDetails ? hydratePickupSearchOrder(null, directDetails, '', cleanedQuery) : null;
+  }
 
   try {
     const preview = await resolvePosConnectPreviewByDisplayedOrderNo(orderLookupQuery, {
@@ -14838,11 +14891,20 @@ async function startServer() {
           status: string;
           error_message: string | null;
           submitted_text: string;
+          total_orders: number;
+          processed_orders: number;
+          failed_orders: number;
         }
       | undefined;
     if (!batch) return res.status(404).json({ error: 'Order review batch was not found.' });
     if (batch.status === 'processing' || batch.status === 'created') {
-      return res.json({ batch_id: batch.id, status: 'processing' });
+      return res.json({
+        batch_id: batch.id,
+        status: 'processing',
+        total_orders: Number(batch.total_orders ?? 0) || 0,
+        processed_orders: Number(batch.processed_orders ?? 0) || 0,
+        failed_orders: Number(batch.failed_orders ?? 0) || 0,
+      });
     }
     if (batch.status === 'failed') {
       return res.status(502).json({

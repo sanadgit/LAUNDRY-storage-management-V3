@@ -13,7 +13,7 @@ import {
   SkipForward,
   Users,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 type ReviewOrder = {
   store_name: string;
@@ -45,6 +45,9 @@ type ReviewResponse = {
 type ReviewStartResponse = {
   batch_id: number;
   status: 'processing';
+  total_orders?: number;
+  processed_orders?: number;
+  failed_orders?: number;
 };
 
 const parseOrderNumbers = (value: string) =>
@@ -75,10 +78,12 @@ export default function OrderReviewPage() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loadingStores, setLoadingStores] = useState(true);
   const [processing, setProcessing] = useState(false);
+  const [processingProgress, setProcessingProgress] = useState({ processed: 0, total: 0, failed: 0 });
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ReviewResponse | null>(null);
   const [filter, setFilter] = useState('');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const pollingControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,6 +110,13 @@ export default function OrderReviewPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(
+    () => () => {
+      pollingControllerRef.current?.abort();
+    },
+    []
+  );
 
   const currentStore = stores[currentIndex] ?? '';
   const currentDraft = drafts[currentStore] ?? '';
@@ -159,8 +171,12 @@ export default function OrderReviewPage() {
     }
 
     setProcessing(true);
+    setProcessingProgress({ processed: 0, total: totalOrders, failed: 0 });
     setError(null);
     setResult(null);
+    pollingControllerRef.current?.abort();
+    const controller = new AbortController();
+    pollingControllerRef.current = controller;
     try {
       const response = await axios.post<ReviewStartResponse>('/api/order-review/process', {
         stores: stores.map((store) => ({
@@ -168,29 +184,44 @@ export default function OrderReviewPage() {
           orders: ordersByStore[store],
           skipped: ordersByStore[store].length === 0,
         })),
-      });
+      }, { signal: controller.signal });
       const batchId = response.data.batch_id;
       let completed: ReviewResponse | null = null;
-      for (let attempt = 0; attempt < 400; attempt += 1) {
+      while (!controller.signal.aborted) {
         await new Promise((resolve) => window.setTimeout(resolve, 1500));
         const batchResponse = await axios.get<ReviewResponse | ReviewStartResponse>(
-          `/api/order-review/batches/${batchId}`
+          `/api/order-review/batches/${batchId}`,
+          { signal: controller.signal }
         );
         if (batchResponse.data.status === 'completed') {
           completed = batchResponse.data as ReviewResponse;
           break;
         }
+        const progress = batchResponse.data as ReviewStartResponse;
+        setProcessingProgress({
+          processed: Number(progress.processed_orders ?? 0),
+          total: Number(progress.total_orders ?? totalOrders),
+          failed: Number(progress.failed_orders ?? 0),
+        });
       }
-      if (!completed) throw new Error('Processing is taking longer than expected. Please try again shortly.');
+      if (!completed) return;
       setResult(completed);
     } catch (requestError: any) {
+      if (axios.isCancel(requestError)) return;
       setError(requestError?.response?.data?.error || requestError?.message || 'Order review failed.');
     } finally {
-      setProcessing(false);
+      if (pollingControllerRef.current === controller) {
+        pollingControllerRef.current = null;
+        setProcessing(false);
+      }
     }
   };
 
   const resetReview = () => {
+    pollingControllerRef.current?.abort();
+    pollingControllerRef.current = null;
+    setProcessing(false);
+    setProcessingProgress({ processed: 0, total: 0, failed: 0 });
     setDrafts(Object.fromEntries(stores.map((store) => [store, ''])));
     setReviewedStores(new Set());
     setCurrentIndex(0);
@@ -351,7 +382,7 @@ export default function OrderReviewPage() {
                   ['Orders entered', totalOrders],
                   ['Current store orders', currentOrders.length],
                   ['Duplicate customers', result?.duplicate_groups.length ?? '-'],
-                  ['Orders with warnings', result?.failed_orders ?? '-'],
+                  ['Orders with warnings', result?.failed_orders ?? (processing ? processingProgress.failed : '-')],
                 ].map(([label, value]) => (
                   <div key={String(label)} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
                     <dt className="font-semibold text-slate-600">{label}</dt>
@@ -384,6 +415,33 @@ export default function OrderReviewPage() {
             <p className="mt-1 text-sm font-semibold text-emerald-800">
               This may take some time while POS details are loaded for every order.
             </p>
+            <div className="mx-auto mt-5 max-w-xl">
+              <div className="flex items-center justify-between text-xs font-black uppercase tracking-wider text-emerald-800">
+                <span>{processingProgress.processed} of {processingProgress.total} orders</span>
+                <span>
+                  {processingProgress.total > 0
+                    ? Math.min(100, Math.round((processingProgress.processed / processingProgress.total) * 100))
+                    : 0}%
+                </span>
+              </div>
+              <div className="mt-2 h-3 overflow-hidden rounded-full bg-emerald-200">
+                <div
+                  className="h-full rounded-full bg-emerald-600 transition-[width] duration-500"
+                  style={{
+                    width: `${
+                      processingProgress.total > 0
+                        ? Math.min(100, (processingProgress.processed / processingProgress.total) * 100)
+                        : 0
+                    }%`,
+                  }}
+                />
+              </div>
+              {processingProgress.failed > 0 && (
+                <div className="mt-2 text-xs font-bold text-amber-800">
+                  {processingProgress.failed} order(s) currently have lookup warnings.
+                </div>
+              )}
+            </div>
           </section>
         )}
 

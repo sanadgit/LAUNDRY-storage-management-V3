@@ -446,9 +446,12 @@ Web page workflow:
 2. Employee enters all orders for the current store.
 3. Employee uses `Save & Next` or `Skip Store`.
 4. After every store is reviewed, `Start Processing` becomes available.
-5. The server loads POS details and groups orders by normalized customer phone.
-6. The page shows only customers with multiple unique orders.
-7. Each group displays customer name, phone, store, order status, balance, remark, and the required collection action.
+5. The server processes orders in background batches and reports live progress to the page.
+6. The page keeps polling until completion without a fixed 10-minute timeout.
+7. Missing or invalid orders use fast direct lookup and become warnings without triggering a deep POS page scan.
+8. The server loads POS details and groups orders by normalized customer phone.
+9. The page shows only customers with multiple unique orders.
+10. Each group displays customer name, phone, store, order status, balance, remark, and the required collection action.
 
 Current supported flow:
 
@@ -480,6 +483,7 @@ Optional environment override:
 
 ```bash
 ORDER_REVIEW_STORE_SEQUENCE=A,B,C,D,upp1,upp2,Convery
+ORDER_REVIEW_CONCURRENCY=8
 ```
 
 If this variable is not set, the bot loads store names dynamically from the `stores` table.
