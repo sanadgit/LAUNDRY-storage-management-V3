@@ -631,6 +631,7 @@ db.exec(`
     submitted_text TEXT NOT NULL DEFAULT '',
     duplicate_groups_count INTEGER DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'created',
+    error_message TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     completed_at DATETIME
   );
@@ -978,6 +979,7 @@ ensureColumn('order_review_batches', 'submitted_by', 'TEXT');
 ensureColumn('order_review_batches', 'submitted_text', "TEXT DEFAULT ''");
 ensureColumn('order_review_batches', 'duplicate_groups_count', 'INTEGER DEFAULT 0');
 ensureColumn('order_review_batches', 'status', "TEXT DEFAULT 'created'");
+ensureColumn('order_review_batches', 'error_message', 'TEXT');
 ensureColumn('order_review_batches', 'created_at', 'DATETIME');
 ensureColumn('order_review_batches', 'completed_at', 'DATETIME');
 ensureColumn('order_review_items', 'batch_id', 'INTEGER DEFAULT 0');
@@ -3155,6 +3157,101 @@ const postPosForm = async (
   }
 
   return responseBody;
+};
+
+const tryFetchPosOrderDetailsViaPackingSearch = async (
+  query: string,
+  attempts: PosConnectSearchAttempt[] = []
+) => {
+  if (!isLikelyPosConnectOrderNoQuery(query)) return null;
+  const normalizedQuery = normalizePosReference(query);
+  const branchReference = parsePickupBranchReference(query);
+  const prefixedMatch = normalizedQuery.match(/^([A-Z])(\d{3,10})$/);
+  const preChar = branchReference?.key ?? prefixedMatch?.[1] ?? '';
+  const mainText = branchReference?.numeric_reference ?? prefixedMatch?.[2] ?? normalizedQuery;
+  if (!mainText) return null;
+
+  const payload = new URLSearchParams();
+  payload.set('pre_char', preChar);
+  payload.set('main_txt', mainText);
+  payload.set(
+    'client_identifier',
+    getActivePosStaffSession()?.client_identifier || POS_LOGIN_CLIENT_IDENTIFIER
+  );
+
+  const label = `${preChar}${mainText} packing search`;
+  try {
+    const result = await postPosForm(
+      resolvePosPurchaseApiEndpoint('/packing_api/searchOrder'),
+      payload,
+      {
+        fallbackToGet: false,
+        referer: `${POS_PURCHASE_API_BASE_URL.replace(/\/+$/, '')}/packing`,
+      }
+    );
+    let response = result.parsed;
+    if (typeof response === 'string') {
+      try {
+        response = JSON.parse(response);
+      } catch {
+        response = null;
+      }
+    }
+    const status = Number(response?.status ?? 0);
+    const responseData = response?.data;
+    const resolvedId = String(
+      responseData && typeof responseData === 'object'
+        ? responseData.order_id ?? responseData.invoice_id ?? responseData.id ?? ''
+        : responseData ?? ''
+    ).trim();
+    if (![1, 2, 4].includes(status) || !resolvedId || resolvedId === '0') {
+      attempts.push({ query: label, records_total: 0, records_filtered: 0, parsed_orders: 0 });
+      return null;
+    }
+
+    const primaryShape =
+      status === 4
+        ? { order_id: resolvedId, s_order_id: '0' }
+        : { order_id: '0', s_order_id: resolvedId };
+    const alternateShape =
+      status === 4
+        ? { order_id: '0', s_order_id: resolvedId }
+        : { order_id: resolvedId, s_order_id: '0' };
+
+    for (const shape of [primaryShape, alternateShape]) {
+      try {
+        const details = await fetchCachedPosConnectDetails({
+          ...shape,
+          mode: '0',
+          open_type: 'preview',
+        });
+        const resolvedOrderNo = normalizePosReference(
+          details.general.order_no || details.general.searched_order_id
+        );
+        const normalizedMain = normalizePosReference(mainText);
+        const matchesRequestedOrder =
+          !resolvedOrderNo ||
+          resolvedOrderNo === normalizedQuery ||
+          resolvedOrderNo.endsWith(normalizedQuery) ||
+          resolvedOrderNo.endsWith(normalizedMain);
+        const hasUsefulDetails =
+          details.line_items.length > 0 ||
+          Boolean(details.general.customer_name || details.general.customer_mobile || details.general.grand_total);
+        if (matchesRequestedOrder && hasUsefulDetails) {
+          attempts.push({ query: label, records_total: 1, records_filtered: 1, parsed_orders: 1 });
+          return details;
+        }
+      } catch {
+        // Try the alternate POS identifier shape.
+      }
+    }
+
+    attempts.push({ query: label, records_total: 0, records_filtered: 0, parsed_orders: 0 });
+    return null;
+  } catch {
+    attempts.push({ query: label, records_total: 0, records_filtered: 0, parsed_orders: 0 });
+    return null;
+  }
 };
 
 const normalizeReportDateInput = (value: unknown, fallback: string) => {
@@ -5772,6 +5869,14 @@ type OrderReviewProcessedItem = {
   error_message?: string;
 };
 
+const normalizeOrderReviewPhone = (value: unknown) => {
+  let digits = normalizePosConnectPhone(value);
+  if (digits.startsWith('00971')) digits = digits.slice(2);
+  if (digits.startsWith('971') && digits.length >= 12) digits = `0${digits.slice(3)}`;
+  if (digits.startsWith('5') && digits.length === 9) digits = `0${digits}`;
+  return digits;
+};
+
 const parseJsonOr = <T,>(value: unknown, fallback: T): T => {
   try {
     const parsed = JSON.parse(String(value ?? ''));
@@ -5973,7 +6078,7 @@ const getOrderReviewDuplicateGroups = (batchId: number) => {
     .all(batchId) as OrderReviewProcessedItem[];
   const byPhone = new Map<string, OrderReviewProcessedItem[]>();
   for (const row of rows) {
-    const phone = normalizePosConnectPhone(row.customer_phone);
+    const phone = normalizeOrderReviewPhone(row.customer_phone);
     if (phone.length < 5) continue;
     const existing = byPhone.get(phone) ?? [];
     existing.push({ ...row, customer_phone: phone });
@@ -6035,19 +6140,13 @@ const formatOrderReviewResult = (params: {
   };
 };
 
-const processOrderReviewSession = async (sessionId: number): Promise<ChatAutomationReply> => {
-  const session = getOrderReviewSessionById(sessionId);
-  if (!session) return { text: 'Review session was not found.' };
-  const payload = getOrderReviewSessionPayload(session);
-  const submittedOrders = payload.stores.flatMap((store) =>
-    store.orders.map((orderNo) => ({ store_name: store.store_name, order_no: orderNo }))
-  );
-  const deduped = Array.from(
-    new Map(submittedOrders.map((order) => [`${order.store_name}:${order.order_no}`, order])).values()
-  );
-
-  const chatUser = getChatUser(session.channel, session.chat_user_id);
-  const batchResult = db
+const createOrderReviewBatch = (params: {
+  payload: OrderReviewPayload;
+  channel: string;
+  chatUserId?: string;
+  submittedBy: string;
+}) => {
+  const result = db
     .prepare(
       `INSERT INTO order_review_batches (
          channel, chat_user_id, submitted_by, submitted_text, status, created_at
@@ -6055,16 +6154,32 @@ const processOrderReviewSession = async (sessionId: number): Promise<ChatAutomat
        VALUES (?, ?, ?, ?, 'processing', CURRENT_TIMESTAMP)`
     )
     .run(
-      session.channel,
-      session.chat_user_id,
-      chatUser?.pos_username || chatUser?.display_name || session.chat_user_id,
-      JSON.stringify(payload)
+      params.channel,
+      params.chatUserId ?? null,
+      params.submittedBy,
+      JSON.stringify(params.payload)
     );
-  const batchId = Number(batchResult.lastInsertRowid);
-  db.prepare('UPDATE order_review_sessions SET batch_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(
-    batchId,
-    session.id
+  return Number(result.lastInsertRowid);
+};
+
+const processOrderReviewPayload = async (params: {
+  payload: OrderReviewPayload;
+  channel: string;
+  chatUserId?: string;
+  submittedBy: string;
+  batchId?: number;
+}) => {
+  const { payload } = params;
+  const submittedOrders = payload.stores.flatMap((store) =>
+    store.orders.map((orderNo) => ({ store_name: store.store_name, order_no: orderNo }))
   );
+  const uniqueOrderMap = new Map<string, { store_name: string; order_no: string }>();
+  for (const order of submittedOrders) {
+    if (!uniqueOrderMap.has(order.order_no)) uniqueOrderMap.set(order.order_no, order);
+  }
+  const deduped = Array.from(uniqueOrderMap.values());
+
+  const batchId = params.batchId ?? createOrderReviewBatch(params);
 
   const processedItems: OrderReviewProcessedItem[] = [];
   const chunkSize = 4;
@@ -6090,7 +6205,7 @@ const processOrderReviewSession = async (sessionId: number): Promise<ChatAutomat
             store_name: item.store_name,
             order_no: order.order_no || item.order_no,
             customer_name: order.customer_name || '',
-            customer_phone: normalizePosConnectPhone(order.customer_phone),
+            customer_phone: normalizeOrderReviewPhone(order.customer_phone),
             order_status: order.order_status || '',
             balance: Number(order.balance ?? 0) || 0,
             remark: order.remark || '',
@@ -6141,6 +6256,32 @@ const processOrderReviewSession = async (sessionId: number): Promise<ChatAutomat
      SET duplicate_groups_count = ?, status = 'completed', completed_at = CURRENT_TIMESTAMP
      WHERE id = ?`
   ).run(groups.length, batchId);
+
+  return {
+    batch_id: batchId,
+    checked_orders: processedItems.length,
+    stores_reviewed: payload.stores.length,
+    failed_orders: processedItems.filter((item) => item.error_message).length,
+    duplicate_groups: groups,
+    warnings: processedItems.filter((item) => item.error_message),
+  };
+};
+
+const processOrderReviewSession = async (sessionId: number): Promise<ChatAutomationReply> => {
+  const session = getOrderReviewSessionById(sessionId);
+  if (!session) return { text: 'Review session was not found.' };
+  const payload = getOrderReviewSessionPayload(session);
+  const chatUser = getChatUser(session.channel, session.chat_user_id);
+  const result = await processOrderReviewPayload({
+    payload,
+    channel: session.channel,
+    chatUserId: session.chat_user_id,
+    submittedBy: chatUser?.pos_username || chatUser?.display_name || session.chat_user_id,
+  });
+  db.prepare('UPDATE order_review_sessions SET batch_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(
+    result.batch_id,
+    session.id
+  );
   db.prepare(
     `UPDATE order_review_sessions
      SET status = 'completed', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
@@ -6148,10 +6289,10 @@ const processOrderReviewSession = async (sessionId: number): Promise<ChatAutomat
   ).run(session.id);
 
   return formatOrderReviewResult({
-    batchId,
-    checkedOrders: processedItems.length,
-    storeCount: payload.stores.length,
-    failedOrders: processedItems.filter((item) => item.error_message).length,
+    batchId: result.batch_id,
+    checkedOrders: result.checked_orders,
+    storeCount: result.stores_reviewed,
+    failedOrders: result.failed_orders,
   });
 };
 
@@ -6229,6 +6370,9 @@ const lookupChatOrder = async (query: string): Promise<PickupSearchOrder | null>
   const branchReference = parsePickupBranchReference(cleanedQuery);
   const orderLookupQuery = branchReference?.invoice_reference ?? cleanedQuery;
   const searchQueries = buildPosConnectSearchQueries(orderLookupQuery);
+
+  const packingDetails = await tryFetchPosOrderDetailsViaPackingSearch(cleanedQuery);
+  if (packingDetails) return hydratePickupSearchOrder(null, packingDetails, '', cleanedQuery);
 
   try {
     const preview = await resolvePosConnectPreviewByDisplayedOrderNo(orderLookupQuery, {
@@ -14620,6 +14764,122 @@ async function startServer() {
     };
   };
 
+  app.get('/api/order-review/stores', requirePicker, requirePosStaffSession, (_req, res) => {
+    res.json({ stores: getOrderReviewStoreSequence() });
+  });
+
+  app.post('/api/order-review/process', requirePicker, requirePosStaffSession, async (req: any, res) => {
+    try {
+      const rawStores = Array.isArray(req.body?.stores) ? req.body.stores : [];
+      if (rawStores.length === 0 || rawStores.length > 200) {
+        return res.status(400).json({ error: 'Provide between 1 and 200 stores.' });
+      }
+
+      const payload: OrderReviewPayload = {
+        stores: rawStores.map((rawStore: any) => {
+          const storeName = String(rawStore?.store_name ?? rawStore?.store ?? '').trim().slice(0, 120);
+          const rawOrders = Array.isArray(rawStore?.orders)
+            ? rawStore.orders
+            : extractOrderReviewOrderNumbers(String(rawStore?.orders ?? rawStore?.text ?? ''));
+          const orders = Array.from(
+            new Set(rawOrders.map((order: unknown) => normalizePosReference(order)).filter(Boolean))
+          ).slice(0, 500);
+          return {
+            store_name: storeName,
+            orders,
+            skipped: Boolean(rawStore?.skipped) || orders.length === 0,
+          };
+        }),
+      };
+
+      if (payload.stores.some((store) => !store.store_name)) {
+        return res.status(400).json({ error: 'Every store must have a name.' });
+      }
+      const totalOrders = payload.stores.reduce((sum, store) => sum + store.orders.length, 0);
+      if (totalOrders === 0) {
+        return res.status(400).json({ error: 'Add at least one order before processing.' });
+      }
+      if (totalOrders > 1000) {
+        return res.status(400).json({ error: 'A review can contain up to 1000 orders.' });
+      }
+
+      const auth = req.auth as SessionRecord | undefined;
+      const batchParams = {
+        payload,
+        channel: 'web',
+        submittedBy: auth?.username || 'system',
+      };
+      const batchId = createOrderReviewBatch(batchParams);
+      void processOrderReviewPayload({ ...batchParams, batchId }).catch((processingError: any) => {
+        console.error('Background order review processing failed:', processingError);
+        db.prepare(
+          `UPDATE order_review_batches
+           SET status = 'failed', error_message = ?, completed_at = CURRENT_TIMESTAMP
+           WHERE id = ?`
+        ).run(String(processingError?.message || 'Order review processing failed.'), batchId);
+      });
+      res.status(202).json({ batch_id: batchId, status: 'processing' });
+    } catch (error: any) {
+      console.error('Order review processing failed:', error);
+      res.status(502).json({ error: error?.message || 'Failed to process the order review.' });
+    }
+  });
+
+  app.get('/api/order-review/batches/:batchId', requirePicker, requirePosStaffSession, (req: any, res) => {
+    const batchId = Number(req.params.batchId ?? 0);
+    if (!Number.isFinite(batchId) || batchId <= 0) {
+      return res.status(400).json({ error: 'Invalid order review batch ID.' });
+    }
+    const batch = db
+      .prepare('SELECT * FROM order_review_batches WHERE id = ? AND channel = ? LIMIT 1')
+      .get(batchId, 'web') as
+      | {
+          id: number;
+          status: string;
+          error_message: string | null;
+          submitted_text: string;
+        }
+      | undefined;
+    if (!batch) return res.status(404).json({ error: 'Order review batch was not found.' });
+    if (batch.status === 'processing' || batch.status === 'created') {
+      return res.json({ batch_id: batch.id, status: 'processing' });
+    }
+    if (batch.status === 'failed') {
+      return res.status(502).json({
+        batch_id: batch.id,
+        status: 'failed',
+        error: batch.error_message || 'Order review processing failed.',
+      });
+    }
+
+    const counts = db
+      .prepare(
+        `SELECT COUNT(*) AS checked_orders,
+                SUM(CASE WHEN COALESCE(error_message, '') <> '' THEN 1 ELSE 0 END) AS failed_orders
+         FROM order_review_items
+         WHERE batch_id = ?`
+      )
+      .get(batch.id) as { checked_orders?: number; failed_orders?: number } | undefined;
+    const payload = parseJsonOr<OrderReviewPayload>(batch.submitted_text, { stores: [] });
+    const warnings = db
+      .prepare(
+        `SELECT store_name, order_no, customer_name, customer_phone, order_status, balance, remark, error_message
+         FROM order_review_items
+         WHERE batch_id = ? AND COALESCE(error_message, '') <> ''
+         ORDER BY store_name ASC, order_no ASC`
+      )
+      .all(batch.id) as OrderReviewProcessedItem[];
+    return res.json({
+      batch_id: batch.id,
+      status: 'completed',
+      checked_orders: Number(counts?.checked_orders ?? 0) || 0,
+      stores_reviewed: payload.stores.length,
+      failed_orders: Number(counts?.failed_orders ?? 0) || 0,
+      duplicate_groups: getOrderReviewDuplicateGroups(batch.id),
+      warnings,
+    });
+  });
+
   app.post('/api/pickup-search/resolve-barcode', requirePicker, requirePosStaffSession, async (req: any, res) => {
     try {
       const barcode = req.body?.barcode ?? req.body?.url ?? req.body?.raw;
@@ -14990,32 +15250,43 @@ async function startServer() {
         let lastOrderError: any = null;
 
         try {
-          const preview = await resolvePosConnectPreviewByDisplayedOrderNo(orderLookupQuery, {
-            branchReference: branchReference ?? undefined,
-          });
-          if (preview) {
-            let details: PosOrderDetailsResult | null = null;
-            let detailsError = '';
-            try {
-              details = await fetchCachedPosConnectDetails({
-                order_id: preview.invoice_id || '0',
-                s_order_id: preview.orders_id || '0',
-                open_type: 'preview',
-                mode: '0',
-              });
-            } catch (error: any) {
-              detailsError = String(error?.message || 'Failed to load POS order details.');
-            }
-            attempts.push({
-              query: `${orderLookupQuery} order lookup`,
-              records_total: 1,
-              records_filtered: 1,
-              parsed_orders: 1,
-            });
-            order = await hydratePickupSearchOrder(preview, details, detailsError, query);
+          const packingDetails = await tryFetchPosOrderDetailsViaPackingSearch(query, attempts);
+          if (packingDetails) {
+            order = await hydratePickupSearchOrder(null, packingDetails, '', query);
           }
         } catch (error) {
           lastOrderError = error;
+        }
+
+        if (!order) {
+          try {
+            const preview = await resolvePosConnectPreviewByDisplayedOrderNo(orderLookupQuery, {
+              branchReference: branchReference ?? undefined,
+            });
+            if (preview) {
+              let details: PosOrderDetailsResult | null = null;
+              let detailsError = '';
+              try {
+                details = await fetchCachedPosConnectDetails({
+                  order_id: preview.invoice_id || '0',
+                  s_order_id: preview.orders_id || '0',
+                  open_type: 'preview',
+                  mode: '0',
+                });
+              } catch (error: any) {
+                detailsError = String(error?.message || 'Failed to load POS order details.');
+              }
+              attempts.push({
+                query: `${orderLookupQuery} order lookup`,
+                records_total: 1,
+                records_filtered: 1,
+                parsed_orders: 1,
+              });
+              order = await hydratePickupSearchOrder(preview, details, detailsError, query);
+            }
+          } catch (error) {
+            lastOrderError = error;
+          }
         }
 
         if (!order && !branchReference) {

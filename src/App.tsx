@@ -8,6 +8,7 @@ import {
   Search,
   Trophy,
   BellRing,
+  ClipboardCheck,
   GraduationCap,
   History,
   ListChecks,
@@ -45,6 +46,7 @@ const Management = lazy(() => import('./pages/Management'));
 const BranchesPage = lazy(() => import('./pages/Branches'));
 const CashierSearchPage = lazy(() => import('./pages/CashierSearch'));
 const PickupSearchPage = lazy(() => import('./pages/PickupSearch'));
+const OrderReviewPage = lazy(() => import('./pages/OrderReview'));
 const SearchPage = lazy(() => import('./pages/SearchNew'));
 const SortingPage = lazy(() => import('./pages/Sorting'));
 const ActiveSortingOrdersPage = lazy(() => import('./pages/ActiveSortingOrders'));
@@ -80,6 +82,7 @@ function MobileTopBar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
     if (location.pathname === '/activity-log') return 'Activity Log';
     if (location.pathname === '/cashier-search') return 'Cashier Search';
     if (location.pathname === '/pickup-search') return 'Phone Pickup Search';
+    if (location.pathname === '/order-review') return 'Order Review & Verification';
     if (location.pathname === '/search') return 'Stores';
     if (location.pathname === '/sorting') return 'CLOTHES SORTING';
     if (location.pathname === '/ironing') return 'Iron';
@@ -273,6 +276,7 @@ function Sidebar({
     ...(showManagement ? [{ name: 'Activity Log', path: '/activity-log', icon: History }] : []),
     ...(showSearch ? [{ name: 'Cashier Search', path: '/cashier-search', icon: Search }] : []),
     ...(showSearch ? [{ name: 'Pickup Search', path: '/pickup-search', icon: Phone }] : []),
+    ...(showSearch ? [{ name: 'Order Review', path: '/order-review', icon: ClipboardCheck }] : []),
     ...(showSearch ? [{ name: 'Stores', path: '/search', icon: Search }] : []),
     ...(showSorting && sortingWorkflows.includes('sorting')
       ? [{ name: 'CLOTHES SORTING', path: '/sorting', icon: Package }]
@@ -592,6 +596,10 @@ function AppLayout() {
               <Route
                 path="/pickup-search"
                 element={canOpenSearch ? <PickupSearchPage /> : <Navigate to={defaultPath} replace />}
+              />
+              <Route
+                path="/order-review"
+                element={canOpenSearch ? <OrderReviewPage /> : <Navigate to={defaultPath} replace />}
               />
               <Route path="/search" element={canOpenSearch ? <SearchPage /> : <Navigate to={defaultPath} replace />} />
               <Route

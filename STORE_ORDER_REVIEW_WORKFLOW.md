@@ -428,6 +428,28 @@ The employee can paste the current content of multiple stores, click sync, and i
 
 Telegram guided review has been implemented in the existing bot.
 
+A dedicated Smart Storage Hub page has also been implemented:
+
+```text
+/smart-storage-hub/order-review
+```
+
+The page is available from the sidebar as:
+
+```text
+Order Review
+```
+
+Web page workflow:
+
+1. Store names load dynamically from Smart Storage Hub.
+2. Employee enters all orders for the current store.
+3. Employee uses `Save & Next` or `Skip Store`.
+4. After every store is reviewed, `Start Processing` becomes available.
+5. The server loads POS details and groups orders by normalized customer phone.
+6. The page shows only customers with multiple unique orders.
+7. Each group displays customer name, phone, store, order status, balance, remark, and the required collection action.
+
 Current supported flow:
 
 1. Employee sends:
