@@ -8,6 +8,11 @@ interface FooterProps {
 }
 
 export const Footer: React.FC<FooterProps> = ({ setRoute, config }) => {
+  const handleInternalLink = (event: React.MouseEvent<HTMLAnchorElement>, route: string) => {
+    event.preventDefault();
+    setRoute(route);
+  };
+
   return (
     <footer className="bg-gray-900 text-white pt-24 pb-12 overflow-hidden relative">
       {/* Decorative gradient */}
@@ -94,9 +99,21 @@ export const Footer: React.FC<FooterProps> = ({ setRoute, config }) => {
 
         <div className="flex flex-col md:flex-row justify-between items-center gap-6 text-gray-500 text-[10px] font-bold uppercase tracking-widest">
           <p>{config.footer_text}</p>
-          <div className="flex gap-8">
-            <button className="hover:text-white transition-colors cursor-pointer">سياسة الخصوصية</button>
-            <button className="hover:text-white transition-colors cursor-pointer">الشروط والأحكام</button>
+          <div className="flex flex-wrap justify-center gap-6 md:gap-8">
+            <a
+              href="/privacy"
+              onClick={(event) => handleInternalLink(event, '/privacy')}
+              className="hover:text-white transition-colors"
+            >
+              Privacy Policy
+            </a>
+            <a
+              href="/terms"
+              onClick={(event) => handleInternalLink(event, '/terms')}
+              className="hover:text-white transition-colors"
+            >
+              Terms & Conditions
+            </a>
             <button 
               onClick={() => setRoute('/driver')}
               className="text-white/20 hover:text-primary transition-colors cursor-pointer border-r border-white/10 pr-8"

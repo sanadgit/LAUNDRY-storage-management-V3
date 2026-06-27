@@ -42,7 +42,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentRoute, setRoute, user, co
           <div className="w-11 h-11 bg-primary rounded-2xl flex items-center justify-center text-white shadow-lg shadow-primary/25 group-hover:rotate-6 transition-transform">
             <Waves size={24} />
           </div>
-          <div>
+          <div className="hidden sm:block">
             <h1 className="font-display font-black text-lg tracking-tight leading-none text-secondary text-right uppercase">
               {config.site_name || 'In & Out Laundry'}
             </h1>

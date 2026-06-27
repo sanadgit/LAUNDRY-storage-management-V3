@@ -23,6 +23,7 @@ import { AdminPanel } from './components/AdminPanel';
 import { AdminAccessGate } from './components/AdminAccessGate';
 import { DriverAccessGate } from './components/DriverAccessGate';
 import { DriverPanel } from './components/DriverPanel';
+import { LegalPage } from './components/LegalPages';
 import { INITIAL_SITE_CONFIG } from './constants';
 import { AdminAuthResponse, AdminUser, CustomerAuthResponse, CustomerUser, DriverAuthResponse, DriverAuthUser, Order, SiteConfig, OrderStatus } from './types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -43,6 +44,8 @@ const ROUTES = new Set([
   '/book',
   '/admin',
   '/driver',
+  '/privacy',
+  '/terms',
 ]);
 
 const normalizeRoute = (value: string) => {
@@ -698,6 +701,22 @@ export default function App() {
             orders={orders}
             onUpdateOrderStatus={handleUpdateOrderStatus}
             onLogout={handleDriverLogout}
+          />
+        );
+      case '/privacy':
+        return (
+          <LegalPage
+            kind="privacy"
+            config={siteConfig}
+            onNavigate={setRoute}
+          />
+        );
+      case '/terms':
+        return (
+          <LegalPage
+            kind="terms"
+            config={siteConfig}
+            onNavigate={setRoute}
           />
         );
       default:
