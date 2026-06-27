@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import { AlertCircle, AlertTriangle, Box, CheckCircle2, Clock, Crosshair, Delete, Flame, Home, Loader2, Package, PackageCheck, Plus, Printer, RefreshCw, ScanLine, Search, Shirt, Sparkles, Star, Table2, Tag, TrendingUp, Users, Volume2, VolumeX, X } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Box, CheckCircle2, Clock, Crosshair, Delete, Flame, Home, Loader2, Package, PackageCheck, Plus, Printer, RefreshCw, ScanLine, Search, Shirt, Sparkles, Star, Table2, Tag, TrendingUp, Users, X } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { allowedSortingTabs } from '../lib/roleAccess';
 import { detectClothesPackingType, detectSortingItemCategory } from '../utils/sortingItemCategory';
 import { extractTicketNumberFromScan } from '../utils/barcode';
+import ClothesSortingHeader from '../components/sorting/ClothesSortingHeader';
+import ClothesScanStationPanel from '../components/sorting/ClothesScanStationPanel';
 
 const BLANKET_KEYBOARD_ROWS = [
   ['B', '1', '2', '3', '4'],
@@ -23,6 +25,130 @@ const SORTING_KEYBOARD_ROWS = [
   ['1', '2', '3', '4', '5'],
   ['6', '7', '8', '9', '0'],
 ];
+
+const SORTING_DATA_FETCH_TIMEOUT_MS = 2800;
+const SORTING_SCAN_TIMEOUT_MS = 5500;
+const SORTING_POS_DETAILS_SETTLE_DELAYS_MS = [450, 900, 1500, 2400, 3600];
+const POS_QZ_SCRIPT_URLS = [
+  'https://beta.aipsoft.com/assets/js/printer_js/rsvp-3.1.0.min.js',
+  'https://beta.aipsoft.com/assets/js/printer_js/sha-256.min.js',
+  'https://beta.aipsoft.com/assets/js/printer_js/qz-tray.js',
+  'https://beta.aipsoft.com/assets/js/printer_js/jsrsasign-all-min.js',
+  'https://beta.aipsoft.com/assets/js/printer_js/certificate_assign.js',
+];
+
+const loadedExternalScripts = new Map<string, Promise<void>>();
+
+const loadExternalScript = (src: string) => {
+  if (typeof document === 'undefined') return Promise.resolve();
+  if (document.querySelector(`script[src="${src}"]`)) return Promise.resolve();
+  const existing = loadedExternalScripts.get(src);
+  if (existing) return existing;
+
+  const promise = new Promise<void>((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = false;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error(`Failed to load POS printer script: ${src}`));
+    document.head.appendChild(script);
+  });
+  loadedExternalScripts.set(src, promise);
+  return promise;
+};
+
+const ensureQzTrayLoaded = async () => {
+  if (window.qz) return;
+  for (const src of POS_QZ_SCRIPT_URLS) {
+    await loadExternalScript(src);
+  }
+};
+
+const extractBacktickAssignment = (source: string, variableName: string) => {
+  const assignmentMatch = new RegExp(`(?:var|let|const)\\s+${variableName}\\s*=\\s*\``).exec(source);
+  if (!assignmentMatch) return '';
+  let value = '';
+  let escaped = false;
+  for (let index = assignmentMatch.index + assignmentMatch[0].length; index < source.length; index += 1) {
+    const char = source[index];
+    if (escaped) {
+      value += char;
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      value += char;
+      escaped = true;
+      continue;
+    }
+    if (char === '`') return value;
+    value += char;
+  }
+  return '';
+};
+
+const findMatchingBracketEnd = (source: string, startIndex: number) => {
+  let depth = 0;
+  let quote: string | null = null;
+  let escaped = false;
+  for (let index = startIndex; index < source.length; index += 1) {
+    const char = source[index];
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (char === '"' || char === "'" || char === '`') {
+      quote = char;
+      continue;
+    }
+    if (char === '[') depth += 1;
+    if (char === ']') {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+};
+
+const extractPrinterPayloadsFromPosScript = (source: string, printerName: string) => {
+  const payloads: unknown[][] = [];
+  let searchIndex = 0;
+  const printerMarker = `qz.configs.create('${printerName}'`;
+  while (searchIndex < source.length) {
+    const configIndex = source.indexOf(printerMarker, searchIndex);
+    if (configIndex < 0) break;
+    const printIndex = source.indexOf('qz.print(config, [', configIndex);
+    if (printIndex < 0) break;
+    const arrayStart = source.indexOf('[', printIndex);
+    const arrayEnd = arrayStart >= 0 ? findMatchingBracketEnd(source, arrayStart) : -1;
+    if (arrayStart >= 0 && arrayEnd > arrayStart) {
+      const arraySource = source.slice(arrayStart, arrayEnd + 1);
+      try {
+        const parsed = Function(`"use strict"; return (${arraySource});`)();
+        if (Array.isArray(parsed)) payloads.push(parsed);
+      } catch (error) {
+        console.warn(`Failed to parse ${printerName} payload from POS print script.`, error);
+      }
+      searchIndex = arrayEnd + 1;
+    } else {
+      searchIndex = configIndex + printerMarker.length;
+    }
+  }
+
+  const seen = new Set<string>();
+  return payloads.filter((payload) => {
+    const key = JSON.stringify(payload);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
 
 type SortingItem = {
   id: number;
@@ -127,9 +253,9 @@ type SortingPageProps = {
 const WORKFLOW_PAGE_META: Record<WorkflowTab, { eyebrow: string; title: string; description: string }> = {
   sorting: {
     eyebrow: 'Clothes Sorting System',
-    title: 'فرز الملابس',
+    title: 'Clothes Sorting',
     description:
-      'امسح رقم الطلب أو اكتبه يدويًا. النظام يوجه العامل تلقائيًا إلى الطاولة والخلية المناسبة، ويتابع اكتمال عدد القطع لكل طلب.',
+      'Scan or enter the order number. The system routes the operator to the correct table and cell, then tracks piece completion for each order.',
   },
   packing: {
     eyebrow: 'Ironing Station',
@@ -167,6 +293,8 @@ type ScanResponse = {
     financial_unchanged?: boolean;
     error?: string;
   } | null;
+  details_pending?: boolean;
+  performance_ms?: number;
   order: SortingOrder | null;
   items: SortingItem[];
   state: SortingStateResponse;
@@ -213,6 +341,12 @@ type PosOrderDetailsForPrint = {
     unit_price: number;
     total_with_tax: number;
   }>;
+};
+
+type PosSalesPrintScriptResponse = {
+  success: boolean;
+  order_id: string;
+  script: string;
 };
 
 type IroningAchievementsSummary = {
@@ -306,6 +440,7 @@ type BlanketPackingHistoryResponse = {
 declare global {
   interface Window {
     qz?: any;
+    assignCertificate?: () => void;
   }
 }
 
@@ -405,6 +540,17 @@ const buildCellLookup = (table: SortingTable) => {
   return lookup;
 };
 
+const isQuantityOnlySortingItemName = (value: unknown) => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return normalized === 'sorting quantity' || normalized === 'unsorted item';
+};
+
+const scanResultNeedsPosDetails = (result: ScanResponse | null) => {
+  if (!result) return false;
+  if (!result.items || result.items.length === 0) return true;
+  return result.items.every((item) => isQuantityOnlySortingItemName(item.item_name));
+};
+
 const getInitialWorkflow = (workflow: WorkflowTab | undefined, role: unknown): WorkflowTab => {
   const initialTabs = allowedSortingTabs(role);
   if (workflow && initialTabs.includes(workflow)) return workflow;
@@ -437,6 +583,9 @@ export default function SortingPage({ workflow, showWorkflowTabs = true }: Sorti
   } | null>(null);
   const [cellActionBusy, setCellActionBusy] = useState(false);
   const [cellActionError, setCellActionError] = useState<string | null>(null);
+  const [quickClearTableBusyId, setQuickClearTableBusyId] = useState<number | null>(null);
+  const [quickClearError, setQuickClearError] = useState<string | null>(null);
+  const [forceClearTableBusyId, setForceClearTableBusyId] = useState<number | null>(null);
 
   const [tableName, setTableName] = useState('');
   const [tableRows, setTableRows] = useState(2);
@@ -488,8 +637,10 @@ export default function SortingPage({ workflow, showWorkflowTabs = true }: Sorti
   const cellRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const ironingInputRef = useRef<HTMLInputElement | null>(null);
   const blanketInputRef = useRef<HTMLInputElement | null>(null);
+  const stateFetchInFlightRef = useRef(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const lastAnnouncedTargetRef = useRef<string>('');
+  const autoPrintedClothesOrdersRef = useRef<Set<string>>(new Set());
   const roleAllowedTabs = useMemo<Array<WorkflowTab>>(() => allowedSortingTabs(currentUser?.role), [currentUser?.role]);
   const pageMeta = WORKFLOW_PAGE_META[activeTab];
 
@@ -531,14 +682,24 @@ export default function SortingPage({ workflow, showWorkflowTabs = true }: Sorti
 
 
   const loadState = useCallback(async () => {
+    if (stateFetchInFlightRef.current) return;
     try {
+      stateFetchInFlightRef.current = true;
       setStateBusy(true);
       setStateError(null);
-      const response = await axios.get<SortingStateResponse>('/api/sorting/state');
+      const response = await axios.get<SortingStateResponse>('/api/sorting/state', {
+        timeout: SORTING_DATA_FETCH_TIMEOUT_MS,
+      });
       setSortingState(response.data);
     } catch (error: any) {
-      setStateError(error?.response?.data?.error || error?.message || 'Failed to load sorting state.');
+      const timedOut = error?.code === 'ECONNABORTED' || String(error?.message ?? '').toLowerCase().includes('timeout');
+      setStateError(
+        timedOut
+          ? 'Sorting data fetch exceeded 3 seconds. Keeping the last loaded state.'
+          : error?.response?.data?.error || error?.message || 'Failed to load sorting state.'
+      );
     } finally {
+      stateFetchInFlightRef.current = false;
       setStateBusy(false);
     }
   }, []);
@@ -547,6 +708,7 @@ export default function SortingPage({ workflow, showWorkflowTabs = true }: Sorti
     try {
       const response = await axios.get('/api/achievements/ironing', {
         params: { scope: 'me', period: myIroningPeriod },
+        timeout: SORTING_DATA_FETCH_TIMEOUT_MS,
       });
       const summary = response.data?.summary ?? {};
       setMyIroningSummary({
@@ -585,6 +747,40 @@ export default function SortingPage({ workflow, showWorkflowTabs = true }: Sorti
   const readyOrders = sortingState?.orders.ready_for_packing ?? [];
   const packedOrders = sortingState?.orders.packed ?? [];
   const allOrders = sortingState?.orders.all ?? [];
+  useEffect(() => {
+    if (!scanResult?.order?.order_no || allOrders.length === 0) return;
+    const latestOrder = allOrders.find(
+      (order) => order.order_no.toUpperCase() === scanResult.order?.order_no.toUpperCase()
+    );
+    if (!latestOrder) return;
+    const currentNeedsDetails = scanResultNeedsPosDetails(scanResult);
+    const latestNeedsDetails = latestOrder.items.length === 0 || latestOrder.items.every((item) => isQuantityOnlySortingItemName(item.item_name));
+    if (latestNeedsDetails && !currentNeedsDetails) return;
+    if (latestOrder.status !== 'sorted_complete' && scanResult.order.status === 'sorted_complete') return;
+    const currentItemsKey = scanResult.items
+      .map((item) => `${item.id}:${item.item_name}:${item.qty_required}:${item.qty_sorted}`)
+      .join('|');
+    const latestItemsKey = latestOrder.items
+      .map((item) => `${item.id}:${item.item_name}:${item.qty_required}:${item.qty_sorted}`)
+      .join('|');
+    if (
+      latestOrder.total_required === scanResult.order.total_required &&
+      latestOrder.total_sorted === scanResult.order.total_sorted &&
+      latestOrder.status === scanResult.order.status &&
+      currentItemsKey === latestItemsKey
+    ) {
+      return;
+    }
+    setScanResult((current) =>
+      current
+        ? {
+            ...current,
+            order: latestOrder,
+            items: latestOrder.items,
+          }
+        : current
+    );
+  }, [allOrders, scanResult?.items, scanResult?.order]);
   const blanketPackingOrders = useMemo(
     () =>
       allOrders.filter((order) => order.items.some((item) => isBlanketOnlyItem(item.item_name))),
@@ -742,7 +938,7 @@ export default function SortingPage({ workflow, showWorkflowTabs = true }: Sorti
     (placement: ScanResponse['placement'], orderNo: string) => {
       if (!audioGuidanceEnabled || typeof window === 'undefined' || !window.speechSynthesis) return;
       const spokenOrder = orderNo.trim().toUpperCase();
-      const message = `الطلب ${spokenOrder}. ضع القطعة في ${placement.table_name}. صف ${placement.row_no}. عمود ${placement.col_no}.`;
+      const message = `Order ${spokenOrder}. Place the item in ${placement.table_name}. Row ${placement.row_no}. Column ${placement.col_no}.`;
       try {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(message);
@@ -776,6 +972,42 @@ export default function SortingPage({ workflow, showWorkflowTabs = true }: Sorti
     }
   }, [audioGuidanceEnabled]);
 
+  const settleScanResultWithPosDetails = useCallback(
+    async (orderNo: string, initialResult: ScanResponse) => {
+      if (!scanResultNeedsPosDetails(initialResult) && !initialResult.details_pending) return;
+      const normalizedOrderNo = orderNo.trim().toUpperCase();
+
+      for (const delayMs of SORTING_POS_DETAILS_SETTLE_DELAYS_MS) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, delayMs));
+        try {
+          const response = await axios.get<SortingOrderBundleResponse>(
+            `/api/sorting/order/${encodeURIComponent(normalizedOrderNo)}`
+          );
+          const bundle = response.data;
+          const hydratedResult = { ...initialResult, order: bundle.order, items: bundle.items };
+          if (!bundle?.order || scanResultNeedsPosDetails(hydratedResult)) continue;
+
+          setScanResult((current) => {
+            if (!current) return current;
+            const currentOrderNo = current.order?.order_no || normalizedOrderNo;
+            if (currentOrderNo.toUpperCase() !== normalizedOrderNo) return current;
+            return {
+              ...current,
+              order: bundle.order,
+              items: bundle.items,
+              details_pending: false,
+            };
+          });
+          void loadState();
+          return;
+        } catch (error) {
+          console.warn('POS details settle after sorting scan failed:', error);
+        }
+      }
+    },
+    [loadState]
+  );
+
   const executeScan = useCallback(
     async (orderNo: string, itemName?: string, qty = 1) => {
       try {
@@ -785,6 +1017,8 @@ export default function SortingPage({ workflow, showWorkflowTabs = true }: Sorti
           order_no: orderNo,
           qty: Math.max(1, Math.floor(qty) || 1),
           item_name: itemName || undefined,
+        }, {
+          timeout: SORTING_SCAN_TIMEOUT_MS,
         });
         setScanResult(response.data);
         setSortingState(response.data.state);
@@ -793,18 +1027,26 @@ export default function SortingPage({ workflow, showWorkflowTabs = true }: Sorti
           order_no: response.data.order?.order_no || orderNo.toUpperCase(),
         });
         announcePlacement(response.data.placement, response.data.order?.order_no || orderNo.toUpperCase());
-        window.setTimeout(() => {
-          void loadState();
-        }, 2500);
+        void settleScanResultWithPosDetails(response.data.order?.order_no || orderNo.toUpperCase(), response.data);
+        for (const refreshDelayMs of [1500, 3500, 7000, 12000]) {
+          window.setTimeout(() => {
+            void loadState();
+          }, refreshDelayMs);
+        }
         return response.data;
       } catch (error: any) {
-        setScanError(error?.response?.data?.error || error?.message || 'Failed to process sorting scan.');
+        const timedOut = error?.code === 'ECONNABORTED' || String(error?.message ?? '').toLowerCase().includes('timeout');
+        setScanError(
+          timedOut
+            ? 'Sorting scan exceeded 3 seconds. Please scan again; POS sync will continue in the background if it already started.'
+            : error?.response?.data?.error || error?.message || 'Failed to process sorting scan.'
+        );
         return null;
       } finally {
         setScanBusy(false);
       }
     },
-    [announcePlacement, loadState]
+    [announcePlacement, loadState, settleScanResultWithPosDetails]
   );
 
   const handleScanSubmit = async () => {
@@ -1083,7 +1325,7 @@ export default function SortingPage({ workflow, showWorkflowTabs = true }: Sorti
     setIroningError(null);
   }, []);
 
-  const fetchPosDetailsForOrder = async (order: SortingOrder): Promise<PosOrderDetailsForPrint> => {
+  const resolvePosPrintIdsForOrder = async (order: SortingOrder) => {
     let ordersId = (order.source_orders_id || '').trim();
     let invoiceId = (order.source_invoice_id || '').trim();
 
@@ -1101,54 +1343,47 @@ export default function SortingPage({ workflow, showWorkflowTabs = true }: Sorti
       invoiceId = String(exact.invoice_id ?? '').trim();
     }
 
-    const details = await axios.get<PosOrderDetailsForPrint>('/api/pos/order-details', {
-      params: {
-        orders_id: ordersId || undefined,
-        invoice_id: invoiceId || undefined,
-        open_type: 'preview',
-        mode: '0',
-      },
-    });
-    return details.data;
+    return { ordersId, invoiceId };
   };
 
   const printOrderViaQzTray = async (order: SortingOrder) => {
+    await ensureQzTrayLoaded();
     const qz = window.qz;
     if (!qz) {
       throw new Error('QZ Tray is not available in this browser. Install and run QZ Tray first.');
     }
-    const details = await fetchPosDetailsForOrder(order);
-    const now = new Date();
-
-    const lines = [
-      'IN & OUT LAUNDRY',
-      'SMART STORAGE HUB',
-      '------------------------------',
-      `ORDER: ${details.general.order_no || order.order_no}`,
-      `CUSTOMER: ${details.general.customer_name || order.customer_name || '-'}`,
-      `PHONE: ${details.general.customer_mobile || '-'}`,
-      `DELIVERY: ${details.general.delivery_type || '-'} ${details.general.delivery_date || ''}`.trim(),
-      '------------------------------',
-      ...details.line_items.map((item) => {
-        const qty = Number(item.qty || 0);
-        const total = Number(item.total_with_tax || 0);
-        return `${qty}x ${item.name}  ${total.toFixed(2)}`;
-      }),
-      '------------------------------',
-      `GRAND TOTAL: ${Number(details.general.grand_total || 0).toFixed(2)}`,
-      `BALANCE: ${Number(details.general.balance || 0).toFixed(2)}`,
-      '------------------------------',
-      `Printed: ${now.toLocaleDateString()} ${now.toLocaleTimeString()}`,
-      '\n\n\n',
-    ];
-    const payload = lines.join('\n');
+    const { ordersId, invoiceId } = await resolvePosPrintIdsForOrder(order);
+    const response = await axios.post<PosSalesPrintScriptResponse>('/api/pos/sales-print-script', {
+      order_id: invoiceId || undefined,
+      orders_id: ordersId || undefined,
+      order_no: order.order_no,
+      reprint: 0,
+    });
+    const script = response.data.script || '';
+    const receiptHtml = extractBacktickAssignment(script, 'printdata');
+    if (!receiptHtml) {
+      throw new Error('POS print response did not include receipt HTML.');
+    }
 
     if (!qz.websocket.isActive()) {
-      await qz.websocket.connect({ retries: 2, delay: 1 });
+      window.assignCertificate?.();
+      await qz.websocket.connect({ host: 'localhost', retries: 2, delay: 1 });
     }
-    const defaultPrinter = await qz.printers.getDefault();
-    const config = qz.configs.create(defaultPrinter);
-    await qz.print(config, [payload]);
+    const receiptConfig = qz.configs.create('Receipt', { scaleContent: true });
+    await qz.print(receiptConfig, [
+      {
+        type: 'pixel',
+        format: 'html',
+        flavor: 'plain',
+        data: receiptHtml,
+      },
+    ]);
+
+    const kotPayloads = extractPrinterPayloadsFromPosScript(script, 'KOT');
+    const kotConfig = qz.configs.create('KOT');
+    for (const kotPayload of kotPayloads) {
+      await qz.print(kotConfig, kotPayload);
+    }
   };
 
   const handleCellPrint = async () => {
@@ -1182,6 +1417,86 @@ export default function SortingPage({ workflow, showWorkflowTabs = true }: Sorti
     }
   };
 
+  const handleQuickClearTable = async (table: SortingTable) => {
+    const clearableOrderNos = Array.from(
+      new Set(
+        table.cells
+          .filter((cell) => cell.status === 'complete' && Boolean(cell.active_order_no))
+          .map((cell) => cell.active_order_no as string)
+      )
+    );
+
+    if (clearableOrderNos.length === 0) {
+      setQuickClearError(`${table.name} has no completed cells ready to clear.`);
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Clear ${clearableOrderNos.length} completed cell(s) from ${table.name}? This marks those orders as packed complete.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setQuickClearTableBusyId(table.id);
+      setQuickClearError(null);
+      let latestState: SortingStateResponse | null = null;
+
+      for (const orderNo of clearableOrderNos) {
+        const response = await axios.post<{ state: SortingStateResponse }>(
+          `/api/sorting/orders/${encodeURIComponent(orderNo)}/packing`,
+          { action: 'complete' }
+        );
+        latestState = response.data.state;
+      }
+
+      if (latestState) {
+        setSortingState(latestState);
+      } else {
+        await loadState();
+      }
+      setSelectedCell(null);
+      if (focusPlacement?.table_id === table.id) {
+        setFocusPlacement(null);
+      }
+    } catch (error: any) {
+      await loadState();
+      setQuickClearError(error?.response?.data?.error || error?.message || `Failed to quick clear ${table.name}.`);
+    } finally {
+      setQuickClearTableBusyId(null);
+    }
+  };
+
+  const handleForceClearTable = async (table: SortingTable) => {
+    const occupiedCount = table.cells.filter((cell) => Boolean(cell.active_order_no)).length;
+    if (occupiedCount === 0) {
+      setQuickClearError(`${table.name} has no occupied cells to force clear.`);
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Force clear all ${occupiedCount} occupied cell(s) from ${table.name}? Pending and partial orders will keep their progress but lose their current cell assignment.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setForceClearTableBusyId(table.id);
+      setQuickClearError(null);
+      const response = await axios.post<{ state: SortingStateResponse }>(
+        `/api/sorting/tables/${encodeURIComponent(String(table.id))}/force-clear`
+      );
+      setSortingState(response.data.state);
+      setSelectedCell(null);
+      if (focusPlacement?.table_id === table.id) {
+        setFocusPlacement(null);
+      }
+    } catch (error: any) {
+      await loadState();
+      setQuickClearError(error?.response?.data?.error || error?.message || `Failed to force clear ${table.name}.`);
+    } finally {
+      setForceClearTableBusyId(null);
+    }
+  };
+
   const handleCellPrintAndClear = async () => {
     if (!selectedCell?.order) return;
     try {
@@ -1200,6 +1515,31 @@ export default function SortingPage({ workflow, showWorkflowTabs = true }: Sorti
       setCellActionBusy(false);
     }
   };
+
+  useEffect(() => {
+    const scannedOrderNo = scanResult?.order?.order_no;
+    if (!scannedOrderNo) return;
+
+    const stateOrder = sortingState?.orders.all.find((order) => order.order_no.toUpperCase() === scannedOrderNo.toUpperCase());
+    const latestOrder =
+      stateOrder?.status === 'sorted_complete'
+        ? stateOrder
+        : scanResult.order?.status === 'sorted_complete'
+          ? scanResult.order
+          : stateOrder ?? scanResult.order;
+    if (!latestOrder || latestOrder.status !== 'sorted_complete') return;
+    if (autoPrintedClothesOrdersRef.current.has(latestOrder.order_no)) return;
+
+    autoPrintedClothesOrdersRef.current.add(latestOrder.order_no);
+    void printOrderViaQzTray(latestOrder)
+      .then(() => {
+        void loadState();
+      })
+      .catch((error: any) => {
+        autoPrintedClothesOrdersRef.current.delete(latestOrder.order_no);
+        setScanError(error?.message || `Auto invoice print failed for ${latestOrder.order_no}.`);
+      });
+  }, [loadState, scanResult?.order?.order_no, scanResult?.order, sortingState]);
 
   const escapePrintHtml = (value: unknown) =>
     String(value ?? '')
@@ -1583,7 +1923,7 @@ export default function SortingPage({ workflow, showWorkflowTabs = true }: Sorti
                   Order {itemPickerData.order.order_no} → {itemPickerData.placement.label}
                 </h3>
                 <div className="text-xs text-slate-600 font-semibold mt-1">
-                  اختر نوع القطعة أولًا ثم اضغط Confirm ليتم توجيه العامل لنفس الخلية.
+                  Select the piece type first, then press Confirm to route the operator to the same cell.
                 </div>
               </div>
               <button
@@ -1849,227 +2189,37 @@ export default function SortingPage({ workflow, showWorkflowTabs = true }: Sorti
       {activeTab === 'sorting' && (
         <>
           <section className="rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm space-y-5">
-            {focusPlacement && (
-              <div className="rounded-2xl border border-indigo-300 bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-3 py-3 text-white shadow-[0_0_35px_rgba(59,130,246,0.35)] animate-pulse">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-indigo-100">
-                    <Sparkles size={14} /> Focus Mode
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setFocusPlacement(null)}
-                    className="rounded-lg border border-white/40 bg-white/15 px-2 py-1 text-[10px] font-black uppercase tracking-wider"
-                  >
-                    Clear Focus
-                  </button>
-                </div>
-                <div className="mt-2 text-sm sm:text-base font-black">
-                  Order {focusPlacement.order_no} → {focusPlacement.label}
-                </div>
-              </div>
-            )}
-
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
-                  <Shirt size={22} />
-                </div>
-                <div>
-                  <div className="text-lg font-black text-slate-900">واجهة فرز الملابس</div>
-                  <div className="text-xs font-bold text-blue-500">Clothes Sorting Interface</div>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setAudioGuidanceEnabled((prev) => !prev)}
-                className={`rounded-xl border px-3 py-2 text-[11px] font-black uppercase tracking-wider inline-flex items-center gap-1.5 ${
-                  audioGuidanceEnabled
-                    ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
-                    : 'border-slate-300 bg-white text-slate-600'
-                }`}
-              >
-                {audioGuidanceEnabled ? <Volume2 size={13} /> : <VolumeX size={13} />}
-                Voice {audioGuidanceEnabled ? 'On' : 'Off'}
-              </button>
-            </div>
+            <ClothesSortingHeader
+              focusPlacement={focusPlacement}
+              audioGuidanceEnabled={audioGuidanceEnabled}
+              onClearFocus={() => setFocusPlacement(null)}
+              onToggleAudioGuidance={() => setAudioGuidanceEnabled((prev) => !prev)}
+            />
 
             <div className="grid grid-cols-1 xl:grid-cols-[minmax(340px,0.44fr)_minmax(0,1fr)] gap-4">
-              <div className="space-y-4">
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="mb-3 flex items-center gap-2 text-sm font-black text-slate-700">
-                    <Search size={18} className="text-blue-700" />
-                    البحث برقم الطلب
-                  </div>
-                  <div className="relative mb-3 overflow-hidden rounded-2xl border-2 border-slate-200 bg-slate-50 focus-within:border-blue-600 focus-within:ring-4 focus-within:ring-blue-100">
-                    <div className="flex items-center gap-3 px-4 py-3">
-                      <Tag size={18} className="text-blue-600" />
-                      <input
-                        ref={scanInputRef}
-                        type="text"
-                        dir="ltr"
-                        value={scanOrderNo}
-                        onChange={(event) => {
-                          setScanOrderNo(event.target.value.toUpperCase());
-                          setScanError(null);
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') {
-                            event.preventDefault();
-                            void handleScanSubmit();
-                          }
-                          if (event.key === 'Escape') {
-                            event.preventDefault();
-                            handleSortingClear();
-                          }
-                        }}
-                        placeholder="_ _ _ _ _"
-                        className="cs-blanket-order-field min-h-10 flex-1 border-0 bg-transparent px-0 py-0 font-mono text-2xl font-black uppercase tracking-[0.2em] text-slate-900 shadow-none focus:ring-0"
-                      />
-                      {scanOrderNo && (
-                        <button
-                          type="button"
-                          onClick={handleSortingClear}
-                          className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-200 text-slate-600"
-                          aria-label="Clear scan order"
-                        >
-                          <X size={15} />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <div className="mb-3 grid grid-cols-[1fr_auto] gap-2">
-                    <label className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                      <span className="block text-[10px] font-black uppercase tracking-wider text-slate-400">Qty</span>
-                      <input
-                        type="number"
-                        min={1}
-                        step={1}
-                        value={scanQty}
-                        onChange={(event) => setScanQty(Number(event.target.value))}
-                        placeholder="Qty"
-                        className="mt-1 w-full border-0 bg-transparent p-0 text-sm font-black text-slate-900 shadow-none focus:ring-0"
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void handleScanSubmit();
-                      }}
-                      disabled={scanBusy}
-                      className="cs-primary-action flex min-w-28 items-center justify-center gap-2 rounded-xl px-4 py-2 text-xs font-black text-white disabled:opacity-50"
-                    >
-                      {scanBusy ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
-                      بحث
-                    </button>
-                  </div>
-                  {scanError && (
-                    <div className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
-                      {scanError}
-                    </div>
-                  )}
-                  {scanResult && (
-                    <div className="space-y-2">
-                      <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 space-y-1">
-                      <div>
-                        Placed at: <span className="font-black">{scanResult.placement.label}</span>
-                      </div>
-                      <div>
-                        Consumed: <span className="font-black">{scanResult.scan.consumed}</span>
-                        {scanResult.scan.overflow > 0 ? (
-                          <span className="ml-2 text-amber-700">Overflow not counted: {scanResult.scan.overflow}</span>
-                        ) : null}
-                      </div>
-                      </div>
-                      {scanResult.pos_sync?.success ? (
-                        <div className="flex items-center gap-2 rounded-xl border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-800">
-                          <CheckCircle2 size={16} />
-                          تم تحديث POS والتحقق منه: Other Description = {scanResult.pos_sync.description}
-                        </div>
-                      ) : scanResult.pos_sync ? (
-                        <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
-                          <div className="flex items-start gap-2">
-                            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-                            تم تسجيل الفرز محليًا، لكن تعذر تحديث POS: {scanResult.pos_sync.error}
-                          </div>
-                          <button
-                            type="button"
-                            disabled={posSyncRetryBusy}
-                            onClick={() => {
-                              void handleRetryPosStageSync();
-                            }}
-                            className="mt-2 inline-flex items-center gap-2 rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-[11px] font-black text-amber-900 disabled:opacity-50"
-                          >
-                            {posSyncRetryBusy ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-                            إعادة مزامنة POS
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
-                  )}
-                </div>
-
-                <div className="cs-input-panel rounded-2xl border p-5">
-                  <div className="mb-5 flex items-center justify-between border-b border-blue-900/60 pb-4">
-                    <div>
-                      <h3 className="text-sm font-black text-white">Clothes Sorting System</h3>
-                      <p className="text-xs font-bold text-blue-300">نظام فرز الملابس</p>
-                    </div>
-                    <div className="flex gap-1.5">
-                      <span className="h-2.5 w-2.5 rounded-full bg-red-400/70" />
-                      <span className="h-2.5 w-2.5 rounded-full bg-yellow-400/70" />
-                      <span className="h-2.5 w-2.5 rounded-full bg-green-400/70" />
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-3">
-                    {SORTING_KEYBOARD_ROWS.map((row, rowIndex) => (
-                      <div key={`sorting-key-row-${rowIndex}`} dir="ltr" className="grid grid-cols-5 gap-3">
-                        {row.map((key) => (
-                          <button
-                            key={`sorting-key-${key}`}
-                            type="button"
-                            onClick={() => handleSortingKeyPress(key)}
-                            className={`cs-key-btn flex items-center justify-center ${sortingPressedKey === key ? 'cs-key-btn-active' : ''}`}
-                          >
-                            {key}
-                          </button>
-                        ))}
-                      </div>
-                    ))}
-                    <div dir="ltr" className="mt-1 grid grid-cols-3 gap-3">
-                      <button
-                        type="button"
-                        onClick={handleSortingDelete}
-                        className={`cs-key-btn cs-key-btn-delete flex items-center justify-center gap-2 text-sm ${sortingPressedKey === 'DEL' ? 'cs-key-btn-active' : ''}`}
-                      >
-                        <Delete size={18} />
-                        حذف
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleSortingClear}
-                        className={`cs-key-btn cs-key-btn-special flex items-center justify-center gap-2 text-sm ${sortingPressedKey === 'CLR' ? 'cs-key-btn-active' : ''}`}
-                      >
-                        <X size={18} />
-                        مسح
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void handleScanSubmit();
-                        }}
-                        disabled={scanBusy}
-                        className="cs-key-btn cs-key-btn-enter flex items-center justify-center gap-2 text-sm disabled:opacity-60"
-                      >
-                        {scanBusy ? <Loader2 size={18} className="animate-spin" /> : <Search size={18} />}
-                        بحث
-                      </button>
-                    </div>
-                  </div>
-                  <div className="mt-4 border-t border-blue-900/50 pt-3 text-center text-xs font-bold text-blue-300">
-                    أمثلة: Z61303 · M35427 · 253983
-                  </div>
-                </div>
-              </div>
+              <ClothesScanStationPanel
+                inputRef={scanInputRef}
+                scanOrderNo={scanOrderNo}
+                scanQty={scanQty}
+                scanBusy={scanBusy}
+                scanError={scanError}
+                scanResult={scanResult}
+                posSyncRetryBusy={posSyncRetryBusy}
+                keyboardRows={SORTING_KEYBOARD_ROWS}
+                pressedKey={sortingPressedKey}
+                onScanOrderNoChange={setScanOrderNo}
+                onScanQtyChange={setScanQty}
+                onScanErrorClear={() => setScanError(null)}
+                onSubmit={() => {
+                  void handleScanSubmit();
+                }}
+                onKeyPress={handleSortingKeyPress}
+                onDelete={handleSortingDelete}
+                onClear={handleSortingClear}
+                onRetryPosStageSync={() => {
+                  void handleRetryPosStageSync();
+                }}
+              />
 
               <div className="min-h-[560px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                 {!scanResult ? (
@@ -2078,8 +2228,8 @@ export default function SortingPage({ workflow, showWorkflowTabs = true }: Sorti
                       <Package size={38} />
                     </div>
                     <div>
-                      <p className="text-lg font-black text-slate-400">لا يوجد طلب محدد</p>
-                      <p className="mt-1 text-sm font-bold text-slate-300">ابحث برقم الطلب لعرض التفاصيل</p>
+                      <p className="text-lg font-black text-slate-400">No order selected</p>
+                      <p className="mt-1 text-sm font-bold text-slate-300">Search by order number to show sorting details</p>
                     </div>
                   </div>
                 ) : scanDisplayDetails ? (
@@ -2089,7 +2239,7 @@ export default function SortingPage({ workflow, showWorkflowTabs = true }: Sorti
                         <div>
                           <div className="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-blue-200">
                             <Package size={17} />
-                            نتيجة الفرز
+                            Sorting Result
                           </div>
                           <div dir="ltr" className="font-mono text-xl font-black tracking-wider text-white">
                             #{scanResult.order?.order_no || focusPlacement?.order_no || '-'}
@@ -2109,30 +2259,30 @@ export default function SortingPage({ workflow, showWorkflowTabs = true }: Sorti
 
                     <div className="flex flex-1 flex-col items-center justify-center gap-5 px-5 py-6 text-center">
                       <div className="space-y-2">
-                        <div className="text-xs font-black uppercase tracking-[0.35em] text-blue-200">رقم الطاولة</div>
+                        <div className="text-xs font-black uppercase tracking-[0.35em] text-blue-200">Table Number</div>
                         <div dir="ltr" className="font-mono text-[4.5rem] font-black leading-none tracking-tight text-white sm:text-[5.5rem]">
                           {scanDisplayDetails.tableNumber}
                         </div>
                       </div>
 
                       <div className="space-y-2">
-                        <div className="text-xs font-black uppercase tracking-[0.32em] text-emerald-200">رقم الخانة</div>
+                        <div className="text-xs font-black uppercase tracking-[0.32em] text-emerald-200">Cell Number</div>
                         <div dir="ltr" className="rounded-[2rem] border border-emerald-300/40 bg-emerald-400/15 px-8 py-4 font-mono text-5xl font-black leading-none text-emerald-300 shadow-[0_0_36px_rgba(16,185,129,0.22)] sm:text-6xl">
                           {scanDisplayDetails.cellNumber}
                         </div>
                       </div>
 
-                      <div className="grid w-full grid-cols-1 gap-3 text-right sm:grid-cols-2">
+                      <div className="grid w-full grid-cols-1 gap-3 text-left sm:grid-cols-2">
                         <div className="rounded-2xl border border-white/10 bg-white/8 px-4 py-3">
-                          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-200">الكمية التي بحثت عنها</div>
+                          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-200">Requested Quantity</div>
                           <div dir="ltr" className="mt-1 font-mono text-2xl font-black text-white">{scanDisplayDetails.requestedQty}</div>
                         </div>
                         <div className="rounded-2xl border border-white/10 bg-white/8 px-4 py-3">
-                          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-200">تم إرساله للخانة</div>
+                          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-200">Sent To Cell</div>
                           <div dir="ltr" className="mt-1 font-mono text-2xl font-black text-emerald-300">{scanDisplayDetails.consumedQty}</div>
                         </div>
                         <div className="rounded-2xl border border-white/10 bg-white/8 px-4 py-3">
-                          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-200">رقم الزبون</div>
+                          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-200">Customer Phone</div>
                           <div dir="ltr" className="mt-1 font-mono text-xl font-black text-white">{scanDisplayDetails.customerPhone}</div>
                         </div>
                         <div className="rounded-2xl border border-violet-300/20 bg-violet-400/10 px-4 py-3 sm:col-span-2">
@@ -2154,14 +2304,14 @@ export default function SortingPage({ workflow, showWorkflowTabs = true }: Sorti
                         className="cs-print-action flex w-full items-center justify-center gap-2 rounded-2xl px-6 py-4 text-base font-black text-white"
                       >
                         <Sparkles size={20} />
-                        معالجة
+                        Focus Target
                       </button>
                     </div>
                   </div>
                 ) : (
                   <div className="flex h-full min-h-[560px] flex-col items-center justify-center gap-3 px-8 text-center">
                     <AlertCircle size={34} className="text-rose-400" />
-                    <div className="text-sm font-black text-slate-500">لا يمكن عرض نتيجة الفرز.</div>
+                    <div className="text-sm font-black text-slate-500">Sorting result cannot be displayed.</div>
                   </div>
                 )}
               </div>
@@ -2222,6 +2372,11 @@ export default function SortingPage({ workflow, showWorkflowTabs = true }: Sorti
               <Table2 size={18} />
               Sorting Tables
             </div>
+            {quickClearError && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
+                {quickClearError}
+              </div>
+            )}
 
             {stateBusy && !sortingState ? (
               <div className="text-sm text-slate-500 font-semibold inline-flex items-center gap-2">
@@ -2234,6 +2389,13 @@ export default function SortingPage({ workflow, showWorkflowTabs = true }: Sorti
                 {sortingState?.tables.map((table) => {
                   const lookup = buildCellLookup(table);
                   const isFocusedTable = focusPlacement?.table_id === table.id;
+                  const quickClearCount = table.cells.filter(
+                    (cell) => cell.status === 'complete' && Boolean(cell.active_order_no)
+                  ).length;
+                  const occupiedCellCount = table.cells.filter((cell) => Boolean(cell.active_order_no)).length;
+                  const isQuickClearBusy = quickClearTableBusyId === table.id;
+                  const isForceClearBusy = forceClearTableBusyId === table.id;
+                  const tableActionBusy = quickClearTableBusyId !== null || forceClearTableBusyId !== null;
                   return (
                     <div
                       key={table.id}
@@ -2255,11 +2417,37 @@ export default function SortingPage({ workflow, showWorkflowTabs = true }: Sorti
                             {table.rows} Rows × {table.cols} Columns
                           </div>
                         </div>
-                        <div className="flex flex-wrap items-center gap-2 text-[11px] font-black uppercase tracking-wider">
-                          <span className="px-2 py-1 rounded-full bg-slate-100 border border-slate-300 text-slate-700">Empty {table.summary.empty}</span>
-                          <span className="px-2 py-1 rounded-full bg-rose-100 border border-rose-300 text-rose-700">Pending {table.summary.pending}</span>
-                          <span className="px-2 py-1 rounded-full bg-amber-100 border border-amber-300 text-amber-700">Partial {table.summary.partial}</span>
-                          <span className="px-2 py-1 rounded-full bg-emerald-100 border border-emerald-300 text-emerald-700">Complete {table.summary.complete}</span>
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          <div className="flex flex-wrap items-center gap-2 text-[11px] font-black uppercase tracking-wider">
+                            <span className="px-2 py-1 rounded-full bg-slate-100 border border-slate-300 text-slate-700">Empty {table.summary.empty}</span>
+                            <span className="px-2 py-1 rounded-full bg-rose-100 border border-rose-300 text-rose-700">Pending {table.summary.pending}</span>
+                            <span className="px-2 py-1 rounded-full bg-amber-100 border border-amber-300 text-amber-700">Partial {table.summary.partial}</span>
+                            <span className="px-2 py-1 rounded-full bg-emerald-100 border border-emerald-300 text-emerald-700">Complete {table.summary.complete}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void handleQuickClearTable(table);
+                            }}
+                            disabled={quickClearCount === 0 || tableActionBusy}
+                            className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-emerald-700 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:opacity-70"
+                            title="Clear completed cells only"
+                          >
+                            {isQuickClearBusy ? <Loader2 size={13} className="animate-spin" /> : <PackageCheck size={13} />}
+                            Quick Clear {quickClearCount}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void handleForceClearTable(table);
+                            }}
+                            disabled={occupiedCellCount === 0 || tableActionBusy}
+                            className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-rose-700 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:opacity-70"
+                            title="Force clear all occupied cells"
+                          >
+                            {isForceClearBusy ? <Loader2 size={13} className="animate-spin" /> : <X size={13} />}
+                            Force Clear All {occupiedCellCount}
+                          </button>
                         </div>
                       </div>
 

@@ -1,0 +1,146 @@
+--- page 1 ---
+Technical Specification Sheet 
+ 
+Model: GS7018E Made: Girbau - Spain Reference: Quantity: 
+ 
+Wet Cleaning Washer Extractor: High Speed, Freestanding, Electric Heated  
+Capacity:20kg (1/9), 18kg (1/10)  
+Drum: Diameter: 700 mm, Depth: 459 mm, Volume: 177 dm3 
+Door Opening: 470 mm 
+Floor to Door Height: 521 mm 
+Washing Speed INTELI: 45 rpm 
+Spin Speed: 1071 rpm 
+G force: 450 
+ 
+Robustness, durability and reliability 
+The redesigned floating system together with the Motion Guard sensor to monitor the machine at all times ensure the robustnes s and reliability 
+our customers need 
+Optimised features 
+The new GENIUS goes a step further in terms of optimum operation thanks to the above -mentioned accelerometer. This device monitors and 
+corrects any out-of-balance to ensure rapid positioning and outstanding spinning, and adapts to meet each customer's needs.  
+Care Plus 
+The innovative dimpling design ensures not only top -quality washing but better care of linen and prolonging its useful life, which means lower  
+power consumption thanks to better extraction of moisture from the linen.  
+GENIUS, control over every variable 
+Powerful, easy, intuitive and versatile.New Genius control allows total versatility in programming, switching from control fo r professional laundries to vended at the 
+press of a button.The two interfaces are completely different, adapting to any Wet Cleani ng laundry process with endless options to boost the profitability of your 
+business. 
+Constant 450G 
+GENIUS dryers have a powerful 450 G-force extract speed, kept up throughout the spin phase. This powerful spin enables us to increase productivity by 10% and cut  
+the residual moisture level of linen during the wash, at the same time cutting heat energy cos ts and drying times by up to 20%. 
+ 
+Smart Connectivity Corner 
+When we talk about the new GENIUS we're talking about  
+CONNECTIVITY. 
+A totally revolutionary machine in the world of laundry.  
+Supplied with Internet of Things-ready, it offers: 
+• Comprehensive data retrieval: productivity, alarms, reports and more.  
+• Different modules for productivity (PMP), disinfection (DMP) and improvements in services (SMP).  
+• A smart machine: all the parameters are connected to Genius control.  
+Wifi and BLE connection are also featured in this range.  
+360 Vision 
+The new light status corner gives complete visibility, intuitiveness and agility in the laundry, showing the status of the wa shers at all times. This is thanks to an LED 
+system at the top right corner connected to the Genius system.  
+10-inch user-interface screen 
+The new user-interface screen on the Genius series is the biggest, easiest to use, most intuitive and robust on the market: it can be used  even while 
+wearing industrial gloves, and is waterproof and scratch/impact resistant.  
+Genius Load 
+Automatic weight detection for automatic adjustment of water, energy and chemicals, thanks to a precision weighing system con nected to Genius control, to give a 
+simple, intuitive and sustainable experience. 
+Installation Details Units Data 
+Power Kw 15.4 
+Applied Voltage V/Hz/Ph 380-415/50/3 
+Isolator Amps 32A 
+Normal Temp. Water Connection (Soft Water)  mmØ 2X19 
+Pressure PSI 58 
+Consumption lit/hr 270 
+Drain Dia.  mmØ 76 
+Static load Kg 499 
+Dynamic Load Kg 119 
+Dimensions of the Machine WxDxHmm 870 975 1433 
+ 
+
+--- page 2 ---
+Technical Specification Sheet 
+ 
+Model: ED340E Made: GIRBAU - Spain Reference: Quantity: 
+ 
+Wet Cleaning Tumbler Dryer: High Performance & Energy Saving (Heat Capture) Electric Heated 
+Capacity: 17 kg; Ratio: 1/20 
+Drum (Diameter: 736 mm, Length: 800 mm, Volume: 340 lit) 
+Door Opening Height: 570 mm 
+Power Capacity of Motor: 0.45 KW 
+Power Capacity of Fan: 0.25 KW 
+G. Drive to control connection to the inverter, motor and microprocessor  
+Speed Control in manual or automatic mode 
+Humidity Control residual moisture control system is highly accurate & reliable 
+Care Touch Dryer Drum designed to achieve extremely delicate clothing treatment 
+Trans Flow the combination of radial air flow and axial allows achieving an optimum 
+ drying cycle with reduced time 
+Heat Capture that avoid any air leakage and heat to the environment of the laundry 
+ 
+1. Stainless steel drum with care touch 
+2. Drum speed control 
+3. Drum reversing action 
+4. Humidity Control 
+5. Radial and axial air flow through the drum 
+6. Management control between invert motor & microprocessor 
+ 
+SN Installation Details Units Data 
+  Power Consumption KW 19 
+ 1 Applied Voltage V/Ph/Hz 380-415/3/50 
+  Isolator Amps 40 
+2 Exhaust Outlet mm 150Ø 
+  Airflow CFM 391 
+3 Dimensions of the Machine mm 798x985x1522 
+  Weight  kg 249 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+  
+ 
+--- page 3 ---
+Technical Specification Sheet 
+ 
+Model: LS100 VENTURI Made: Seko - Italy Reference: Quantity: 
+ 
+ DESCRIPTION: CHEMICAL DOSING PUMP  
+LS100 Venturi is venturi eductors based dosing system for OPL laundry applications designed for Low maintenance 
+and easy installation. With a modular design the range is composed by 2 main unit by 4 and 6 chemical inlets and an 
+extension for 4 chemical inlets to manage up to 10 chemicals. A Multi Washer module to manage installations with 
+any combination of up to 4 washer extractors with a maximum machines load of around 150 -200Kg.  
+Max flowrates:  Low Flow rate: 650 ml/min @ 1.5bar *  
+High Flow rate: 1300 ml/min @ 2 bar *  
+(flow derates with high viscosity fluids)  
+Max suction: 6 meters long, 3 m lift  
+ 
+SN Installation Details Units Data 
+1 Normal Temp. Water Connection (Soft Water)  mm 19Ø 
+  Pressure bar 6 max 
+2 Power Kw 0.27 
+  Applied Voltage V/Hz/Ph 220/1/50 
+  Isolator Amps 13 
+ 3 Dimensions of the Machine mm(WxDxH) 1166x160x270 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Chemical start-up kit 
+1. OZERA COLOR GREEN 20kg 
+2. LIZERNA CARAT 20kg 
+3. LIZERNA CITRO 25kg 
+4. LIZERNA PROTEXER 20kg 
+5. LIZERNA OLDOPOL QUICK 20kg 
+ 
+ 
+ 
+ 

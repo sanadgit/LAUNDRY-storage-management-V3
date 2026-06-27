@@ -1,0 +1,39 @@
+--- page 1 ---
+Technical Specification Sheet 
+ 
+Model: ED460E  Made: GIRBAU - Spain Reference: Quantity: 
+ 
+Tumbler Dryer: High Performance & Energy Saving (Heat Capture) Electric Heated 
+Capacity: 23 kg; Ratio: 1/20 
+Drum (Diameter: 940 mm, Length: 663 mm, Volume: 460 lit) 
+Door Opening Height: 695 mm 
+Power Capacity of Motor: 0.80 KW 
+Power Capacity of Fan: 0.55 KW 
+G. Drive to control connection to the inverter, motor and microprocessor  
+Speed Control in manual or automatic mode 
+Humidity Control residual moisture control system is highly accurate & reliable 
+Care Touch Dryer Drum designed to achieve extremely delicate clothing treatment 
+Trans Flow the combination of radial air flow and axial allows to achieve an optimum 
+ drying cycle with reduced time 
+Heat Capture that avoid any air leakage and heat to the environment of the laundry 
+ 
+1. Stainless steel drum with care touch 
+2. Drum speed control 
+3. Drum reversing action 
+4. Humidity Control 
+5. Radial and axial air flow through the drum 
+6. Management control between invert motor & microprocessor 
+ 
+SN Installation Details Units Data 
+  Power Consumption KW 24 
+  Applied Voltage V/Ph/Hz 380-415/3/50 
+  Isolator Amps 63 
+2 Exhaust Outlet mm 200Ø 
+  Airflow CFM 802 
+3 Dimensions of the Machine mm 1002X1056X1828 
+  Weight  kg 339 
+ 
+ 
+ 
+ 
+ 

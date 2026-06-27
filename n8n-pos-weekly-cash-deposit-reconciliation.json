@@ -1,0 +1,820 @@
+{
+  "name": "POS Weekly Cash Deposit Reconciliation And Approval",
+  "active": false,
+  "nodes": [
+    {
+      "id": "cash-setup-note",
+      "name": "Setup Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -980,
+        -700
+      ],
+      "parameters": {
+        "content": "## Weekly Cash Deposit Reconciliation\n\nSafe flow: calculate -> branch confirmation -> receipt OCR -> accountant approval -> create Journal once -> verify -> attach receipt.\n\nRequired n8n Variables:\n- POS_USERNAME\n- POS_PASSWORD\n- TELEGRAM_ALLOWED_CHAT_ID\n- CASH_ACCOUNTANT_CHAT_ID\n- CASH_BRANCHES_JSON (example below)\n\n`[{\"id\":\"1\",\"name\":\"AL FALAH\",\"manager_chat_id\":\"123456\"}]`\n\nOptional:\n- AIPSOFT_API_BASE_URL\n- AIPSOFT_CLIENT_IDENTIFIER\n- OPENAI_MODEL\n- CASH_ACCOUNT_ID=1\n- CASH_BANK_ACCOUNT_ID=34127\n- CASH_RECEIPT_AMOUNT_TOLERANCE=0.50\n- CASH_COVERAGE_FROM / CASH_COVERAGE_TO for controlled test\n- CASH_NEXT_JOURNAL_NO only if POS requires a visible voucher number.\n\nSelect Telegram credentials on every Telegram node and OpenAI credential on the receipt extraction node.\nUse a dedicated Telegram bot or merge these routes into the existing bot because Telegram permits one active webhook per bot.\nDo not activate before Manual Test parses the report correctly."
+      }
+    },
+    {
+      "id": "cash-manual-trigger",
+      "name": "Manual Test",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -920,
+        -420
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "cash-weekly-trigger",
+      "name": "Every Monday 08 00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -920,
+        -300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cash-calculate",
+      "name": "POS - Calculate Weekly Cash Deposit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -620,
+        -360
+      ],
+      "parameters": {
+        "jsCode": "const trim = (value, fallback = '') => String(value ?? fallback).trim();\nconst num = (value, fallback = 0) => {\n  const parsed = Number(String(value ?? '').replace(/[^0-9.-]/g, ''));\n  return Number.isFinite(parsed) ? parsed : fallback;\n};\nconst round = (value) => Number(num(value).toFixed(2));\nconst vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst POS_USERNAME = trim(vars.POS_USERNAME);\nconst POS_PASSWORD = trim(vars.POS_PASSWORD);\nconst CLIENT_IDENTIFIER = trim(vars.AIPSOFT_CLIENT_IDENTIFIER, 'inout') || 'inout';\nconst POS_BASE_URL = trim(vars.AIPSOFT_API_BASE_URL, 'https://beta.aipsoft.com/inout').replace(/\\/$/, '');\nconst POS_LOGIN_ENDPOINT = trim(vars.POS_LOGIN_ENDPOINT, POS_BASE_URL + '/login/check');\nconst POS_ORIGIN = trim(vars.POS_ORIGIN, 'https://beta.aipsoft.com');\nconst POS_REFERER = trim(vars.POS_CASH_REFERER, POS_BASE_URL + '/reports/generate/accounts_cash_flow');\nif (!POS_USERNAME || !POS_PASSWORD) throw new Error('Missing POS_USERNAME or POS_PASSWORD n8n Variables.');\n\nconst encode = (data) => Object.entries(data || {})\n  .map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(String(value ?? '')))\n  .join('&');\nconst cookieMap = (header) => {\n  const map = new Map();\n  for (const part of String(header || '').split(';')) {\n    const item = part.trim();\n    const eq = item.indexOf('=');\n    if (eq > 0) map.set(item.slice(0, eq), item.slice(eq + 1));\n  }\n  return map;\n};\nconst normalizeHeaders = (headers = {}) => {\n  const out = {};\n  if (headers?.forEach) headers.forEach((value, key) => { out[String(key).toLowerCase()] = value; });\n  else for (const [key, value] of Object.entries(headers || {})) out[String(key).toLowerCase()] = value;\n  if (headers?.getSetCookie) out['set-cookie'] = headers.getSetCookie();\n  return out;\n};\nconst setCookies = (headers) => {\n  const raw = normalizeHeaders(headers)['set-cookie'];\n  if (!raw) return [];\n  if (Array.isArray(raw)) return raw;\n  return String(raw).split(/,(?=\\s*[^;,\\s]+=)/g);\n};\nconst mergeCookies = (base, incoming) => {\n  const map = cookieMap(base);\n  for (const value of incoming || []) {\n    const first = String(value).split(';')[0];\n    const eq = first.indexOf('=');\n    if (eq > 0) map.set(first.slice(0, eq).trim(), first.slice(eq + 1).trim());\n  }\n  return Array.from(map.entries()).map(([key, value]) => key + '=' + value).join('; ');\n};\nconst request = async function(options) {\n  const response = await this.helpers.httpRequest({\n    method: options.method || 'POST',\n    url: options.url,\n    headers: options.headers || {},\n    body: options.body,\n    json: false,\n    returnFullResponse: true,\n    resolveWithFullResponse: true,\n    simple: false,\n    timeout: 120000,\n  });\n  if (response && typeof response === 'object' && (response.headers || Object.prototype.hasOwnProperty.call(response, 'body'))) {\n    return {\n      statusCode: response.statusCode || response.status || 0,\n      headers: response.headers || {},\n      body: typeof response.body === 'string' ? response.body : JSON.stringify(response.body ?? ''),\n    };\n  }\n  return { statusCode: 0, headers: {}, body: typeof response === 'string' ? response : JSON.stringify(response ?? '') };\n};\nconst posHeaders = (cookie, form = true, referer = POS_REFERER) => {\n  const result = {\n    Accept: 'application/json, text/javascript, */*; q=0.01',\n    'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ar;q=0.7',\n    Origin: POS_ORIGIN,\n    Referer: referer,\n    'X-Requested-With': 'XMLHttpRequest',\n    Cookie: cookie,\n  };\n  if (form) result['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';\n  return result;\n};\nconst createPosSession = async function() {\n  let cookie = 'language=english; direction=ltr; dont_show_today=true';\n  const preflight = await request.call(this, { method: 'GET', url: POS_REFERER, headers: posHeaders(cookie, false) });\n  cookie = mergeCookies(cookie, setCookies(preflight.headers));\n  const short = POS_USERNAME.includes('@') ? POS_USERNAME.split('@')[0].trim() : POS_USERNAME;\n  const usernames = Array.from(new Set([POS_USERNAME, POS_USERNAME.toLowerCase(), short, short.toLowerCase(), short + '@' + CLIENT_IDENTIFIER].filter(Boolean)));\n  let lastLogin = '';\n  for (const username of usernames) {\n    const login = await request.call(this, {\n      url: POS_LOGIN_ENDPOINT,\n      headers: posHeaders(cookie),\n      body: encode({ username, password: POS_PASSWORD, client_identifier: CLIENT_IDENTIFIER, auto_login: 'null', connection_path: 'null' }),\n    });\n    cookie = mergeCookies(cookie, setCookies(login.headers));\n    lastLogin = login.body;\n    if (/login_success|password_ok/i.test(lastLogin) && /ci_session_/i.test(cookie) && /\\binout=/i.test(cookie)) return cookie;\n  }\n  throw new Error('POS login failed: ' + String(lastLogin).slice(0, 240));\n};\nconst postForm = async function(cookie, endpoint, form, referer = POS_REFERER) {\n  const response = await request.call(this, {\n    url: POS_BASE_URL + endpoint,\n    headers: posHeaders(cookie, true, referer),\n    body: encode(form),\n  });\n  if (/login\\/check|name=[\"']password/i.test(response.body)) throw new Error(endpoint + ' returned POS login page.');\n  let parsed = response.body;\n  try { parsed = JSON.parse(response.body); } catch {}\n  return { statusCode: response.statusCode, data: parsed, raw: response.body };\n};\n\nconst isoDate = (date) => date.toISOString().slice(0, 10);\nconst previousWeek = () => {\n  const dubaiToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dubai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());\n  const cursor = new Date(dubaiToday + 'T00:00:00Z');\n  const day = cursor.getUTCDay() || 7;\n  cursor.setUTCDate(cursor.getUTCDate() - day - 6);\n  const from = new Date(cursor);\n  const to = new Date(cursor);\n  to.setUTCDate(to.getUTCDate() + 6);\n  return { from: isoDate(from), to: isoDate(to) };\n};\nconst coverage = previousWeek();\ncoverage.from = trim(vars.CASH_COVERAGE_FROM, coverage.from);\ncoverage.to = trim(vars.CASH_COVERAGE_TO, coverage.to);\nlet branches;\ntry { branches = JSON.parse(trim(vars.CASH_BRANCHES_JSON, '[]')); } catch { throw new Error('CASH_BRANCHES_JSON is not valid JSON.'); }\nif (!Array.isArray(branches) || !branches.length) {\n  branches = [{\n    id: trim(vars.CASH_DEFAULT_BRANCH_ID, '1'),\n    name: trim(vars.CASH_DEFAULT_BRANCH_NAME, 'AL FALAH'),\n    manager_chat_id: trim(vars.CASH_BRANCH_MANAGER_CHAT_ID, vars.TELEGRAM_ALLOWED_CHAT_ID),\n  }];\n}\nconst allText = (value, seen = new Set()) => {\n  if (value == null) return '';\n  if (typeof value === 'string' || typeof value === 'number') return String(value);\n  if (typeof value !== 'object' || seen.has(value)) return '';\n  seen.add(value);\n  if (Array.isArray(value)) return value.map((item) => allText(item, seen)).join('\\n');\n  return Object.entries(value).map(([key, item]) => key + ': ' + allText(item, seen)).join('\\n');\n};\nconst moneyAfter = (text, labels) => {\n  for (const label of labels) {\n    const safe = label.replace(/[.*+?^$()|[\\]\\\\{}]/g, '\\\\$&');\n    const match = text.match(new RegExp(safe + '[^0-9-]{0,40}(?:AED\\\\s*)?([0-9,]+(?:\\\\.[0-9]+)?)', 'i'));\n    if (match) return round(match[1]);\n  }\n  return 0;\n};\nconst cookie = await createPosSession.call(this);\nconst store = $getWorkflowStaticData('global');\nif (!store.cashReconciliations || typeof store.cashReconciliations !== 'object') store.cashReconciliations = {};\nconst results = [];\nfor (const configured of branches) {\n  const branch = {\n    id: trim(configured.id),\n    name: trim(configured.name, 'Branch ' + trim(configured.id)),\n    manager_chat_id: trim(configured.manager_chat_id, vars.CASH_BRANCH_MANAGER_CHAT_ID || vars.TELEGRAM_ALLOWED_CHAT_ID),\n  };\n  if (!branch.id || !branch.manager_chat_id) continue;\n  const report = await postForm.call(this, cookie, '/reports/generate_report', {\n    report_type: 'accounts_cash_flow',\n    from_date: coverage.from,\n    from_time: '12:00 AM',\n    to_date: coverage.to,\n    to_time: '11:59 PM',\n    no_of_decimal_places: '2',\n    save: '1',\n    branch_id: branch.id,\n    predefined_date: 'Custom Range',\n  });\n  const ledger = await postForm.call(this, cookie, '/reports/generate_report', {\n    report_type: 'ledger_report',\n    from_date: coverage.from,\n    from_time: '12:00 AM',\n    to_date: coverage.to,\n    to_time: '11:59 PM',\n    ledger_name: trim(vars.CASH_ACCOUNT_ID, '1'),\n    ledger_name_txt: trim(vars.CASH_ACCOUNT_NAME, 'Cash Account'),\n    branch_id: branch.id,\n    predefined_date: 'Custom Range',\n    post_dated_chks: '0',\n    enable_aging: '0',\n  });\n  const reportText = allText(report.data).replace(/<[^>]*>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\\s+/g, ' ');\n  const ledgerText = allText(ledger.data).replace(/<[^>]*>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\\s+/g, ' ');\n  const cashReceived = moneyAfter(reportText, ['Total Income', 'Cash Received', 'Total Cash Income']);\n  const cashExpenses = moneyAfter(reportText, ['Total Expense & PI Payments', 'Total Expense', 'Cash Expense']);\n  const registeredDeposits = moneyAfter(reportText, ['Total Transfer-Journal/Bank', 'Transfer-Journal/Bank', 'Bank Transfer']);\n  const approvedVariance = round(configured.approved_variance || 0);\n  const requiredDeposit = Math.max(0, round(cashReceived - cashExpenses - registeredDeposits + approvedVariance));\n  const parseOk = /Total Income|Total Expense|Total Cash Balance/i.test(reportText);\n  const key = branch.id + '|' + coverage.from + '|' + coverage.to;\n  const previous = store.cashReconciliations[key];\n  const terminal = ['journal_created', 'attachment_verified', 'reconciled'].includes(previous?.status);\n  const record = terminal ? previous : {\n    key,\n    branch_id: branch.id,\n    branch_name: branch.name,\n    manager_chat_id: branch.manager_chat_id,\n    accountant_chat_id: trim(vars.CASH_ACCOUNTANT_CHAT_ID, vars.TELEGRAM_ALLOWED_CHAT_ID),\n    coverage_from: coverage.from,\n    coverage_to: coverage.to,\n    cash_received: cashReceived,\n    cash_expenses: cashExpenses,\n    deposits_registered: registeredDeposits,\n    approved_variance: approvedVariance,\n    required_deposit: requiredDeposit,\n    status: parseOk ? 'awaiting_branch_deposit' : 'exception',\n    report_parse_ok: parseOk,\n    report_excerpt: reportText.slice(0, 1200),\n    ledger_excerpt: ledgerText.slice(0, 1200),\n    calculated_at: new Date().toISOString(),\n    updated_at: new Date().toISOString(),\n    history: [{ at: new Date().toISOString(), action: 'calculated', amount: requiredDeposit }],\n  };\n  store.cashReconciliations[key] = record;\n  const money = (value) => Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });\n  const lines = parseOk ? [\n    'تقرير الإيداع الأسبوعي',\n    'الفرع: ' + branch.name + ' / ' + branch.id,\n    'الفترة: ' + coverage.from + ' إلى ' + coverage.to,\n    '',\n    'Cash Received: AED ' + money(cashReceived),\n    'Cash Expenses: AED ' + money(cashExpenses),\n    'Deposits Registered: AED ' + money(registeredDeposits),\n    'Approved Variance: AED ' + money(approvedVariance),\n    'Required Deposit: AED ' + money(requiredDeposit),\n    '',\n    requiredDeposit > 0 ? 'يرجى إيداع المبلغ في ADIB ثم الضغط على تم الإيداع.' : 'لا يوجد مبلغ مطلوب للإيداع لهذه الفترة.',\n    'Reconciliation: ' + key,\n  ] : [\n    'تعذر تحليل تقرير الكاش تلقائيًا',\n    'الفرع: ' + branch.name + ' / ' + branch.id,\n    'الفترة: ' + coverage.from + ' إلى ' + coverage.to,\n    'تم إيقاف أي كتابة إلى POS. راجع Response في تنفيذ n8n.',\n  ];\n  results.push({ json: { ...record, chat_id: branch.manager_chat_id, telegram_text: lines.join('\\n'), send_actions: parseOk && requiredDeposit > 0 } });\n}\nreturn results;"
+      }
+    },
+    {
+      "id": "cash-send-weekly-report",
+      "name": "Telegram - Send Weekly Deposit Order",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        40,
+        -360
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.chat_id}}",
+        "text": "={{$json.telegram_text}}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "✅ تم الإيداع",
+                    "additionalFields": {
+                      "callback_data": "={{'cash:deposited:' + $json.key}}"
+                    }
+                  },
+                  {
+                    "text": "🔎 مراجعة المبلغ",
+                    "additionalFields": {
+                      "callback_data": "={{'cash:review:' + $json.key}}"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "⚠️ يوجد فرق",
+                    "additionalFields": {
+                      "callback_data": "={{'cash:variance:' + $json.key}}"
+                    }
+                  },
+                  {
+                    "text": "📄 التفاصيل",
+                    "additionalFields": {
+                      "callback_data": "={{'cash:details:' + $json.key}}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "cash-telegram-trigger",
+      "name": "Telegram Trigger - Cash Deposit",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -920,
+        20
+      ],
+      "parameters": {
+        "updates": [
+          "message",
+          "callback_query"
+        ],
+        "additionalFields": {
+          "download": true,
+          "imageSize": "large"
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "cash-normalize",
+      "name": "Telegram - Normalize Cash Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -660,
+        20
+      ],
+      "parameters": {
+        "jsCode": "const trim = (value, fallback = '') => String(value ?? fallback).trim();\nconst vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst update = $json;\nconst callback = update.callback_query;\nconst message = update.message || update.edited_message || callback?.message || update;\nconst chatId = trim(message.chat?.id);\nconst callbackData = trim(callback?.data);\nconst caption = trim(message.caption || message.text);\nconst allowed = [vars.TELEGRAM_ALLOWED_CHAT_ID, vars.CASH_BRANCH_MANAGER_CHAT_ID, vars.CASH_ACCOUNTANT_CHAT_ID]\n  .flatMap((value) => trim(value).split(','))\n  .map((value) => value.trim()).filter(Boolean);\nlet configured = [];\ntry { configured = JSON.parse(trim(vars.CASH_BRANCHES_JSON, '[]')); } catch {}\nfor (const branch of Array.isArray(configured) ? configured : []) if (branch.manager_chat_id) allowed.push(trim(branch.manager_chat_id));\nif (!chatId || (allowed.length && !allowed.includes(chatId))) return [];\nlet action = 'unknown';\nlet key = '';\nif (callbackData.startsWith('cash:')) {\n  const parts = callbackData.split(':');\n  action = trim(parts[1]);\n  key = trim(parts.slice(2).join(':'));\n}\nlet fileId = '';\nlet fileName = '';\nlet mimeType = '';\nif (Array.isArray(message.photo) && message.photo.length) {\n  fileId = trim(message.photo[message.photo.length - 1]?.file_id);\n  fileName = 'bank-deposit-receipt.jpg';\n  mimeType = 'image/jpeg';\n}\nif (message.document?.file_id) {\n  fileId = trim(message.document.file_id);\n  fileName = trim(message.document.file_name, 'bank-deposit-receipt');\n  mimeType = trim(message.document.mime_type, 'application/octet-stream');\n}\nif (fileId) {\n  action = 'receipt';\n  const explicit = caption.match(/(?:deposit|إيداع|ايداع)\\s+([^\\s]+)/i)?.[1];\n  if (explicit) key = explicit.replace(/_/g, '|');\n}\nreturn [{ json: {\n  action,\n  key,\n  chat_id: chatId,\n  callback_query_id: trim(callback?.id),\n  telegram_file_id: fileId,\n  telegram_file_name: fileName,\n  telegram_mime_type: mimeType,\n  caption,\n  from_name: trim(message.from?.username || callback?.from?.username || message.from?.first_name || callback?.from?.first_name, 'manager'),\n} }];"
+      }
+    },
+    {
+      "id": "cash-mark-deposited",
+      "name": "Branch - Mark Deposited",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        -80
+      ],
+      "parameters": {
+        "jsCode": "if ($json.action !== 'deposited') return [];\nconst store = $getWorkflowStaticData('global');\nconst record = store.cashReconciliations?.[$json.key];\nif (!record) return [{ json: { ...$json, telegram_text: 'لم أجد هذه التسوية: ' + $json.key } }];\nif (record.manager_chat_id && String(record.manager_chat_id) !== String($json.chat_id)) return [];\nif (!record.report_parse_ok || Number(record.required_deposit || 0) <= 0) {\n  return [{ json: { ...$json, telegram_text: 'لا يمكن بدء الإيداع: التقرير يحتاج مراجعة أو لا يوجد مبلغ مطلوب.' } }];\n}\nif (['journal_created', 'attachment_verified', 'reconciled'].includes(record.status)) {\n  return [{ json: { ...$json, telegram_text: 'هذه التسوية مسجلة مسبقًا. Journal ID: ' + (record.journal_id || '-') } }];\n}\nrecord.status = 'awaiting_receipt';\nrecord.branch_confirmed_by = $json.from_name;\nrecord.updated_at = new Date().toISOString();\nrecord.history = record.history || [];\nrecord.history.push({ at: record.updated_at, action: 'branch_marked_deposited', by: $json.from_name });\nreturn [{ json: { ...$json, telegram_text: [\n  'تم تسجيل تأكيد الإيداع للفرع ' + record.branch_name + '.',\n  'أرسل الآن صورة أو PDF لإيصال ADIB.',\n  'اكتب في Caption:',\n  'deposit ' + record.key.replace(/\\|/g, '_'),\n].join('\\n') } }];"
+      }
+    },
+    {
+      "id": "cash-send-receipt-request",
+      "name": "Telegram - Request Deposit Receipt",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -140,
+        -80
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.chat_id}}",
+        "text": "={{$json.telegram_text}}",
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "cash-simple-actions",
+      "name": "Cash - Review Details Or Reject",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        -220
+      ],
+      "parameters": {
+        "jsCode": "if (!['review', 'variance', 'details', 'reject'].includes($json.action)) return [];\nconst store = $getWorkflowStaticData('global');\nconst record = store.cashReconciliations?.[$json.key];\nif (!record) return [{ json: { ...$json, telegram_text: 'لم أجد هذه التسوية: ' + $json.key } }];\nif ($json.action === 'reject') {\n  record.status = 'exception';\n  record.rejected_by = $json.from_name;\n  record.updated_at = new Date().toISOString();\n}\nconst money = (value) => Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });\nconst text = $json.action === 'details' ? [\n  'تفاصيل التسوية ' + record.key,\n  'Cash Received: AED ' + money(record.cash_received),\n  'Cash Expenses: AED ' + money(record.cash_expenses),\n  'Registered Deposits: AED ' + money(record.deposits_registered),\n  'Required: AED ' + money(record.required_deposit),\n  'Status: ' + record.status,\n].join('\\n') : $json.action === 'reject'\n  ? 'تم رفض التسوية وتحويلها إلى Exception: ' + record.key\n  : 'تم إرسال طلب مراجعة للتسوية ' + record.key + '. لن يُنشأ أي قيد قبل اعتماد المحاسب.';\nreturn [{ json: { ...$json, chat_id: record.accountant_chat_id || $json.chat_id, telegram_text: text } }];"
+      }
+    },
+    {
+      "id": "cash-send-simple-action",
+      "name": "Telegram - Send Cash Action Result",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -140,
+        -220
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.chat_id}}",
+        "text": "={{$json.telegram_text}}",
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "cash-prepare-receipt",
+      "name": "Receipt - Match Reconciliation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        20
+      ],
+      "parameters": {
+        "jsCode": "if ($json.action !== 'receipt' || !$json.telegram_file_id) return [];\nconst store = $getWorkflowStaticData('global');\nconst records = Object.values(store.cashReconciliations || {});\nlet record = $json.key ? store.cashReconciliations?.[$json.key] : null;\nif (!record) {\n  record = records\n    .filter((item) => String(item.manager_chat_id) === String($json.chat_id) && ['awaiting_receipt', 'awaiting_branch_deposit'].includes(item.status))\n    .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))[0];\n}\nif (!record) return [{ json: { ...$json, telegram_text: 'لم أجد تسوية تنتظر إيصالًا. استخدم Caption الذي أرسله البوت.' } }];\nif (['journal_created', 'attachment_verified', 'reconciled'].includes(record.status)) {\n  return [{ json: { ...$json, telegram_text: 'هذه التسوية أُنشئ قيدها مسبقًا ولن أعالج إيصالًا جديدًا تلقائيًا.' } }];\n}\nrecord.status = 'receipt_received';\nrecord.telegram_file_id = $json.telegram_file_id;\nrecord.receipt_file_name = $json.telegram_file_name;\nrecord.receipt_mime_type = $json.telegram_mime_type;\nrecord.receipt_caption = $json.caption;\nrecord.updated_at = new Date().toISOString();\nif (!store.cashReceiptJobs || typeof store.cashReceiptJobs !== 'object') store.cashReceiptJobs = {};\nstore.cashReceiptJobs[$json.telegram_file_id] = { key: record.key, chat_id: $json.chat_id, created_at: record.updated_at };\nreturn [{ json: { ...$json, key: record.key, telegram_file_id: $json.telegram_file_id } }];"
+      }
+    },
+    {
+      "id": "cash-download-receipt",
+      "name": "Telegram - Download Deposit Receipt",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -140,
+        20
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "get",
+        "fileId": "={{$json.telegram_file_id}}",
+        "binaryProperty": "data",
+        "download": true
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "cash-prepare-ocr",
+      "name": "Receipt - Prepare OpenAI Extraction",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        20
+      ],
+      "parameters": {
+        "jsCode": "const trim = (value, fallback = '') => String(value ?? fallback).trim();\nconst binaryKey = Object.keys($input.item.binary || {})[0];\nif (!binaryKey) throw new Error('Telegram receipt was not returned as binary data.');\nconst buffer = this.helpers?.getBinaryDataBuffer\n  ? await this.helpers.getBinaryDataBuffer(0, binaryKey)\n  : Buffer.from($input.item.binary[binaryKey]?.data || '', 'base64');\nif (!buffer?.length) throw new Error('Could not read Telegram receipt binary.');\nconst store = $getWorkflowStaticData('global');\nconst fileId = trim($json.result?.file_id || $json.file_id || $json.telegram_file_id);\nconst job = store.cashReceiptJobs?.[fileId];\nif (!job) throw new Error('Receipt job not found for Telegram file_id.');\nconst record = store.cashReconciliations?.[job.key];\nif (!record) throw new Error('Reconciliation not found for receipt job.');\nconst mime = trim(record.receipt_mime_type, 'image/jpeg');\nconst dataUrl = 'data:' + mime + ';base64,' + Buffer.from(buffer).toString('base64');\nconst schema = {\n  type: 'object', additionalProperties: false,\n  properties: {\n    deposit_amount: { type: 'number' }, deposit_date: { type: 'string' },\n    bank_reference: { type: 'string' }, bank_name: { type: 'string' },\n    branch: { type: 'string' }, account_hint: { type: 'string' }, confidence: { type: 'number' }, notes: { type: 'string' },\n  },\n  required: ['deposit_amount','deposit_date','bank_reference','bank_name','branch','account_hint','confidence','notes'],\n};\nconst prompt = [\n  'Extract bank deposit receipt fields. Return empty strings when unreadable and 0 for unreadable amount/confidence.',\n  'The expected bank is ADIB and expected amount is AED ' + record.required_deposit + '.',\n  'Do not invent a bank reference.',\n  'Caption: ' + trim(record.receipt_caption),\n].join('\\n');\nconst content = [{ type: 'input_text', text: prompt }];\nif (mime === 'application/pdf') content.push({ type: 'input_file', filename: record.receipt_file_name || 'receipt.pdf', file_data: dataUrl });\nelse content.push({ type: 'input_image', image_url: dataUrl, detail: 'high' });\nreturn [{ json: { reconciliation_key: record.key, telegram_file_id: fileId, chat_id: job.chat_id, openaiBody: {\n  model: String($vars.OPENAI_MODEL || 'gpt-4.1-mini'),\n  metadata: { reconciliation_key: record.key, telegram_file_id: fileId },\n  input: [{ role: 'user', content }],\n  text: { format: { type: 'json_schema', name: 'bank_deposit_receipt', strict: true, schema } },\n} } }];"
+      }
+    },
+    {
+      "id": "cash-openai-receipt",
+      "name": "OpenAI - Extract Deposit Receipt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        20
+      ],
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json.openaiBody}}",
+        "options": {}
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "REPLACE_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "id": "cash-parse-receipt",
+      "name": "Receipt - Validate And Save",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        20
+      ],
+      "parameters": {
+        "jsCode": "const trim = (value) => String(value ?? '').trim();\nconst metadata = $json.metadata || {};\nconst key = trim(metadata.reconciliation_key);\nconst fileId = trim(metadata.telegram_file_id);\nconst outputText = trim($json.output_text) || trim(($json.output || []).flatMap((item) => item.content || []).find((item) => item.type === 'output_text')?.text);\nlet extracted;\ntry { extracted = JSON.parse(outputText); } catch { throw new Error('OpenAI receipt response is not valid JSON: ' + outputText.slice(0, 300)); }\nconst store = $getWorkflowStaticData('global');\nconst record = store.cashReconciliations?.[key];\nif (!record) throw new Error('Reconciliation not found after receipt extraction.');\nconst reference = trim(extracted.bank_reference);\nconst duplicate = Object.values(store.cashReconciliations || {}).some((item) => item.key !== key && reference && trim(item.deposit_reference) === reference);\nconst tolerance = Number($vars.CASH_RECEIPT_AMOUNT_TOLERANCE || 0.50);\nconst amountDifference = Number((Number(extracted.deposit_amount || 0) - Number(record.required_deposit || 0)).toFixed(2));\nconst bankOk = /ADIB|Abu Dhabi Islamic/i.test(trim(extracted.bank_name) + ' ' + trim(extracted.account_hint));\nconst errors = [];\nif (!reference) errors.push('Bank reference is missing');\nif (duplicate) errors.push('Bank reference is already used');\nif (Math.abs(amountDifference) > tolerance) errors.push('Receipt amount differs by AED ' + amountDifference.toFixed(2));\nif (!bankOk) errors.push('Bank is not confirmed as ADIB');\nrecord.receipt = extracted;\nrecord.deposit_reference = reference;\nrecord.receipt_amount_difference = amountDifference;\nrecord.receipt_validation_errors = errors;\nrecord.receipt_file_id = fileId;\nrecord.status = 'awaiting_accountant_approval';\nrecord.updated_at = new Date().toISOString();\nrecord.history = record.history || [];\nrecord.history.push({ at: record.updated_at, action: 'receipt_analyzed', errors });\nconst money = (value) => Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });\nreturn [{ json: {\n  key,\n  chat_id: record.accountant_chat_id,\n  telegram_text: [\n    'إيصال إيداع جاهز لموافقة المحاسب',\n    'الفرع: ' + record.branch_name + ' / ' + record.branch_id,\n    'الفترة: ' + record.coverage_from + ' إلى ' + record.coverage_to,\n    'المطلوب: AED ' + money(record.required_deposit),\n    'الإيصال: AED ' + money(extracted.deposit_amount),\n    'التاريخ: ' + (extracted.deposit_date || '-'),\n    'البنك: ' + (extracted.bank_name || '-'),\n    'المرجع: ' + (reference || '-'),\n    'Confidence: ' + Number(extracted.confidence || 0).toFixed(2),\n    errors.length ? 'تنبيهات: ' + errors.join(' | ') : 'التحقق الأولي: مطابق',\n    '',\n    'لن ينشأ Journal قبل الضغط على اعتماد.',\n  ].join('\\n'),\n} }];"
+      }
+    },
+    {
+      "id": "cash-send-accountant-approval",
+      "name": "Telegram - Send Accountant Approval",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1560,
+        20
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.chat_id}}",
+        "text": "={{$json.telegram_text}}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "✅ اعتماد وإنشاء القيد",
+                    "additionalFields": {
+                      "callback_data": "={{'cash:approve:' + $json.key}}"
+                    }
+                  },
+                  {
+                    "text": "❌ رفض",
+                    "additionalFields": {
+                      "callback_data": "={{'cash:reject:' + $json.key}}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "cash-create-journal",
+      "name": "POS - Create And Verify Deposit Journal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        360
+      ],
+      "parameters": {
+        "jsCode": "const trim = (value, fallback = '') => String(value ?? fallback).trim();\nconst num = (value, fallback = 0) => {\n  const parsed = Number(String(value ?? '').replace(/[^0-9.-]/g, ''));\n  return Number.isFinite(parsed) ? parsed : fallback;\n};\nconst round = (value) => Number(num(value).toFixed(2));\nconst vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst POS_USERNAME = trim(vars.POS_USERNAME);\nconst POS_PASSWORD = trim(vars.POS_PASSWORD);\nconst CLIENT_IDENTIFIER = trim(vars.AIPSOFT_CLIENT_IDENTIFIER, 'inout') || 'inout';\nconst POS_BASE_URL = trim(vars.AIPSOFT_API_BASE_URL, 'https://beta.aipsoft.com/inout').replace(/\\/$/, '');\nconst POS_LOGIN_ENDPOINT = trim(vars.POS_LOGIN_ENDPOINT, POS_BASE_URL + '/login/check');\nconst POS_ORIGIN = trim(vars.POS_ORIGIN, 'https://beta.aipsoft.com');\nconst POS_REFERER = trim(vars.POS_CASH_REFERER, POS_BASE_URL + '/reports/generate/accounts_cash_flow');\nif (!POS_USERNAME || !POS_PASSWORD) throw new Error('Missing POS_USERNAME or POS_PASSWORD n8n Variables.');\n\nconst encode = (data) => Object.entries(data || {})\n  .map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(String(value ?? '')))\n  .join('&');\nconst cookieMap = (header) => {\n  const map = new Map();\n  for (const part of String(header || '').split(';')) {\n    const item = part.trim();\n    const eq = item.indexOf('=');\n    if (eq > 0) map.set(item.slice(0, eq), item.slice(eq + 1));\n  }\n  return map;\n};\nconst normalizeHeaders = (headers = {}) => {\n  const out = {};\n  if (headers?.forEach) headers.forEach((value, key) => { out[String(key).toLowerCase()] = value; });\n  else for (const [key, value] of Object.entries(headers || {})) out[String(key).toLowerCase()] = value;\n  if (headers?.getSetCookie) out['set-cookie'] = headers.getSetCookie();\n  return out;\n};\nconst setCookies = (headers) => {\n  const raw = normalizeHeaders(headers)['set-cookie'];\n  if (!raw) return [];\n  if (Array.isArray(raw)) return raw;\n  return String(raw).split(/,(?=\\s*[^;,\\s]+=)/g);\n};\nconst mergeCookies = (base, incoming) => {\n  const map = cookieMap(base);\n  for (const value of incoming || []) {\n    const first = String(value).split(';')[0];\n    const eq = first.indexOf('=');\n    if (eq > 0) map.set(first.slice(0, eq).trim(), first.slice(eq + 1).trim());\n  }\n  return Array.from(map.entries()).map(([key, value]) => key + '=' + value).join('; ');\n};\nconst request = async function(options) {\n  const response = await this.helpers.httpRequest({\n    method: options.method || 'POST',\n    url: options.url,\n    headers: options.headers || {},\n    body: options.body,\n    json: false,\n    returnFullResponse: true,\n    resolveWithFullResponse: true,\n    simple: false,\n    timeout: 120000,\n  });\n  if (response && typeof response === 'object' && (response.headers || Object.prototype.hasOwnProperty.call(response, 'body'))) {\n    return {\n      statusCode: response.statusCode || response.status || 0,\n      headers: response.headers || {},\n      body: typeof response.body === 'string' ? response.body : JSON.stringify(response.body ?? ''),\n    };\n  }\n  return { statusCode: 0, headers: {}, body: typeof response === 'string' ? response : JSON.stringify(response ?? '') };\n};\nconst posHeaders = (cookie, form = true, referer = POS_REFERER) => {\n  const result = {\n    Accept: 'application/json, text/javascript, */*; q=0.01',\n    'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ar;q=0.7',\n    Origin: POS_ORIGIN,\n    Referer: referer,\n    'X-Requested-With': 'XMLHttpRequest',\n    Cookie: cookie,\n  };\n  if (form) result['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';\n  return result;\n};\nconst createPosSession = async function() {\n  let cookie = 'language=english; direction=ltr; dont_show_today=true';\n  const preflight = await request.call(this, { method: 'GET', url: POS_REFERER, headers: posHeaders(cookie, false) });\n  cookie = mergeCookies(cookie, setCookies(preflight.headers));\n  const short = POS_USERNAME.includes('@') ? POS_USERNAME.split('@')[0].trim() : POS_USERNAME;\n  const usernames = Array.from(new Set([POS_USERNAME, POS_USERNAME.toLowerCase(), short, short.toLowerCase(), short + '@' + CLIENT_IDENTIFIER].filter(Boolean)));\n  let lastLogin = '';\n  for (const username of usernames) {\n    const login = await request.call(this, {\n      url: POS_LOGIN_ENDPOINT,\n      headers: posHeaders(cookie),\n      body: encode({ username, password: POS_PASSWORD, client_identifier: CLIENT_IDENTIFIER, auto_login: 'null', connection_path: 'null' }),\n    });\n    cookie = mergeCookies(cookie, setCookies(login.headers));\n    lastLogin = login.body;\n    if (/login_success|password_ok/i.test(lastLogin) && /ci_session_/i.test(cookie) && /\\binout=/i.test(cookie)) return cookie;\n  }\n  throw new Error('POS login failed: ' + String(lastLogin).slice(0, 240));\n};\nconst postForm = async function(cookie, endpoint, form, referer = POS_REFERER) {\n  const response = await request.call(this, {\n    url: POS_BASE_URL + endpoint,\n    headers: posHeaders(cookie, true, referer),\n    body: encode(form),\n  });\n  if (/login\\/check|name=[\"']password/i.test(response.body)) throw new Error(endpoint + ' returned POS login page.');\n  let parsed = response.body;\n  try { parsed = JSON.parse(response.body); } catch {}\n  return { statusCode: response.statusCode, data: parsed, raw: response.body };\n};\n\nif ($json.action !== 'approve') return [];\nconst store = $getWorkflowStaticData('global');\nconst record = store.cashReconciliations?.[$json.key];\nif (!record) return [{ json: { ...$json, telegram_text: 'لم أجد هذه التسوية: ' + $json.key } }];\nconst accountantIds = trim(vars.CASH_ACCOUNTANT_CHAT_ID, vars.TELEGRAM_ALLOWED_CHAT_ID).split(',').map((value) => value.trim()).filter(Boolean);\nif (accountantIds.length && !accountantIds.includes(String($json.chat_id))) return [];\nif (record.journal_id || ['journal_created', 'attachment_verified', 'reconciled'].includes(record.status)) {\n  return [{ json: { ...$json, chat_id: $json.chat_id, telegram_text: 'منع التكرار: Journal موجود مسبقًا لهذه التسوية. ID: ' + (record.journal_id || '-') } }];\n}\nif (record.status !== 'awaiting_accountant_approval') {\n  return [{ json: { ...$json, chat_id: $json.chat_id, telegram_text: 'الحالة الحالية لا تسمح بإنشاء القيد: ' + record.status } }];\n}\nconst reference = trim(record.deposit_reference);\nif (!reference) return [{ json: { ...$json, chat_id: $json.chat_id, telegram_text: 'لا يمكن الإنشاء بدون Bank Reference.' } }];\nconst duplicate = Object.values(store.cashReconciliations || {}).some((item) => item.key !== record.key && trim(item.deposit_reference) === reference && item.journal_id);\nif (duplicate) return [{ json: { ...$json, chat_id: $json.chat_id, telegram_text: 'منع التكرار: مرجع الإيداع مستخدم في Journal آخر.' } }];\nconst amount = round(record.receipt?.deposit_amount || record.required_deposit);\nif (amount <= 0) return [{ json: { ...$json, chat_id: $json.chat_id, telegram_text: 'مبلغ الإيداع غير صالح.' } }];\nconst cookie = await createPosSession.call(this);\nconst notes = 'Weekly cash deposit ' + record.coverage_from + ' to ' + record.coverage_to + ' | ' + record.key;\nconst depositDateRaw = trim(record.receipt?.deposit_date, new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dubai' }).format(new Date()));\nconst dateMatch = depositDateRaw.match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);\nconst journalDate = dateMatch ? dateMatch[3] + '-' + dateMatch[2] + '-' + dateMatch[1] : depositDateRaw;\nconst save = await postForm.call(this, cookie, '/accounts/save_journal_entry', {\n  hold: '0', action: 'save', journal_no: trim(vars.CASH_NEXT_JOURNAL_NO), branch_id: record.branch_id,\n  journal_date: journalDate, remark1: reference, journal_id: '', transaction_type: 'JE',\n  'journal_entry_details[0][details_id]': '', 'journal_entry_details[0][account_head]': trim(vars.CASH_ACCOUNT_ID, '1'),\n  'journal_entry_details[0][segment_id]': '', 'journal_entry_details[0][class_id]': '',\n  'journal_entry_details[0][account_debit]': '0', 'journal_entry_details[0][account_credit]': amount,\n  'journal_entry_details[0][notes]': notes,\n  'journal_entry_details[1][details_id]': '', 'journal_entry_details[1][account_head]': trim(vars.CASH_BANK_ACCOUNT_ID, '34127'),\n  'journal_entry_details[1][segment_id]': '', 'journal_entry_details[1][class_id]': '',\n  'journal_entry_details[1][account_debit]': amount, 'journal_entry_details[1][account_credit]': '0',\n  'journal_entry_details[1][notes]': notes,\n  'new_misc_fields[0][field_name]': '', 'new_misc_fields[0][field_type]': '',\n});\nconst response = typeof save.data === 'object' ? save.data : {};\nconst journalId = trim(response.p_id || response.journal_id || response.id);\nconst saveOk = Number(response.response_code) === 200 && Number(response.status) === 1 && journalId;\nif (!saveOk) {\n  record.status = 'exception';\n  record.save_response = response || save.raw;\n  record.updated_at = new Date().toISOString();\n  return [{ json: { ...$json, chat_id: $json.chat_id, telegram_text: 'فشل إنشاء Journal ولم تتم إعادة المحاولة. Response: ' + String(save.raw).slice(0, 350) } }];\n}\nrecord.journal_id = journalId;\nrecord.journal_save_response = response;\nrecord.status = 'journal_created';\nrecord.accountant_approved_by = $json.from_name;\nrecord.updated_at = new Date().toISOString();\nrecord.history = record.history || [];\nrecord.history.push({ at: record.updated_at, action: 'journal_created', journal_id: journalId, by: $json.from_name });\nlet verification;\ntry {\n  verification = await postForm.call(this, cookie, '/accounts/fecthJournalDetails', { journal_id: journalId }, POS_BASE_URL + '/accounts/journal_entry');\n} catch (error) {\n  verification = { data: {}, raw: error.message };\n}\nconst verifyText = JSON.stringify(verification.data || verification.raw);\nconst hasCash = new RegExp('Cash Account|account_head[\"\\\\s:]+1|account[_ ]?id[\"\\\\s:]+1', 'i').test(verifyText);\nconst hasBank = new RegExp('ADIB|34127', 'i').test(verifyText);\nconst hasAmount = verifyText.includes(String(amount)) || verifyText.includes(amount.toFixed(2));\nconst notHold = !/[\"']?hold[\"']?\\s*[:=]\\s*[\"']?1/i.test(verifyText);\nrecord.journal_verification = { has_cash: hasCash, has_bank: hasBank, has_amount: hasAmount, not_hold: notHold, excerpt: verifyText.slice(0, 1500) };\nrecord.journal_verified = hasCash && hasBank && hasAmount && notHold;\nif (!record.journal_verified) record.status = 'journal_created';\nif (!store.cashAttachmentJobs || typeof store.cashAttachmentJobs !== 'object') store.cashAttachmentJobs = {};\nstore.cashAttachmentJobs[record.receipt_file_id] = { key: record.key, journal_id: journalId, chat_id: $json.chat_id, file_id: record.receipt_file_id };\nreturn [{ json: {\n  ...$json,\n  reconciliation_key: record.key,\n  journal_id: journalId,\n  telegram_file_id: record.receipt_file_id,\n  chat_id: $json.chat_id,\n  telegram_text: record.journal_verified\n    ? 'تم إنشاء Journal والتحقق منه. ID: ' + journalId + '. جارٍ رفع الإيصال.'\n    : 'تم إنشاء Journal ID ' + journalId + ' لكن التحقق غير مكتمل. لن يعاد إنشاء القيد. جارٍ محاولة إرفاق الإيصال.',\n} }];"
+      }
+    },
+    {
+      "id": "cash-send-journal-status",
+      "name": "Telegram - Send Journal Status",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -140,
+        240
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.chat_id}}",
+        "text": "={{$json.telegram_text}}",
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "cash-continue-upload",
+      "name": "Receipt - Continue After Journal Created",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -140,
+        360
+      ],
+      "parameters": {
+        "jsCode": "if (!$json.journal_id || !$json.telegram_file_id || !$json.reconciliation_key) return [];\nreturn items;"
+      }
+    },
+    {
+      "id": "cash-redownload-receipt",
+      "name": "Telegram - Download Receipt For POS",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        120,
+        360
+      ],
+      "parameters": {
+        "resource": "file",
+        "operation": "get",
+        "fileId": "={{$json.telegram_file_id}}",
+        "binaryProperty": "data",
+        "download": true
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "cash-prepare-upload",
+      "name": "POS - Prepare Journal Receipt Upload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        360
+      ],
+      "parameters": {
+        "jsCode": "const trim = (value, fallback = '') => String(value ?? fallback).trim();\nconst num = (value, fallback = 0) => {\n  const parsed = Number(String(value ?? '').replace(/[^0-9.-]/g, ''));\n  return Number.isFinite(parsed) ? parsed : fallback;\n};\nconst round = (value) => Number(num(value).toFixed(2));\nconst vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst POS_USERNAME = trim(vars.POS_USERNAME);\nconst POS_PASSWORD = trim(vars.POS_PASSWORD);\nconst CLIENT_IDENTIFIER = trim(vars.AIPSOFT_CLIENT_IDENTIFIER, 'inout') || 'inout';\nconst POS_BASE_URL = trim(vars.AIPSOFT_API_BASE_URL, 'https://beta.aipsoft.com/inout').replace(/\\/$/, '');\nconst POS_LOGIN_ENDPOINT = trim(vars.POS_LOGIN_ENDPOINT, POS_BASE_URL + '/login/check');\nconst POS_ORIGIN = trim(vars.POS_ORIGIN, 'https://beta.aipsoft.com');\nconst POS_REFERER = trim(vars.POS_CASH_REFERER, POS_BASE_URL + '/reports/generate/accounts_cash_flow');\nif (!POS_USERNAME || !POS_PASSWORD) throw new Error('Missing POS_USERNAME or POS_PASSWORD n8n Variables.');\n\nconst encode = (data) => Object.entries(data || {})\n  .map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(String(value ?? '')))\n  .join('&');\nconst cookieMap = (header) => {\n  const map = new Map();\n  for (const part of String(header || '').split(';')) {\n    const item = part.trim();\n    const eq = item.indexOf('=');\n    if (eq > 0) map.set(item.slice(0, eq), item.slice(eq + 1));\n  }\n  return map;\n};\nconst normalizeHeaders = (headers = {}) => {\n  const out = {};\n  if (headers?.forEach) headers.forEach((value, key) => { out[String(key).toLowerCase()] = value; });\n  else for (const [key, value] of Object.entries(headers || {})) out[String(key).toLowerCase()] = value;\n  if (headers?.getSetCookie) out['set-cookie'] = headers.getSetCookie();\n  return out;\n};\nconst setCookies = (headers) => {\n  const raw = normalizeHeaders(headers)['set-cookie'];\n  if (!raw) return [];\n  if (Array.isArray(raw)) return raw;\n  return String(raw).split(/,(?=\\s*[^;,\\s]+=)/g);\n};\nconst mergeCookies = (base, incoming) => {\n  const map = cookieMap(base);\n  for (const value of incoming || []) {\n    const first = String(value).split(';')[0];\n    const eq = first.indexOf('=');\n    if (eq > 0) map.set(first.slice(0, eq).trim(), first.slice(eq + 1).trim());\n  }\n  return Array.from(map.entries()).map(([key, value]) => key + '=' + value).join('; ');\n};\nconst request = async function(options) {\n  const response = await this.helpers.httpRequest({\n    method: options.method || 'POST',\n    url: options.url,\n    headers: options.headers || {},\n    body: options.body,\n    json: false,\n    returnFullResponse: true,\n    resolveWithFullResponse: true,\n    simple: false,\n    timeout: 120000,\n  });\n  if (response && typeof response === 'object' && (response.headers || Object.prototype.hasOwnProperty.call(response, 'body'))) {\n    return {\n      statusCode: response.statusCode || response.status || 0,\n      headers: response.headers || {},\n      body: typeof response.body === 'string' ? response.body : JSON.stringify(response.body ?? ''),\n    };\n  }\n  return { statusCode: 0, headers: {}, body: typeof response === 'string' ? response : JSON.stringify(response ?? '') };\n};\nconst posHeaders = (cookie, form = true, referer = POS_REFERER) => {\n  const result = {\n    Accept: 'application/json, text/javascript, */*; q=0.01',\n    'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ar;q=0.7',\n    Origin: POS_ORIGIN,\n    Referer: referer,\n    'X-Requested-With': 'XMLHttpRequest',\n    Cookie: cookie,\n  };\n  if (form) result['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';\n  return result;\n};\nconst createPosSession = async function() {\n  let cookie = 'language=english; direction=ltr; dont_show_today=true';\n  const preflight = await request.call(this, { method: 'GET', url: POS_REFERER, headers: posHeaders(cookie, false) });\n  cookie = mergeCookies(cookie, setCookies(preflight.headers));\n  const short = POS_USERNAME.includes('@') ? POS_USERNAME.split('@')[0].trim() : POS_USERNAME;\n  const usernames = Array.from(new Set([POS_USERNAME, POS_USERNAME.toLowerCase(), short, short.toLowerCase(), short + '@' + CLIENT_IDENTIFIER].filter(Boolean)));\n  let lastLogin = '';\n  for (const username of usernames) {\n    const login = await request.call(this, {\n      url: POS_LOGIN_ENDPOINT,\n      headers: posHeaders(cookie),\n      body: encode({ username, password: POS_PASSWORD, client_identifier: CLIENT_IDENTIFIER, auto_login: 'null', connection_path: 'null' }),\n    });\n    cookie = mergeCookies(cookie, setCookies(login.headers));\n    lastLogin = login.body;\n    if (/login_success|password_ok/i.test(lastLogin) && /ci_session_/i.test(cookie) && /\\binout=/i.test(cookie)) return cookie;\n  }\n  throw new Error('POS login failed: ' + String(lastLogin).slice(0, 240));\n};\nconst postForm = async function(cookie, endpoint, form, referer = POS_REFERER) {\n  const response = await request.call(this, {\n    url: POS_BASE_URL + endpoint,\n    headers: posHeaders(cookie, true, referer),\n    body: encode(form),\n  });\n  if (/login\\/check|name=[\"']password/i.test(response.body)) throw new Error(endpoint + ' returned POS login page.');\n  let parsed = response.body;\n  try { parsed = JSON.parse(response.body); } catch {}\n  return { statusCode: response.statusCode, data: parsed, raw: response.body };\n};\n\nconst store = $getWorkflowStaticData('global');\nconst fileId = trim($json.result?.file_id || $json.file_id || $json.telegram_file_id);\nconst job = store.cashAttachmentJobs?.[fileId];\nif (!job) throw new Error('Cash attachment job not found for Telegram file_id.');\nconst binaryKey = Object.keys($input.item.binary || {})[0];\nif (!binaryKey) throw new Error('Telegram receipt was not returned as binary data.');\nconst cookie = await createPosSession.call(this);\nreturn [{ json: {\n  ...job,\n  telegram_file_id: fileId,\n  upload_url: POS_BASE_URL + '/purchase/save_attachments',\n  pos_cookie: cookie,\n  pos_base_url: POS_BASE_URL,\n  pos_origin: POS_ORIGIN,\n}, binary: { data: $input.item.binary[binaryKey] } }];"
+      }
+    },
+    {
+      "id": "cash-upload-receipt",
+      "name": "POS HTTP - Upload Journal Receipt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        360
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{$json.upload_url}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Cookie",
+              "value": "={{$json.pos_cookie}}"
+            },
+            {
+              "name": "X-Requested-With",
+              "value": "XMLHttpRequest"
+            },
+            {
+              "name": "Origin",
+              "value": "={{$json.pos_origin}}"
+            },
+            {
+              "name": "Referer",
+              "value": "={{$json.pos_base_url + \"/accounts/journal_entry\"}}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json, text/javascript, */*; q=0.01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formData",
+              "name": "module_id",
+              "value": "={{$json.journal_id}}"
+            },
+            {
+              "parameterType": "formData",
+              "name": "attach_module",
+              "value": "journal_entry"
+            },
+            {
+              "parameterType": "formBinaryData",
+              "name": "attachments[]",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "cash-finalize-upload",
+      "name": "POS - Verify Receipt Attachment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        360
+      ],
+      "parameters": {
+        "jsCode": "const trim = (value, fallback = '') => String(value ?? fallback).trim();\nconst num = (value, fallback = 0) => {\n  const parsed = Number(String(value ?? '').replace(/[^0-9.-]/g, ''));\n  return Number.isFinite(parsed) ? parsed : fallback;\n};\nconst round = (value) => Number(num(value).toFixed(2));\nconst vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst POS_USERNAME = trim(vars.POS_USERNAME);\nconst POS_PASSWORD = trim(vars.POS_PASSWORD);\nconst CLIENT_IDENTIFIER = trim(vars.AIPSOFT_CLIENT_IDENTIFIER, 'inout') || 'inout';\nconst POS_BASE_URL = trim(vars.AIPSOFT_API_BASE_URL, 'https://beta.aipsoft.com/inout').replace(/\\/$/, '');\nconst POS_LOGIN_ENDPOINT = trim(vars.POS_LOGIN_ENDPOINT, POS_BASE_URL + '/login/check');\nconst POS_ORIGIN = trim(vars.POS_ORIGIN, 'https://beta.aipsoft.com');\nconst POS_REFERER = trim(vars.POS_CASH_REFERER, POS_BASE_URL + '/reports/generate/accounts_cash_flow');\nif (!POS_USERNAME || !POS_PASSWORD) throw new Error('Missing POS_USERNAME or POS_PASSWORD n8n Variables.');\n\nconst encode = (data) => Object.entries(data || {})\n  .map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(String(value ?? '')))\n  .join('&');\nconst cookieMap = (header) => {\n  const map = new Map();\n  for (const part of String(header || '').split(';')) {\n    const item = part.trim();\n    const eq = item.indexOf('=');\n    if (eq > 0) map.set(item.slice(0, eq), item.slice(eq + 1));\n  }\n  return map;\n};\nconst normalizeHeaders = (headers = {}) => {\n  const out = {};\n  if (headers?.forEach) headers.forEach((value, key) => { out[String(key).toLowerCase()] = value; });\n  else for (const [key, value] of Object.entries(headers || {})) out[String(key).toLowerCase()] = value;\n  if (headers?.getSetCookie) out['set-cookie'] = headers.getSetCookie();\n  return out;\n};\nconst setCookies = (headers) => {\n  const raw = normalizeHeaders(headers)['set-cookie'];\n  if (!raw) return [];\n  if (Array.isArray(raw)) return raw;\n  return String(raw).split(/,(?=\\s*[^;,\\s]+=)/g);\n};\nconst mergeCookies = (base, incoming) => {\n  const map = cookieMap(base);\n  for (const value of incoming || []) {\n    const first = String(value).split(';')[0];\n    const eq = first.indexOf('=');\n    if (eq > 0) map.set(first.slice(0, eq).trim(), first.slice(eq + 1).trim());\n  }\n  return Array.from(map.entries()).map(([key, value]) => key + '=' + value).join('; ');\n};\nconst request = async function(options) {\n  const response = await this.helpers.httpRequest({\n    method: options.method || 'POST',\n    url: options.url,\n    headers: options.headers || {},\n    body: options.body,\n    json: false,\n    returnFullResponse: true,\n    resolveWithFullResponse: true,\n    simple: false,\n    timeout: 120000,\n  });\n  if (response && typeof response === 'object' && (response.headers || Object.prototype.hasOwnProperty.call(response, 'body'))) {\n    return {\n      statusCode: response.statusCode || response.status || 0,\n      headers: response.headers || {},\n      body: typeof response.body === 'string' ? response.body : JSON.stringify(response.body ?? ''),\n    };\n  }\n  return { statusCode: 0, headers: {}, body: typeof response === 'string' ? response : JSON.stringify(response ?? '') };\n};\nconst posHeaders = (cookie, form = true, referer = POS_REFERER) => {\n  const result = {\n    Accept: 'application/json, text/javascript, */*; q=0.01',\n    'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ar;q=0.7',\n    Origin: POS_ORIGIN,\n    Referer: referer,\n    'X-Requested-With': 'XMLHttpRequest',\n    Cookie: cookie,\n  };\n  if (form) result['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';\n  return result;\n};\nconst createPosSession = async function() {\n  let cookie = 'language=english; direction=ltr; dont_show_today=true';\n  const preflight = await request.call(this, { method: 'GET', url: POS_REFERER, headers: posHeaders(cookie, false) });\n  cookie = mergeCookies(cookie, setCookies(preflight.headers));\n  const short = POS_USERNAME.includes('@') ? POS_USERNAME.split('@')[0].trim() : POS_USERNAME;\n  const usernames = Array.from(new Set([POS_USERNAME, POS_USERNAME.toLowerCase(), short, short.toLowerCase(), short + '@' + CLIENT_IDENTIFIER].filter(Boolean)));\n  let lastLogin = '';\n  for (const username of usernames) {\n    const login = await request.call(this, {\n      url: POS_LOGIN_ENDPOINT,\n      headers: posHeaders(cookie),\n      body: encode({ username, password: POS_PASSWORD, client_identifier: CLIENT_IDENTIFIER, auto_login: 'null', connection_path: 'null' }),\n    });\n    cookie = mergeCookies(cookie, setCookies(login.headers));\n    lastLogin = login.body;\n    if (/login_success|password_ok/i.test(lastLogin) && /ci_session_/i.test(cookie) && /\\binout=/i.test(cookie)) return cookie;\n  }\n  throw new Error('POS login failed: ' + String(lastLogin).slice(0, 240));\n};\nconst postForm = async function(cookie, endpoint, form, referer = POS_REFERER) {\n  const response = await request.call(this, {\n    url: POS_BASE_URL + endpoint,\n    headers: posHeaders(cookie, true, referer),\n    body: encode(form),\n  });\n  if (/login\\/check|name=[\"']password/i.test(response.body)) throw new Error(endpoint + ' returned POS login page.');\n  let parsed = response.body;\n  try { parsed = JSON.parse(response.body); } catch {}\n  return { statusCode: response.statusCode, data: parsed, raw: response.body };\n};\n\nconst prepared = $('POS - Prepare Journal Receipt Upload').first().json;\nconst rawResponse = Object.prototype.hasOwnProperty.call($json, 'body') ? $json.body : $json;\nlet uploadResponse = rawResponse;\nif (typeof rawResponse === 'string') { try { uploadResponse = JSON.parse(rawResponse); } catch { uploadResponse = { message: rawResponse }; } }\nconst uploadOk = Number(uploadResponse?.response_code) === 200 || /success/i.test(String(uploadResponse?.message || ''));\nconst store = $getWorkflowStaticData('global');\nconst record = store.cashReconciliations?.[prepared.key];\nif (!record) throw new Error('Reconciliation missing while finalizing attachment.');\nif (!uploadOk) {\n  record.attachment_status = 'failed';\n  record.status = 'journal_created';\n  record.attachment_response = uploadResponse;\n  return [{ json: { ...prepared, chat_id: prepared.chat_id, telegram_text: 'تم إنشاء Journal ' + prepared.journal_id + ' لكن فشل رفع الإيصال. لن يعاد إنشاء القيد.' } }];\n}\nconst cookie = await createPosSession.call(this);\nawait new Promise((resolve) => setTimeout(resolve, 1500));\nconst attachments = await postForm.call(this, cookie, '/purchase/loadAttachmentData', { module: 'journal_entry', module_id: prepared.journal_id }, POS_BASE_URL + '/accounts/journal_entry');\nconst attachmentText = JSON.stringify(attachments.data || attachments.raw);\nconst count = Number(attachments.data?.recordsTotal || attachments.data?.recordsFiltered || 0);\nconst linked = count > 0 || (attachmentText.includes(String(prepared.journal_id)) && /journal_entry/i.test(attachmentText));\nrecord.attachment_status = linked ? 'verified' : 'uploaded_unverified';\nrecord.status = linked && record.journal_verified ? 'reconciled' : 'journal_created';\nrecord.attachment_response = uploadResponse;\nrecord.attachment_verification_excerpt = attachmentText.slice(0, 1200);\nrecord.updated_at = new Date().toISOString();\nrecord.history = record.history || [];\nrecord.history.push({ at: record.updated_at, action: linked ? 'attachment_verified' : 'attachment_uploaded_unverified' });\nif (linked) delete store.cashAttachmentJobs[prepared.telegram_file_id];\nreturn [{ json: {\n  ...prepared,\n  chat_id: prepared.chat_id,\n  telegram_text: [\n    linked ? 'اكتملت تسوية الإيداع بنجاح' : 'تم رفع الإيصال لكن تعذر إثبات ظهوره في قائمة المرفقات',\n    'Journal ID: ' + prepared.journal_id,\n    'Reconciliation: ' + prepared.key,\n    'Journal Verification: ' + (record.journal_verified ? 'verified' : 'needs review'),\n    'Attachment: ' + record.attachment_status,\n    'Status: ' + record.status,\n  ].join('\\n'),\n} }];"
+      }
+    },
+    {
+      "id": "cash-send-final-result",
+      "name": "Telegram - Send Reconciliation Result",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1560,
+        360
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{$json.chat_id}}",
+        "text": "={{$json.telegram_text}}",
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manual Test": {
+      "main": [
+        [
+          {
+            "node": "POS - Calculate Weekly Cash Deposit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every Monday 08 00": {
+      "main": [
+        [
+          {
+            "node": "POS - Calculate Weekly Cash Deposit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POS - Calculate Weekly Cash Deposit": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Send Weekly Deposit Order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger - Cash Deposit": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Normalize Cash Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Normalize Cash Action": {
+      "main": [
+        [
+          {
+            "node": "Branch - Mark Deposited",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Cash - Review Details Or Reject",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Receipt - Match Reconciliation",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "POS - Create And Verify Deposit Journal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Branch - Mark Deposited": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Request Deposit Receipt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cash - Review Details Or Reject": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Send Cash Action Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Receipt - Match Reconciliation": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Download Deposit Receipt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Download Deposit Receipt": {
+      "main": [
+        [
+          {
+            "node": "Receipt - Prepare OpenAI Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Receipt - Prepare OpenAI Extraction": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Extract Deposit Receipt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Extract Deposit Receipt": {
+      "main": [
+        [
+          {
+            "node": "Receipt - Validate And Save",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Receipt - Validate And Save": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Send Accountant Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POS - Create And Verify Deposit Journal": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Send Journal Status",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Receipt - Continue After Journal Created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Receipt - Continue After Journal Created": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Download Receipt For POS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram - Download Receipt For POS": {
+      "main": [
+        [
+          {
+            "node": "POS - Prepare Journal Receipt Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POS - Prepare Journal Receipt Upload": {
+      "main": [
+        [
+          {
+            "node": "POS HTTP - Upload Journal Receipt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POS HTTP - Upload Journal Receipt": {
+      "main": [
+        [
+          {
+            "node": "POS - Verify Receipt Attachment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POS - Verify Receipt Attachment": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Send Reconciliation Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Dubai"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

@@ -1496,5 +1496,26 @@ Unmatched Bank Transactions
 11. تسوية Credit Card داخل POS غير مستخدمة وتم تجاوزها.
 12. نموذج كشف ADIB.
 
-الخطوة التالية في التنفيذ هي بناء Workflow n8n للتقرير والإيداع الأسبوعي
-اعتمادًا على Endpoints المؤكدة، مع موافقة مدير الفرع والمحاسب ومنع التكرار.
+## حالة التنفيذ
+
+تم إنشاء الإصدار الأول من Workflow التقرير والإيداع الأسبوعي في:
+
+```text
+n8n-pos-weekly-cash-deposit-reconciliation.json
+scripts/generate-n8n-weekly-cash-deposit-workflow.cjs
+N8N_WEEKLY_CASH_DEPOSIT_WORKFLOW.md
+```
+
+يشمل الإصدار الحالي:
+
+- قراءة تقرير Cash Flow وLedger الكاش لكل فرع.
+- حساب مبلغ الإيداع للأسبوع السابق.
+- موافقة مدير الفرع واستقبال إيصال Telegram.
+- استخراج بيانات الإيصال وإرسالها لموافقة المحاسب.
+- إنشاء قيد Cash إلىADIB مرة واحدة بعد الموافقة.
+- إعادة فتح Journal والتحقق منه.
+- رفع الإيصال والتحقق من ظهوره في المرفقات.
+- منع التكرار حسب التسوية وBank Reference.
+
+الخطوة التالية هي استيراد Workflow بحالة Inactive، وتشغيل `Manual Test` على
+فرع وفترة محددين، ومطابقة أرقام التقرير مع POS قبل السماح بأول Journal حي.
