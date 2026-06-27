@@ -4577,7 +4577,12 @@ const buildDailyOperationsReport = async (input: any, req: any) => {
     report_id: snapshot.report_id,
     token: snapshot.share_token || '',
   });
-  const shareUrl = `${req.protocol}://${req.get('host')}/operations-report?${query.toString()}`;
+  const configuredReportAppPath = String(process.env.REPORT_APP_BASE_PATH ?? '/smart-storage-hub').trim();
+  const reportAppPath =
+    configuredReportAppPath && configuredReportAppPath !== '/'
+      ? `/${configuredReportAppPath.replace(/^\/+|\/+$/g, '')}`
+      : '';
+  const shareUrl = `${req.protocol}://${req.get('host')}${reportAppPath}/operations-report?${query.toString()}`;
   return {
     ...snapshot,
     share_url: shareUrl,
@@ -19151,16 +19156,23 @@ async function startServer() {
     ['/search', '/smart-storage-hub/search'],
     ['/management', '/smart-storage-hub/management'],
     ['/sorting', '/smart-storage-hub/sorting'],
+    ['/report', '/smart-storage-hub/report'],
+    ['/performance-report', '/smart-storage-hub/performance-report'],
+    ['/operations-report', '/smart-storage-hub/operations-report'],
     ['/achievements', '/smart-storage-hub/achievements'],
     ['/training-academy', '/smart-storage-hub/training-academy'],
     ['/training-academy/translations', '/smart-storage-hub/training-academy/translations'],
   ]);
   for (const [fromPath, toPath] of hubLegacyRouteRedirects.entries()) {
-    app.get(fromPath, (_req, res) => {
-      res.redirect(302, toPath);
+    app.get(fromPath, (req, res) => {
+      const queryIndex = req.originalUrl.indexOf('?');
+      const query = queryIndex >= 0 ? req.originalUrl.slice(queryIndex) : '';
+      res.redirect(302, `${toPath}${query}`);
     });
-    app.get(`${fromPath}/`, (_req, res) => {
-      res.redirect(302, toPath);
+    app.get(`${fromPath}/`, (req, res) => {
+      const queryIndex = req.originalUrl.indexOf('?');
+      const query = queryIndex >= 0 ? req.originalUrl.slice(queryIndex) : '';
+      res.redirect(302, `${toPath}${query}`);
     });
   }
 
