@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
 import {
   Building2,
+  BarChart3,
   Flame,
   LayoutDashboard,
   Package,
@@ -48,6 +49,7 @@ const CashierSearchPage = lazy(() => import('./pages/CashierSearch'));
 const PickupSearchPage = lazy(() => import('./pages/PickupSearch'));
 const OrderReviewPage = lazy(() => import('./pages/OrderReview'));
 const SearchPage = lazy(() => import('./pages/SearchNew'));
+const ClothesSortingPage = lazy(() => import('./pages/ClothesSortingPage'));
 const SortingPage = lazy(() => import('./pages/Sorting'));
 const ActiveSortingOrdersPage = lazy(() => import('./pages/ActiveSortingOrders'));
 const AchievementsPage = lazy(() => import('./pages/Achievements'));
@@ -56,6 +58,7 @@ const TrainingAcademyPage = lazy(() => import('./pages/TrainingAcademyPage'));
 const TrainingTranslationsPage = lazy(() => import('./pages/TrainingTranslationsPage'));
 const POSConnectPage = lazy(() => import('./pages/POSConnect'));
 const ReportPage = lazy(() => import('./pages/Report'));
+const OperationsReportPage = lazy(() => import('./pages/OperationsReport'));
 const ExpenseTestPage = lazy(() => import('./pages/ExpenseTest'));
 const ActivityLogPage = lazy(() => import('./pages/ActivityLog'));
 
@@ -92,6 +95,8 @@ function MobileTopBar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
     if (location.pathname === '/customer-alerts') return 'Customer Alerts';
     if (location.pathname === '/pos-connect') return 'POS Connect';
     if (location.pathname === '/report') return 'Report';
+    if (location.pathname === '/performance-report') return 'Performance Report';
+    if (location.pathname === '/operations-report') return 'Operations Report';
     if (location.pathname === '/expense-test') return 'Expense Test';
     if (location.pathname.startsWith('/training-academy')) return 'Training Academy';
     return 'Warehouse Dashboard';
@@ -292,6 +297,7 @@ function Sidebar({
     ...(showCustomerAlerts ? [{ name: 'Alerts', path: '/customer-alerts', icon: BellRing }] : []),
     ...(showSearch ? [{ name: 'POS Connect', path: '/pos-connect', icon: Wifi }] : []),
     ...(showManagement ? [{ name: 'Report', path: '/report', icon: ReceiptText }] : []),
+    ...(showManagement ? [{ name: 'Operations Report', path: '/operations-report', icon: BarChart3 }] : []),
     ...(showManagement ? [{ name: 'Expense Test', path: '/expense-test', icon: ReceiptText }] : []),
     ...(showTrainingAcademy ? [{ name: 'Training Academy', path: '/training-academy', icon: GraduationCap }] : []),
   ];
@@ -606,7 +612,7 @@ function AppLayout() {
                 path="/sorting"
                 element={
                   canOpenClothesSorting ? (
-                    <SortingPage workflow="sorting" showWorkflowTabs={false} />
+                    <ClothesSortingPage />
                   ) : (
                     <Navigate to={defaultPath} replace />
                   )
@@ -659,6 +665,14 @@ function AppLayout() {
               <Route
                 path="/report"
                 element={canOpenReport ? <ReportPage /> : <Navigate to={defaultPath} replace />}
+              />
+              <Route
+                path="/performance-report"
+                element={canOpenReport ? <ReportPage /> : <Navigate to={defaultPath} replace />}
+              />
+              <Route
+                path="/operations-report"
+                element={canOpenReport ? <OperationsReportPage /> : <Navigate to={defaultPath} replace />}
               />
               <Route
                 path="/expense-test"

@@ -70,7 +70,7 @@
         -180
       ],
       "parameters": {
-        "jsCode": "const s=$json.summary||{}; const m=(v)=>Number(v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); const net=Number(s.cash_receipt||0)-Number(s.cash_expense_total||0); const msg=`📊 التقرير المالي اليومي\\n📅 التاريخ: ${s.date_range||$('Daily Date Range').first().json.period_label}\\n\\n🏪 الفرع: ${s.branch||'غير محدد'}\\n💰 إجمالي المبيعات: ${m(s.total_income)} AED\\n💵 الكاش: ${m(s.cash_receipt)} AED\\n💳 البطاقة: ${m(s.card_receipt)} AED\\n📉 مصروفات الكاش: ${m(s.cash_expense_total)} AED\\n💳 مصروفات البطاقة: ${m(s.credit_card_expense_total)} AED\\n📉 إجمالي المصروفات: ${m(s.expense_total)} AED\\n✅ صافي الكاش الموجود: ${m(net)} AED\\n🧾 عدد الطلبات: ${Number(s.total_invoice||0)}`; return [{json:{whatsapp_to:'REPLACE_MANAGEMENT_GROUP_ID_OR_PHONE',message:msg,summary:s}}];"
+        "jsCode": "const vars=(typeof $vars==='object'&&$vars)?$vars:{}; const s=$json.summary||{}; const r=$('Daily Date Range').first().json; const m=(v)=>Number(v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); const net=Number(s.cash_receipt||0)-Number(s.cash_expense_total||0); const base=String(vars.REPORT_APP_BASE_URL||'').replace(/\\/+$/,''); const branchId=String(vars.REPORT_BRANCH_ID||'').trim(); const query=new URLSearchParams({from_date:r.from_date,to_date:r.to_date,period_label:r.period_label||r.from_date}); if(branchId) query.set('branch_id',branchId); const generatedLink=String($json.operations_report?.share_url||$json.operations_report_link||''); const reportLink=generatedLink||(base?`${base}/performance-report?${query.toString()}`:''); const linkLine=reportLink?`\\n\\n📎 التقرير التفاعلي الاحترافي:\\n${reportLink}`:''; const msg=`📊 التقرير المالي اليومي\\n📅 التاريخ: ${s.date_range||r.period_label}\\n\\n🏪 الفرع: ${s.branch||'غير محدد'}\\n💰 إجمالي المبيعات: ${m(s.total_income)} AED\\n💵 الكاش: ${m(s.cash_receipt)} AED\\n💳 البطاقة: ${m(s.card_receipt)} AED\\n📉 مصروفات الكاش: ${m(s.cash_expense_total)} AED\\n💳 مصروفات البطاقة: ${m(s.credit_card_expense_total)} AED\\n📉 إجمالي المصروفات: ${m(s.expense_total)} AED\\n✅ صافي الكاش الموجود: ${m(net)} AED\\n🧾 عدد الطلبات: ${Number(s.total_invoice||0)}${linkLine}`; const ownerMsg=`📊 تقرير يومي لكل الأفرع\\n📅 ${r.period_label||r.from_date}\\n\\n📎 التقرير جاهز للفتح مباشرة:\\n${reportLink||'REPORT_LINK_NOT_READY'}`; return [{json:{whatsapp_to:'REPLACE_MANAGEMENT_GROUP_ID_OR_PHONE',message:msg,summary:s,report_link:reportLink,operations_report:$json.operations_report,owner_message:ownerMsg,owner_whatsapp:String(vars.REPORT_OWNER_WHATSAPP||'REPLACE_OWNER_WHATSAPP'),owner_telegram_chat_id:String(vars.REPORT_OWNER_TELEGRAM_CHAT_ID||'REPLACE_OWNER_TELEGRAM_CHAT_ID')}}];"
       }
     },
     {
@@ -168,7 +168,7 @@
         260
       ],
       "parameters": {
-        "jsCode": "const s=$json.summary||{}; const r=$('Weekly Date Range').first().json; const m=(v)=>Number(v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); const dep=Number(s.cash_receipt||0)-Number(s.cash_expense_total||0); const branch=s.branch||'AL FALAH'; const id=`${branch.replace(/\\s+/g,'_')}_${r.from_date}_${r.to_date}`; const manager=`📌 تقرير الإيداع الأسبوعي\\n🏪 الفرع: ${branch}\\n📅 الفترة: ${r.period_label}\\n\\n💵 إجمالي الكاش: ${m(s.cash_receipt)} AED\\n📉 إجمالي مصروفات الكاش: ${m(s.cash_expense_total)} AED\\n🏦 المبلغ المطلوب إيداعه: ${m(dep)} AED\\n\\nيرجى إيداع مبلغ ${m(dep)} AED ثم إرسال صورة الإيصال.\\nDeposit ID: ${id}`; const admin=`📌 نسخة الإدارة - تقرير الإيداع الأسبوعي\\n🏪 الفرع: ${branch}\\n📅 الفترة: ${r.period_label}\\n🏦 المطلوب إيداعه: ${m(dep)} AED\\nDeposit ID: ${id}`; return [{json:{deposit_id:id,manager_whatsapp:'REPLACE_BRANCH_MANAGER_WHATSAPP',admin_whatsapp:'REPLACE_MANAGEMENT_GROUP_ID_OR_PHONE',manager_message:manager,admin_message:admin,summary:s}}];"
+        "jsCode": "const vars=(typeof $vars==='object'&&$vars)?$vars:{}; const s=$json.summary||{}; const r=$('Weekly Date Range').first().json; const m=(v)=>Number(v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); const dep=Number(s.cash_receipt||0)-Number(s.cash_expense_total||0); const branch=s.branch||'AL FALAH'; const id=`${branch.replace(/\\s+/g,'_')}_${r.from_date}_${r.to_date}`; const base=String(vars.REPORT_APP_BASE_URL||'').replace(/\\/+$/,''); const branchId=String(vars.REPORT_BRANCH_ID||'').trim(); const query=new URLSearchParams({from_date:r.from_date,to_date:r.to_date,period_label:r.period_label||'Weekly Report'}); if(branchId) query.set('branch_id',branchId); const generatedLink=String($json.operations_report?.share_url||$json.operations_report_link||''); const reportLink=generatedLink||(base?`${base}/performance-report?${query.toString()}`:''); const linkLine=reportLink?`\\n\\n📎 التقرير التفاعلي الاحترافي:\\n${reportLink}`:''; const manager=`📌 تقرير الإيداع الأسبوعي\\n🏪 الفرع: ${branch}\\n📅 الفترة: ${r.period_label}\\n\\n💵 إجمالي الكاش: ${m(s.cash_receipt)} AED\\n📉 إجمالي مصروفات الكاش: ${m(s.cash_expense_total)} AED\\n🏦 المبلغ المطلوب إيداعه: ${m(dep)} AED\\n\\nيرجى إيداع مبلغ ${m(dep)} AED ثم إرسال صورة الإيصال.\\nDeposit ID: ${id}${linkLine}`; const admin=`📌 نسخة الإدارة - تقرير الإيداع الأسبوعي\\n🏪 الفرع: ${branch}\\n📅 الفترة: ${r.period_label}\\n🏦 المطلوب إيداعه: ${m(dep)} AED\\nDeposit ID: ${id}${linkLine}`; const ownerMsg=`📌 تقرير أسبوعي لكل الأفرع\\n📅 ${r.period_label}\\n\\n📎 التقرير جاهز للفتح مباشرة:\\n${reportLink||'REPORT_LINK_NOT_READY'}`; return [{json:{deposit_id:id,manager_whatsapp:'REPLACE_BRANCH_MANAGER_WHATSAPP',admin_whatsapp:'REPLACE_MANAGEMENT_GROUP_ID_OR_PHONE',manager_message:manager,admin_message:admin,summary:s,report_link:reportLink,operations_report:$json.operations_report,owner_message:ownerMsg,owner_whatsapp:String(vars.REPORT_OWNER_WHATSAPP||'REPLACE_OWNER_WHATSAPP'),owner_telegram_chat_id:String(vars.REPORT_OWNER_TELEGRAM_CHAT_ID||'REPLACE_OWNER_TELEGRAM_CHAT_ID')}}];"
       }
     },
     {
@@ -283,8 +283,21 @@
       }
     },
     {
-      "id": "monthly-build",
-      "name": "Build Monthly WhatsApp Message",
+      "id": "monthly-prepare-comparison-range",
+      "name": "Prepare Monthly Comparison Range",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -180,
+        740
+      ],
+      "parameters": {
+        "jsCode": "const currentSummary=$json.summary||{}; const currentRange=$('Monthly Date Range').first().json; const pad=(n)=>String(n).padStart(2,'0'); const f=(d)=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; const parse=(value)=>{ const [y,m,d]=String(value||'').split('-').map(Number); return new Date(y,(m||1)-1,d||1); }; const firstCurrent=parse(currentRange.from_date); if(Number.isNaN(firstCurrent.getTime())) throw new Error('Invalid monthly from_date for comparison.'); const lastPrevious=new Date(firstCurrent); lastPrevious.setDate(0); const firstPrevious=new Date(lastPrevious.getFullYear(),lastPrevious.getMonth(),1); return [{json:{from_date:f(firstPrevious),to_date:f(lastPrevious),period_label:`${firstPrevious.getFullYear()}-${pad(firstPrevious.getMonth()+1)}`,current_summary:currentSummary,current_period_label:$json.period_label||currentRange.period_label,current_html_length:$json.html_length||0,current_used_username:$json.used_username||''}}];"
+      }
+    },
+    {
+      "id": "monthly-fetch-previous-comparison",
+      "name": "Fetch POS Previous Month Report Auto Login",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -292,7 +305,20 @@
         740
       ],
       "parameters": {
-        "jsCode": "const s=$json.summary||{}; const r=$('Monthly Date Range').first().json; const m=(v)=>Number(v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); const rev=Number(s.total_income||0); const exp=Number(s.expense_total||0); const orders=Number(s.total_invoice||0); const avg=orders>0?rev/orders:0; const msg=`📆 التقرير المالي الشهري\\nالشهر: ${r.period_label}\\n\\n🏪 الفرع: ${s.branch||'غير محدد'}\\n💰 إجمالي الإيرادات: ${m(rev)} AED\\n📉 إجمالي المصروفات: ${m(exp)} AED\\n✅ الصافي: ${m(rev-exp)} AED\\n💵 الكاش: ${m(s.cash_receipt)} AED\\n💳 البطاقة: ${m(s.card_receipt)} AED\\n🧾 عدد الطلبات: ${orders}\\n📊 متوسط الفاتورة: ${m(avg)} AED`; return [{json:{whatsapp_to:'REPLACE_MANAGEMENT_GROUP_ID_OR_PHONE',message:msg,summary:s}}];"
+        "jsCode": "const vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst POS_USERNAME = String(vars.POS_USERNAME || 'REPLACE_POS_USERNAME').trim();\nconst POS_PASSWORD = String(vars.POS_PASSWORD || 'REPLACE_POS_PASSWORD').trim();\nconst POS_CLIENT_IDENTIFIER = String(vars.POS_CLIENT_IDENTIFIER || 'inout').trim() || 'inout';\nconst POS_LOGIN_ENDPOINT = String(vars.POS_LOGIN_ENDPOINT || 'https://beta.aipsoft.com/inout/login/check').trim();\nconst POS_LOGIN_REFERER = String(vars.POS_LOGIN_REFERER || 'https://beta.aipsoft.com/inout/sales').trim();\nconst POS_ORIGIN = String(vars.POS_ORIGIN || 'https://beta.aipsoft.com').trim();\nconst POS_REPORT_URL = String(vars.POS_REPORT_URL || 'https://beta.aipsoft.com/inout/sales/generate_report').trim();\n\nif (!POS_USERNAME || POS_USERNAME === 'REPLACE_POS_USERNAME' || !POS_PASSWORD || POS_PASSWORD === 'REPLACE_POS_PASSWORD') {\n  throw new Error('Set POS_USERNAME and POS_PASSWORD in n8n Variables, or replace them inside this Code node.');\n}\n\nconst range = {\n  from_date: String($json.from_date || '').trim(),\n  to_date: String($json.to_date || '').trim(),\n  period_label: String($json.period_label || '').trim(),\n};\nif (!range.from_date || !range.to_date) throw new Error('Missing from_date/to_date from Date Range node.');\n\nconst normalizeHeaders = (headers = {}) => {\n  const out = {};\n  if (headers && typeof headers.forEach === 'function') {\n    headers.forEach((value, key) => { out[String(key).toLowerCase()] = value; });\n    if (typeof headers.getSetCookie === 'function') out['set-cookie'] = headers.getSetCookie();\n    return out;\n  }\n  for (const [key, value] of Object.entries(headers || {})) out[String(key).toLowerCase()] = value;\n  return out;\n};\n\nconst getSetCookies = (headers = {}) => {\n  const normalized = normalizeHeaders(headers);\n  const raw = normalized['set-cookie'];\n  if (!raw) return [];\n  if (Array.isArray(raw)) return raw;\n  return String(raw).split(/,(?=\\s*[^;,\\s]+=)/g).map((v) => v.trim()).filter(Boolean);\n};\n\nconst parseCookieHeader = (cookieHeader) => {\n  const map = new Map();\n  for (const part of String(cookieHeader || '').split(';')) {\n    const segment = part.trim();\n    if (!segment) continue;\n    const eqIndex = segment.indexOf('=');\n    if (eqIndex <= 0) continue;\n    const key = segment.slice(0, eqIndex).trim();\n    const value = segment.slice(eqIndex + 1).trim();\n    if (key) map.set(key, value);\n  }\n  return map;\n};\n\nconst mergeCookieHeaders = (baseCookieHeader, setCookies) => {\n  const merged = parseCookieHeader(baseCookieHeader);\n  for (const setCookie of setCookies || []) {\n    const cookiePart = String(setCookie || '').split(';')[0]?.trim();\n    if (!cookiePart) continue;\n    const eqIndex = cookiePart.indexOf('=');\n    if (eqIndex <= 0) continue;\n    const key = cookiePart.slice(0, eqIndex).trim();\n    const value = cookiePart.slice(eqIndex + 1).trim();\n    if (key) merged.set(key, value);\n  }\n  return Array.from(merged.entries()).map(([key, value]) => `${key}=${value}`).join('; ');\n};\n\nconst formEncode = (params) => Object.entries(params).map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(String(value ?? ''))).join('&');\nconst hasMinimalPosCookie = (cookieHeader) => /ci_session_/i.test(String(cookieHeader || '')) && /\\binout=/i.test(String(cookieHeader || ''));\nconst isLikelyPosLoginHtml = (text) => {\n  const lower = String(text || '').toLowerCase();\n  return lower.includes(':: login') || lower.includes('login/check') || lower.includes('assets/dashboard/css/login.css') || lower.includes('name=\"password\"') || lower.includes(\"name='password'\");\n};\n\nasync function requestFull(options) {\n  const requestOptions = {\n    method: options.method || 'GET',\n    url: options.url,\n    headers: options.headers || {},\n    body: options.body,\n    json: false,\n    returnFullResponse: true,\n    resolveWithFullResponse: true,\n    simple: false,\n    timeout: 30000,\n  };\n\n  if (this?.helpers?.httpRequest) {\n    const response = await this.helpers.httpRequest(requestOptions);\n    if (response && typeof response === 'object' && (response.headers || Object.prototype.hasOwnProperty.call(response, 'body'))) {\n      const body = typeof response.body === 'string' ? response.body : JSON.stringify(response.body ?? '');\n      return { statusCode: response.statusCode || response.status || 0, headers: response.headers || {}, body };\n    }\n    return { statusCode: 0, headers: {}, body: typeof response === 'string' ? response : JSON.stringify(response ?? '') };\n  }\n\n  if (typeof fetch !== 'function') throw new Error('No HTTP helper available inside n8n Code node.');\n  const response = await fetch(options.url, {\n    method: options.method || 'GET',\n    headers: options.headers || {},\n    body: options.body,\n    redirect: 'manual',\n  });\n  const body = await response.text();\n  return { statusCode: response.status, headers: response.headers, body };\n}\n\nlet cookieHeader = 'language=english; direction=ltr; dont_show_today=true';\n\ntry {\n  const preflight = await requestFull.call(this, {\n    method: 'GET',\n    url: POS_LOGIN_REFERER,\n    headers: {\n      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',\n      'Cache-Control': 'no-cache',\n      Pragma: 'no-cache',\n      Cookie: cookieHeader,\n    },\n  });\n  cookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(preflight.headers));\n} catch (error) {\n  // Some POS installations allow login without preflight cookies.\n}\n\nconst usernameBeforeAt = POS_USERNAME.includes('@') ? POS_USERNAME.split('@')[0].trim() : POS_USERNAME;\nconst usernameVariants = Array.from(new Set([\n  POS_USERNAME,\n  POS_USERNAME.toLowerCase(),\n  usernameBeforeAt,\n  usernameBeforeAt.toLowerCase(),\n  usernameBeforeAt ? `${usernameBeforeAt}@${POS_CLIENT_IDENTIFIER}` : '',\n  usernameBeforeAt ? `${usernameBeforeAt.toLowerCase()}@${POS_CLIENT_IDENTIFIER}` : '',\n].filter(Boolean)));\n\nlet authed = false;\nlet usedUsername = '';\nlet lastLoginBody = '';\nfor (const username of usernameVariants) {\n  const payload = formEncode({\n    username,\n    password: POS_PASSWORD,\n    client_identifier: POS_CLIENT_IDENTIFIER,\n    auto_login: 'null',\n    connection_path: 'null',\n  });\n\n  const loginResponse = await requestFull.call(this, {\n    method: 'POST',\n    url: POS_LOGIN_ENDPOINT,\n    headers: {\n      Accept: 'application/json, text/javascript, */*; q=0.01',\n      'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ar;q=0.7',\n      'Cache-Control': 'no-cache',\n      Pragma: 'no-cache',\n      Origin: POS_ORIGIN,\n      Referer: POS_LOGIN_REFERER,\n      'X-Requested-With': 'XMLHttpRequest',\n      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',\n      Cookie: cookieHeader,\n    },\n    body: payload,\n  });\n\n  cookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(loginResponse.headers));\n  lastLoginBody = String(loginResponse.body || '');\n  const lower = lastLoginBody.toLowerCase();\n  const looksSuccess = lower.includes('login_success') || lower.includes('password_ok') || ((loginResponse.statusCode >= 200 && loginResponse.statusCode < 400) && !isLikelyPosLoginHtml(lastLoginBody));\n  if (looksSuccess && hasMinimalPosCookie(cookieHeader)) {\n    authed = true;\n    usedUsername = username;\n    break;\n  }\n}\n\nif (!authed) {\n  throw new Error('POS login failed. Check POS_USERNAME/POS_PASSWORD and POS sales permission. Last response: ' + lastLoginBody.slice(0, 250));\n}\n\nconst reportParams = {\n  report_type: 'counter_cash',\n  from_date: range.from_date,\n  from_time: '12:00 AM',\n  to_date: range.to_date,\n  to_time: '11:59 PM',\n  no_of_decimal_places: '2',\n  save: '1',\n  predefined_date: 'Custom Range',\n  prod_details: '0',\n  void_details: '0',\n  ord_prod_details: '0',\n  ord_void_details: '0',\n  cust_details: '0',\n  expns_details: '1',\n  print: '0',\n  inv_cat_wise: '0',\n  ord_cat_wise: '0',\n  inv_cat_wise_tax: '0',\n  ord_cat_wise_tax: '0',\n  salesman_wise: '0',\n  credit_invoice: '0',\n  return_invoice: '0',\n  return_invoice_prod_details: '0',\n  expence_entry_details: '0',\n  purchase_etnry_details: '0',\n  order_billwise_details: '0',\n  vehicle_details: '0',\n  salesman_wise_detail: '0',\n  received_payment_details: '0',\n  order_product_unit_wise: '0',\n};\nconst reportPayload = formEncode(reportParams);\n\nconst reportResponse = await requestFull.call(this, {\n  method: 'POST',\n  url: POS_REPORT_URL,\n  headers: {\n    Accept: '*/*',\n    'Cache-Control': 'no-cache',\n    Pragma: 'no-cache',\n    Origin: POS_ORIGIN,\n    Referer: POS_LOGIN_REFERER,\n    'X-Requested-With': 'XMLHttpRequest',\n    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',\n    Cookie: cookieHeader,\n  },\n  body: reportPayload,\n});\ncookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(reportResponse.headers));\nconst html = String(reportResponse.body || '');\nif (!html.trim()) throw new Error('POS report returned empty response.');\nif (isLikelyPosLoginHtml(html)) throw new Error('POS returned login page after auto login. Check POS permissions for Counter Cash report.');\n\nconst stripHtml = (value) => String(value ?? '').replace(/<[^>]*>/g, ' ').replace(/\\s+/g, ' ').trim();\nconst parseMoney = (value) => {\n  const parsed = Number(String(value ?? '').replace(/,/g, '').replace(/[^0-9.-]/g, ''));\n  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : 0;\n};\nconst escapeRegex = (value) => String(value).replace(/[.*+?^\\${}()|[\\]\\\\]/g, '\\\\$&');\nconst extractAmount = (sectionHtml, label) => {\n  const pattern = new RegExp('<td[^>]*>\\\\s*' + escapeRegex(label) + '\\\\s*<\\\\/td>\\\\s*<td[^>]*>\\\\s*([\\\\d,.-]+)\\\\s*<\\\\/td>', 'i');\n  const match = String(sectionHtml || '').match(pattern);\n  return match ? parseMoney(match[1]) : 0;\n};\nconst extractText = (pattern) => {\n  const match = html.match(pattern);\n  return match ? stripHtml(match[1]) : '';\n};\nconst parseExpenseRows = (sectionHtml) => {\n  const rows = [];\n  const pattern = /<tr>\\s*<td[^>]*>\\s*(\\d+)\\s*<\\/td>\\s*<td[^>]*colspan=\"3\"[^>]*>([\\s\\S]*?)<\\/td>[\\s\\S]*?<td[^>]*align=\"right\"[^>]*>\\s*([\\d,.-]+)\\s*<\\/td>\\s*<\\/tr>/gi;\n  for (const match of String(sectionHtml || '').matchAll(pattern)) {\n    rows.push({ no: Number(match[1]) || rows.length + 1, description: stripHtml(match[2]), amount: parseMoney(match[3]) });\n  }\n  return rows;\n};\n\nconst expense_sections = [];\nconst sectionPattern = /<h3[^>]*class=\"[^\"]*sub_title[^\"]*\"[^>]*>([\\s\\S]*?)<\\/h3>([\\s\\S]*?)(?=<tr>\\s*<td[^>]*colspan=\"5\"[^>]*>\\s*<h3[^>]*class=\"[^\"]*sub_title|<\\/tbody>\\s*<\\/table>)/gi;\nfor (const match of html.matchAll(sectionPattern)) {\n  const title = stripHtml(match[1]);\n  const sectionHtml = String(match[2] || '');\n  if (!title) continue;\n  const key = title.toLowerCase().includes('credit') ? 'credit_card' : 'cash';\n  expense_sections.push({ key, title, received_total: extractAmount(sectionHtml, 'Received Total'), expense_total: extractAmount(sectionHtml, 'Expense Total'), balance: extractAmount(sectionHtml, 'Balance'), rows: parseExpenseRows(sectionHtml) });\n}\nconst cash = expense_sections.find((s) => s.key === 'cash') || { received_total: 0, expense_total: 0, balance: 0, rows: [] };\nconst cardExp = expense_sections.find((s) => s.key === 'credit_card') || { received_total: 0, expense_total: 0, balance: 0, rows: [] };\n\nconst customerRows = [];\nconst customerPattern = /<tr>\\s*<td[^>]*align=\"left\"[^>]*>\\s*([^<]+?)\\s*<\\/td>\\s*<td[^>]*align=\"left\"[^>]*>\\s*(\\d+)\\s*<\\/td>\\s*<td[^>]*align=\"right\"[^>]*>\\s*([\\d,.-]+)\\s*<\\/td>\\s*<\\/tr>/gi;\nfor (const match of html.matchAll(customerPattern)) {\n  const customer = stripHtml(match[1]);\n  if (!customer || customer.toLowerCase() === 'customer') continue;\n  customerRows.push({ customer, invoice_count: Number(match[2]) || 0, amount: parseMoney(match[3]) });\n}\nconst round = (value) => Math.round((Number(value) || 0) * 100) / 100;\nconst summary = {\n  company: extractText(/<h4[^>]*>\\s*([^<]*IN AND OUT LAUNDRY[^<]*)\\s*<\\/h4>/i),\n  report_name: extractText(/<h4[^>]*>\\s*Reports\\s*:\\s*([\\s\\S]*?)<\\/h4>/i),\n  date_range: extractText(/Reports Date Range\\s*:\\s*([\\s\\S]*?)<\\/h4>/i),\n  printed_at: extractText(/Printing Date\\s*\\/\\s*Time\\s*:\\s*([\\s\\S]*?)<\\/h4>/i),\n  branch: extractText(/<h4[^>]*>\\s*Branch\\s*:\\s*([\\s\\S]*?)<\\/h4>/i),\n  cash_receipt: extractAmount(html, 'Cash Account(Reciept)'),\n  card_receipt: extractAmount(html, 'Credit Card(Reciept)'),\n  grand_total_receipt: extractAmount(html, 'Grand Total Receipt'),\n  total_income: extractAmount(html, 'Total Income'),\n  cash_in_hand: extractAmount(html, 'Cash in Hand'),\n  cash_received_total: cash.received_total,\n  cash_expense_total: cash.expense_total,\n  cash_balance: cash.balance,\n  credit_card_received_total: cardExp.received_total,\n  credit_card_expense_total: cardExp.expense_total,\n  credit_card_balance: cardExp.balance,\n  expense_total: round(expense_sections.reduce((sum, s) => sum + Number(s.expense_total || 0), 0)),\n  balance: round(expense_sections.reduce((sum, s) => sum + Number(s.balance || 0), 0)),\n  total_invoice: extractAmount(html, 'Total Invoice'),\n  expense_sections,\n  expenses: expense_sections.flatMap((section) => section.rows.map((row) => ({ ...row, account: section.key, account_title: section.title }))),\n  customers: customerRows,\n};\nif (!summary.report_name) throw new Error('Could not parse POS Counter Cash report. HTML length: ' + html.length);\nreturn [{ json: { ok: true, summary, html_length: html.length, used_username: usedUsername, period_label: range.period_label, current_summary: $json.current_summary || null, current_period_label: $json.current_period_label || '', current_html_length: $json.current_html_length || 0, current_used_username: $json.current_used_username || '' } }];"
+      }
+    },
+    {
+      "id": "monthly-build",
+      "name": "Build Monthly WhatsApp Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        740
+      ],
+      "parameters": {
+        "jsCode": "const vars=(typeof $vars==='object'&&$vars)?$vars:{}; const s=$json.current_summary||{}; const currentRange=$('Monthly Date Range').first().json; const currentLabel=$json.current_period_label||currentRange.period_label; const prev=$json.summary||{}; const prevLabel=$json.period_label||'الشهر السابق'; const m=(v)=>Number(v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); const pct=(v)=>Number(v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); const rev=Number(s.total_income||0); const prevRev=Number(prev.total_income||0); const exp=Number(s.expense_total||0); const cash=Number(s.cash_receipt||0); const cashExp=Number(s.cash_expense_total||0); const netCash=cash-cashExp; const cardExp=Number(s.credit_card_expense_total||0); const orders=Number(s.total_invoice||0); const avg=orders>0?rev/orders:0; const revenueDiff=rev-prevRev; const revenueDiffPercent=prevRev!==0?(revenueDiff/prevRev)*100:null; const direction=revenueDiff>0?'زيادة':revenueDiff<0?'انخفاض':'بدون تغيير'; const comparison=`📊 مقارنة الإيرادات بالشهر السابق (${prevLabel}): ${direction} ${m(Math.abs(revenueDiff))} AED${revenueDiffPercent===null?'':` (${pct(Math.abs(revenueDiffPercent))}%)`}`; const base=String(vars.REPORT_APP_BASE_URL||'').replace(/\\/+$/,''); const branchId=String(vars.REPORT_BRANCH_ID||'').trim(); const query=new URLSearchParams({from_date:currentRange.from_date,to_date:currentRange.to_date,period_label:currentLabel}); if(branchId) query.set('branch_id',branchId); const generatedLink=String($json.operations_report?.share_url||$json.operations_report_link||''); const reportLink=generatedLink||(base?`${base}/performance-report?${query.toString()}`:''); const linkLine=reportLink?`\\n\\n📎 التقرير التفاعلي الاحترافي:\\n${reportLink}`:''; const msg=`📆 التقرير المالي الشهري\\nالشهر: ${currentLabel}\\n\\n🏪 الفرع: ${s.branch||'غير محدد'}\\n💰 إجمالي الإيرادات: ${m(rev)} AED\\n${comparison}\\n📉 إجمالي المصروفات: ${m(exp)} AED\\n✅ الصافي: ${m(rev-exp)} AED\\n💵 الكاش: ${m(cash)} AED\\n📉 مصروفات الكاش: ${m(cashExp)} AED\\n✅ صافي الكاش بعد المصروفات: ${m(netCash)} AED\\n💳 البطاقة: ${m(s.card_receipt)} AED\\n💳 مصروفات البطاقة: ${m(cardExp)} AED\\n🧾 عدد الطلبات: ${orders}\\n📊 متوسط الفاتورة: ${m(avg)} AED${linkLine}`; const ownerMsg=`📆 تقرير شهري لكل الأفرع\\nالشهر: ${currentLabel}\\n\\n📎 التقرير جاهز للفتح مباشرة:\\n${reportLink||'REPORT_LINK_NOT_READY'}`; return [{json:{whatsapp_to:'REPLACE_MANAGEMENT_GROUP_ID_OR_PHONE',message:msg,summary:s,previous_month_summary:prev,report_link:reportLink,operations_report:$json.operations_report,owner_message:ownerMsg,owner_whatsapp:String(vars.REPORT_OWNER_WHATSAPP||'REPLACE_OWNER_WHATSAPP'),owner_telegram_chat_id:String(vars.REPORT_OWNER_TELEGRAM_CHAT_ID||'REPLACE_OWNER_TELEGRAM_CHAT_ID'),monthly_comparison:{current_period_label:currentLabel,current_revenue:rev,previous_period_label:prevLabel,previous_revenue:prevRev,revenue_difference:revenueDiff,revenue_difference_percent:revenueDiffPercent,net_cash_after_cash_expenses:netCash}}}];"
       }
     },
     {
@@ -301,7 +327,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        300,
+        540,
         740
       ],
       "parameters": {
@@ -320,10 +346,87 @@
           "name": "WhatsApp API Bearer Token"
         }
       }
+    },
+    {
+      "id": "generate-daily-all-branches-report",
+      "name": "Generate Daily All Branches Report Link",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -180,
+        -180
+      ],
+      "parameters": {
+        "jsCode": "const vars=(typeof $vars==='object'&&$vars)?$vars:{};\nconst base=String(vars.REPORT_APP_BASE_URL||'').replace(/\\/+$/,'');\nconst token=String(vars.REPORT_API_TOKEN||vars.N8N_REPORT_API_TOKEN||'').trim();\nconst range=$('Daily Date Range').first().json;\nif(!base){ return [{json:{...$json, operations_report_error:'REPORT_APP_BASE_URL is missing'}}]; }\nif(!token){ return [{json:{...$json, operations_report_error:'REPORT_API_TOKEN is missing'}}]; }\nconst body={report_type:'daily', from_date:range.from_date, to_date:range.to_date, date:range.to_date, save_snapshot:'1'};\nconst report=await this.helpers.httpRequest({method:'POST', url:base+'/api/reports/daily-operations', headers:{'X-Report-Api-Key':token}, body, json:true, timeout:300000});\nreturn [{json:{...$json, operations_report:report, operations_report_link:report.share_url||''}}];"
+      }
+    },
+    {
+      "id": "generate-weekly-all-branches-report",
+      "name": "Generate Weekly All Branches Report Link",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -180,
+        260
+      ],
+      "parameters": {
+        "jsCode": "const vars=(typeof $vars==='object'&&$vars)?$vars:{};\nconst base=String(vars.REPORT_APP_BASE_URL||'').replace(/\\/+$/,'');\nconst token=String(vars.REPORT_API_TOKEN||vars.N8N_REPORT_API_TOKEN||'').trim();\nconst range=$('Weekly Date Range').first().json;\nif(!base){ return [{json:{...$json, operations_report_error:'REPORT_APP_BASE_URL is missing'}}]; }\nif(!token){ return [{json:{...$json, operations_report_error:'REPORT_API_TOKEN is missing'}}]; }\nconst body={report_type:'weekly', from_date:range.from_date, to_date:range.to_date, date:range.to_date, save_snapshot:'1'};\nconst report=await this.helpers.httpRequest({method:'POST', url:base+'/api/reports/daily-operations', headers:{'X-Report-Api-Key':token}, body, json:true, timeout:300000});\nreturn [{json:{...$json, operations_report:report, operations_report_link:report.share_url||''}}];"
+      }
+    },
+    {
+      "id": "generate-monthly-all-branches-report",
+      "name": "Generate Monthly All Branches Report Link",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        740
+      ],
+      "parameters": {
+        "jsCode": "const vars=(typeof $vars==='object'&&$vars)?$vars:{};\nconst base=String(vars.REPORT_APP_BASE_URL||'').replace(/\\/+$/,'');\nconst token=String(vars.REPORT_API_TOKEN||vars.N8N_REPORT_API_TOKEN||'').trim();\nconst range=$('Monthly Date Range').first().json;\nif(!base){ return [{json:{...$json, operations_report_error:'REPORT_APP_BASE_URL is missing'}}]; }\nif(!token){ return [{json:{...$json, operations_report_error:'REPORT_API_TOKEN is missing'}}]; }\nconst body={report_type:'monthly', from_date:range.from_date, to_date:range.to_date, date:range.to_date, save_snapshot:'1'};\nconst report=await this.helpers.httpRequest({method:'POST', url:base+'/api/reports/daily-operations', headers:{'X-Report-Api-Key':token}, body, json:true, timeout:300000});\nreturn [{json:{...$json, operations_report:report, operations_report_link:report.share_url||''}}];"
+      }
+    },
+    {
+      "id": "send-owner-all-branches-whatsapp",
+      "name": "Send Owner WhatsApp All Branches Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        620,
+        20
+      ],
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "method": "POST",
+        "url": "https://graph.facebook.com/v20.0/REPLACE_PHONE_NUMBER_ID/messages",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { to: ($json.owner_whatsapp || $vars.REPORT_OWNER_WHATSAPP || 'REPLACE_OWNER_WHATSAPP'), type: 'text', text: { body: ($json.owner_message || $json.message || $json.admin_message || $json.manager_message) } } }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "send-owner-all-branches-telegram",
+      "name": "Send Owner Telegram All Branches Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        620,
+        140
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot' + ($vars.TELEGRAM_BOT_TOKEN || 'REPLACE_TELEGRAM_BOT_TOKEN') + '/sendMessage' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { chat_id: ($json.owner_telegram_chat_id || $vars.REPORT_OWNER_TELEGRAM_CHAT_ID || 'REPLACE_OWNER_TELEGRAM_CHAT_ID'), text: ($json.owner_message || $json.message || $json.admin_message || $json.manager_message), disable_web_page_preview: false } }}",
+        "options": {}
+      }
     }
   ],
   "connections": {
-    "Daily Schedule 10:30 PM": {
+    "Daily Schedule 11:30 PM": {
       "main": [
         [
           {
@@ -349,7 +452,7 @@
       "main": [
         [
           {
-            "node": "Build Daily WhatsApp Message",
+            "node": "Generate Daily All Branches Report Link",
             "type": "main",
             "index": 0
           }
@@ -361,6 +464,16 @@
         [
           {
             "node": "Send Daily WhatsApp",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Owner WhatsApp All Branches Report",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Owner Telegram All Branches Report",
             "type": "main",
             "index": 0
           }
@@ -393,7 +506,7 @@
       "main": [
         [
           {
-            "node": "Build Weekly Deposit Messages",
+            "node": "Generate Weekly All Branches Report Link",
             "type": "main",
             "index": 0
           }
@@ -410,6 +523,16 @@
           },
           {
             "node": "Send Weekly Copy To Management",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Owner WhatsApp All Branches Report",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Owner Telegram All Branches Report",
             "type": "main",
             "index": 0
           }
@@ -442,7 +565,7 @@
       "main": [
         [
           {
-            "node": "Build Monthly WhatsApp Message",
+            "node": "Prepare Monthly Comparison Range",
             "type": "main",
             "index": 0
           }
@@ -454,6 +577,71 @@
         [
           {
             "node": "Send Monthly WhatsApp",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Owner WhatsApp All Branches Report",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Owner Telegram All Branches Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Monthly Comparison Range": {
+      "main": [
+        [
+          {
+            "node": "Fetch POS Previous Month Report Auto Login",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch POS Previous Month Report Auto Login": {
+      "main": [
+        [
+          {
+            "node": "Generate Monthly All Branches Report Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Daily All Branches Report Link": {
+      "main": [
+        [
+          {
+            "node": "Build Daily WhatsApp Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Weekly All Branches Report Link": {
+      "main": [
+        [
+          {
+            "node": "Build Weekly Deposit Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Monthly All Branches Report Link": {
+      "main": [
+        [
+          {
+            "node": "Build Monthly WhatsApp Message",
             "type": "main",
             "index": 0
           }

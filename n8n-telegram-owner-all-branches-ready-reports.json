@@ -1,0 +1,261 @@
+{
+  "name": "Telegram Owner All Branches Ready Reports",
+  "nodes": [
+    {
+      "id": "telegram-reports-note",
+      "name": "Telegram Reports Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        -360
+      ],
+      "parameters": {
+        "content": "## Telegram Owner Reports\nيرسل للمالك رابط تقرير جاهز لكل الأفرع.\n\nRequired n8n Variables:\n- REPORT_APP_BASE_URL\n- REPORT_API_TOKEN\n- TELEGRAM_BOT_TOKEN\n- REPORT_OWNER_TELEGRAM_CHAT_ID\n\nBackend must have same REPORT_API_TOKEN in .env.\n\nReports:\n- Daily all branches\n- Weekly all branches\n- Monthly all branches"
+      }
+    },
+    {
+      "id": "daily-schedule",
+      "name": "Daily Schedule 11:30 PM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -720,
+        -120
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 23 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "daily-range",
+      "name": "Daily Range",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        -120
+      ],
+      "parameters": {
+        "jsCode": "const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dubai', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());\nconst get = (type) => parts.find((part) => part.type === type)?.value;\nconst date = `${get('year')}-${get('month')}-${get('day')}`;\nreturn [{ json: { report_type: 'daily', from_date: date, to_date: date, period_label: date } }];"
+      }
+    },
+    {
+      "id": "weekly-schedule",
+      "name": "Weekly Schedule Sunday 10:45 PM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -720,
+        120
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "45 22 * * 0"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "weekly-range",
+      "name": "Weekly Range",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        120
+      ],
+      "parameters": {
+        "jsCode": "const pad = (value) => String(value).padStart(2, '0');\nconst fmt = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;\nconst now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Dubai' }));\nconst end = new Date(now);\nconst start = new Date(now);\nstart.setDate(end.getDate() - 6);\nreturn [{ json: { report_type: 'weekly', from_date: fmt(start), to_date: fmt(end), period_label: `${fmt(start)} إلى ${fmt(end)}` } }];"
+      }
+    },
+    {
+      "id": "monthly-schedule",
+      "name": "Monthly Schedule 1st Day 8 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -720,
+        360
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 1 * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "monthly-range",
+      "name": "Monthly Range Previous Month",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        360
+      ],
+      "parameters": {
+        "jsCode": "const pad = (value) => String(value).padStart(2, '0');\nconst fmt = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;\nconst now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Dubai' }));\nconst firstThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);\nconst lastPrevMonth = new Date(firstThisMonth);\nlastPrevMonth.setDate(0);\nconst firstPrevMonth = new Date(lastPrevMonth.getFullYear(), lastPrevMonth.getMonth(), 1);\nreturn [{ json: { report_type: 'monthly', from_date: fmt(firstPrevMonth), to_date: fmt(lastPrevMonth), period_label: `${firstPrevMonth.getFullYear()}-${pad(firstPrevMonth.getMonth() + 1)}` } }];"
+      }
+    },
+    {
+      "id": "generate-ready-report",
+      "name": "Generate Ready All Branches Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -180,
+        120
+      ],
+      "parameters": {
+        "jsCode": "const vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst base = String(vars.REPORT_APP_BASE_URL || '').replace(/\\/+$/, '');\nconst token = String(vars.REPORT_API_TOKEN || vars.N8N_REPORT_API_TOKEN || '').trim();\nif (!base) throw new Error('REPORT_APP_BASE_URL is missing in n8n Variables.');\nif (!token) throw new Error('REPORT_API_TOKEN is missing in n8n Variables.');\nconst body = {\n  report_type: String($json.report_type || 'daily'),\n  from_date: String($json.from_date || '').trim(),\n  to_date: String($json.to_date || '').trim(),\n  date: String($json.to_date || '').trim(),\n  save_snapshot: '1',\n};\nconst report = await this.helpers.httpRequest({\n  method: 'POST',\n  url: base + '/api/reports/daily-operations',\n  headers: { 'X-Report-Api-Key': token },\n  body,\n  json: true,\n  timeout: 300000,\n});\nreturn [{ json: { ...$json, operations_report: report, operations_report_link: report.share_url || '' } }];"
+      }
+    },
+    {
+      "id": "build-telegram-message",
+      "name": "Build Telegram Owner Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        120,
+        120
+      ],
+      "parameters": {
+        "jsCode": "const vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst report = $json.operations_report || {};\nconst metrics = report.metrics || {};\nconst money = (value) => Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });\nconst number = (value) => Number(value || 0).toLocaleString('en-US');\nconst type = String($json.report_type || report.operations_type || 'daily');\nconst title = type === 'monthly' ? '📆 التقرير الشهري لكل الأفرع' : type === 'weekly' ? '📌 التقرير الأسبوعي لكل الأفرع' : '📊 التقرير اليومي لكل الأفرع';\nconst link = String(report.share_url || $json.operations_report_link || '').trim();\nconst text = `${title}\\n📅 الفترة: ${$json.period_label || report.date_label || ''}\\n\\n🏪 النطاق: كل الأفرع\\n💰 الإيرادات: ${money(metrics.total_revenue)} AED\\n🧾 عدد الطلبات: ${number(metrics.total_orders)}\\n📉 المصروفات: ${money(metrics.total_expenses)} AED\\n💵 صافي الكاش: ${money(metrics.closing_balance)} AED\\n\\n📎 التقرير جاهز للفتح مباشرة:\\n${link || 'REPORT_LINK_NOT_READY'}`;\nreturn [{ json: { ...$json, telegram_text: text, owner_telegram_chat_id: String(vars.REPORT_OWNER_TELEGRAM_CHAT_ID || 'REPLACE_OWNER_TELEGRAM_CHAT_ID') } }];"
+      }
+    },
+    {
+      "id": "send-telegram-owner",
+      "name": "Telegram - Send Owner Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        420,
+        120
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot' + ($vars.TELEGRAM_BOT_TOKEN || 'REPLACE_TELEGRAM_BOT_TOKEN') + '/sendMessage' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { chat_id: $json.owner_telegram_chat_id, text: $json.telegram_text, disable_web_page_preview: false } }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Daily Schedule 11:30 PM": {
+      "main": [
+        [
+          {
+            "node": "Daily Range",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily Range": {
+      "main": [
+        [
+          {
+            "node": "Generate Ready All Branches Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weekly Schedule Sunday 10:45 PM": {
+      "main": [
+        [
+          {
+            "node": "Weekly Range",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weekly Range": {
+      "main": [
+        [
+          {
+            "node": "Generate Ready All Branches Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Monthly Schedule 1st Day 8 AM": {
+      "main": [
+        [
+          {
+            "node": "Monthly Range Previous Month",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Monthly Range Previous Month": {
+      "main": [
+        [
+          {
+            "node": "Generate Ready All Branches Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Ready All Branches Report": {
+      "main": [
+        [
+          {
+            "node": "Build Telegram Owner Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Telegram Owner Message": {
+      "main": [
+        [
+          {
+            "node": "Telegram - Send Owner Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Dubai"
+  },
+  "versionId": "telegram-owner-all-branches-ready-reports-v1",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {}
+}

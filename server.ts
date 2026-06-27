@@ -782,6 +782,15 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS report_snapshots (
+    report_id TEXT PRIMARY KEY,
+    share_token TEXT NOT NULL,
+    report_type TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME
+  );
+
   CREATE TABLE IF NOT EXISTS sorting_scans (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     order_no TEXT NOT NULL,
@@ -818,7 +827,10 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_order_review_sessions_user ON order_review_sessions(channel, chat_user_id, status, updated_at);
   CREATE INDEX IF NOT EXISTS idx_order_review_items_batch ON order_review_items(batch_id, customer_phone);
   CREATE INDEX IF NOT EXISTS idx_sorting_cells_table ON sorting_cells(table_id, row_no, col_no);
+  CREATE INDEX IF NOT EXISTS idx_sorting_cells_table_active ON sorting_cells(table_id, active_order_no);
   CREATE INDEX IF NOT EXISTS idx_sorting_orders_status ON sorting_orders(status, updated_at);
+  CREATE INDEX IF NOT EXISTS idx_sorting_orders_updated_created ON sorting_orders(updated_at DESC, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_sorting_items_order_id ON sorting_items(order_no, id);
   CREATE INDEX IF NOT EXISTS idx_sorting_scans_order_no ON sorting_scans(order_no, timestamp);
   CREATE INDEX IF NOT EXISTS idx_sorting_ironing_events_order_no ON sorting_ironing_events(order_no, timestamp);
   CREATE INDEX IF NOT EXISTS idx_sorting_ironing_events_user ON sorting_ironing_events(user, timestamp);
@@ -829,6 +841,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_sorting_blanket_events_user ON sorting_blanket_packing_events(user, timestamp);
   CREATE INDEX IF NOT EXISTS idx_blanket_packing_logs_order_no ON blanket_packing_logs(order_number, created_at);
   CREATE INDEX IF NOT EXISTS idx_blanket_packing_logs_action ON blanket_packing_logs(action, created_at);
+  CREATE INDEX IF NOT EXISTS idx_report_snapshots_type_created ON report_snapshots(report_type, created_at);
 `);
 
 const ensureColumn = (table: string, column: string, sqlType: string) => {
@@ -1293,9 +1306,13 @@ const TELEGRAM_WEBHOOK_SECRET = String(process.env.TELEGRAM_WEBHOOK_SECRET ?? ''
 const POS_BASE_URL = String(process.env.POS_BASE_URL ?? 'https://magnus.aipsoft.com/inout/sales').trim();
 const POS_FIND_ORDERS_PATH = String(process.env.POS_FIND_ORDERS_PATH ?? '/findLaundryOrders').trim();
 const POS_FIND_ORDER_DETAILS_PATH = String(process.env.POS_FIND_ORDER_DETAILS_PATH ?? '/findOrderDetails').trim();
+const POS_SALES_PRINT_ENDPOINT = String(
+  process.env.POS_SALES_PRINT_ENDPOINT ?? 'https://beta.aipsoft.com/inout/sales/print'
+).trim();
 const POS_SAVE_ORDER_PATH = String(process.env.POS_SAVE_ORDER_PATH ?? '/saveOrder').trim();
 const POS_GET_PRODUCTS_PATH = String(process.env.POS_GET_PRODUCTS_PATH ?? '/getProducts').trim();
 const POS_COUNTER_CASH_REPORT_PATH = String(process.env.POS_COUNTER_CASH_REPORT_PATH ?? '/generate_report').trim();
+const REPORT_API_TOKEN = String(process.env.REPORT_API_TOKEN ?? process.env.N8N_REPORT_API_TOKEN ?? '').trim();
 const POS_PURCHASE_API_BASE_URL = String(process.env.POS_PURCHASE_API_BASE_URL ?? 'https://beta.aipsoft.com/inout').trim();
 const POS_EXPENSES_REFERER = String(
   process.env.POS_EXPENSES_REFERER ?? `${POS_PURCHASE_API_BASE_URL.replace(/\/+$/, '')}/accounts/expenses`
@@ -3024,7 +3041,7 @@ const resolvePosConnectPreviewByDisplayedOrderNo = async (
 const postPosForm = async (
   endpointPath: string,
   payload: URLSearchParams,
-  options?: { fallbackToGet?: boolean; referer?: string }
+  options?: { fallbackToGet?: boolean; referer?: string; origin?: string; allowHtmlResponse?: boolean }
 ) => {
   const endpoint = resolvePosEndpointFromPath(endpointPath);
   if (!endpoint) throw new Error('POS endpoint is not configured.');
@@ -3063,7 +3080,7 @@ const postPosForm = async (
     'Cache-Control': 'no-cache',
     Pragma: 'no-cache',
     Cookie: cookie,
-    Origin: resolvePosOrigin(),
+    Origin: options?.origin || resolvePosOrigin(),
     Referer: options?.referer || POS_REFERER || POS_BASE_URL,
     'X-Requested-With': 'XMLHttpRequest',
   });
@@ -3122,6 +3139,7 @@ const postPosForm = async (
   }
 
   if (
+    !options?.allowHtmlResponse &&
     !staffSession &&
     (isPosHtmlDocument(String(responseBody.text ?? '')) || isLikelyPosLoginHtml(String(responseBody.text ?? ''))) &&
     canAutoRefreshPosSession()
@@ -3156,6 +3174,7 @@ const postPosForm = async (
   }
 
   if (
+    !options?.allowHtmlResponse &&
     staffSession &&
     (isPosHtmlDocument(String(responseBody.text ?? '')) || isLikelyPosLoginHtml(String(responseBody.text ?? '')))
   ) {
@@ -3299,18 +3318,20 @@ const buildCounterCashReportPayload = (input: any) => {
     credit_invoice: '0',
     return_invoice: '0',
     return_invoice_prod_details: '0',
-    expence_entry_details: '0',
-    purchase_etnry_details: '0',
-    order_billwise_details: '0',
+    expence_entry_details: String(input?.expence_entry_details ?? input?.expense_entry_details ?? input?.expenseDetails ?? '0'),
+    purchase_etnry_details: String(input?.purchase_etnry_details ?? input?.purchase_entry_details ?? input?.purchaseDetails ?? '0'),
+    order_billwise_details: String(input?.order_billwise_details ?? input?.orderBillwiseDetails ?? input?.billwiseDetails ?? '0'),
     vehicle_details: '0',
     salesman_wise_detail: '0',
-    received_payment_details: '0',
+    received_payment_details: String(input?.received_payment_details ?? input?.paymentDetails ?? '0'),
     order_product_unit_wise: '0',
   };
 
   for (const [key, value] of Object.entries(fields)) {
     payload.set(key, value);
   }
+  const branchId = String(input?.branch_id ?? input?.branchId ?? '').trim();
+  if (branchId) payload.set('branch_id', branchId);
 
   return payload;
 };
@@ -3591,6 +3612,976 @@ const parseCounterCashReportHtml = (html: string) => {
     expense_sections: expenseSections,
     expenses: expenseRows,
     customers: customerRows,
+  };
+};
+
+type PerformanceBucket = {
+  label: string;
+  from_date: string;
+  to_date: string;
+};
+
+const dateOnlyUtc = (date: Date) => date.toISOString().slice(0, 10);
+
+const parseReportDateUtc = (value: string) => {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day));
+};
+
+const addUtcDays = (date: Date, days: number) => {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+};
+
+const daysBetweenInclusive = (fromDate: string, toDate: string) => {
+  const from = parseReportDateUtc(fromDate);
+  const to = parseReportDateUtc(toDate);
+  return Math.max(1, Math.floor((to.getTime() - from.getTime()) / 86_400_000) + 1);
+};
+
+const buildPerformanceBuckets = (fromDate: string, toDate: string): PerformanceBucket[] => {
+  const totalDays = daysBetweenInclusive(fromDate, toDate);
+  const from = parseReportDateUtc(fromDate);
+  const to = parseReportDateUtc(toDate);
+  const buckets: PerformanceBucket[] = [];
+
+  if (totalDays <= 45) {
+    for (let cursor = new Date(from); cursor <= to; cursor = addUtcDays(cursor, 1)) {
+      const date = dateOnlyUtc(cursor);
+      buckets.push({ label: date.slice(5), from_date: date, to_date: date });
+    }
+    return buckets;
+  }
+
+  const cursor = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 1));
+  while (cursor <= to) {
+    const monthStart = new Date(cursor);
+    const monthEnd = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 0));
+    const bucketFrom = monthStart < from ? from : monthStart;
+    const bucketTo = monthEnd > to ? to : monthEnd;
+    buckets.push({
+      label: `${cursor.getUTCFullYear()}-${String(cursor.getUTCMonth() + 1).padStart(2, '0')}`,
+      from_date: dateOnlyUtc(bucketFrom),
+      to_date: dateOnlyUtc(bucketTo),
+    });
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+  }
+  return buckets;
+};
+
+const fetchCounterCashReportSummary = async (input: any) => {
+  const payload = buildCounterCashReportPayload(input);
+  const { text } = await postPosForm(POS_COUNTER_CASH_REPORT_PATH, payload, { fallbackToGet: false });
+  const html = String(text ?? '').trim();
+  if (!html) throw new Error('POS returned an empty report response.');
+  if (isLikelyPosLoginHtml(html)) {
+    throw new Error('POS returned the login page. Check POS auto-login settings and Counter Cash report permission.');
+  }
+  return {
+    request: Object.fromEntries(payload.entries()),
+    html,
+    summary: parseCounterCashReportHtml(html),
+  };
+};
+
+type ReportTableRow = {
+  context: string;
+  values: Record<string, string>;
+  cells: string[];
+};
+
+type ReportDetailLine = {
+  source: 'expense_details' | 'purchase_details' | 'counter_cash';
+  category: string;
+  description: string;
+  amount: number;
+  date?: string;
+  method?: string;
+};
+
+const cleanReportText = (value: unknown) =>
+  stripHtml(String(value ?? '').replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&'))
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const titleCaseReportLabel = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+    .replace(/\bAnd\b/g, 'and')
+    .trim();
+
+const shortenReportPartyName = (value: unknown) => {
+  const text = cleanReportText(value)
+    .replace(/\b(LLC|L\.L\.C|LTD|CO\.?|COMPANY|EST\.?|ESTABLISHMENT)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!text) return '';
+  if (text.length <= 38) return titleCaseReportLabel(text);
+  return titleCaseReportLabel(text.slice(0, 38).replace(/\s+\S*$/, ''));
+};
+
+const simplifyExpenseCategoryLabel = (category: unknown, description?: unknown) => {
+  const raw = cleanReportText(`${category ?? ''} ${description ?? ''}`);
+  if (!raw) return 'مصروفات';
+  const lower = raw.toLowerCase();
+
+  if (/rent|rental|shop rental|lease|ايجار|إيجار/.test(lower)) return 'Rental';
+  if (/taqa|addc|electric|water|utility|كهرب|مياه/.test(lower)) return 'TAQA';
+  if (/federal tax authority|tax payment|vat|ضريبة|القيمة المضافة/.test(lower)) return 'Federal Tax Authority';
+  if (/salary|wage|staff|worker|employee|راتب|رواتب/.test(lower)) return 'Salaries';
+  if (/petrol|fuel|adnoc|diesel|vehicle|transport|delivery|وقود|بترول|توصيل/.test(lower)) return 'Transport';
+  if (/chemical|detergent|soap|material|مواد|كيما/.test(lower)) return 'Chemicals';
+  if (/maint|repair|spare|service|صيانة|تصليح/.test(lower)) return 'Maintenance';
+  if (/internet|etisalat|du telecom|telecom|phone|هاتف|انترنت/.test(lower)) return 'Telecom';
+  if (/insurance|تأمين/.test(lower)) return 'Insurance';
+  if (/software|subscription|system|نظام|اشتراك/.test(lower)) return 'Software';
+
+  const billPartyMatch = raw.match(/Bill#?:?[^,]*,\s*([^,]+)/i);
+  if (billPartyMatch?.[1]) return shortenReportPartyName(billPartyMatch[1]);
+
+  const parts = raw
+    .split(',')
+    .map((part) =>
+      part
+        .replace(/\bPayment\s+on\s+Expence-\d+\b/gi, '')
+        .replace(/\bPayment\s+on\s+Expense-\d+\b/gi, '')
+        .replace(/\bBy\s+Remittance\b/gi, '')
+        .replace(/\bBill\s*#?:?\s*[\w/-]+\b/gi, '')
+        .replace(/\bExpence-\d+\b/gi, '')
+        .replace(/\bExpense-\d+\b/gi, '')
+        .replace(/\bPayment\b/gi, '')
+        .trim()
+    )
+    .filter(Boolean);
+
+  const meaningful = parts
+    .filter((part) => !/^\d+(\.\d+)?$/.test(part))
+    .sort((left, right) => right.length - left.length)[0];
+
+  return shortenReportPartyName(meaningful || raw) || 'مصروفات';
+};
+
+const simplifyPaymentMethodLabel = (value: unknown) => {
+  const raw = cleanReportText(value);
+  const lower = raw.toLowerCase();
+  if (!raw) return 'Other';
+  if (/cash|كاش|نقد/.test(lower)) return 'Cash';
+  if (/visa|master|card|credit|debit|بطاقة/.test(lower)) return 'Card';
+  if (/bank|transfer|remittance|wire|تحويل/.test(lower)) return 'Bank Transfer';
+  if (/online|link|payment gateway/.test(lower)) return 'Online';
+  if (/cheque|check|شيك/.test(lower)) return 'Cheque';
+  return shortenReportPartyName(raw) || 'Other';
+};
+
+const normalizeReportKey = (value: unknown) =>
+  cleanReportText(value)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '');
+
+const extractReportCells = (rowHtml: string) =>
+  Array.from(rowHtml.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)).map((match) => cleanReportText(match[1]));
+
+const extractNearestReportContext = (html: string, tableIndex: number) => {
+  const before = html.slice(Math.max(0, tableIndex - 2500), tableIndex);
+  const headings = Array.from(before.matchAll(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi)).map((match) => cleanReportText(match[1]));
+  const titledDivs = Array.from(before.matchAll(/<[^>]*class="[^"]*(?:sub_title|title|heading)[^"]*"[^>]*>([\s\S]*?)<\/[^>]+>/gi)).map((match) =>
+    cleanReportText(match[1])
+  );
+  return [...headings, ...titledDivs].filter(Boolean).slice(-3).join(' | ');
+};
+
+const parseReportTables = (html: string): ReportTableRow[] => {
+  const rows: ReportTableRow[] = [];
+  for (const tableMatch of html.matchAll(/<table[\s\S]*?<\/table>/gi)) {
+    const tableHtml = String(tableMatch[0] ?? '');
+    const context = extractNearestReportContext(html, tableMatch.index ?? 0);
+    const trMatches = Array.from(tableHtml.matchAll(/<tr[\s\S]*?<\/tr>/gi));
+    let headers: string[] = [];
+    for (const [rowIndex, trMatch] of trMatches.entries()) {
+      const rowHtml = String(trMatch[0] ?? '');
+      const cells = extractReportCells(rowHtml);
+      if (cells.length < 2) continue;
+      const hasHeaderCells = /<th\b/i.test(rowHtml);
+      const normalizedCells = cells.map(normalizeReportKey);
+      const looksLikeHeader =
+        hasHeaderCells ||
+        normalizedCells.some((cell) =>
+          /date|amount|total|account|description|particular|supplier|vendor|category|method|payment|invoice|bill|تاريخ|مبلغ|اجمالي|إجمالي|حساب|بيان|وصف|مورد|طريقة|دفع|فاتورة/.test(
+            cell
+          )
+        );
+
+      if ((!headers.length || hasHeaderCells) && looksLikeHeader && rowIndex < 5) {
+        headers = cells.map((cell, index) => normalizeReportKey(cell) || `cell${index + 1}`);
+        continue;
+      }
+
+      const values: Record<string, string> = {};
+      cells.forEach((cell, index) => {
+        values[headers[index] || `cell${index + 1}`] = cell;
+      });
+      rows.push({ context, values, cells });
+    }
+  }
+  return rows;
+};
+
+const valueByReportKeys = (row: ReportTableRow, patterns: RegExp[]) => {
+  for (const [key, value] of Object.entries(row.values)) {
+    if (patterns.some((pattern) => pattern.test(key))) return value;
+  }
+  return '';
+};
+
+const amountFromReportRow = (row: ReportTableRow, patterns: RegExp[]) => {
+  const direct = valueByReportKeys(row, patterns);
+  if (direct) {
+    const amount = parseMoney(direct);
+    if (amount) return amount;
+  }
+
+  const numericCells = row.cells
+    .map((cell) => parseMoney(cell))
+    .filter((amount) => Number.isFinite(amount) && Math.abs(amount) > 0);
+  return numericCells.length ? numericCells[numericCells.length - 1] : 0;
+};
+
+const dateFromReportRow = (row: ReportTableRow) => {
+  const direct = valueByReportKeys(row, [/date|تاريخ|billdate|invoicedate/]);
+  const candidate = direct || row.cells.find((cell) => /\b\d{4}-\d{2}-\d{2}\b|\b\d{2}[/-]\d{2}[/-]\d{4}\b/.test(cell)) || '';
+  const isoMatch = candidate.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+  const slashMatch = candidate.match(/\b(\d{2})[/-](\d{2})[/-](\d{4})\b/);
+  if (slashMatch) return `${slashMatch[3]}-${slashMatch[2]}-${slashMatch[1]}`;
+  return '';
+};
+
+const reportRowContextMatches = (row: ReportTableRow, patterns: RegExp[]) => {
+  const text = `${row.context} ${Object.keys(row.values).join(' ')} ${row.cells.join(' ')}`.toLowerCase();
+  return patterns.some((pattern) => pattern.test(text));
+};
+
+const parseExpenseAndPurchaseDetails = (html: string): ReportDetailLine[] => {
+  const rows = parseReportTables(html);
+  const lines: ReportDetailLine[] = [];
+
+  for (const row of rows) {
+    const isPurchase = reportRowContextMatches(row, [/purchase|supplier|vendor|مشتريات|شراء|مورد/]);
+    const isExpense = reportRowContextMatches(row, [/expense|expence|accounthead|expenseaccount|مصروف|مصروفات/]);
+    if (!isExpense && !isPurchase) continue;
+
+    const amount = amountFromReportRow(row, [/total|amount|net|debit|مبلغ|اجمالي|إجمالي/]);
+    if (!amount) continue;
+
+    const account =
+      valueByReportKeys(row, [/accounthead|expenseaccount|account|category|type|حساب|فئة|بند/]) ||
+      valueByReportKeys(row, [/supplier|vendor|party|مورد|طرف/]);
+    const description =
+      valueByReportKeys(row, [/description|particular|notes|remark|item|product|بيان|وصف|ملاحظ|الصنف/]) ||
+      valueByReportKeys(row, [/bill|invoice|voucher|فاتورة|سند/]) ||
+      row.cells.find((cell) => cell && !/^\d+$/.test(cell) && parseMoney(cell) === 0) ||
+      '';
+    const category = cleanReportText(account || description || (isPurchase ? 'مشتريات' : 'مصروفات'));
+
+    lines.push({
+      source: isPurchase ? 'purchase_details' : 'expense_details',
+      category: simplifyExpenseCategoryLabel(category, description),
+      description: cleanReportText(description || category),
+      amount: roundReportMoney(Math.abs(amount)),
+      date: dateFromReportRow(row) || undefined,
+    });
+  }
+
+  return lines;
+};
+
+const buildDetailExpenseCategories = (
+  summary: ReturnType<typeof parseCounterCashReportHtml>,
+  detailLines: ReportDetailLine[]
+) => {
+  const usableLines = detailLines.filter((line) => line.amount > 0);
+  if (!usableLines.length) return null;
+
+  const totals = new Map<string, number>();
+  for (const line of usableLines) {
+    const category = simplifyExpenseCategoryLabel(line.category, line.description);
+    totals.set(category, roundReportMoney((totals.get(category) || 0) + line.amount));
+  }
+  const total = roundReportMoney(Array.from(totals.values()).reduce((sum, amount) => sum + amount, 0)) || summary.expense_total;
+
+  const sorted = Array.from(totals.entries())
+    .map(([category, amount]) => ({
+      category,
+      amount: roundReportMoney(amount),
+      percent: total > 0 ? roundReportMoney((amount / total) * 100) : 0,
+      source: 'expense_purchase_details',
+    }))
+    .sort((left, right) => right.amount - left.amount);
+
+  const visible = sorted.slice(0, 6);
+  const rest = sorted.slice(6);
+  if (rest.length) {
+    const otherAmount = roundReportMoney(rest.reduce((sum, item) => sum + item.amount, 0));
+    visible.push({
+      category: 'Other',
+      amount: otherAmount,
+      percent: total > 0 ? roundReportMoney((otherAmount / total) * 100) : 0,
+      source: 'expense_purchase_details',
+    });
+  }
+  return visible;
+};
+
+const parsePaymentMethodDetails = (html: string) => {
+  const rows = parseReportTables(html).filter((row) =>
+    reportRowContextMatches(row, [/payment|received|receipt|cash|card|visa|master|دفع|مدفوع|استلام|كاش|بطاقة/])
+  );
+  const totals = new Map<string, number>();
+  for (const row of rows) {
+    const amount = amountFromReportRow(row, [/amount|paid|received|receipt|total|مبلغ|مدفوع|استلام|اجمالي|إجمالي/]);
+    if (!amount) continue;
+    const method =
+      valueByReportKeys(row, [/method|payment|account|payaccount|mode|طريقة|دفع|حساب/]) ||
+      row.cells.find((cell) => /cash|card|visa|master|كاش|بطاقة/i.test(cell)) ||
+      'Other';
+    const label = simplifyPaymentMethodLabel(method);
+    totals.set(label, roundReportMoney((totals.get(label) || 0) + Math.abs(amount)));
+  }
+  return Array.from(totals.entries())
+    .map(([method, amount]) => ({ method, amount }))
+    .sort((left, right) => right.amount - left.amount);
+};
+
+const buildRevenueSeriesFromDetails = (html: string, buckets: PerformanceBucket[]) => {
+  const rows = parseReportTables(html).filter((row) =>
+    reportRowContextMatches(row, [/order|invoice|billwise|bill|sale|revenue|فاتورة|طلب|مبيعات|إيراد|ايراد/])
+  );
+  if (!rows.length) return null;
+
+  const series = buckets.map((bucket) => ({
+    label: bucket.label,
+    from_date: bucket.from_date,
+    to_date: bucket.to_date,
+    revenue: 0,
+    expenses: 0,
+    orders: 0,
+  }));
+
+  for (const row of rows) {
+    const date = dateFromReportRow(row);
+    const amount = amountFromReportRow(row, [/grandtotal|nettotal|total|amount|paid|balance|اجمالي|إجمالي|مبلغ/]);
+    if (!date || !amount) continue;
+    const bucketIndex = buckets.findIndex((bucket) => date >= bucket.from_date && date <= bucket.to_date);
+    if (bucketIndex < 0) continue;
+    series[bucketIndex].revenue = roundReportMoney(series[bucketIndex].revenue + Math.abs(amount));
+    series[bucketIndex].orders += 1;
+  }
+
+  return series.some((item) => item.revenue > 0 || item.orders > 0) ? series : null;
+};
+
+const categorizeExpense = (description: string) => {
+  const text = description.toLowerCase();
+  if (/salary|wage|staff|worker|employee|راتب|رواتب/.test(text)) return 'رواتب وأجور';
+  if (/rent|lease|ايجار|إيجار/.test(text)) return 'إيجار';
+  if (/electric|addc|water|utility|كهرب|مياه/.test(text)) return 'مرافق';
+  if (/chemical|detergent|soap|material|مواد|كيما/.test(text)) return 'مواد كيميائية';
+  if (/maint|repair|spare|service|صيانة|تصليح/.test(text)) return 'صيانة ومعدات';
+  if (/fuel|petrol|adnoc|delivery|transport|car|vehicle|وقود|بترول|توصيل/.test(text)) return 'نقل وتشغيل';
+  return 'أخرى';
+};
+
+const buildExpenseCategories = (summary: ReturnType<typeof parseCounterCashReportHtml>) => {
+  const totals = new Map<string, number>();
+  for (const row of summary.expenses || []) {
+    const category = categorizeExpense(row.description || row.account_title || '');
+    totals.set(category, roundReportMoney((totals.get(category) || 0) + Number(row.amount || 0)));
+  }
+  if (!totals.size && summary.expense_total > 0) totals.set('مصروفات عامة', summary.expense_total);
+  return Array.from(totals.entries())
+    .map(([category, amount]) => ({
+      category,
+      amount: roundReportMoney(amount),
+      percent: summary.expense_total > 0 ? roundReportMoney((amount / summary.expense_total) * 100) : 0,
+    }))
+    .sort((left, right) => right.amount - left.amount);
+};
+
+const buildReportAdvice = (summary: ReturnType<typeof parseCounterCashReportHtml>) => {
+  const revenue = Number(summary.total_income || 0);
+  const expenses = Number(summary.expense_total || 0);
+  const cash = Number(summary.cash_receipt || 0);
+  const card = Number(summary.card_receipt || 0);
+  const netProfit = revenue - expenses;
+  const netCash = cash - Number(summary.cash_expense_total || 0);
+  const cardShare = revenue > 0 ? (card / revenue) * 100 : 0;
+  const expenseShare = revenue > 0 ? (expenses / revenue) * 100 : 0;
+
+  const performance: string[] = [];
+  const notes: string[] = [];
+  const goals: string[] = [];
+
+  if (revenue > 0) performance.push(`حقق الفرع إيرادات قدرها AED ${revenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`);
+  if (cardShare >= 70) performance.push(`المدفوعات بالبطاقة تمثل ${cardShare.toFixed(1)}% من إجمالي الإيرادات.`);
+  if (netProfit > 0) performance.push(`صافي الإيراد بعد المصروفات إيجابي بنسبة ${((netProfit / Math.max(revenue, 1)) * 100).toFixed(1)}%.`);
+  if (summary.total_invoice > 0) performance.push(`عدد الطلبات المسجلة ${Number(summary.total_invoice).toLocaleString('en-US')} طلب.`);
+
+  if (netCash < 0) notes.push('صافي الكاش بعد مصروفات الكاش سلبي، يرجى مراجعة تدفقات الكاش اليومية.');
+  if (expenseShare > 25) notes.push(`نسبة المصروفات مرتفعة عند ${expenseShare.toFixed(1)}% من الإيرادات.`);
+  if (cardShare > 85) notes.push('نسبة البطاقة عالية؛ راقب توفر الكاش التشغيلي في الفرع.');
+  if (!notes.length) notes.push('لا توجد ملاحظات مالية حرجة حسب القواعد الحالية.');
+
+  goals.push('زيادة الإيرادات بنسبة 10% في الفترة القادمة.');
+  if (expenseShare > 20) goals.push('خفض نسبة المصروفات إلى أقل من 20% من الإيرادات.');
+  if (netCash < 0) goals.push('رفع صافي الكاش عبر تقليل المصروفات النقدية أو زيادة المدفوعات النقدية.');
+  if (cardShare > 85) goals.push('تحسين توازن طرق الدفع وتقليل الاعتماد الكامل على البطاقة.');
+
+  return { performance, notes, goals };
+};
+
+const buildPerformanceReport = async (input: any, req: any) => {
+  const detailedInput = {
+    ...input,
+    expence_entry_details: '1',
+    purchase_etnry_details: '1',
+    received_payment_details: '1',
+    order_billwise_details: '1',
+  };
+  const aggregate = await fetchCounterCashReportSummary(detailedInput);
+  const request = aggregate.request;
+  const summary = aggregate.summary;
+  const fromDate = request.from_date;
+  const toDate = request.to_date;
+  const buckets = buildPerformanceBuckets(fromDate, toDate);
+  const detailLines = parseExpenseAndPurchaseDetails(aggregate.html);
+  const detailExpenseCategories = buildDetailExpenseCategories(summary, detailLines);
+  const paymentDetails = parsePaymentMethodDetails(aggregate.html);
+  let series = buildRevenueSeriesFromDetails(aggregate.html, buckets);
+  let revenueTrendSource = 'order_billwise_details';
+
+  if (!series) {
+    revenueTrendSource = 'counter_cash_bucket_reports';
+    const fallbackSeries: Array<{ label: string; from_date: string; to_date: string; revenue: number; expenses: number; orders: number }> = [];
+    for (const bucket of buckets) {
+      const bucketReport = await fetchCounterCashReportSummary({
+        ...input,
+        from_date: bucket.from_date,
+        to_date: bucket.to_date,
+        from_time: '12:00 AM',
+        to_time: '11:59 PM',
+      });
+      fallbackSeries.push({
+        label: bucket.label,
+        from_date: bucket.from_date,
+        to_date: bucket.to_date,
+        revenue: bucketReport.summary.total_income,
+        expenses: bucketReport.summary.expense_total,
+        orders: bucketReport.summary.total_invoice,
+      });
+    }
+    series = fallbackSeries;
+  }
+
+  const revenue = Number(summary.total_income || 0);
+  const expenses = Number(summary.expense_total || 0);
+  const cash = Number(summary.cash_receipt || 0);
+  const card = Number(summary.card_receipt || 0);
+  const cashExpenses = Number(summary.cash_expense_total || 0);
+  const netProfit = roundReportMoney(revenue - expenses);
+  const netCash = roundReportMoney(cash - cashExpenses);
+  const periodLabel = String(input?.period_label || input?.periodLabel || `${fromDate} إلى ${toDate}`).trim();
+  const reportId = [
+    'RPT',
+    fromDate.replace(/\D/g, ''),
+    toDate.replace(/\D/g, ''),
+    String(request.branch_id || 'all').replace(/\W/g, '').toUpperCase(),
+  ].join('-');
+  const query = new URLSearchParams({
+    from_date: fromDate,
+    to_date: toDate,
+    period_label: periodLabel,
+  });
+  if (request.branch_id) query.set('branch_id', request.branch_id);
+  const shareUrl = `${req.protocol}://${req.get('host')}/performance-report?${query.toString()}`;
+
+  return {
+    ok: true,
+    report_id: reportId,
+    report_type: String(input?.report_type || input?.reportType || 'performance'),
+    period_label: periodLabel,
+    from_date: fromDate,
+    to_date: toDate,
+    branch_id: request.branch_id || '',
+    branch_name: String(input?.branch_name || input?.branchName || summary.branch || '').trim(),
+    prepared_by: 'Sanad Laundry Tech System',
+    report_date: new Date().toISOString().slice(0, 10),
+    endpoint: resolvePosEndpointFromPath(POS_COUNTER_CASH_REPORT_PATH),
+    request,
+    share_url: shareUrl,
+    image_url: `${shareUrl}&mode=image`,
+    summary,
+    metrics: {
+      total_revenue: revenue,
+      cash,
+      card,
+      total_expenses: expenses,
+      net_profit: netProfit,
+      cash_expenses: cashExpenses,
+      card_expenses: Number(summary.credit_card_expense_total || 0),
+      net_cash: netCash,
+      total_orders: Number(summary.total_invoice || 0),
+      cash_percent: revenue > 0 ? roundReportMoney((cash / revenue) * 100) : 0,
+      card_percent: revenue > 0 ? roundReportMoney((card / revenue) * 100) : 0,
+      expense_percent: revenue > 0 ? roundReportMoney((expenses / revenue) * 100) : 0,
+      net_profit_percent: revenue > 0 ? roundReportMoney((netProfit / revenue) * 100) : 0,
+    },
+    series,
+    payment_methods:
+      paymentDetails.length > 0
+        ? paymentDetails.map((item) => ({
+            ...item,
+            percent: revenue > 0 ? roundReportMoney((item.amount / revenue) * 100) : 0,
+            source: 'received_payment_details',
+          }))
+        : [
+            {
+              method: 'الكاش (Cash)',
+              amount: cash,
+              percent: revenue > 0 ? roundReportMoney((cash / revenue) * 100) : 0,
+              source: 'counter_cash_summary',
+            },
+            {
+              method: 'البطاقة (Card)',
+              amount: card,
+              percent: revenue > 0 ? roundReportMoney((card / revenue) * 100) : 0,
+              source: 'counter_cash_summary',
+            },
+          ],
+    expense_details: detailLines,
+    expense_categories: detailExpenseCategories || buildExpenseCategories(summary),
+    advice: buildReportAdvice(summary),
+    data_sources: {
+      expense_categories: detailExpenseCategories ? 'expense_purchase_details' : 'counter_cash_summary_rows',
+      payment_methods: paymentDetails.length > 0 ? 'received_payment_details' : 'counter_cash_summary',
+      revenue_trend: revenueTrendSource,
+    },
+    html_length: aggregate.html.length,
+  };
+};
+
+type DailyOperationBranchInput = {
+  id: string;
+  name: string;
+};
+
+const normalizeDailyReportDate = (value: unknown) => {
+  const fallback = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Dubai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+  return normalizeReportDateInput(value, fallback);
+};
+
+const addReportDateDays = (date: string, days: number) => {
+  const parsed = parseReportDateUtc(date);
+  parsed.setUTCDate(parsed.getUTCDate() + days);
+  return dateOnlyUtc(parsed);
+};
+
+const formatReportDateLong = (date: string) => {
+  const parsed = parseReportDateUtc(date);
+  return new Intl.DateTimeFormat('en-GB', {
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(parsed);
+};
+
+const normalizeBranchReportName = (value: unknown, fallback: string) => {
+  const text = cleanReportText(value || fallback);
+  const normalized = text.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (normalized.includes('ALFALAH')) return 'Al Falah';
+  if (normalized.includes('MBZ') || normalized.includes('MOHAMMEDBINZAYED')) return 'MBZ';
+  if (normalized.includes('MUSAFFAH') || normalized.includes('MUSSAFAH')) return 'Musaffah';
+  if (normalized.includes('RIYADH')) return 'Al Riyadh';
+  return text || fallback;
+};
+
+const getDailyOperationBranches = (input: any): DailyOperationBranchInput[] => {
+  const requested = String(input?.branch_ids ?? input?.branchIds ?? '').trim();
+  if (requested) {
+    return requested
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .map((id) => ({ id, name: `Branch ${id}` }));
+  }
+
+  const localBranches =
+    typeof readSqliteBranches === 'function'
+      ? readSqliteBranches()
+          .filter((branch) => String(branch.status || 'active').toLowerCase() !== 'inactive')
+          .map((branch) => ({
+            id: String(branch.id),
+            name: normalizeBranchReportName(branch.name, `Branch ${branch.id}`),
+          }))
+      : [];
+
+  if (localBranches.length > 1) return localBranches;
+  return [
+    { id: '1', name: 'Al Falah' },
+    { id: '2', name: 'MBZ' },
+    { id: '3', name: 'Musaffah' },
+  ];
+};
+
+const fetchDailyOperationBranchReport = async (branch: DailyOperationBranchInput, fromDate: string, toDate = fromDate, detailed = false) => {
+  try {
+    const result = await fetchCounterCashReportSummary({
+      branch_id: branch.id,
+      from_date: fromDate,
+      from_time: '12:00 AM',
+      to_date: toDate,
+      to_time: '11:59 PM',
+      ...(detailed
+        ? {
+            expence_entry_details: '1',
+            purchase_etnry_details: '1',
+            received_payment_details: '1',
+            order_billwise_details: '1',
+            prod_details: '1',
+            ord_prod_details: '1',
+            cust_details: '1',
+          }
+        : {}),
+    });
+    return {
+      ok: true,
+      branch,
+      html: result.html,
+      summary: result.summary,
+      error: '',
+    };
+  } catch (error: any) {
+    return {
+      ok: false,
+      branch,
+      html: '',
+      summary: {
+        branch: branch.name,
+        total_income: 0,
+        cash_receipt: 0,
+        card_receipt: 0,
+        expense_total: 0,
+        cash_expense_total: 0,
+        credit_card_expense_total: 0,
+        cash_in_hand: 0,
+        total_invoice: 0,
+        customers: [],
+        expenses: [],
+      } as ReturnType<typeof parseCounterCashReportHtml>,
+      error: error?.message || 'Failed to fetch branch report.',
+    };
+  }
+};
+
+const simplifyServiceLabel = (value: unknown) => {
+  const raw = cleanReportText(value);
+  if (!raw) return 'Other Services';
+  const lower = raw.toLowerCase();
+  if (/wash.*dry|dry.*wash|غسيل/.test(lower)) return /urgent|express|عاجل/.test(lower) ? 'Wash & Dry (Urgent)' : 'Wash & Dry';
+  if (/iron|press|كوي/.test(lower)) return 'Ironing';
+  if (/spot|stain|بقع/.test(lower)) return 'Spotting';
+  if (/kg|misc|other|متنوع|اخرى|أخرى/.test(lower)) return 'Others';
+  return shortenReportPartyName(raw);
+};
+
+const parseServiceDetailsFromHtml = (html: string) => {
+  const rows = parseReportTables(html).filter((row) =>
+    reportRowContextMatches(row, [/product|service|item|qty|quantity|orderproduct|saleproduct|خدمة|صنف|كمية/])
+  );
+  const totals = new Map<string, { service: string; qty: number; revenue: number }>();
+
+  for (const row of rows) {
+    const service =
+      valueByReportKeys(row, [/service|product|item|description|name|خدمة|صنف|وصف|اسم/]) ||
+      row.cells.find((cell) => cell && parseMoney(cell) === 0 && !/date|total|amount|qty/i.test(cell)) ||
+      '';
+    const label = simplifyServiceLabel(service);
+    const qty = Math.abs(amountFromReportRow(row, [/qty|quantity|pcs|pieces|count|كمية|عدد/]));
+    const revenue = Math.abs(amountFromReportRow(row, [/revenue|total|amount|net|grand|اجمالي|إجمالي|مبلغ/]));
+    if (!label || (!qty && !revenue)) continue;
+
+    const current = totals.get(label) || { service: label, qty: 0, revenue: 0 };
+    current.qty = roundReportMoney(current.qty + qty);
+    current.revenue = roundReportMoney(current.revenue + revenue);
+    totals.set(label, current);
+  }
+
+  return Array.from(totals.values()).sort((left, right) => right.revenue - left.revenue);
+};
+
+const combineOperationExpenseCategories = (
+  reports: Array<Awaited<ReturnType<typeof fetchDailyOperationBranchReport>>>,
+  totalExpenses: number
+) => {
+  const totals = new Map<string, number>();
+  for (const report of reports) {
+    const detailLines = parseExpenseAndPurchaseDetails(report.html);
+    const detailCategories = buildDetailExpenseCategories(report.summary, detailLines) || buildExpenseCategories(report.summary);
+    for (const item of detailCategories) {
+      const label = simplifyExpenseCategoryLabel(item.category);
+      totals.set(label, roundReportMoney((totals.get(label) || 0) + item.amount));
+    }
+  }
+  const computedTotal = roundReportMoney(Array.from(totals.values()).reduce((sum, value) => sum + value, 0)) || totalExpenses;
+  return Array.from(totals.entries())
+    .map(([category, amount]) => ({
+      category,
+      amount,
+      percent: computedTotal > 0 ? roundReportMoney((amount / computedTotal) * 100) : 0,
+    }))
+    .sort((left, right) => right.amount - left.amount)
+    .slice(0, 6);
+};
+
+const saveReportSnapshot = (report: any) => {
+  const shareToken = randomUUID().replace(/-/g, '');
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 60).toISOString();
+  const payload = {
+    ...report,
+    share_token: shareToken,
+  };
+  db.prepare(
+    `INSERT INTO report_snapshots (report_id, share_token, report_type, payload_json, created_at, expires_at)
+     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+     ON CONFLICT(report_id) DO UPDATE SET
+       share_token = excluded.share_token,
+       report_type = excluded.report_type,
+       payload_json = excluded.payload_json,
+       created_at = CURRENT_TIMESTAMP,
+       expires_at = excluded.expires_at`
+  ).run(report.report_id, shareToken, report.report_type || 'report', JSON.stringify(payload), expiresAt);
+  return payload;
+};
+
+const readReportSnapshot = (reportId: unknown, token?: unknown) => {
+  const id = String(reportId ?? '').trim();
+  if (!id) return null;
+  const row = db.prepare('SELECT * FROM report_snapshots WHERE report_id = ?').get(id) as
+    | { report_id: string; share_token: string; payload_json: string; expires_at?: string }
+    | undefined;
+  if (!row) return null;
+  const providedToken = String(token ?? '').trim();
+  if (providedToken && providedToken !== row.share_token) return null;
+  if (row.expires_at && new Date(row.expires_at).getTime() < Date.now()) return null;
+  try {
+    return JSON.parse(row.payload_json);
+  } catch {
+    return null;
+  }
+};
+
+const normalizeOperationsReportPeriod = (input: any) => {
+  const type = String(input?.report_type ?? input?.period_type ?? input?.period ?? 'daily').trim().toLowerCase();
+  const normalizedType = type.includes('week') ? 'weekly' : type.includes('month') ? 'monthly' : 'daily';
+  const today = normalizeDailyReportDate(input?.date ?? input?.to_date);
+  if (input?.from_date && input?.to_date) {
+    return {
+      reportType: normalizedType,
+      fromDate: normalizeReportDateInput(input.from_date, today),
+      toDate: normalizeReportDateInput(input.to_date, today),
+    };
+  }
+  if (normalizedType === 'weekly') {
+    return { reportType: 'weekly', fromDate: addReportDateDays(today, -6), toDate: today };
+  }
+  if (normalizedType === 'monthly') {
+    const parsed = parseReportDateUtc(today);
+    const fromDate = dateOnlyUtc(new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), 1)));
+    return { reportType: 'monthly', fromDate, toDate: today };
+  }
+  return { reportType: 'daily', fromDate: today, toDate: today };
+};
+
+const reportTitleForOperationsType = (reportType: string) => {
+  if (reportType === 'weekly') return 'WEEKLY OPERATIONS REPORT';
+  if (reportType === 'monthly') return 'MONTHLY OPERATIONS REPORT';
+  return 'DAILY OPERATIONS REPORT';
+};
+
+const buildDailyOperationsReport = async (input: any, req: any) => {
+  const { reportType, fromDate, toDate } = normalizeOperationsReportPeriod(input);
+  const reportDate = toDate;
+  const dayCount = daysBetweenInclusive(fromDate, toDate);
+  const previousToDate = addReportDateDays(fromDate, -1);
+  const previousFromDate = addReportDateDays(previousToDate, -(dayCount - 1));
+  const branches = getDailyOperationBranches(input);
+  const currentReports = await Promise.all(branches.map((branch) => fetchDailyOperationBranchReport(branch, fromDate, toDate, true)));
+  const previousReports = await Promise.all(branches.map((branch) => fetchDailyOperationBranchReport(branch, previousFromDate, previousToDate, false)));
+
+  const sumReports = (reports: typeof currentReports, key: keyof ReturnType<typeof parseCounterCashReportHtml>) =>
+    roundReportMoney(reports.reduce((sum, report) => sum + Number((report.summary as any)[key] || 0), 0));
+
+  const totalRevenue = sumReports(currentReports, 'total_income');
+  const previousRevenue = sumReports(previousReports, 'total_income');
+  const totalOrders = sumReports(currentReports, 'total_invoice');
+  const previousOrders = sumReports(previousReports, 'total_invoice');
+  const totalExpenses = sumReports(currentReports, 'expense_total');
+  const totalCash = sumReports(currentReports, 'cash_receipt');
+  const totalCashExpenses = sumReports(currentReports, 'cash_expense_total');
+  const totalNewCustomers = currentReports.reduce((sum, report) => sum + (report.summary.customers?.length || 0), 0);
+  const previousNewCustomers = previousReports.reduce((sum, report) => sum + (report.summary.customers?.length || 0), 0);
+
+  const services = new Map<string, { service: string; qty: number; revenue: number }>();
+  for (const report of currentReports) {
+    for (const service of parseServiceDetailsFromHtml(report.html)) {
+      const current = services.get(service.service) || { service: service.service, qty: 0, revenue: 0 };
+      current.qty = roundReportMoney(current.qty + service.qty);
+      current.revenue = roundReportMoney(current.revenue + service.revenue);
+      services.set(service.service, current);
+    }
+  }
+  const topServicesRaw = Array.from(services.values()).sort((left, right) => right.revenue - left.revenue).slice(0, 5);
+  const totalItems = roundReportMoney(topServicesRaw.reduce((sum, service) => sum + service.qty, 0));
+  const previousItems = 0;
+
+  const trendBuckets =
+    reportType === 'daily'
+      ? Array.from({ length: 7 }, (_, index) => {
+          const date = addReportDateDays(reportDate, index - 6);
+          return { label: new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', timeZone: 'UTC' }).format(parseReportDateUtc(date)), from_date: date, to_date: date };
+        })
+      : buildPerformanceBuckets(fromDate, toDate);
+  const trend = [];
+  for (const bucket of trendBuckets) {
+    const dayReports = await Promise.all(branches.map((branch) => fetchDailyOperationBranchReport(branch, bucket.from_date, bucket.to_date, false)));
+    trend.push({
+      label: bucket.label,
+      date: bucket.to_date,
+      revenue: sumReports(dayReports, 'total_income'),
+      orders: sumReports(dayReports, 'total_invoice'),
+    });
+  }
+
+  const pctChange = (current: number, previous: number) => {
+    if (!previous && current > 0) return 100;
+    if (!previous) return 0;
+    return roundReportMoney(((current - previous) / previous) * 100);
+  };
+
+  const branchRows = currentReports.map((report) => {
+    const summary = report.summary;
+    const branchName = normalizeBranchReportName(summary.branch, report.branch.name);
+    const branchServices = parseServiceDetailsFromHtml(report.html);
+    return {
+      branch_id: report.branch.id,
+      branch: branchName,
+      revenue: Number(summary.total_income || 0),
+      orders: Number(summary.total_invoice || 0),
+      items: roundReportMoney(branchServices.reduce((sum, item) => sum + item.qty, 0)),
+      new_customers: summary.customers?.length || 0,
+      error: report.error,
+    };
+  });
+
+  const totalServiceRevenue = topServicesRaw.reduce((sum, service) => sum + service.revenue, 0) || totalRevenue;
+  const topServices = topServicesRaw.map((service, index) => ({
+    rank: index + 1,
+    service: service.service,
+    qty: service.qty,
+    revenue: service.revenue,
+    percent: totalServiceRevenue > 0 ? roundReportMoney((service.revenue / totalServiceRevenue) * 100) : 0,
+  }));
+
+  const bestBranch = branchRows.slice().sort((left, right) => right.revenue - left.revenue)[0];
+  const expenses = combineOperationExpenseCategories(currentReports, totalExpenses);
+  const avgOrderValue = totalOrders > 0 ? roundReportMoney(totalRevenue / totalOrders) : 0;
+  const previousAvgOrderValue = previousOrders > 0 ? roundReportMoney(previousRevenue / previousOrders) : 0;
+  const closingBalance = roundReportMoney(totalCash - totalCashExpenses);
+  const reportId = `OPS-${reportType.toUpperCase()}-${fromDate.replace(/\D/g, '')}-${toDate.replace(/\D/g, '')}-ALL`;
+
+  const report = {
+    ok: true,
+    report_id: reportId,
+    report_type: `all_branches_${reportType}_operations`,
+    operations_type: reportType,
+    report_title: reportTitleForOperationsType(reportType),
+    date: reportDate,
+    from_date: fromDate,
+    to_date: toDate,
+    date_label: fromDate === toDate ? formatReportDateLong(reportDate) : `${fromDate} إلى ${toDate}`,
+    report_date: reportDate,
+    prepared_at: '11:00 PM',
+    scope: 'All Branches',
+    branch_names: branches.map((branch) => branch.name),
+    share_url: '',
+    image_url: '',
+    metrics: {
+      total_revenue: totalRevenue,
+      total_orders: totalOrders,
+      new_customers: totalNewCustomers,
+      avg_order_value: avgOrderValue,
+      items_processed: totalItems,
+      total_expenses: totalExpenses,
+      opening_balance: 0,
+      todays_revenue: totalRevenue,
+      total_cash_in: totalCash,
+      total_cash_out: totalCashExpenses,
+      closing_balance: closingBalance,
+      deltas: {
+        revenue: pctChange(totalRevenue, previousRevenue),
+        orders: pctChange(totalOrders, previousOrders),
+        new_customers: pctChange(totalNewCustomers, previousNewCustomers),
+        avg_order_value: pctChange(avgOrderValue, previousAvgOrderValue),
+        items_processed: pctChange(totalItems, previousItems),
+      },
+    },
+    trend,
+    branches: branchRows,
+    expenses,
+    top_services: topServices,
+    highlights: [
+      `Revenue ${pctChange(totalRevenue, previousRevenue) >= 0 ? 'increased' : 'changed'} by ${Math.abs(pctChange(totalRevenue, previousRevenue)).toFixed(2)}% compared to yesterday.`,
+      bestBranch ? `Highest revenue from ${bestBranch.branch} branch.` : 'Branch revenue data is ready.',
+      `Average order value is AED ${avgOrderValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`,
+      topServices[0] ? `High demand for ${topServices[0].service}.` : 'Top service details were not returned by POS.',
+      currentReports.every((report) => report.ok) ? 'All branches returned POS data successfully.' : 'Some branches returned POS warnings.',
+    ],
+    alerts: [
+      ...currentReports.filter((report) => !report.ok).map((report) => `${report.branch.name}: ${report.error}`),
+      ...(totalCashExpenses > totalCash ? ['Cash expenses are higher than cash revenue today.'] : []),
+      ...(topServices.length === 0 ? ['Product/service details were not available in POS response.'] : []),
+    ].slice(0, 4),
+    tasks: [
+      'Follow up on pending payments.',
+      'Reorder chemicals before stockout.',
+      'Review branch cash closing balance.',
+      'Prepare weekly report for management.',
+    ],
+    data_sources: {
+      branch_performance: 'POS Counter Cash by branch',
+      revenue_trend: 'POS Counter Cash last 7 days',
+      expenses: 'POS expense and purchase details',
+      top_services: topServices.length ? 'POS product/service details' : 'Not available from POS details',
+    },
+  };
+  const snapshot = String(input?.save_snapshot ?? input?.saveSnapshot ?? '1') === '0' ? report : saveReportSnapshot(report);
+  const query = new URLSearchParams({
+    report_id: snapshot.report_id,
+    token: snapshot.share_token || '',
+  });
+  const shareUrl = `${req.protocol}://${req.get('host')}/operations-report?${query.toString()}`;
+  return {
+    ...snapshot,
+    share_url: shareUrl,
+    image_url: `${shareUrl}&mode=image`,
   };
 };
 
@@ -7136,6 +8127,26 @@ const isQuantityOnlySortingItemName = (value: unknown) => {
 const buildSortingPosStageDescription = (totalSorted: unknown) =>
   `Sorting ${Math.max(0, Math.floor(Number(totalSorted) || 0))}`;
 
+const waitForSortingPosSyncWindow = async (promise: Promise<unknown>, timeoutMs = 3200) => {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    await Promise.race([
+      promise,
+      new Promise((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('sorting_pos_sync_window_elapsed')), timeoutMs);
+      }),
+    ]);
+    return true;
+  } catch (error: any) {
+    if (error?.message !== 'sorting_pos_sync_window_elapsed') {
+      console.warn('Quick POS hydrate before sorting scan failed:', error);
+    }
+    return false;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+};
+
 const ensureQuantityOnlySortingOrderInitialized = (params: { order_no: string; qty?: number }) => {
   const normalizedOrderNo = normalizeSortingOrderNo(params.order_no);
   if (!normalizedOrderNo) throw new Error('Order number is required.');
@@ -8958,6 +9969,8 @@ const tryHydrateSortingOrderCustomerDetailsFromPos = async (order: SortingOrderR
   }
 };
 
+const SORTING_STATE_PACKED_LIMIT = 100;
+
 const buildSortingState = () => {
   const tables = db
     .prepare('SELECT * FROM sorting_tables ORDER BY sort_order ASC, id ASC')
@@ -9004,13 +10017,48 @@ const buildSortingState = () => {
     };
   });
 
-  const orders = db
-    .prepare('SELECT * FROM sorting_orders ORDER BY updated_at DESC, created_at DESC')
+  const activeOrders = db
+    .prepare(
+      `SELECT *
+       FROM sorting_orders
+       WHERE status <> 'packed_complete'
+       ORDER BY updated_at DESC, created_at DESC`
+    )
     .all() as SortingOrderRecord[];
+  const sortingOrders = activeOrders.filter((order) => order.status === 'sorting_pending' || order.status === 'sorting_partial');
+  const readyForPackingOrders = activeOrders.filter(
+    (order) => order.status === 'sorted_complete' || order.status === 'packing_in_progress'
+  );
+  const recentPackedOrders = db
+    .prepare(
+      `SELECT *
+       FROM sorting_orders
+       WHERE status = 'packed_complete'
+       ORDER BY updated_at DESC, created_at DESC
+       LIMIT ?`
+    )
+    .all(SORTING_STATE_PACKED_LIMIT) as SortingOrderRecord[];
+  const orders = [...sortingOrders, ...readyForPackingOrders, ...recentPackedOrders].sort((a, b) => {
+    const left = new Date(a.updated_at || a.created_at).getTime();
+    const right = new Date(b.updated_at || b.created_at).getTime();
+    return right - left;
+  });
   const itemsByOrder = new Map<string, SortingItemRecord[]>();
-  const items = db
-    .prepare('SELECT * FROM sorting_items ORDER BY order_no ASC, id ASC')
-    .all() as SortingItemRecord[];
+  const orderNos = orders.map((order) => order.order_no);
+  const items: SortingItemRecord[] = [];
+  for (const orderNoBatch of chunk(orderNos, 400)) {
+    if (orderNoBatch.length === 0) continue;
+    items.push(
+      ...(db
+        .prepare(
+          `SELECT *
+           FROM sorting_items
+           WHERE order_no IN (${orderNoBatch.map(() => '?').join(',')})
+           ORDER BY order_no ASC, id ASC`
+        )
+        .all(...orderNoBatch) as SortingItemRecord[])
+    );
+  }
   for (const item of items) {
     if (!itemsByOrder.has(item.order_no)) itemsByOrder.set(item.order_no, []);
     itemsByOrder.get(item.order_no)!.push(item);
@@ -9764,6 +10812,26 @@ const requireAuth = (req: any, res: any, next: any) => {
   }
   req.auth = session;
   next();
+};
+
+const requireReportAccess = (req: any, res: any, next: any) => {
+  const providedToken = String(
+    req.headers?.['x-report-api-key'] ?? req.headers?.['x-api-key'] ?? req.query?.api_key ?? req.body?.api_key ?? ''
+  ).trim();
+  const providedBuffer = Buffer.from(providedToken);
+  const expectedBuffer = Buffer.from(REPORT_API_TOKEN);
+  if (REPORT_API_TOKEN && providedToken && providedBuffer.length === expectedBuffer.length && timingSafeEqual(providedBuffer, expectedBuffer)) {
+    req.auth = {
+      token: 'report-api',
+      user_id: 'report-api',
+      username: 'report-api',
+      role: 'admin',
+      expires_at: Date.now() + 60_000,
+      auth_provider: 'local',
+    };
+    return next();
+  }
+  return requireAuth(req, res, next);
 };
 
 const requireAdmin = (req: any, res: any, next: any) => {
@@ -14641,6 +15709,57 @@ async function startServer() {
     }
   });
 
+  app.get('/api/reports/performance', requireAuth, async (req: any, res) => {
+    try {
+      const report = await buildPerformanceReport(req.query, req);
+      res.json(report);
+    } catch (error: any) {
+      console.error('Performance report failed:', error);
+      res.status(502).json({ error: error?.message || 'Failed to build performance report.' });
+    }
+  });
+
+  app.post('/api/reports/performance', requireAuth, async (req: any, res) => {
+    try {
+      const report = await buildPerformanceReport(req.body, req);
+      res.json(report);
+    } catch (error: any) {
+      console.error('Performance report failed:', error);
+      res.status(502).json({ error: error?.message || 'Failed to build performance report.' });
+    }
+  });
+
+  app.get('/api/reports/snapshot/:reportId', async (req: any, res) => {
+    try {
+      const snapshot = readReportSnapshot(req.params.reportId, req.query.token);
+      if (!snapshot) return res.status(404).json({ error: 'Report snapshot not found or expired.' });
+      res.json(snapshot);
+    } catch (error: any) {
+      console.error('Report snapshot read failed:', error);
+      res.status(500).json({ error: error?.message || 'Failed to read report snapshot.' });
+    }
+  });
+
+  app.get('/api/reports/daily-operations', requireReportAccess, async (req: any, res) => {
+    try {
+      const report = await buildDailyOperationsReport(req.query, req);
+      res.json(report);
+    } catch (error: any) {
+      console.error('Daily operations report failed:', error);
+      res.status(502).json({ error: error?.message || 'Failed to build daily operations report.' });
+    }
+  });
+
+  app.post('/api/reports/daily-operations', requireReportAccess, async (req: any, res) => {
+    try {
+      const report = await buildDailyOperationsReport(req.body, req);
+      res.json(report);
+    } catch (error: any) {
+      console.error('Daily operations report failed:', error);
+      res.status(502).json({ error: error?.message || 'Failed to build daily operations report.' });
+    }
+  });
+
   app.post('/api/pos/sync-conveyer-storage', requireOperationsManager, async (req: any, res) => {
     try {
       const orderNo = String(req.body?.order_no ?? req.body?.orderNo ?? '').trim();
@@ -15971,6 +17090,150 @@ async function startServer() {
     }
   });
 
+  app.post('/api/pos/sales-print-script', requireAuth, async (req, res) => {
+    try {
+      let orderId = String(req.body?.order_id ?? req.body?.invoice_id ?? '').trim();
+      let sourceOrdersId = String(req.body?.orders_id ?? req.body?.source_orders_id ?? '').trim();
+      const orderNo = normalizeSortingOrderNo(req.body?.order_no ?? req.body?.orderNo ?? '');
+      const printIdCandidates: string[] = [];
+      const addPrintIdCandidate = (value: unknown) => {
+        const candidate = String(value ?? '').trim();
+        if (candidate && candidate !== '0' && !printIdCandidates.includes(candidate)) {
+          printIdCandidates.push(candidate);
+        }
+      };
+      addPrintIdCandidate(orderId);
+      addPrintIdCandidate(sourceOrdersId);
+
+      if (sourceOrdersId) {
+        try {
+          const details = await fetchPosOrderDetails({
+            order_id: '0',
+            s_order_id: sourceOrdersId,
+            open_type: 'preview',
+            mode: '0',
+          });
+          orderId = orderId || String(details.general.searched_invoice_id || '').trim();
+          addPrintIdCandidate(details.general.searched_invoice_id);
+          addPrintIdCandidate(details.general.order_id);
+          addPrintIdCandidate(details.general.searched_order_id);
+        } catch (detailsError) {
+          console.warn('Could not resolve POS invoice id from source order id for printing:', detailsError);
+        }
+      }
+
+      if (orderNo) {
+        const search = await fetchPosOrderSearch(orderNo);
+        const exact =
+          (search.orders ?? []).find((entry) => String(entry.order_no ?? '').toUpperCase() === orderNo) ??
+          (search.orders ?? [])[0];
+        orderId = orderId || String(exact?.invoice_id ?? '').trim();
+        sourceOrdersId = String(exact?.orders_id ?? sourceOrdersId ?? '').trim();
+        addPrintIdCandidate(exact?.invoice_id);
+        addPrintIdCandidate(exact?.orders_id);
+
+        if (sourceOrdersId) {
+          try {
+            const details = await fetchPosOrderDetails({
+              order_id: '0',
+              s_order_id: sourceOrdersId,
+              open_type: 'preview',
+              mode: '0',
+            });
+            orderId = orderId || String(details.general.searched_invoice_id || '').trim();
+            addPrintIdCandidate(details.general.searched_invoice_id);
+            addPrintIdCandidate(details.general.order_id);
+            addPrintIdCandidate(details.general.searched_order_id);
+          } catch (detailsError) {
+            console.warn('Could not resolve POS invoice id from POS search result for printing:', detailsError);
+          }
+        }
+
+        if (orderId || sourceOrdersId) {
+          db.prepare(
+            `UPDATE sorting_orders
+             SET source_orders_id = COALESCE(NULLIF(?, ''), source_orders_id),
+                 source_invoice_id = COALESCE(NULLIF(?, ''), source_invoice_id),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE order_no = ?`
+          ).run(sourceOrdersId, orderId, orderNo);
+        }
+      }
+
+      if (!orderId) {
+        orderId = printIdCandidates[0] || '';
+      }
+
+      if (printIdCandidates.length === 0) {
+        return res.status(400).json({ error: 'A POS print id could not be resolved for this order.' });
+      }
+
+      let printOrigin = resolvePosOrigin();
+      try {
+        printOrigin = new URL(resolvePosEndpointFromPath(POS_SALES_PRINT_ENDPOINT)).origin;
+      } catch {
+        // Keep the normal POS origin fallback.
+      }
+
+      const buildPrintPayload = (candidateOrderId: string) => {
+        const payload = new URLSearchParams();
+        payload.set('print_item', String(req.body?.print_item ?? ''));
+        payload.set('user_type', String(req.body?.user_type ?? '3'));
+        payload.set('order_id', candidateOrderId);
+        payload.set('paid', String(req.body?.paid ?? '0'));
+        payload.set('printing', String(req.body?.printing ?? 'order'));
+        payload.set('print_mode', String(req.body?.print_mode ?? ''));
+        payload.set('printing_option', String(req.body?.printing_option ?? 'qz_print'));
+        payload.set(
+          'printing_design',
+          String(req.body?.printing_design ?? 'QZ_PixelPrint_Laundry_With_Tag_Design01_QrCode_VAT')
+        );
+        payload.set('kot_option', String(req.body?.kot_option ?? 'kot_qz_print'));
+        payload.set('kot_design', String(req.body?.kot_design ?? 'sales_print_KOT_42Char'));
+        payload.set('reprint', String(req.body?.reprint ?? '0'));
+        return payload;
+      };
+
+      const printAttempts: Array<{ order_id: string; sample: string }> = [];
+      let script = '';
+      let usedPrintOrderId = '';
+      for (const candidateOrderId of printIdCandidates) {
+        const { text } = await postPosForm(POS_SALES_PRINT_ENDPOINT, buildPrintPayload(candidateOrderId), {
+          fallbackToGet: false,
+          allowHtmlResponse: true,
+          origin: printOrigin,
+          referer: `${printOrigin}/inout/sales`,
+        });
+        if (/var\s+printdata\s*=|qz\.print/i.test(text)) {
+          script = text;
+          usedPrintOrderId = candidateOrderId;
+          break;
+        }
+        printAttempts.push({
+          order_id: candidateOrderId,
+          sample: text.slice(0, 80),
+        });
+      }
+
+      if (!script) {
+        throw new Error(
+          `POS print response did not contain a QZ print script. Tried IDs: ${printAttempts
+            .map((attempt) => `${attempt.order_id} => ${attempt.sample || '(empty)'}`)
+            .join(', ')}`
+        );
+      }
+
+      res.json({
+        success: true,
+        order_id: usedPrintOrderId,
+        script,
+      });
+    } catch (error: any) {
+      console.error('POS sales print script failed:', error);
+      res.status(502).json({ error: error?.message || 'Failed to fetch POS print script.' });
+    }
+  });
+
   app.get('/api/pos/get-products', requireAuth, async (req, res) => {
     try {
       const unitId = String(req.query.unit_id ?? '').trim();
@@ -16430,7 +17693,13 @@ async function startServer() {
 
   app.get('/api/sorting/state', requireSorting, (_req, res) => {
     try {
-      res.json(buildSortingState());
+      const startedAt = Date.now();
+      const state = buildSortingState();
+      const elapsedMs = Date.now() - startedAt;
+      if (elapsedMs > 3000) {
+        console.warn(`Slow sorting state build: ${elapsedMs}ms`);
+      }
+      res.json(state);
     } catch (error: any) {
       console.error('Failed to build sorting state:', error);
       res.status(500).json({ error: error?.message || 'Failed to load sorting state.' });
@@ -16628,36 +17897,97 @@ async function startServer() {
     }
   });
 
+  app.post('/api/sorting/tables/:id/force-clear', requireSorting, (req, res) => {
+    try {
+      const tableId = Number(req.params.id);
+      if (!Number.isFinite(tableId) || tableId <= 0) {
+        return res.status(400).json({ error: 'Invalid table id.' });
+      }
+
+      const table = db.prepare('SELECT * FROM sorting_tables WHERE id = ?').get(tableId) as SortingTableRecord | undefined;
+      if (!table) return res.status(404).json({ error: 'Sorting table not found.' });
+
+      const occupiedCells = db
+        .prepare(
+          `SELECT id, active_order_no
+           FROM sorting_cells
+           WHERE table_id = ?
+             AND active_order_no IS NOT NULL
+             AND TRIM(active_order_no) <> ''`
+        )
+        .all(tableId) as Array<{ id: number; active_order_no: string }>;
+
+      const orderNos = Array.from(
+        new Set(occupiedCells.map((cell) => String(cell.active_order_no ?? '').trim()).filter(Boolean))
+      );
+
+      const forceClearTx = db.transaction(() => {
+        for (const orderNo of orderNos) {
+          db.prepare(
+            `UPDATE sorting_orders
+             SET table_id = NULL,
+                 row_no = NULL,
+                 col_no = NULL,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE order_no = ?`
+          ).run(orderNo);
+        }
+
+        db.prepare(
+          `UPDATE sorting_cells
+           SET active_order_no = NULL,
+               status = 'empty',
+               updated_at = CURRENT_TIMESTAMP
+           WHERE table_id = ?`
+        ).run(tableId);
+      });
+      forceClearTx();
+
+      return res.json({
+        success: true,
+        cleared_cells: occupiedCells.length,
+        affected_orders: orderNos,
+        state: buildSortingState(),
+      });
+    } catch (error: any) {
+      console.error('Failed to force clear sorting table:', error);
+      return res.status(500).json({ error: error?.message || 'Failed to force clear sorting table.' });
+    }
+  });
+
   app.post('/api/sorting/scan', requireSorting, async (req: any, res) => {
+    const startedAt = Date.now();
     try {
       const orderNo = normalizeSortingOrderNo(req.body?.order_no ?? req.body?.orderNo ?? req.body?.scanned_code);
       if (!orderNo) return res.status(400).json({ error: 'Order number is required.' });
 
-      try {
-        await ensureSortingOrderInitialized({
-          order_no: orderNo,
-          allow_unsorted_fallback: false,
-        });
-      } catch (initializeError) {
+      const existingOrder = db
+        .prepare('SELECT * FROM sorting_orders WHERE order_no = ?')
+        .get(orderNo) as SortingOrderRecord | undefined;
+      if (!existingOrder) {
         ensureQuantityOnlySortingOrderInitialized({
           order_no: orderNo,
           qty: req.body?.qty,
         });
       }
 
-      const initializedBundle = getSortingOrderBundle(orderNo);
-      const needsPosQuantityRefresh =
-        Boolean(initializedBundle?.order) &&
-        (
-          !normalizePosDocumentId(initializedBundle?.order.source_orders_id) ||
-          initializedBundle?.items.every((item) => isQuantityOnlySortingItemName(item.item_name))
+      const currentItems = db
+        .prepare('SELECT item_name FROM sorting_items WHERE order_no = ? ORDER BY id ASC')
+        .all(orderNo) as Array<{ item_name: string }>;
+      const needsFastPosHydrate =
+        currentItems.length === 0 || currentItems.every((item) => isQuantityOnlySortingItemName(item.item_name));
+      const fastPosHydratePromise = needsFastPosHydrate ? syncSortingOrderQuantityFromPos(orderNo) : null;
+      const hydrateStartedAt = Date.now();
+      const fastPosHydrated = fastPosHydratePromise
+        ? await waitForSortingPosSyncWindow(fastPosHydratePromise)
+        : true;
+      if (needsFastPosHydrate) {
+        console.info(
+          `Sorting POS hydrate for ${orderNo}: ${fastPosHydrated ? 'ready' : 'deferred'} in ${Date.now() - hydrateStartedAt}ms`
         );
-      if (needsPosQuantityRefresh) {
-        try {
-          await syncSortingOrderQuantityFromPos(orderNo);
-        } catch (syncError) {
-          console.warn(`POS quantity refresh before sorting scan failed for ${orderNo}:`, syncError);
-        }
+      }
+      if (needsFastPosHydrate && !fastPosHydrated) {
+        console.warn(`Sorting scan continuing with temporary quantity data for ${orderNo}; POS hydrate is still running.`);
       }
 
       const orderBefore = db
@@ -16678,26 +18008,6 @@ async function startServer() {
       });
 
       const bundle = getSortingOrderBundle(orderNo);
-      let posSync:
-        | Awaited<ReturnType<typeof updatePosSortingDescription>>
-        | { success: false; verified: false; error: string }
-        | null = null;
-      if (scan.consumed > 0 && bundle?.order && scan.updated_items.length > 0) {
-        try {
-          posSync = await updatePosSortingDescription({
-            order: bundle.order,
-            item_names: scan.updated_items.map((item) => item.item_name),
-            description: buildSortingPosStageDescription(bundle.order.total_sorted),
-          });
-        } catch (syncError: any) {
-          posSync = {
-            success: false,
-            verified: false,
-            error: syncError?.message || 'POS Sorting description update failed.',
-          };
-          console.warn(`POS Sorting description sync failed for ${orderNo}:`, syncError);
-        }
-      }
 
       res.json({
         success: true,
@@ -16706,14 +18016,36 @@ async function startServer() {
           consumed: scan.consumed,
           overflow: scan.overflow,
         },
-        pos_sync: posSync,
+        pos_sync: null,
+        details_pending: Boolean(needsFastPosHydrate && !fastPosHydrated),
         order: bundle?.order ?? null,
         items: bundle?.items ?? [],
         state: buildSortingState(),
+        performance_ms: Date.now() - startedAt,
       });
-      void syncSortingOrderQuantityFromPos(orderNo).catch((syncError) => {
-        console.warn('Background POS sync after sorting scan failed:', syncError);
-      });
+
+      console.info(`Sorting scan fast response for ${orderNo}: ${Date.now() - startedAt}ms`);
+      void (async () => {
+        try {
+          if (fastPosHydratePromise) {
+            await fastPosHydratePromise;
+          } else {
+            await syncSortingOrderQuantityFromPos(orderNo);
+          }
+          if (scan.consumed > 0 && scan.updated_items.length > 0) {
+            const refreshedBundle = getSortingOrderBundle(orderNo);
+            if (refreshedBundle?.order) {
+              await updatePosSortingDescription({
+                order: refreshedBundle.order,
+                item_names: scan.updated_items.map((item) => item.item_name),
+                description: buildSortingPosStageDescription(refreshedBundle.order.total_sorted),
+              });
+            }
+          }
+        } catch (syncError) {
+          console.warn('Background POS sync after sorting scan failed:', syncError);
+        }
+      })();
     } catch (error: any) {
       console.error('Failed to process sorting scan:', error);
       res.status(500).json({ error: error?.message || 'Failed to process sorting scan.' });
