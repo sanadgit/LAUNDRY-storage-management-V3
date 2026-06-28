@@ -19,6 +19,7 @@ import {
   updateAuthLoginStamp,
   upsertPublicUser,
 } from './src/server/supabaseAdmin';
+import { createAiOperationsService } from './src/server/ai/aiOperationsService';
 import { detectSortingItemCategory } from './src/utils/sortingItemCategory';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -13184,6 +13185,137 @@ async function startServer() {
     (fn: any) =>
     (req: any, res: any, next: any) =>
       Promise.resolve(fn(req, res, next)).catch(next);
+
+  const aiOperations = createAiOperationsService({
+    sqlite: db,
+    pgPool,
+    usePostgres: USE_POSTGRES_LOCAL,
+    env: process.env,
+  });
+
+  try {
+    await aiOperations.ensureSchema();
+  } catch (error: any) {
+    console.warn('AI Operations schema check failed:', error?.message || error);
+  }
+
+  const requireAiApiKeyIfConfigured = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const configuredKey = String(process.env.AI_AGENT_API_KEY || process.env.N8N_API_KEY || '').trim();
+    if (!configuredKey) return next();
+    const supplied =
+      String(req.headers['x-api-key'] ?? '').trim() ||
+      String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim();
+    if (supplied !== configuredKey) {
+      return res.status(401).json({ ok: false, error: 'Invalid AI API key.' });
+    }
+    return next();
+  };
+
+  app.get('/api/webhooks/whatsapp', (req, res) => {
+    const challenge = aiOperations.verifyWebhook(req.query);
+    if (!challenge) {
+      return res.status(403).send('Forbidden');
+    }
+    return res.status(200).send(challenge);
+  });
+
+  app.post(
+    '/api/webhooks/whatsapp',
+    asyncHandler(async (req: any, res: any) => {
+      const results = await aiOperations.processWhatsappWebhook(req.body);
+      res.json({ ok: true, processed: results.length, results });
+    })
+  );
+
+  app.post(
+    '/api/whatsapp/send',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const result = await aiOperations.sendAndLogWhatsAppText(req.body?.to, req.body?.message);
+      res.json({ ok: true, provider_response: result });
+    })
+  );
+
+  app.post(
+    '/api/ai/router',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const routed = await aiOperations.routeIncomingMessage({
+        channel: req.body?.channel || 'website',
+        from: req.body?.from || req.body?.phone || req.body?.sender_phone,
+        to: req.body?.to || req.body?.receiver_phone,
+        name: req.body?.name,
+        messageText: req.body?.message || req.body?.text || req.body?.message_text,
+        messageType: req.body?.message_type || 'text',
+        whatsappMessageId: req.body?.whatsapp_message_id,
+      });
+      res.json({ ok: true, ...routed });
+    })
+  );
+
+  app.get(
+    '/api/pickups',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (_req: any, res: any) => {
+      res.json(await aiOperations.listPickupRequests());
+    })
+  );
+
+  app.post(
+    '/api/pickups',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const pickup = await aiOperations.createPickupRequest(req.body);
+      res.status(201).json(pickup);
+    })
+  );
+
+  app.patch(
+    '/api/pickups/:id',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const pickup = await aiOperations.updatePickupRequest(req.params.id, req.body);
+      if (!pickup) return res.status(404).json({ error: 'Pickup request not found.' });
+      res.json(pickup);
+    })
+  );
+
+  app.get(
+    '/api/complaints',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (_req: any, res: any) => {
+      res.json(await aiOperations.listComplaints());
+    })
+  );
+
+  app.post(
+    '/api/complaints',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const complaint = await aiOperations.createComplaint(req.body);
+      res.status(201).json(complaint);
+    })
+  );
+
+  app.patch(
+    '/api/complaints/:id',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const complaint = await aiOperations.updateComplaint(req.params.id, req.body);
+      if (!complaint) return res.status(404).json({ error: 'Complaint not found.' });
+      res.json(complaint);
+    })
+  );
+
+  app.get(
+    '/api/orders/track/:orderId',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const trackedOrder = await aiOperations.trackOrder(req.params.orderId);
+      if (!trackedOrder) return res.status(404).json({ error: 'Order not found.' });
+      res.json(trackedOrder);
+    })
+  );
 
   app.get('/api/chat-automation/telegram/status', (_req, res) => {
     res.json({

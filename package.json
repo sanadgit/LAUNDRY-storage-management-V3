@@ -17,7 +17,8 @@
     "migrate:supabase:node": "node scripts/migrate-sqlite-to-supabase.mjs",
     "reset:supabase:from-sqlite": "node scripts/reset-supabase-from-sqlite.mjs",
     "dedupe:supabase": "tsx scripts/dedupe-supabase-data.ts",
-    "migrate:postgres": "tsx scripts/migrate-sqlite-to-postgres.ts"
+    "migrate:postgres": "tsx scripts/migrate-sqlite-to-postgres.ts",
+    "migrate:ai": "tsx scripts/apply-ai-migrations.ts"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
