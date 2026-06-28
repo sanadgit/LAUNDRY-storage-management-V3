@@ -22,8 +22,52 @@ export interface OrderItem {
   qty: number;
 }
 
+export interface CustomerOrderPosItem {
+  id?: string;
+  sale_entry_id?: string;
+  product_id?: string;
+  barcode?: string;
+  name: string;
+  service?: string;
+  quantity: number;
+  unit_price: number;
+  subtotal?: number;
+  tax_amount?: number;
+  total: number;
+  unit?: string;
+  remark?: string;
+  category?: string;
+}
+
+export interface CustomerOrderPosSync {
+  synced_at: string;
+  order_no?: string;
+  system_order_id?: string;
+  source_orders_id?: string;
+  invoice_id?: string;
+  invoice_no?: string;
+  status?: string;
+  mapped_status?: OrderStatus;
+  payment_status?: 'paid' | 'partial' | 'unpaid' | string;
+  total: number;
+  paid: number;
+  balance: number;
+  order_date?: string;
+  delivery_date?: string;
+  delivery_time?: string;
+  customer_name?: string;
+  customer_phone?: string;
+  customer_address?: string;
+  remark?: string;
+  item_count?: number;
+  items: CustomerOrderPosItem[];
+  details_error?: string;
+}
+
 export interface Order {
   id: string;
+  systemOrderId?: string;
+  posOrderNo?: string;
   customerName: string;
   customerPhone?: string;
   customerNotes?: string;
@@ -50,6 +94,14 @@ export interface Order {
   }[];
   eta?: string;
   progressPercentage?: number;
+  pickupSlot?: string;
+  locationLat?: number | null;
+  locationLng?: number | null;
+  locationLink?: string;
+  mapLocationLink?: string;
+  driverLocationLink?: string;
+  totalPrice?: number;
+  pos?: CustomerOrderPosSync;
 }
 
 export interface Service {
@@ -90,6 +142,7 @@ export interface Driver {
   phone: string;
   branch: string;
   branch_id?: string;
+  service_areas?: string[];
   status: 'online' | 'offline' | 'busy' | 'available' | 'off';
   rating: number;
   total_ratings?: number;
@@ -104,6 +157,52 @@ export interface Offer {
   discount: string;
   condition: string;
   active: boolean;
+}
+
+export interface ServiceOption {
+  id: number;
+  name: string;
+  desc: string;
+  icon: string;
+  priceKey: 'wash_dry' | 'wash_iron' | 'iron' | 'dry';
+  active?: boolean;
+}
+
+export interface UrgencyOption {
+  id: number;
+  name: string;
+  time: string;
+  extra: number;
+  desc: string;
+  active?: boolean;
+}
+
+export interface ServiceArea {
+  id: string;
+  name: string;
+  active?: boolean;
+}
+
+export interface PickupDayOption {
+  id: string;
+  label: string;
+  active?: boolean;
+}
+
+export interface TimeSlotOption {
+  id: string;
+  time: string;
+  avail: string;
+  busy?: boolean;
+  active?: boolean;
+}
+
+export interface PaymentMethodOption {
+  id: number;
+  name: string;
+  desc: string;
+  kind: 'card' | 'cash' | 'wallet';
+  active?: boolean;
 }
 
 export interface SiteConfig {
@@ -144,6 +243,12 @@ export interface SiteConfig {
   delivery_fee: number;
   min_order_amount: number;
   vat_percentage: number;
+  service_options: ServiceOption[];
+  urgency_options: UrgencyOption[];
+  service_areas: ServiceArea[];
+  pickup_days: PickupDayOption[];
+  time_slots: TimeSlotOption[];
+  payment_methods: PaymentMethodOption[];
   pricing: PricingItem[];
   branches: Branch[];
   drivers: Driver[];
@@ -173,7 +278,7 @@ export interface CustomerOtpSendResponse {
   challengeId: string;
   expires_at: number;
   cooldown_until: number;
-  provider: 'twilio' | 'aipsoft' | 'mock';
+  provider: 'twilio' | 'aipsoft' | 'meta_whatsapp' | 'mock';
   channel: 'sms' | 'whatsapp';
   dev_code?: string;
 }

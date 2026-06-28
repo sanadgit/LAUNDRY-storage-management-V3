@@ -3,25 +3,29 @@ import { ShoppingBag, User, Waves } from 'lucide-react';
 
 import { SiteConfig } from '../types';
 import { LaundryIcon } from './LaundryIcon';
+import { BrandLogo } from './BrandLogo';
+import { SiteLanguage, localize } from '../lib/i18n';
 
 interface HeroProps {
   onTrackClick: () => void;
   onBookClick: () => void;
   onNavigate?: (route: string) => void;
   config: SiteConfig;
+  language: SiteLanguage;
+  onLanguageChange: (language: SiteLanguage) => void;
 }
 
 const HERO_IMAGE = '/inandout-hero-concept.png?v=edited-20260519';
 
-const navLinks = [
-  { name: 'الرئيسية', path: '/' },
-  { name: 'خدماتنا', path: '/services' },
-  { name: 'كيف نعمل', path: '#journey' },
-  { name: 'الأسعار', path: '/services' },
-  { name: 'تواصل معنا', path: '/contact' },
-];
+export const Hero: React.FC<HeroProps> = ({ onTrackClick, onBookClick, onNavigate, config, language, onLanguageChange }) => {
+  const navLinks = [
+    { name: localize(language, 'الرئيسية', 'Home'), path: '/' },
+    { name: localize(language, 'خدماتنا', 'Services'), path: '/services' },
+    { name: localize(language, 'كيف نعمل', 'How It Works'), path: '#journey' },
+    { name: localize(language, 'الأسعار', 'Pricing'), path: '/services' },
+    { name: localize(language, 'تواصل معنا', 'Contact'), path: '/contact' },
+  ];
 
-export const Hero: React.FC<HeroProps> = ({ onTrackClick, onBookClick, onNavigate, config }) => {
   const goTo = (path: string) => {
     if (path.startsWith('#')) {
       document.querySelector(path)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -55,15 +59,7 @@ export const Hero: React.FC<HeroProps> = ({ onTrackClick, onBookClick, onNavigat
         />
 
         <header dir="ltr" className="absolute inset-x-0 top-0 z-20 flex items-center justify-between px-5 py-6 md:px-[3.6%] md:py-[2%]">
-          <button onClick={() => goTo('/')} className="flex items-center gap-2 md:gap-3" dir="ltr">
-            <span className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-primary bg-white/55 text-primary shadow-sm backdrop-blur md:h-12 md:w-12">
-              <Waves size={24} strokeWidth={2.4} />
-            </span>
-            <span className="text-left">
-              <span className="block text-[16px] font-black leading-none tracking-normal text-secondary md:text-[26px]">IN & OUT</span>
-              <span className="block text-[9px] font-black leading-none tracking-[0.38em] text-primary md:text-[16px] md:tracking-[0.45em]">LAUNDRY</span>
-            </span>
-          </button>
+          <BrandLogo language={language} onClick={() => goTo('/')} />
 
           <nav className="hidden items-center gap-11 md:flex" dir="rtl">
             {navLinks.map((link) => (
@@ -83,16 +79,30 @@ export const Hero: React.FC<HeroProps> = ({ onTrackClick, onBookClick, onNavigat
           </nav>
 
           <div className="flex items-center gap-4 md:gap-7" dir="rtl">
+            <div className="hidden items-center rounded-full border border-slate-200 bg-white/80 p-1 text-[10px] font-black shadow-sm backdrop-blur sm:flex" dir="ltr">
+              {(['ar', 'en'] as SiteLanguage[]).map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => onLanguageChange(item)}
+                  className={`rounded-full px-3 py-1.5 transition ${
+                    language === item ? 'bg-primary text-white shadow-sm' : 'text-secondary hover:text-primary'
+                  }`}
+                >
+                  {item.toUpperCase()}
+                </button>
+              ))}
+            </div>
             <button
               onClick={() => goTo('/auth')}
-              aria-label="دخول"
+              aria-label={localize(language, 'دخول', 'Login')}
               className="hidden text-secondary transition hover:text-primary sm:block"
             >
               <User size={25} strokeWidth={2.1} />
             </button>
             <button
               onClick={onBookClick}
-              aria-label="اطلب الآن"
+              aria-label={localize(language, 'اطلب الآن', 'Book Now')}
               className="hidden text-secondary transition hover:text-primary sm:block"
             >
               <ShoppingBag size={25} strokeWidth={2.1} />
@@ -101,7 +111,7 @@ export const Hero: React.FC<HeroProps> = ({ onTrackClick, onBookClick, onNavigat
               onClick={onBookClick}
               className="rounded-full bg-primary px-5 py-2.5 text-xs font-black text-white shadow-[0_18px_42px_rgba(143,0,255,0.24)] transition hover:bg-[#7400d1] active:scale-95 md:px-10 md:py-3.5 md:text-base"
             >
-              اطلب الآن
+              {localize(language, 'اطلب الآن', 'Book Now')}
             </button>
           </div>
         </header>
@@ -132,14 +142,14 @@ export const Hero: React.FC<HeroProps> = ({ onTrackClick, onBookClick, onNavigat
               onClick={onBookClick}
               className="rounded-full bg-primary py-3 text-xl font-black text-white shadow-[0_18px_42px_rgba(143,0,255,0.24)] transition hover:bg-[#7400d1] active:scale-95"
             >
-              اطلب الآن
+              {localize(language, 'اطلب الآن', 'Book Now')}
             </button>
             <button
               type="button"
               onClick={onTrackClick}
               className="rounded-full border border-secondary bg-white/82 py-3 text-xl font-black text-secondary shadow-sm transition hover:border-primary hover:text-primary active:scale-95"
             >
-              تتبع طلبك
+              {localize(language, 'تتبع طلبك', 'Track Order')}
             </button>
           </div>
           <LaundryIcon
@@ -163,14 +173,14 @@ export const Hero: React.FC<HeroProps> = ({ onTrackClick, onBookClick, onNavigat
               onClick={onBookClick}
               className="rounded-full bg-primary py-3 text-base font-black text-white shadow-[0_18px_42px_rgba(143,0,255,0.24)]"
             >
-              اطلب الآن
+              {localize(language, 'اطلب الآن', 'Book Now')}
             </button>
             <button
               type="button"
               onClick={onTrackClick}
               className="rounded-full border border-secondary bg-white/88 py-3 text-base font-black text-secondary shadow-sm"
             >
-              تتبع طلبك
+              {localize(language, 'تتبع طلبك', 'Track Order')}
             </button>
           </div>
         </div>

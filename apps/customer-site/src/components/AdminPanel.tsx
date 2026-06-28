@@ -1043,6 +1043,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         phone: '',
                         branch: localConfig.branches[0]?.name || '',
                         branch_id: localConfig.branches[0]?.id || '',
+                        service_areas: [],
                         status: 'available',
                         rating: 5,
                         orders_completed: 0,
@@ -1142,6 +1143,34 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               </button>
                             ))}
                           </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none">مناطق الخدمة</label>
+                          <div className="grid grid-cols-2 gap-2 max-h-44 overflow-y-auto rounded-2xl bg-gray-50 p-3 border border-gray-100">
+                            {localConfig.service_areas.map((area) => {
+                              const checked = (driver.service_areas || []).includes(area.name) || (driver.service_areas || []).includes(area.id);
+                              return (
+                                <label key={area.id} className="flex items-center gap-2 text-[11px] font-bold text-gray-600">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(e) => {
+                                      const current = new Set(driver.service_areas || []);
+                                      current.delete(area.id);
+                                      if (e.target.checked) current.add(area.name);
+                                      else current.delete(area.name);
+                                      const newDrivers = [...localConfig.drivers];
+                                      newDrivers[idx] = { ...driver, service_areas: Array.from(current) };
+                                      handleConfigUpdate({ drivers: newDrivers });
+                                    }}
+                                  />
+                                  <span>{area.name}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                          <p className="text-[10px] text-gray-400 font-medium">إذا لم تحدد مناطق، يمكن تعيين السائق كاحتياطي عام.</p>
                         </div>
                       </div>
                     </div>
@@ -1365,6 +1394,248 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           onChange={(e) => handleConfigUpdate({ vat_percentage: parseFloat(e.target.value) || 0 })}
                           className="w-full bg-gray-50 border border-gray-100 p-4 rounded-2xl font-bold text-sm outline-none focus:border-primary transition-all text-right"
                         />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Order Flow Settings */}
+                  <div className="bg-white p-8 rounded-[2.5rem] shadow-xl shadow-gray-200/20 border border-gray-100 space-y-8 lg:col-span-2">
+                    <h3 className="text-md font-black italic uppercase tracking-widest text-primary flex items-center gap-3">
+                      <ClipboardList size={20} /> إعدادات الطلب من الموقع
+                    </h3>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-black text-gray-900">المناطق المتاحة</h4>
+                          <button
+                            onClick={() => {
+                              const id = `area_${Date.now()}`;
+                              handleConfigUpdate({
+                                service_areas: [...localConfig.service_areas, { id, name: 'منطقة جديدة', active: true }],
+                              });
+                            }}
+                            className="px-4 py-2 rounded-xl bg-primary text-white text-[10px] font-black"
+                          >
+                            إضافة منطقة
+                          </button>
+                        </div>
+                        <div className="space-y-2">
+                          {localConfig.service_areas.map((area, idx) => (
+                            <div key={area.id} className="grid grid-cols-[1fr_auto_auto] gap-2 items-center bg-gray-50 p-3 rounded-2xl border border-gray-100">
+                              <input
+                                value={area.name}
+                                onChange={(e) => {
+                                  const service_areas = [...localConfig.service_areas];
+                                  service_areas[idx] = { ...area, name: e.target.value };
+                                  handleConfigUpdate({ service_areas });
+                                }}
+                                className="bg-white border border-gray-100 p-3 rounded-xl text-sm font-bold outline-none"
+                              />
+                              <button
+                                onClick={() => {
+                                  const service_areas = [...localConfig.service_areas];
+                                  service_areas[idx] = { ...area, active: area.active === false };
+                                  handleConfigUpdate({ service_areas });
+                                }}
+                                className={`px-3 py-2 rounded-xl text-[10px] font-black ${area.active === false ? 'bg-gray-200 text-gray-500' : 'bg-success text-white'}`}
+                              >
+                                {area.active === false ? 'موقفة' : 'فعالة'}
+                              </button>
+                              <button
+                                onClick={() => handleConfigUpdate({ service_areas: localConfig.service_areas.filter((item) => item.id !== area.id) })}
+                                className="p-2 rounded-xl text-red-500 hover:bg-red-50"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-black text-gray-900">الخدمات</h4>
+                          <button
+                            onClick={() => {
+                              const nextId = Math.max(0, ...localConfig.service_options.map((item) => item.id)) + 1;
+                              handleConfigUpdate({
+                                service_options: [
+                                  ...localConfig.service_options,
+                                  { id: nextId, name: 'خدمة جديدة', desc: 'وصف الخدمة', icon: 'washing_machine', priceKey: 'wash_dry', active: true },
+                                ],
+                              });
+                            }}
+                            className="px-4 py-2 rounded-xl bg-primary text-white text-[10px] font-black"
+                          >
+                            إضافة خدمة
+                          </button>
+                        </div>
+                        <div className="space-y-2">
+                          {localConfig.service_options.map((service, idx) => (
+                            <div key={service.id} className="bg-gray-50 p-3 rounded-2xl border border-gray-100 space-y-2">
+                              <div className="grid grid-cols-2 gap-2">
+                                <input
+                                  value={service.name}
+                                  onChange={(e) => {
+                                    const service_options = [...localConfig.service_options];
+                                    service_options[idx] = { ...service, name: e.target.value };
+                                    handleConfigUpdate({ service_options });
+                                  }}
+                                  className="bg-white border border-gray-100 p-3 rounded-xl text-sm font-bold outline-none"
+                                />
+                                <select
+                                  value={service.priceKey}
+                                  onChange={(e) => {
+                                    const service_options = [...localConfig.service_options];
+                                    service_options[idx] = { ...service, priceKey: e.target.value as any };
+                                    handleConfigUpdate({ service_options });
+                                  }}
+                                  className="bg-white border border-gray-100 p-3 rounded-xl text-sm font-bold outline-none"
+                                >
+                                  <option value="wash_dry">غسيل/تنظيف</option>
+                                  <option value="wash_iron">غسيل + كوي</option>
+                                  <option value="iron">كوي</option>
+                                  <option value="dry">تنظيف جاف</option>
+                                </select>
+                              </div>
+                              <input
+                                value={service.desc}
+                                onChange={(e) => {
+                                  const service_options = [...localConfig.service_options];
+                                  service_options[idx] = { ...service, desc: e.target.value };
+                                  handleConfigUpdate({ service_options });
+                                }}
+                                className="w-full bg-white border border-gray-100 p-3 rounded-xl text-xs font-bold outline-none"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-black text-gray-900">سرعة الإنجاز</h4>
+                          <button
+                            onClick={() => {
+                              const nextId = Math.max(0, ...localConfig.urgency_options.map((item) => item.id)) + 1;
+                              handleConfigUpdate({
+                                urgency_options: [...localConfig.urgency_options, { id: nextId, name: 'سرعة جديدة', time: '٢٤ ساعة', extra: 0, desc: 'بدون رسوم', active: true }],
+                              });
+                            }}
+                            className="px-4 py-2 rounded-xl bg-primary text-white text-[10px] font-black"
+                          >
+                            إضافة سرعة
+                          </button>
+                        </div>
+                        <div className="space-y-2">
+                          {localConfig.urgency_options.map((urgency, idx) => (
+                            <div key={urgency.id} className="grid grid-cols-4 gap-2 bg-gray-50 p-3 rounded-2xl border border-gray-100">
+                              <input value={urgency.name} onChange={(e) => {
+                                const urgency_options = [...localConfig.urgency_options];
+                                urgency_options[idx] = { ...urgency, name: e.target.value };
+                                handleConfigUpdate({ urgency_options });
+                              }} className="bg-white border border-gray-100 p-3 rounded-xl text-xs font-bold outline-none" />
+                              <input value={urgency.time} onChange={(e) => {
+                                const urgency_options = [...localConfig.urgency_options];
+                                urgency_options[idx] = { ...urgency, time: e.target.value };
+                                handleConfigUpdate({ urgency_options });
+                              }} className="bg-white border border-gray-100 p-3 rounded-xl text-xs font-bold outline-none" />
+                              <input type="number" value={urgency.extra} onChange={(e) => {
+                                const urgency_options = [...localConfig.urgency_options];
+                                urgency_options[idx] = { ...urgency, extra: parseFloat(e.target.value) || 0 };
+                                handleConfigUpdate({ urgency_options });
+                              }} className="bg-white border border-gray-100 p-3 rounded-xl text-xs font-bold outline-none" />
+                              <input value={urgency.desc} onChange={(e) => {
+                                const urgency_options = [...localConfig.urgency_options];
+                                urgency_options[idx] = { ...urgency, desc: e.target.value };
+                                handleConfigUpdate({ urgency_options });
+                              }} className="bg-white border border-gray-100 p-3 rounded-xl text-xs font-bold outline-none" />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-black text-gray-900">أوقات الاستلام</h4>
+                          <button
+                            onClick={() => {
+                              const id = `slot_${Date.now()}`;
+                              handleConfigUpdate({
+                                time_slots: [...localConfig.time_slots, { id, time: '٨ م – ١٠ م', avail: 'متاح', active: true }],
+                              });
+                            }}
+                            className="px-4 py-2 rounded-xl bg-primary text-white text-[10px] font-black"
+                          >
+                            إضافة فترة
+                          </button>
+                        </div>
+                        <div className="space-y-2">
+                          {localConfig.time_slots.map((slot, idx) => (
+                            <div key={slot.id} className="grid grid-cols-[1fr_1fr_auto] gap-2 bg-gray-50 p-3 rounded-2xl border border-gray-100">
+                              <input value={slot.time} onChange={(e) => {
+                                const time_slots = [...localConfig.time_slots];
+                                time_slots[idx] = { ...slot, time: e.target.value };
+                                handleConfigUpdate({ time_slots });
+                              }} className="bg-white border border-gray-100 p-3 rounded-xl text-xs font-bold outline-none" />
+                              <input value={slot.avail} onChange={(e) => {
+                                const time_slots = [...localConfig.time_slots];
+                                time_slots[idx] = { ...slot, avail: e.target.value };
+                                handleConfigUpdate({ time_slots });
+                              }} className="bg-white border border-gray-100 p-3 rounded-xl text-xs font-bold outline-none" />
+                              <button onClick={() => {
+                                const time_slots = [...localConfig.time_slots];
+                                time_slots[idx] = { ...slot, busy: !slot.busy };
+                                handleConfigUpdate({ time_slots });
+                              }} className={`px-3 rounded-xl text-[10px] font-black ${slot.busy ? 'bg-amber-500 text-white' : 'bg-success text-white'}`}>
+                                {slot.busy ? 'محجوز' : 'متاح'}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-4 lg:col-span-2">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-black text-gray-900">طرق الدفع</h4>
+                          <button
+                            onClick={() => {
+                              const nextId = Math.max(0, ...localConfig.payment_methods.map((item) => item.id)) + 1;
+                              handleConfigUpdate({
+                                payment_methods: [...localConfig.payment_methods, { id: nextId, name: 'طريقة دفع جديدة', desc: 'وصف مختصر', kind: 'wallet', active: true }],
+                              });
+                            }}
+                            className="px-4 py-2 rounded-xl bg-primary text-white text-[10px] font-black"
+                          >
+                            إضافة طريقة دفع
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                          {localConfig.payment_methods.map((method, idx) => (
+                            <div key={method.id} className="grid grid-cols-[1fr_1fr_120px] gap-2 bg-gray-50 p-3 rounded-2xl border border-gray-100">
+                              <input value={method.name} onChange={(e) => {
+                                const payment_methods = [...localConfig.payment_methods];
+                                payment_methods[idx] = { ...method, name: e.target.value };
+                                handleConfigUpdate({ payment_methods });
+                              }} className="bg-white border border-gray-100 p-3 rounded-xl text-xs font-bold outline-none" />
+                              <input value={method.desc} onChange={(e) => {
+                                const payment_methods = [...localConfig.payment_methods];
+                                payment_methods[idx] = { ...method, desc: e.target.value };
+                                handleConfigUpdate({ payment_methods });
+                              }} className="bg-white border border-gray-100 p-3 rounded-xl text-xs font-bold outline-none" />
+                              <select value={method.kind} onChange={(e) => {
+                                const payment_methods = [...localConfig.payment_methods];
+                                payment_methods[idx] = { ...method, kind: e.target.value as any };
+                                handleConfigUpdate({ payment_methods });
+                              }} className="bg-white border border-gray-100 p-3 rounded-xl text-xs font-bold outline-none">
+                                <option value="card">بطاقة</option>
+                                <option value="cash">نقد</option>
+                                <option value="wallet">محفظة/رابط</option>
+                              </select>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronRight, ChevronLeft, Sparkles } from 'lucide-react';
+import { SiteLanguage, formatNumber, localize } from '../lib/i18n';
 
 interface AuthWizardProps {
   onSendOtp: (payload: {
@@ -11,7 +12,7 @@ interface AuthWizardProps {
     challengeId: string;
     expires_at: number;
     cooldown_until: number;
-    provider: 'twilio' | 'aipsoft' | 'mock';
+    provider: 'twilio' | 'aipsoft' | 'meta_whatsapp' | 'mock';
     channel: 'sms' | 'whatsapp';
     dev_code?: string;
   }>;
@@ -32,6 +33,7 @@ interface AuthWizardProps {
     prefService?: number;
     notifType?: string;
   }) => Promise<void>;
+  language?: SiteLanguage;
 }
 
 export const AuthWizard: React.FC<AuthWizardProps> = ({
@@ -39,6 +41,7 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
   onVerifyOtp,
   onLoginWithOtp,
   onRegister,
+  language = 'ar',
 }) => {
   const [mode, setMode] = useState<'register' | 'login'>('register');
   const [step, setStep] = useState(0); 
@@ -48,7 +51,7 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
   const [otpChallengeId, setOtpChallengeId] = useState('');
   const [otpVerificationToken, setOtpVerificationToken] = useState('');
   const [otpTargetPhone, setOtpTargetPhone] = useState('');
-  const [otpChannel, setOtpChannel] = useState<'sms' | 'whatsapp'>('sms');
+  const [otpChannel, setOtpChannel] = useState<'sms' | 'whatsapp'>('whatsapp');
   const [customer, setCustomer] = useState({
     name: '',
     email: '',
@@ -79,23 +82,23 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
     setOtpChallengeId('');
     setOtpVerificationToken('');
     setOtpTargetPhone('');
-    setOtpChannel('sms');
+    setOtpChannel('whatsapp');
     setTimer(59);
   }, [mode]);
 
-  const toAr = (n: any) => (Number(n) || 0).toLocaleString('ar-SA');
+  const num = (value: number) => formatNumber(language, value);
 
   const parseApiError = (error: unknown) => {
-    const raw = error instanceof Error ? error.message : String(error ?? 'حدث خطأ غير متوقع');
+    const raw = error instanceof Error ? error.message : String(error ?? localize(language, 'حدث خطأ غير متوقع', 'An unexpected error occurred'));
     const normalized = raw.trim();
-    if (normalized.toLowerCase().includes('invalid credentials')) return 'بيانات الدخول غير صحيحة.';
-    if (normalized.toLowerCase().includes('already exists')) return 'هذا الحساب موجود مسبقاً.';
-    if (normalized.toLowerCase().includes('no account found')) return 'لا يوجد حساب مرتبط بهذا الرقم.';
-    if (normalized.toLowerCase().includes('verification')) return 'رمز التحقق غير صحيح أو منتهي.';
-    if (normalized.toLowerCase().includes('wait before requesting')) return 'انتظر قليلاً قبل طلب رمز جديد.';
-    if (normalized.toLowerCase().includes('channel is not supported')) return 'قناة التحقق المختارة غير مدعومة حالياً.';
-    if (normalized.toLowerCase().includes('password')) return 'كلمة المرور غير مطابقة للشروط.';
-    return normalized || 'تعذر إكمال العملية حالياً.';
+    if (normalized.toLowerCase().includes('invalid credentials')) return localize(language, 'بيانات الدخول غير صحيحة.', 'Invalid login details.');
+    if (normalized.toLowerCase().includes('already exists')) return localize(language, 'هذا الحساب موجود مسبقاً.', 'This account already exists.');
+    if (normalized.toLowerCase().includes('no account found')) return localize(language, 'لا يوجد حساب مرتبط بهذا الرقم.', 'No account is linked to this phone number.');
+    if (normalized.toLowerCase().includes('verification')) return localize(language, 'رمز التحقق غير صحيح أو منتهي.', 'The verification code is invalid or expired.');
+    if (normalized.toLowerCase().includes('wait before requesting')) return localize(language, 'انتظر قليلاً قبل طلب رمز جديد.', 'Please wait before requesting a new code.');
+    if (normalized.toLowerCase().includes('channel is not supported')) return localize(language, 'قناة التحقق المختارة غير مدعومة حالياً.', 'The selected verification channel is not supported.');
+    if (normalized.toLowerCase().includes('password')) return localize(language, 'كلمة المرور غير مطابقة للشروط.', 'The password does not meet the requirements.');
+    return normalized || localize(language, 'تعذر إكمال العملية حالياً.', 'Could not complete the request right now.');
   };
 
   const handleRegister = async () => {
@@ -117,7 +120,7 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
   const sendOtp = async () => {
     const targetPhone = (mode === 'login' ? loginPhone : phone).trim();
     if (!targetPhone || targetPhone.replace(/\D/g, '').length < 9) {
-      setErrorMessage('أدخل رقم جوال صحيح قبل المتابعة.');
+      setErrorMessage(localize(language, 'أدخل رقم جوال صحيح قبل المتابعة.', 'Enter a valid mobile number before continuing.'));
       return;
     }
     setErrorMessage('');
@@ -146,7 +149,7 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
   const verifyOtpAndContinue = async () => {
     const code = otp.join('');
     if (!otpChallengeId || code.length !== 6) {
-      setErrorMessage('أدخل رمز التحقق المكون من 6 أرقام.');
+      setErrorMessage(localize(language, 'أدخل رمز التحقق المكون من 6 أرقام.', 'Enter the 6-digit verification code.'));
       return;
     }
 
@@ -240,11 +243,13 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
             
             <div>
               <h1 className="text-white text-3xl font-black mb-1">In & <span className="text-primary italic">Out</span></h1>
-              <p className="text-primary/60 text-xs font-medium">مصبغة ان اند اوت — ملابسك في أيدٍ أمينة</p>
+              <p className="text-primary/60 text-xs font-medium">
+                {localize(language, 'مصبغة ان اند اوت — ملابسك في أيدٍ أمينة', 'In & Out Laundry - Your clothes are in good hands')}
+              </p>
             </div>
 
             <p className="text-primary/40 text-sm leading-relaxed max-w-[280px]">
-              من الاستلام حتى التسليم، نهتم بأدق التفاصيل لنضمن لك نظافة مثالية.
+              {localize(language, 'من الاستلام حتى التسليم، نهتم بأدق التفاصيل لنضمن لك نظافة مثالية.', 'From pickup to delivery, we care for every detail for a cleaner experience.')}
             </p>
 
             <div className="w-full space-y-3 pt-4">
@@ -255,7 +260,7 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                 }}
                 className="w-full bg-primary hover:bg-primary/90 text-white py-4 rounded-2xl font-black italic shadow-xl shadow-primary/20 transition-all active:scale-95"
               >
-                إنشاء حساب جديد
+                {localize(language, 'إنشاء حساب جديد', 'Create New Account')}
               </button>
               <button 
                 onClick={() => {
@@ -264,15 +269,15 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                 }}
                 className="w-full text-primary/60 text-xs font-bold hover:text-white transition-colors"
               >
-                لديك حساب بالفعل؟ <span className="text-primary underline">تسجيل الدخول</span>
+                {localize(language, 'لديك حساب بالفعل؟', 'Already have an account?')} <span className="text-primary underline">{localize(language, 'تسجيل الدخول', 'Log In')}</span>
               </button>
             </div>
 
             <div className="flex justify-between w-full pt-8 border-t border-primary/20">
                 {[
-                  { val: '+٥٠٠٠', lbl: 'عميل راضٍ' },
-                  { val: '٢٤س', lbl: 'تسليم سريع' },
-                  { val: '٩٩٪', lbl: 'نسبة الرضا' }
+                  { val: language === 'ar' ? '+٥٠٠٠' : '+5,000', lbl: localize(language, 'عميل راضٍ', 'Happy Customers') },
+                  { val: language === 'ar' ? '٢٤س' : '24h', lbl: localize(language, 'تسليم سريع', 'Fast Delivery') },
+                  { val: language === 'ar' ? '٩٩٪' : '99%', lbl: localize(language, 'نسبة الرضا', 'Satisfaction') }
                 ].map((stat, i) => (
                   <div key={i} className="text-center">
                     <p className="text-primary font-black text-lg">{stat.val}</p>
@@ -302,10 +307,14 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
               <div className="flex-1">
                 <h3 className="text-white font-bold leading-tight">
                   {mode === 'login'
-                    ? (step === 1 ? 'رقم الجوال' : 'رمز التحقق')
-                    : (step === 1 ? 'رقم الجوال' : step === 2 ? 'رمز التحقق' : step === 3 ? 'بيانات الحساب' : 'تفضيلاتك')}
+                    ? (step === 1 ? localize(language, 'رقم الجوال', 'Mobile Number') : localize(language, 'رمز التحقق', 'Verification Code'))
+                    : (step === 1 ? localize(language, 'رقم الجوال', 'Mobile Number') : step === 2 ? localize(language, 'رمز التحقق', 'Verification Code') : step === 3 ? localize(language, 'بيانات الحساب', 'Account Details') : localize(language, 'تفضيلاتك', 'Preferences'))}
                 </h3>
-                {mode === 'register' && <p className="text-primary/60 text-[10px] font-bold uppercase tracking-widest">{toAr(step)} من {toAr(4)} خطوات</p>}
+                {mode === 'register' && (
+                  <p className="text-primary/60 text-[10px] font-bold uppercase tracking-widest">
+                    {num(step)} {localize(language, 'من', 'of')} {num(4)} {localize(language, 'خطوات', 'steps')}
+                  </p>
+                )}
               </div>
               <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center font-bold text-white text-xs italic">I&O</div>
             </div>
@@ -327,13 +336,17 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                 <div className="space-y-8">
                   <div className="space-y-2">
                     <div className="w-14 h-14 bg-primary/10 text-primary rounded-2xl flex items-center justify-center text-2xl shadow-inner">🔑</div>
-                    <h2 className="text-2xl font-black italic tracking-tight text-gray-900">مرحباً بك <span className="text-primary italic">من جديد</span></h2>
-                    <p className="text-gray-500 font-medium text-xs leading-relaxed">أدخل رقم الجوال واختر قناة التحقق المناسبة.</p>
+                    <h2 className="text-2xl font-black italic tracking-tight text-secondary">
+                      {localize(language, 'مرحباً بك', 'Welcome')} <span className="text-primary italic">{localize(language, 'من جديد', 'Back')}</span>
+                    </h2>
+                    <p className="text-gray-500 font-medium text-xs leading-relaxed">
+                      {localize(language, 'أدخل رقم الجوال واختر قناة التحقق المناسبة.', 'Enter your mobile number and choose a verification channel.')}
+                    </p>
                   </div>
 
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">قناة التحقق</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">{localize(language, 'قناة التحقق', 'Verification Channel')}</label>
                       <div className="grid grid-cols-2 gap-2">
                         <button
                           onClick={() => setOtpChannel('sms')}
@@ -350,7 +363,7 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">رقم الجوال</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">{localize(language, 'رقم الجوال', 'Mobile Number')}</label>
                       <input 
                         type="tel"
                         value={loginPhone}
@@ -361,7 +374,9 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                       />
                     </div>
                     <p className={`text-[10px] font-bold transition-all ${loginPhone.replace(/\D/g, '').length >= 9 ? 'text-primary' : 'text-gray-400'}`}>
-                      {loginPhone.replace(/\D/g, '').length >= 9 ? '✓ رقم جوال صالح' : 'أدخل رقم الجوال المكون من ٩-١٠ أرقام'}
+                      {loginPhone.replace(/\D/g, '').length >= 9
+                        ? localize(language, '✓ رقم جوال صالح', 'Valid mobile number')
+                        : localize(language, 'أدخل رقم الجوال المكون من ٩-١٠ أرقام', 'Enter a 9-10 digit mobile number')}
                     </p>
                   </div>
                 </div>
@@ -371,13 +386,17 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                 <div className="space-y-8">
                   <div className="space-y-2">
                     <div className="w-14 h-14 bg-primary/10 text-primary rounded-2xl flex items-center justify-center text-2xl shadow-inner">📱</div>
-                    <h2 className="text-2xl font-black italic tracking-tight text-gray-900">أدخل رقم <span className="text-primary italic">جوالك</span></h2>
-                    <p className="text-gray-500 font-medium text-xs leading-relaxed">اختر قناة التحقق وسنرسل لك رمز التأكيد.</p>
+                    <h2 className="text-2xl font-black italic tracking-tight text-secondary">
+                      {localize(language, 'أدخل رقم', 'Enter Your')} <span className="text-primary italic">{localize(language, 'جوالك', 'Mobile Number')}</span>
+                    </h2>
+                    <p className="text-gray-500 font-medium text-xs leading-relaxed">
+                      {localize(language, 'اختر قناة التحقق وسنرسل لك رمز التأكيد.', 'Choose a verification channel and we will send your code.')}
+                    </p>
                   </div>
 
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">قناة التحقق</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">{localize(language, 'قناة التحقق', 'Verification Channel')}</label>
                       <div className="grid grid-cols-2 gap-2">
                         <button
                           onClick={() => setOtpChannel('sms')}
@@ -408,7 +427,9 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                       />
                     </div>
                     <p className={`text-[10px] font-bold transition-all ${phone.length >= 9 ? 'text-primary' : 'text-gray-400'}`}>
-                      {phone.length >= 9 ? '✓ رقم جوال صالح' : 'أدخل رقم الجوال المكون من ٩-١٠ أرقام'}
+                      {phone.length >= 9
+                        ? localize(language, '✓ رقم جوال صالح', 'Valid mobile number')
+                        : localize(language, 'أدخل رقم الجوال المكون من ٩-١٠ أرقام', 'Enter a 9-10 digit mobile number')}
                     </p>
                   </div>
                 </div>
@@ -418,10 +439,12 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                 <div className="space-y-8 text-center">
                   <div className="space-y-2 text-right">
                     <div className="w-14 h-14 bg-primary/10 text-primary rounded-2xl flex items-center justify-center text-2xl shadow-inner mx-auto mb-4">🔐</div>
-                    <h2 className="text-2xl font-black italic tracking-tight text-gray-900 text-center">أدخل رمز <span className="text-primary italic">التحقق</span></h2>
+                    <h2 className="text-2xl font-black italic tracking-tight text-secondary text-center">
+                      {localize(language, 'أدخل رمز', 'Enter the')} <span className="text-primary italic">{localize(language, 'التحقق', 'Verification Code')}</span>
+                    </h2>
                     <p className="text-gray-500 font-medium text-xs leading-relaxed text-center">
-                      أرسلنا رمزاً من ٦ أرقام عبر {otpChannel === 'whatsapp' ? 'WhatsApp' : 'SMS'} للهاتف{' '}
-                      <span className="dir-ltr text-gray-900 font-bold">{otpTargetPhone || (mode === 'login' ? loginPhone : phone)}</span>
+                      {localize(language, 'أرسلنا رمزاً من ٦ أرقام عبر', 'We sent a 6-digit code via')} {otpChannel === 'whatsapp' ? 'WhatsApp' : 'SMS'} {localize(language, 'للهاتف', 'to')}{' '}
+                      <span className="dir-ltr text-secondary font-bold">{otpTargetPhone || (mode === 'login' ? loginPhone : phone)}</span>
                     </p>
                   </div>
 
@@ -445,7 +468,7 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                   </div>
 
                   <div className="space-y-2">
-                    <p className="text-primary font-black text-sm">٠:{timer < 10 ? `٠${timer}` : timer}</p>
+                    <p className="text-primary font-black text-sm">{language === 'ar' ? `٠:${timer < 10 ? `٠${timer}` : timer}` : `0:${String(timer).padStart(2, '0')}`}</p>
                     <button 
                       disabled={timer > 0}
                       onClick={() => {
@@ -453,7 +476,7 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                       }}
                       className="text-[10px] font-bold uppercase tracking-widest text-gray-400 hover:text-primary transition-colors disabled:opacity-50"
                     >
-                      إعادة إرسال الرمز
+                      {localize(language, 'إعادة إرسال الرمز', 'Resend Code')}
                     </button>
                   </div>
                 </div>
@@ -463,47 +486,51 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                 <div className="space-y-8">
                   <div className="space-y-2">
                     <div className="w-14 h-14 bg-primary/10 text-primary rounded-2xl flex items-center justify-center text-2xl shadow-inner italic font-black">I&O</div>
-                    <h2 className="text-2xl font-black italic tracking-tight text-gray-900">أكمل <span className="text-primary italic">ملفك الشخصي</span></h2>
-                    <p className="text-gray-500 font-medium text-xs leading-relaxed">هذه البيانات تساعدنا على تخصيص خدمتنا لك.</p>
+                    <h2 className="text-2xl font-black italic tracking-tight text-secondary">
+                      {localize(language, 'أكمل', 'Complete Your')} <span className="text-primary italic">{localize(language, 'ملفك الشخصي', 'Profile')}</span>
+                    </h2>
+                    <p className="text-gray-500 font-medium text-xs leading-relaxed">
+                      {localize(language, 'هذه البيانات تساعدنا على تخصيص خدمتنا لك.', 'These details help us personalize your service.')}
+                    </p>
                   </div>
 
                   <div className="space-y-6">
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">الاسم الكامل</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">{localize(language, 'الاسم الكامل', 'Full Name')}</label>
                       <input 
                         type="text"
                         value={customer.name}
                         onChange={(e) => setCustomer({...customer, name: e.target.value})}
-                        placeholder="مثال: محمد عبدالله"
+                        placeholder={localize(language, 'مثال: محمد عبدالله', 'Example: Mohammed Abdullah')}
                         className="w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all"
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">كلمة المرور (اختياري)</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">{localize(language, 'كلمة المرور (اختياري)', 'Password (Optional)')}</label>
                       <input 
                         type="password"
                         value={customer.password}
                         onChange={(e) => setCustomer({...customer, password: e.target.value})}
-                        placeholder="إن أردت الدخول مستقبلاً بكلمة مرور"
+                        placeholder={localize(language, 'إن أردت الدخول مستقبلاً بكلمة مرور', 'Use it later if you prefer password login')}
                         className="w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all"
                       />
                     </div>
                     <div className="space-y-4">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">نوع العميل</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">{localize(language, 'نوع العميل', 'Customer Type')}</label>
                       <div className="grid grid-cols-2 gap-4">
                         <button 
                           onClick={() => setCustomer({...customer, type: 'individual'})}
                           className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2 ${customer.type === 'individual' ? 'bg-primary/5 border-primary shadow-lg' : 'bg-white border-gray-100'}`}
                         >
                           <span className="text-2xl">🏠</span>
-                          <span className="text-xs font-bold text-gray-900">أفراد</span>
+                          <span className="text-xs font-bold text-secondary">{localize(language, 'أفراد', 'Individual')}</span>
                         </button>
                         <button 
                           onClick={() => setCustomer({...customer, type: 'business'})}
                           className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2 ${customer.type === 'business' ? 'bg-primary/5 border-primary shadow-lg' : 'bg-white border-gray-100'}`}
                         >
                           <span className="text-2xl">🏢</span>
-                          <span className="text-xs font-bold text-gray-900">أعمال</span>
+                          <span className="text-xs font-bold text-secondary">{localize(language, 'أعمال', 'Business')}</span>
                         </button>
                       </div>
                     </div>
@@ -515,33 +542,37 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                 <div className="space-y-8">
                   <div className="space-y-2">
                     <div className="w-14 h-14 bg-primary/10 text-primary rounded-2xl flex items-center justify-center text-2xl shadow-inner">⚙️</div>
-                    <h2 className="text-2xl font-black italic tracking-tight text-gray-900">تفضيلات <span className="text-primary italic">الخدمة</span></h2>
-                    <p className="text-gray-500 font-medium text-xs leading-relaxed">اضبط إعداداتك لنجعل تجربتك أسرع.</p>
+                    <h2 className="text-2xl font-black italic tracking-tight text-secondary">
+                      {localize(language, 'تفضيلات', 'Service')} <span className="text-primary italic">{localize(language, 'الخدمة', 'Preferences')}</span>
+                    </h2>
+                    <p className="text-gray-500 font-medium text-xs leading-relaxed">
+                      {localize(language, 'اضبط إعداداتك لنجعل تجربتك أسرع.', 'Set your preferences so future orders are faster.')}
+                    </p>
                   </div>
 
                   <div className="space-y-6">
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">المنطقة الافتراضية</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">{localize(language, 'المنطقة الافتراضية', 'Default Area')}</label>
                       <select 
                         value={customer.area}
                         onChange={(e) => setCustomer({...customer, area: e.target.value})}
                         className="w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all"
                       >
-                        <option value="">— اختر منطقتك —</option>
-                        <option>الخالدية</option><option>المصفح</option><option>جزيرة ياس</option>
+                        <option value="">{localize(language, '— اختر منطقتك —', '-- Choose your area --')}</option>
+                        <option>{localize(language, 'الخالدية', 'Al Khalidiyah')}</option><option>{localize(language, 'المصفح', 'Mussafah')}</option><option>{localize(language, 'جزيرة ياس', 'Yas Island')}</option>
                       </select>
                     </div>
 
                     <div className="space-y-4">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">طريقة الإشعارات</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">{localize(language, 'طريقة الإشعارات', 'Notification Method')}</label>
                       <div className="flex gap-2">
                         {['whatsapp', 'sms', 'app'].map(type => (
                           <button 
                             key={type}
                             onClick={() => setCustomer({...customer, notifType: type})}
-                            className={`flex-1 p-3 rounded-2xl border-2 transition-all text-xs font-bold ${customer.notifType === type ? 'bg-gray-900 text-white border-gray-900' : 'bg-white border-gray-100'}`}
+                            className={`flex-1 p-3 rounded-2xl border-2 transition-all text-xs font-bold ${customer.notifType === type ? 'bg-secondary text-white border-secondary' : 'bg-white border-gray-100'}`}
                           >
-                            {type === 'whatsapp' ? 'واتساب' : type === 'sms' ? 'SMS' : 'تطبيق'}
+                            {type === 'whatsapp' ? localize(language, 'واتساب', 'WhatsApp') : type === 'sms' ? 'SMS' : localize(language, 'تطبيق', 'App')}
                           </button>
                         ))}
                       </div>
@@ -568,12 +599,22 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                  }
                  className="w-full bg-primary text-white py-4 rounded-2xl font-black italic shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                >
-                 {isSubmitting ? 'جاري التنفيذ...' : (mode === 'login' ? (step === 1 ? 'إرسال رمز التحقق' : 'تحقق ودخول') : (step === 4 ? 'بدء الاستخدام واكتساب النقاط' : 'التالي'))} <ChevronLeft size={18} />
+                 {isSubmitting
+                   ? localize(language, 'جاري التنفيذ...', 'Processing...')
+                   : (mode === 'login'
+                     ? (step === 1 ? localize(language, 'إرسال رمز التحقق', 'Send Verification Code') : localize(language, 'تحقق ودخول', 'Verify & Log In'))
+                     : (step === 4 ? localize(language, 'بدء الاستخدام واكتساب النقاط', 'Start Using & Earn Points') : localize(language, 'التالي', 'Next')))} <ChevronLeft size={18} />
                </button>
                {mode === 'login' ? (
-                  <button onClick={() => {setMode('register'); setStep(1);}} className="text-xs font-bold text-gray-400 text-center uppercase">ليس لديك حساب؟ سجل الآن</button>
+                  <button onClick={() => {setMode('register'); setStep(1);}} className="text-xs font-bold text-gray-400 text-center uppercase">
+                    {localize(language, 'ليس لديك حساب؟ سجل الآن', 'No account? Register now')}
+                  </button>
                ) : (
-                 step >= 3 && <button onClick={() => setStep(5)} className="text-xs font-bold text-gray-400 text-center uppercase tracking-widest">تخطّي هذه الخطوة</button>
+                 step >= 3 && (
+                   <button onClick={() => setStep(5)} className="text-xs font-bold text-gray-400 text-center uppercase tracking-widest">
+                    {localize(language, 'تخطّي هذه الخطوة', 'Skip This Step')}
+                   </button>
+                 )
                )}
             </div>
           </motion.div>
@@ -589,8 +630,10 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
             <div className="w-24 h-24 bg-primary/10 text-primary rounded-full flex items-center justify-center border-2 border-primary/20 shadow-inner">
                <Sparkles size={40} className="animate-pulse" />
             </div>
-            <h2 className="text-3xl font-black italic tracking-tight text-secondary">أهلاً بك، <span className="text-primary">{customer.name.split(' ')[0] || 'ضيفنا'}!</span></h2>
-            <p className="text-gray-500 font-medium text-sm">حسابك أصبح جاهزاً الآن.</p>
+            <h2 className="text-3xl font-black italic tracking-tight text-secondary">
+              {localize(language, 'أهلاً بك،', 'Welcome,')} <span className="text-primary">{customer.name.split(' ')[0] || localize(language, 'ضيفنا', 'Guest')}!</span>
+            </h2>
+            <p className="text-gray-500 font-medium text-sm">{localize(language, 'حسابك أصبح جاهزاً الآن.', 'Your account is ready now.')}</p>
             <button 
               onClick={() => {
                 void handleRegister();
@@ -598,7 +641,7 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
               disabled={isSubmitting || !customer.name.trim() || !otpVerificationToken || (customer.password.length > 0 && customer.password.length < 6)}
               className="w-full bg-primary text-white py-5 rounded-[2rem] font-black italic shadow-2xl shadow-primary/30 text-xl disabled:opacity-50"
             >
-              {isSubmitting ? 'جاري إنشاء الحساب...' : 'ابدأ طلبك الأول'}
+              {isSubmitting ? localize(language, 'جاري إنشاء الحساب...', 'Creating account...') : localize(language, 'ابدأ طلبك الأول', 'Start Your First Order')}
             </button>
           </motion.div>
         )}

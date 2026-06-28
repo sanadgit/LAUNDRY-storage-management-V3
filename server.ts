@@ -157,7 +157,7 @@ type CustomerOtpChallengeRecord = {
   phone_e164: string;
   purpose: CustomerOtpPurpose;
   channel: CustomerOtpChannel;
-  provider: 'twilio' | 'aipsoft' | 'mock';
+  provider: 'twilio' | 'aipsoft' | 'meta_whatsapp' | 'mock';
   code_hash: string | null;
   expires_at: number;
   attempts: number;
@@ -1273,7 +1273,12 @@ const customerOtpVerificationStore = new Map<string, CustomerOtpVerificationReco
 const RAW_CUSTOMER_SMS_PROVIDER = String(process.env.CUSTOMER_SMS_PROVIDER ?? process.env.SMS_PROVIDER ?? 'mock')
   .trim()
   .toLowerCase();
-const CUSTOMER_SMS_PROVIDER = RAW_CUSTOMER_SMS_PROVIDER === 'textconnect' ? 'aipsoft' : RAW_CUSTOMER_SMS_PROVIDER;
+const CUSTOMER_SMS_PROVIDER =
+  RAW_CUSTOMER_SMS_PROVIDER === 'textconnect'
+    ? 'aipsoft'
+    : ['meta', 'meta_whatsapp', 'whatsapp_cloud', 'meta_cloud'].includes(RAW_CUSTOMER_SMS_PROVIDER)
+      ? 'meta_whatsapp'
+      : RAW_CUSTOMER_SMS_PROVIDER;
 const TWILIO_ACCOUNT_SID = String(process.env.TWILIO_ACCOUNT_SID ?? '').trim();
 const TWILIO_AUTH_TOKEN = String(process.env.TWILIO_AUTH_TOKEN ?? '').trim();
 const TWILIO_VERIFY_SERVICE_SID = String(process.env.TWILIO_VERIFY_SERVICE_SID ?? '').trim();
@@ -1295,7 +1300,50 @@ const AIPSOFT_WHATSAPP_ACCOUNT = String(process.env.AIPSOFT_WHATSAPP_ACCOUNT ?? 
 const AIPSOFT_WHATSAPP_TEMPLATE = String(
   process.env.AIPSOFT_WHATSAPP_TEMPLATE ?? process.env.AIPSOFT_SMS_TEMPLATE ?? 'Your OTP is {{otp}}'
 ).trim();
-const CUSTOMER_ALERT_WHATSAPP_PROVIDER = String(process.env.CUSTOMER_ALERT_WHATSAPP_PROVIDER ?? 'mock').trim().toLowerCase();
+const META_WHATSAPP_API_VERSION = String(process.env.META_WHATSAPP_API_VERSION ?? 'v20.0').trim() || 'v20.0';
+const META_WHATSAPP_ACCESS_TOKEN = String(process.env.META_WHATSAPP_ACCESS_TOKEN ?? '').trim();
+const META_WHATSAPP_PHONE_NUMBER_ID = String(process.env.META_WHATSAPP_PHONE_NUMBER_ID ?? '').trim();
+const META_WHATSAPP_OTP_TEMPLATE_NAME = String(process.env.META_WHATSAPP_OTP_TEMPLATE_NAME ?? '').trim();
+const META_WHATSAPP_OTP_TEMPLATE_LANGUAGE = String(
+  process.env.META_WHATSAPP_OTP_TEMPLATE_LANGUAGE ?? 'en_US'
+).trim() || 'en_US';
+const META_WHATSAPP_OTP_INCLUDE_BODY_CODE = /^(1|true|yes)$/i.test(
+  String(process.env.META_WHATSAPP_OTP_INCLUDE_BODY_CODE ?? '').trim()
+);
+const META_WHATSAPP_OTP_INCLUDE_BUTTON_CODE = !/^(0|false|no)$/i.test(
+  String(process.env.META_WHATSAPP_OTP_INCLUDE_BUTTON_CODE ?? 'true').trim()
+);
+const META_WHATSAPP_OTP_BUTTON_TYPE = String(process.env.META_WHATSAPP_OTP_BUTTON_TYPE ?? 'url').trim() || 'url';
+const META_WHATSAPP_OTP_BUTTON_INDEX = String(process.env.META_WHATSAPP_OTP_BUTTON_INDEX ?? '0').trim() || '0';
+const META_WHATSAPP_ALERT_TEMPLATE_NAME = String(process.env.META_WHATSAPP_ALERT_TEMPLATE_NAME ?? '').trim();
+const META_WHATSAPP_ALERT_TEMPLATE_LANGUAGE = String(
+  process.env.META_WHATSAPP_ALERT_TEMPLATE_LANGUAGE ?? META_WHATSAPP_OTP_TEMPLATE_LANGUAGE
+).trim() || META_WHATSAPP_OTP_TEMPLATE_LANGUAGE;
+const META_WHATSAPP_DRIVER_PICKUP_TEMPLATE_NAME = String(
+  process.env.META_WHATSAPP_DRIVER_PICKUP_TEMPLATE_NAME ?? ''
+).trim();
+const META_WHATSAPP_DRIVER_PICKUP_TEMPLATE_LANGUAGE = String(
+  process.env.META_WHATSAPP_DRIVER_PICKUP_TEMPLATE_LANGUAGE ?? META_WHATSAPP_ALERT_TEMPLATE_LANGUAGE
+).trim() || META_WHATSAPP_ALERT_TEMPLATE_LANGUAGE;
+const META_WHATSAPP_CUSTOMER_ORDER_CONFIRMATION_TEMPLATE_NAME = String(
+  process.env.META_WHATSAPP_CUSTOMER_ORDER_CONFIRMATION_TEMPLATE_NAME ?? ''
+).trim();
+const META_WHATSAPP_CUSTOMER_ORDER_CONFIRMATION_TEMPLATE_LANGUAGE = String(
+  process.env.META_WHATSAPP_CUSTOMER_ORDER_CONFIRMATION_TEMPLATE_LANGUAGE ?? META_WHATSAPP_ALERT_TEMPLATE_LANGUAGE
+).trim() || META_WHATSAPP_ALERT_TEMPLATE_LANGUAGE;
+const META_WHATSAPP_CUSTOMER_ORDER_STATUS_UPDATE_TEMPLATE_NAME = String(
+  process.env.META_WHATSAPP_CUSTOMER_ORDER_STATUS_UPDATE_TEMPLATE_NAME ?? ''
+).trim();
+const META_WHATSAPP_CUSTOMER_ORDER_STATUS_UPDATE_TEMPLATE_LANGUAGE = String(
+  process.env.META_WHATSAPP_CUSTOMER_ORDER_STATUS_UPDATE_TEMPLATE_LANGUAGE ?? META_WHATSAPP_ALERT_TEMPLATE_LANGUAGE
+).trim() || META_WHATSAPP_ALERT_TEMPLATE_LANGUAGE;
+const RAW_CUSTOMER_ALERT_WHATSAPP_PROVIDER = String(process.env.CUSTOMER_ALERT_WHATSAPP_PROVIDER ?? 'mock')
+  .trim()
+  .toLowerCase();
+const CUSTOMER_ALERT_WHATSAPP_PROVIDER =
+  ['meta', 'meta_whatsapp', 'whatsapp_cloud', 'meta_cloud'].includes(RAW_CUSTOMER_ALERT_WHATSAPP_PROVIDER)
+    ? 'meta_whatsapp'
+    : RAW_CUSTOMER_ALERT_WHATSAPP_PROVIDER;
 const AIPSOFT_WHATSAPP_SEND_URL = String(process.env.AIPSOFT_WHATSAPP_SEND_URL ?? '').trim();
 const CUSTOMER_ALERT_SEND_TIMEOUT_MS = Math.max(
   3000,
@@ -7526,6 +7574,137 @@ const lookupChatPhoneOrders = async (phone: string) => {
   ).then((orders) => orders.filter(Boolean) as PickupSearchOrder[]);
 };
 
+const normalizeCustomerPortalPosStatus = (status: unknown) => {
+  const normalized = normalizePickupStatus(status);
+  if (normalized === 'delivered') return 'delivered';
+  if (normalized === 'fully packed') return 'ready';
+  if (normalized === 'partially packed') return 'washing';
+  return 'washing';
+};
+
+const buildCustomerPortalPosSync = (order: PickupSearchOrder) => {
+  const total = Number(order.price ?? 0) || 0;
+  const balance = Number(order.balance ?? 0) || 0;
+  const paid = Math.max(0, total - balance);
+  const items = (order.line_items ?? []).map((item) => ({
+    id: item.line_key || item.sale_entry_id || item.product_id || item.barcode || item.name,
+    sale_entry_id: item.sale_entry_id,
+    product_id: item.product_id,
+    barcode: item.barcode,
+    name: item.name,
+    service: item.service,
+    quantity: Number(item.qty ?? 0) || 0,
+    unit_price: Number(item.unit_price ?? 0) || 0,
+    subtotal: Number(item.sub_total ?? 0) || 0,
+    tax_amount: Number(item.tax_amount ?? 0) || 0,
+    total: Number(item.total_with_tax ?? item.sub_total ?? 0) || 0,
+    unit: item.unit,
+    remark: item.remark,
+    category: item.category,
+  }));
+
+  return {
+    synced_at: new Date().toISOString(),
+    order_no: order.order_no,
+    system_order_id: order.source_orders_id,
+    source_orders_id: order.source_orders_id,
+    invoice_id: order.source_invoice_id,
+    invoice_no: order.source_invoice_id,
+    status: order.order_status,
+    mapped_status: normalizeCustomerPortalPosStatus(order.order_status),
+    payment_status: balance <= 0 ? 'paid' : paid > 0 ? 'partial' : 'unpaid',
+    total,
+    paid,
+    balance,
+    order_date: order.order_date,
+    delivery_date: order.delivery_date,
+    delivery_time: order.delivery_time,
+    customer_name: order.customer_name,
+    customer_phone: order.customer_phone,
+    customer_address: order.customer_address,
+    remark: order.remark,
+    item_count: items.reduce((sum, item) => sum + item.quantity, 0),
+    items,
+    details_error: order.details_error,
+  };
+};
+
+const findCustomerPortalPosOrder = async (
+  order: Record<string, unknown>,
+  customer: CustomerUserRecord | null | undefined
+) => {
+  const existingPos = (order.pos && typeof order.pos === 'object' ? order.pos : {}) as Record<string, unknown>;
+  const directReferences = [
+    existingPos.order_no,
+    existingPos.system_order_id,
+    existingPos.source_orders_id,
+    order.systemOrderId,
+    order.posOrderNo,
+  ]
+    .map((value) => String(value ?? '').trim())
+    .filter(Boolean);
+
+  for (const reference of directReferences) {
+    const direct = await lookupChatOrder(reference, { fastOnly: true }).catch(() => null);
+    if (direct) return direct;
+  }
+
+  const phoneCandidates = Array.from(
+    new Set([
+      ...getOrderPhoneCandidates(order),
+      normalizeCustomerPhone(customer?.phone_normalized ?? customer?.phone),
+      normalizeCustomerPhone(existingPos.customer_phone),
+    ].filter(Boolean) as string[])
+  );
+
+  for (const phone of phoneCandidates) {
+    const matches = await lookupChatPhoneOrders(phone).catch(() => []);
+    if (!matches.length) continue;
+
+    const existingOrderNo = String(existingPos.order_no ?? '').trim();
+    const existingSystemId = String(existingPos.system_order_id ?? existingPos.source_orders_id ?? '').trim();
+    const matched =
+      matches.find(
+        (candidate) =>
+          (existingOrderNo && String(candidate.order_no ?? '') === existingOrderNo) ||
+          (existingSystemId && String(candidate.source_orders_id ?? '') === existingSystemId)
+      ) ?? matches[0];
+
+    if (matched) return matched;
+  }
+
+  return null;
+};
+
+const syncCustomerPortalOrderWithPos = async (
+  order: Record<string, unknown>,
+  customer: CustomerUserRecord | null | undefined
+) => {
+  const posOrder = await findCustomerPortalPosOrder(order, customer);
+  if (!posOrder) return null;
+
+  const pos = buildCustomerPortalPosSync(posOrder);
+  const itemCount = pos.item_count > 0 ? pos.item_count : Number(order.itemCount ?? 0) || 0;
+  const amount = pos.total > 0 ? pos.total : Number(order.amount ?? 0) || 0;
+  const paymentStatus =
+    pos.payment_status === 'paid'
+      ? 'paid'
+      : pos.payment_status === 'unpaid'
+        ? 'unpaid'
+        : String(order.paymentStatus ?? 'pending');
+
+  return {
+    ...order,
+    pos,
+    systemOrderId: pos.system_order_id || order.systemOrderId,
+    posOrderNo: pos.order_no || order.posOrderNo,
+    itemCount,
+    amount,
+    totalPrice: amount,
+    paymentStatus,
+  };
+};
+
 const handleChatAutomationMessage = async (params: {
   channel: 'telegram';
   chat_user_id: string;
@@ -10121,6 +10300,109 @@ const isAipsoftSmsEnabled = () =>
   AIPSOFT_SMS_URL.length > 0 &&
   AIPSOFT_VERIFY_URL.length > 0;
 
+const isMetaWhatsappOtpEnabled = () =>
+  CUSTOMER_SMS_PROVIDER === 'meta_whatsapp' &&
+  META_WHATSAPP_ACCESS_TOKEN.length > 0 &&
+  META_WHATSAPP_PHONE_NUMBER_ID.length > 0 &&
+  META_WHATSAPP_OTP_TEMPLATE_NAME.length > 0;
+
+const getMetaWhatsappOtpTemplateComponents = (code: string) => {
+  const components: Array<Record<string, unknown>> = [];
+  const codeParameter = { type: 'text', text: code };
+
+  if (META_WHATSAPP_OTP_INCLUDE_BODY_CODE) {
+    components.push({
+      type: 'body',
+      parameters: [codeParameter],
+    });
+  }
+
+  if (META_WHATSAPP_OTP_INCLUDE_BUTTON_CODE) {
+    components.push({
+      type: 'button',
+      sub_type: META_WHATSAPP_OTP_BUTTON_TYPE,
+      index: META_WHATSAPP_OTP_BUTTON_INDEX,
+      parameters: [codeParameter],
+    });
+  }
+
+  if (components.length === 0) {
+    throw new OtpProviderError(
+      500,
+      'META_WHATSAPP_TEMPLATE_PARAMETERS_DISABLED',
+      'Meta WhatsApp OTP template parameters are disabled. Enable body or button code parameters.'
+    );
+  }
+
+  return components;
+};
+
+const sendMetaWhatsappTemplateMessage = async (
+  phoneE164: string,
+  templateName: string,
+  languageCode: string,
+  components?: Array<Record<string, unknown>>
+) => {
+  const version = META_WHATSAPP_API_VERSION.replace(/^\/+|\/+$/g, '');
+  const endpoint = `https://graph.facebook.com/${encodeURIComponent(version)}/${encodeURIComponent(
+    META_WHATSAPP_PHONE_NUMBER_ID
+  )}/messages`;
+  const template: Record<string, unknown> = {
+    name: templateName,
+    language: {
+      code: languageCode,
+    },
+  };
+  if (components && components.length > 0) {
+    template.components = components;
+  }
+
+  const payload = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: phoneE164.replace(/^\+/, ''),
+    type: 'template',
+    template,
+  };
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${META_WHATSAPP_ACCESS_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const rawBody = await response.text().catch(() => '');
+    const parsed = tryParseJson(rawBody) as {
+      error?: {
+        message?: string;
+        type?: string;
+        code?: number | string;
+        error_subcode?: number | string;
+      };
+    };
+    const providerMessage = String(parsed.error?.message ?? rawBody ?? '').trim();
+    throw new OtpProviderError(
+      502,
+      'META_WHATSAPP_SEND_FAILED',
+      providerMessage || `Meta WhatsApp send failed (${response.status}).`,
+      rawBody || `status=${response.status}`
+    );
+  }
+};
+
+const sendOtpViaMetaWhatsapp = async (phoneE164: string, code: string) => {
+  await sendMetaWhatsappTemplateMessage(
+    phoneE164,
+    META_WHATSAPP_OTP_TEMPLATE_NAME,
+    META_WHATSAPP_OTP_TEMPLATE_LANGUAGE,
+    getMetaWhatsappOtpTemplateComponents(code)
+  );
+};
+
 const sendOtpViaTwilioVerify = async (phoneE164: string) => {
   const endpoint = `https://verify.twilio.com/v2/Services/${encodeURIComponent(TWILIO_VERIFY_SERVICE_SID)}/Verifications`;
   const auth = Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64');
@@ -10192,6 +10474,9 @@ const tryParseJson = (text: string) => {
   }
 };
 
+const sanitizeMetaWhatsappTextParameter = (value: unknown) =>
+  String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/ {2,}/g, ' ').trim();
+
 const formatAipsoftPhone = (phoneNormalized: string, phoneE164: string) => {
   if (AIPSOFT_SMS_PHONE_MODE === 'e164') return phoneE164;
   if (AIPSOFT_SMS_PHONE_MODE === 'e164_no_plus') return phoneE164.replace(/^\+/, '');
@@ -10221,9 +10506,33 @@ const sendCustomerAlertWhatsapp = async (phoneRaw: string, message: string) => {
     throw new Error('Customer phone is empty or invalid.');
   }
 
-  const normalizedMessage = String(message ?? '').trim();
+  const normalizedMessage = sanitizeMetaWhatsappTextParameter(message);
   if (!normalizedMessage) {
     throw new Error('Message body is required.');
+  }
+
+  if (CUSTOMER_ALERT_WHATSAPP_PROVIDER === 'meta_whatsapp') {
+    if (!META_WHATSAPP_ACCESS_TOKEN || !META_WHATSAPP_PHONE_NUMBER_ID || !META_WHATSAPP_ALERT_TEMPLATE_NAME) {
+      throw new Error(
+        'Meta WhatsApp alerts are not configured. Set META_WHATSAPP_ACCESS_TOKEN, META_WHATSAPP_PHONE_NUMBER_ID, and META_WHATSAPP_ALERT_TEMPLATE_NAME.'
+      );
+    }
+    if (!phoneE164) {
+      throw new Error('Customer phone cannot be normalized for Meta WhatsApp.');
+    }
+
+    await sendMetaWhatsappTemplateMessage(phoneE164, META_WHATSAPP_ALERT_TEMPLATE_NAME, META_WHATSAPP_ALERT_TEMPLATE_LANGUAGE, [
+      {
+        type: 'body',
+        parameters: [{ type: 'text', text: normalizedMessage }],
+      },
+    ]);
+
+    return {
+      provider: 'meta_whatsapp',
+      status: 'sent',
+      response: 'Meta WhatsApp accepted template message.',
+    };
   }
 
   if (CUSTOMER_ALERT_WHATSAPP_PROVIDER === 'mock') {
@@ -10235,7 +10544,7 @@ const sendCustomerAlertWhatsapp = async (phoneRaw: string, message: string) => {
   }
 
   if (CUSTOMER_ALERT_WHATSAPP_PROVIDER !== 'aipsoft') {
-    throw new Error('Unsupported WhatsApp provider. Set CUSTOMER_ALERT_WHATSAPP_PROVIDER to mock or aipsoft.');
+    throw new Error('Unsupported WhatsApp provider. Set CUSTOMER_ALERT_WHATSAPP_PROVIDER to mock, aipsoft, or meta_whatsapp.');
   }
 
   if (!AIPSOFT_WHATSAPP_SEND_URL || !AIPSOFT_SMS_SECRET) {
@@ -10313,6 +10622,265 @@ const sendCustomerAlertWhatsapp = async (phoneRaw: string, message: string) => {
       lastError?.message ? ` | ${lastError.message}` : ''
     }`
   );
+};
+
+const selectDriverForCustomerOrder = (order: Record<string, unknown>) => {
+  const drivers = getConfiguredDrivers().filter((driver) => driver.phone);
+  if (drivers.length === 0) return null;
+
+  const addressText = [
+    order.deliveryAddress,
+    order.area,
+    order.branch,
+    order.customerArea,
+  ]
+    .map((value) => String(value ?? '').trim().toLowerCase())
+    .filter(Boolean)
+    .join(' ');
+
+  const availableDrivers = drivers.filter((driver) => {
+    const status = String(driver.status ?? '').toLowerCase();
+    return status !== 'off' && status !== 'offline';
+  });
+  const candidates = availableDrivers.length > 0 ? availableDrivers : drivers;
+
+  const areaMatch = candidates.find((driver) => {
+    const serviceAreas = Array.isArray(driver.service_areas) ? driver.service_areas : [];
+    if (serviceAreas.some((area) => area && addressText.includes(String(area).toLowerCase()))) {
+      return true;
+    }
+
+    const branchText = [driver.branch, driver.branch_id]
+      .map((value) => String(value ?? '').trim().toLowerCase())
+      .filter(Boolean);
+    return branchText.some((value) => value.length > 0 && addressText.includes(value));
+  });
+
+  return areaMatch ?? candidates[0] ?? null;
+};
+
+const buildDriverNewOrderMessage = (order: Record<string, unknown>) => {
+  const locationLink = String(order.locationLink ?? order.mapLocationLink ?? order.driverLocationLink ?? '').trim();
+  const lines = [
+    'New pickup order',
+    `Order: ${String(order.id ?? '').trim() || '-'}`,
+    `Customer: ${String(order.customerName ?? '').trim() || '-'}`,
+    `Phone: ${String(order.customerPhone ?? order.phoneNumber ?? '').trim() || '-'}`,
+    `Address: ${String(order.deliveryAddress ?? '').trim() || '-'}`,
+    ...(locationLink ? [`Location: ${locationLink}`] : []),
+    `Pickup: ${String(order.pickupSlot ?? order.timeSlotLabel ?? '').trim() || '-'}`,
+    `Service: ${String(order.serviceType ?? '').trim() || '-'}`,
+  ];
+  const notes = String(order.notes ?? order.customerNotes ?? '').trim();
+  if (notes) lines.push(`Notes: ${notes}`);
+  return lines.join(' | ').replace(/[\r\n\t]+/g, ' ').replace(/ {2,}/g, ' ').trim();
+};
+
+const getDriverPickupTemplateValues = (order: Record<string, unknown>) => {
+  const locationLink = String(order.locationLink ?? order.mapLocationLink ?? order.driverLocationLink ?? '').trim();
+  const addressWithLocation = [order.deliveryAddress, locationLink ? `Location: ${locationLink}` : '']
+    .map((value) => String(value ?? '').trim())
+    .filter(Boolean)
+    .join(' | ');
+
+  return [
+    String(order.id ?? '').trim() || '-',
+    sanitizeMetaWhatsappTextParameter(order.customerName) || '-',
+    sanitizeMetaWhatsappTextParameter(order.customerPhone ?? order.phoneNumber) || '-',
+    sanitizeMetaWhatsappTextParameter(addressWithLocation) || '-',
+    sanitizeMetaWhatsappTextParameter(order.pickupSlot ?? order.timeSlotLabel) || '-',
+    sanitizeMetaWhatsappTextParameter(order.serviceType) || '-',
+  ];
+};
+
+const sendDriverPickupAssignmentWhatsapp = async (phoneRaw: string, order: Record<string, unknown>) => {
+  if (!META_WHATSAPP_DRIVER_PICKUP_TEMPLATE_NAME) {
+    return sendCustomerAlertWhatsapp(phoneRaw, buildDriverNewOrderMessage(order));
+  }
+
+  if (!META_WHATSAPP_ACCESS_TOKEN || !META_WHATSAPP_PHONE_NUMBER_ID) {
+    throw new Error(
+      'Meta WhatsApp driver pickup template is not configured. Set META_WHATSAPP_ACCESS_TOKEN and META_WHATSAPP_PHONE_NUMBER_ID.'
+    );
+  }
+
+  const phoneNormalized = normalizeCustomerPhone(phoneRaw);
+  const phoneE164 = phoneNormalized ? toCustomerPhoneE164(phoneNormalized) : null;
+  if (!phoneE164) {
+    throw new Error('Driver phone cannot be normalized for Meta WhatsApp.');
+  }
+
+  await sendMetaWhatsappTemplateMessage(
+    phoneE164,
+    META_WHATSAPP_DRIVER_PICKUP_TEMPLATE_NAME,
+    META_WHATSAPP_DRIVER_PICKUP_TEMPLATE_LANGUAGE,
+    [
+      {
+        type: 'body',
+        parameters: getDriverPickupTemplateValues(order).map((text) => ({
+          type: 'text',
+          text,
+        })),
+      },
+    ]
+  );
+
+  return {
+    provider: 'meta_whatsapp',
+    status: 'sent',
+    response: 'Meta WhatsApp accepted driver pickup assignment template.',
+  };
+};
+
+const getCustomerOrderConfirmationValues = (order: Record<string, unknown>) => [
+  sanitizeMetaWhatsappTextParameter(order.customerName) || 'Customer',
+  String(order.id ?? '').trim() || '-',
+  sanitizeMetaWhatsappTextParameter(order.deliveryAddress) || '-',
+  sanitizeMetaWhatsappTextParameter(order.pickupSlot ?? order.timeSlotLabel) || '-',
+];
+
+const getCustomerOrderStatusUpdateValues = (order: Record<string, unknown>) => [
+  sanitizeMetaWhatsappTextParameter(order.customerName) || 'Customer',
+  String(order.id ?? '').trim() || '-',
+  'Received',
+  'Pickup confirmation',
+];
+
+const sendCustomerOrderConfirmationWhatsapp = async (phoneRaw: string, order: Record<string, unknown>) => {
+  if (!META_WHATSAPP_ACCESS_TOKEN || !META_WHATSAPP_PHONE_NUMBER_ID) {
+    throw new Error('Meta WhatsApp customer confirmation is not configured. Set META_WHATSAPP_ACCESS_TOKEN and META_WHATSAPP_PHONE_NUMBER_ID.');
+  }
+
+  const phoneNormalized = normalizeCustomerPhone(phoneRaw);
+  const phoneE164 = phoneNormalized ? toCustomerPhoneE164(phoneNormalized) : null;
+  if (!phoneE164) {
+    throw new Error('Customer phone cannot be normalized for Meta WhatsApp confirmation.');
+  }
+
+  const templateName =
+    META_WHATSAPP_CUSTOMER_ORDER_CONFIRMATION_TEMPLATE_NAME ||
+    META_WHATSAPP_CUSTOMER_ORDER_STATUS_UPDATE_TEMPLATE_NAME;
+  const templateLanguage = META_WHATSAPP_CUSTOMER_ORDER_CONFIRMATION_TEMPLATE_NAME
+    ? META_WHATSAPP_CUSTOMER_ORDER_CONFIRMATION_TEMPLATE_LANGUAGE
+    : META_WHATSAPP_CUSTOMER_ORDER_STATUS_UPDATE_TEMPLATE_LANGUAGE;
+  const values = META_WHATSAPP_CUSTOMER_ORDER_CONFIRMATION_TEMPLATE_NAME
+    ? getCustomerOrderConfirmationValues(order)
+    : getCustomerOrderStatusUpdateValues(order);
+
+  if (!templateName) {
+    throw new Error(
+      'Customer order confirmation template is not configured. Set META_WHATSAPP_CUSTOMER_ORDER_CONFIRMATION_TEMPLATE_NAME or META_WHATSAPP_CUSTOMER_ORDER_STATUS_UPDATE_TEMPLATE_NAME.'
+    );
+  }
+
+  await sendMetaWhatsappTemplateMessage(phoneE164, templateName, templateLanguage, [
+    {
+      type: 'body',
+      parameters: values.map((text) => ({
+        type: 'text',
+        text,
+      })),
+    },
+  ]);
+
+  return {
+    provider: 'meta_whatsapp',
+    status: 'sent',
+    template: templateName,
+  };
+};
+
+const notifyCustomerOrderConfirmation = async (order: Record<string, unknown>) => {
+  const phone = String(order.customerPhone ?? order.phoneNumber ?? '').trim();
+  if (!phone) {
+    console.warn(`[customer-order] customer confirmation skipped order=${String(order.id ?? '').trim()} reason=missing_phone`);
+    return {
+      ...order,
+      customerConfirmation: {
+        status: 'skipped',
+        reason: 'Customer phone is missing.',
+        attempted_at: new Date().toISOString(),
+      },
+    };
+  }
+
+  try {
+    const providerResult = await sendCustomerOrderConfirmationWhatsapp(phone, order);
+    console.log(
+      `[customer-order] customer confirmation sent order=${String(order.id ?? '').trim()} phone=${phone} template=${providerResult.template}`
+    );
+    return {
+      ...order,
+      customerConfirmation: {
+        status: 'sent',
+        sent_at: new Date().toISOString(),
+        provider: providerResult.provider,
+        template: providerResult.template,
+      },
+    };
+  } catch (error: any) {
+    console.error('Failed to notify customer order confirmation:', error);
+    console.warn(`[customer-order] customer confirmation failed order=${String(order.id ?? '').trim()}`);
+    return {
+      ...order,
+      customerConfirmation: {
+        status: 'failed',
+        attempted_at: new Date().toISOString(),
+        error: error?.message || 'Failed to send customer order confirmation.',
+      },
+    };
+  }
+};
+
+const assignDriverAndNotifyForCustomerOrder = async (order: Record<string, unknown>) => {
+  const selectedDriver = selectDriverForCustomerOrder(order);
+  if (!selectedDriver) {
+    console.warn(`[customer-order] driver notification skipped order=${String(order.id ?? '').trim()} reason=no_configured_driver`);
+    return {
+      ...order,
+      driverNotification: {
+        status: 'skipped',
+        reason: 'No configured driver with phone number.',
+        attempted_at: new Date().toISOString(),
+      },
+    };
+  }
+
+  const nextOrder = {
+    ...order,
+    assignedDriverId: String(order.assignedDriverId ?? '').trim() || selectedDriver.id,
+    assignedDriverName: String(order.assignedDriverName ?? '').trim() || selectedDriver.name,
+  };
+
+  try {
+    const providerResult = await sendDriverPickupAssignmentWhatsapp(selectedDriver.phone, nextOrder);
+    console.log(
+      `[customer-order] driver notification sent order=${String(order.id ?? '').trim()} driver=${selectedDriver.id} phone=${selectedDriver.phone}`
+    );
+    return {
+      ...nextOrder,
+      driverNotification: {
+        status: 'sent',
+        sent_at: new Date().toISOString(),
+        provider: providerResult.provider,
+        driverId: selectedDriver.id,
+        driverName: selectedDriver.name,
+      },
+    };
+  } catch (error: any) {
+    console.error('Failed to notify assigned driver:', error);
+    console.warn(`[customer-order] driver notification failed order=${String(order.id ?? '').trim()} driver=${selectedDriver.id}`);
+    return {
+      ...nextOrder,
+      driverNotification: {
+        status: 'failed',
+        attempted_at: new Date().toISOString(),
+        driverId: selectedDriver.id,
+        driverName: selectedDriver.name,
+        error: error?.message || 'Failed to send driver WhatsApp notification.',
+      },
+    };
+  }
 };
 
 const sendOtpViaAipsoft = async (
@@ -10486,20 +11054,36 @@ const consumeCustomerOtpVerificationToken = (
 };
 
 const DEFAULT_DRIVER_ACCOUNTS = [
-  { id: 'DRV-001', name: 'Driver 1', phone: '0565865506' },
+  { id: 'DRV-001', name: 'Driver 1', phone: '0565865506', branch: '', branch_id: '', service_areas: [], status: 'online' },
 ];
 
 const getConfiguredDrivers = () => {
   const row = db.prepare('SELECT payload FROM customer_site_config WHERE id = 1').get() as { payload: string } | undefined;
   if (!row?.payload) return DEFAULT_DRIVER_ACCOUNTS;
   try {
-    const parsed = JSON.parse(row.payload) as { drivers?: Array<{ id?: unknown; name?: unknown; phone?: unknown }> };
+    const parsed = JSON.parse(row.payload) as {
+      drivers?: Array<{
+        id?: unknown;
+        name?: unknown;
+        phone?: unknown;
+        branch?: unknown;
+        branch_id?: unknown;
+        service_areas?: unknown;
+        status?: unknown;
+      }>;
+    };
     const list = Array.isArray(parsed.drivers) ? parsed.drivers : [];
     const normalized = list
       .map((driver) => ({
         id: String(driver?.id ?? '').trim(),
         name: String(driver?.name ?? '').trim(),
         phone: normalizeDriverPhone(driver?.phone ?? ''),
+        branch: String(driver?.branch ?? '').trim(),
+        branch_id: String(driver?.branch_id ?? '').trim(),
+        service_areas: Array.isArray(driver?.service_areas)
+          ? driver.service_areas.map((area) => String(area ?? '').trim()).filter(Boolean)
+          : [],
+        status: String(driver?.status ?? '').trim().toLowerCase(),
       }))
       .filter((driver) => Boolean(driver.id));
     return normalized.length > 0 ? normalized : DEFAULT_DRIVER_ACCOUNTS;
@@ -10698,6 +11282,45 @@ const requireCustomerOrAdminAuth = (req: any, res: any, next: any) => {
   }
 
   return res.status(401).json({ error: 'Authentication required.' });
+};
+
+const getCustomerUserFromSession = (session: CustomerSessionRecord | undefined | null) => {
+  if (!session?.user_id) return null;
+  return db
+    .prepare('SELECT * FROM customer_users WHERE id = ?')
+    .get(session.user_id) as CustomerUserRecord | undefined;
+};
+
+const getOrderPhoneCandidates = (order: Record<string, unknown>) =>
+  [
+    order.customerPhoneNormalized,
+    order.customerPhone,
+    order.phoneNumber,
+    order.phone,
+    (order.customer as Record<string, unknown> | undefined)?.phone,
+  ]
+    .map((value) => normalizeCustomerPhone(value))
+    .filter(Boolean) as string[];
+
+const isCustomerOrderOwner = (order: Record<string, unknown>, customer: CustomerUserRecord | null | undefined) => {
+  if (!customer) return false;
+
+  const orderCustomerId = String(order.customerId ?? order.customer_id ?? '').trim();
+  if (orderCustomerId && orderCustomerId === customer.id) return true;
+
+  const customerPhone = normalizeCustomerPhone(customer.phone_normalized ?? customer.phone);
+  if (!customerPhone) return false;
+
+  return getOrderPhoneCandidates(order).includes(customerPhone);
+};
+
+const parseCustomerOrderRowPayload = (row: { payload: string }) => {
+  try {
+    const parsed = JSON.parse(row.payload);
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
 };
 
 const isAdminUsername = async (username: unknown) => {
@@ -18534,6 +19157,20 @@ async function startServer() {
         }
         await sendOtpViaTwilioVerify(phoneE164);
         provider = 'twilio';
+      } else if (CUSTOMER_SMS_PROVIDER === 'meta_whatsapp') {
+        if (channel !== 'whatsapp') {
+          return res.status(400).json({ error: 'Selected OTP channel is not supported by current provider.' });
+        }
+        if (!isMetaWhatsappOtpEnabled()) {
+          return res.status(500).json({
+            error:
+              'Meta WhatsApp is not configured. Set META_WHATSAPP_ACCESS_TOKEN, META_WHATSAPP_PHONE_NUMBER_ID, and META_WHATSAPP_OTP_TEMPLATE_NAME.',
+          });
+        }
+        devCode = String(randomInt(0, 1_000_000)).padStart(6, '0');
+        codeHash = hashCustomerPassword(devCode);
+        await sendOtpViaMetaWhatsapp(phoneE164, devCode);
+        provider = 'meta_whatsapp';
       } else if (CUSTOMER_SMS_PROVIDER === 'aipsoft') {
         if (!isAipsoftSmsEnabled()) {
           return res.status(500).json({ error: 'AIPSoft SMS is not configured. Set AIPSOFT_SMS_SECRET and AIPSOFT_SMS_URL.' });
@@ -19005,21 +19642,17 @@ async function startServer() {
     }
   });
 
-  app.get('/api/customer/orders', requireCustomerOrAdminAuth, (_req, res) => {
+  app.get('/api/customer/orders', requireCustomerOrAdminAuth, (req: any, res) => {
     try {
       const rows = db
         .prepare('SELECT payload FROM customer_orders ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC, id DESC')
         .all() as { payload: string }[];
+      const customer = getCustomerUserFromSession(req.customerAuth as CustomerSessionRecord | undefined);
 
       const orders = rows
-        .map((row) => {
-          try {
-            return JSON.parse(row.payload);
-          } catch {
-            return null;
-          }
-        })
-        .filter(Boolean);
+        .map(parseCustomerOrderRowPayload)
+        .filter(Boolean)
+        .filter((order) => !req.customerAuth || isCustomerOrderOwner(order as Record<string, unknown>, customer));
 
       res.json(orders);
     } catch (error: any) {
@@ -19028,7 +19661,7 @@ async function startServer() {
     }
   });
 
-  app.get('/api/customer/orders/:id', requireCustomerOrAdminAuth, (req, res) => {
+  app.get('/api/customer/orders/:id', requireCustomerOrAdminAuth, (req: any, res) => {
     try {
       const id = String(req.params.id ?? '').trim();
       if (!id) return res.status(400).json({ error: 'Order id is required.' });
@@ -19036,17 +19669,96 @@ async function startServer() {
       const row = db.prepare('SELECT payload FROM customer_orders WHERE id = ?').get(id) as { payload: string } | undefined;
       if (!row) return res.status(404).json({ error: 'Order not found.' });
 
-      res.json(JSON.parse(row.payload));
+      const order = parseCustomerOrderRowPayload(row);
+      if (!order) return res.status(404).json({ error: 'Order not found.' });
+
+      if (req.customerAuth) {
+        const customer = getCustomerUserFromSession(req.customerAuth as CustomerSessionRecord | undefined);
+        if (!isCustomerOrderOwner(order, customer)) {
+          return res.status(404).json({ error: 'Order not found.' });
+        }
+      }
+
+      res.json(order);
     } catch (error: any) {
       console.error('Failed to fetch customer order:', error);
       res.status(500).json({ error: error?.message || 'Failed to fetch customer order' });
     }
   });
 
-  app.post('/api/customer/orders', requireCustomerOrAdminAuth, (req, res) => {
+  app.post('/api/customer/orders/:id/sync-pos', requireCustomerOrAdminAuth, async (req: any, res) => {
     try {
-      const order = parseCustomerOrderPayload(req.body);
-      if (!order) return res.status(400).json({ error: 'Valid order payload is required.' });
+      const id = String(req.params.id ?? '').trim();
+      if (!id) return res.status(400).json({ error: 'Order id is required.' });
+
+      const row = db.prepare('SELECT payload FROM customer_orders WHERE id = ?').get(id) as { payload: string } | undefined;
+      if (!row) return res.status(404).json({ error: 'Order not found.' });
+
+      const order = parseCustomerOrderRowPayload(row);
+      if (!order) return res.status(404).json({ error: 'Order not found.' });
+
+      const customer = getCustomerUserFromSession(req.customerAuth as CustomerSessionRecord | undefined);
+      if (req.customerAuth && !isCustomerOrderOwner(order, customer)) {
+        return res.status(404).json({ error: 'Order not found.' });
+      }
+
+      const syncedOrder = await syncCustomerPortalOrderWithPos(order, customer);
+      if (!syncedOrder) {
+        return res.status(404).json({
+          error: 'No matching POS order was found for this customer phone or saved system order reference.',
+        });
+      }
+
+      const nextStatus = normalizeCustomerOrderStatus((syncedOrder as Record<string, unknown>).status);
+      const nextPayload = {
+        ...syncedOrder,
+        status: nextStatus,
+      };
+
+      db.prepare(
+        `UPDATE customer_orders
+         SET status = ?, payload = ?, updated_at = ?
+         WHERE id = ?`
+      ).run(nextStatus, JSON.stringify(nextPayload), new Date().toISOString(), id);
+
+      res.json(nextPayload);
+    } catch (error: any) {
+      console.error('Failed to sync customer order with POS:', error);
+      res.status(500).json({ error: error?.message || 'Failed to sync customer order with POS' });
+    }
+  });
+
+  app.post('/api/customer/orders', requireCustomerOrAdminAuth, async (req: any, res) => {
+    try {
+      const parsedOrder = parseCustomerOrderPayload(req.body);
+      if (!parsedOrder) return res.status(400).json({ error: 'Valid order payload is required.' });
+      const order = parsedOrder as Record<string, any> & { id: string; status: string };
+      console.log(
+        `[customer-order] create request id=${order.id} customerAuth=${Boolean(req.customerAuth)} phone=${String(
+          order.customerPhone ?? order.phoneNumber ?? ''
+        ).trim()}`
+      );
+      const customer = getCustomerUserFromSession(req.customerAuth as CustomerSessionRecord | undefined);
+      const customerPhoneNormalized = normalizeCustomerPhone(customer?.phone_normalized ?? customer?.phone);
+      const customerEnrichedOrder = customer
+        ? {
+            ...order,
+            customerId: customer.id,
+            customerName: String(customer.name ?? order.customerName ?? '').trim() || order.customerName,
+            customerPhone: customer.phone || order.customerPhone || order.phoneNumber,
+            customerPhoneNormalized: customerPhoneNormalized || order.customerPhoneNormalized,
+            customerEmail: customer.email || order.customerEmail,
+            customerArea: customer.area || order.customerArea,
+            phoneNumber: customer.phone || order.phoneNumber,
+          }
+        : order;
+      const shouldNotifyDriver = Boolean(req.customerAuth) && !String(customerEnrichedOrder.assignedDriverId ?? '').trim();
+      const driverEnrichedOrder = (shouldNotifyDriver
+        ? await assignDriverAndNotifyForCustomerOrder(customerEnrichedOrder)
+        : customerEnrichedOrder) as Record<string, any> & { id: string; status: string };
+      const finalOrder = (req.customerAuth
+        ? await notifyCustomerOrderConfirmation(driverEnrichedOrder)
+        : driverEnrichedOrder) as Record<string, any> & { id: string; status: string };
 
       const now = new Date().toISOString();
       db.prepare(
@@ -19056,9 +19768,9 @@ async function startServer() {
            status = excluded.status,
            payload = excluded.payload,
            updated_at = excluded.updated_at`
-      ).run(order.id, order.status, JSON.stringify(order), now, now);
+      ).run(finalOrder.id, finalOrder.status, JSON.stringify(finalOrder), now, now);
 
-      res.status(201).json(order);
+      res.status(201).json(finalOrder);
     } catch (error: any) {
       console.error('Failed to create customer order:', error);
       res.status(500).json({ error: error?.message || 'Failed to create customer order' });

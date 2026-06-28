@@ -32,6 +32,7 @@ import { normalizeOrders, normalizeOrderStatus } from './lib/orders';
 import { customerApi } from './lib/customerApi';
 import { adminApi } from './lib/adminApi';
 import { driverApi } from './lib/driverApi';
+import { SiteLanguage, localize } from './lib/i18n';
 
 const ROUTES = new Set([
   '/',
@@ -64,9 +65,14 @@ const ADMIN_AUTH_TOKEN_KEY = 'io_admin_auth_token';
 const ADMIN_AUTH_USER_KEY = 'io_admin_auth_user';
 const DRIVER_AUTH_TOKEN_KEY = 'io_driver_auth_token';
 const DRIVER_AUTH_USER_KEY = 'io_driver_auth_user';
+const SITE_LANGUAGE_KEY = 'io_site_language';
 
 export default function App() {
   const [route, setRouteState] = useState(getRouteFromLocation);
+  const [language, setLanguage] = useState<SiteLanguage>(() => {
+    const saved = localStorage.getItem(SITE_LANGUAGE_KEY);
+    return saved === 'en' ? 'en' : 'ar';
+  });
   const [searchOrder, setSearchOrder] = useState<Order | null>(null);
   const [orders, setOrders] = useState<Order[]>(() => {
     const saved = localStorage.getItem('io_orders');
@@ -150,6 +156,12 @@ export default function App() {
       localStorage.removeItem(CUSTOMER_AUTH_TOKEN_KEY);
     }
   }, [authToken]);
+
+  useEffect(() => {
+    localStorage.setItem(SITE_LANGUAGE_KEY, language);
+    document.documentElement.lang = language;
+    document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
+  }, [language]);
 
   useEffect(() => {
     if (user) {
@@ -347,6 +359,9 @@ export default function App() {
     if (route === '/dashboard' && authReady && !user) {
       setRoute('/auth');
     }
+    if (route === '/book' && authReady && !user) {
+      setRoute('/auth');
+    }
     if (route === '/auth' && authReady && user) {
       setRoute('/dashboard');
     }
@@ -387,13 +402,22 @@ export default function App() {
     if (route !== '/track') setRoute('/track');
   };
 
-  const handleNewOrder = (newOrder: Order) => {
+  const handleNewOrder = async (newOrder: Order) => {
     const normalized = normalizeOrders([newOrder])[0];
-    if (!normalized) return;
-    setOrders((prev) => [normalized, ...prev]);
-    void customerApi.createOrder(normalized).catch(() => {
-      // Keep local state resilient when API is temporarily unavailable.
-    });
+    if (!normalized) throw new Error(localize(language, 'تعذر تجهيز بيانات الطلب.', 'Could not prepare order data.'));
+    const createdOrder = await customerApi.createOrder(normalized);
+    const created = normalizeOrders([createdOrder])[0];
+    if (!created) throw new Error(localize(language, 'تعذر حفظ الطلب في النظام.', 'Could not save the order in the system.'));
+    setOrders((prev) => [created, ...prev.filter((order) => order.id !== created.id)]);
+    return created;
+  };
+
+  const handleSyncOrderWithPos = async (orderId: string) => {
+    const syncedOrder = await customerApi.syncOrderWithPos(orderId);
+    const synced = normalizeOrders([syncedOrder])[0];
+    if (!synced) throw new Error(localize(language, 'تعذر مزامنة الطلب مع POS.', 'Could not sync the order with POS.'));
+    setOrders((prev) => prev.map((order) => (order.id === synced.id ? synced : order)));
+    return synced;
   };
 
   const handleUpdateOrderStatus = (orderId: string, status: OrderStatus) => {
@@ -545,8 +569,12 @@ export default function App() {
           <div className="w-20 h-20 bg-primary/20 rounded-full flex items-center justify-center mb-6 text-primary animate-pulse">
              <Settings size={40} />
           </div>
-          <h1 className="text-3xl font-black text-white italic mb-4">الموقع تحت الصيانة</h1>
-          <p className="text-primary/60 text-sm max-w-xs">نحن بصدد إجراء بعض التحسينات السريعة. سنعود إليكم قريباً بمظهر جديد وخدمة أفضل.</p>
+          <h1 className="text-3xl font-black text-white italic mb-4">
+            {localize(language, 'الموقع تحت الصيانة', 'Website Under Maintenance')}
+          </h1>
+          <p className="text-primary/60 text-sm max-w-xs">
+            {localize(language, 'نحن بصدد إجراء بعض التحسينات السريعة. سنعود إليكم قريباً بمظهر جديد وخدمة أفضل.', 'We are making quick improvements and will be back shortly.')}
+          </p>
           <button onClick={() => setRoute('/admin')} className="mt-8 text-[10px] font-bold text-white/20 hover:text-white uppercase tracking-widest">Admin Access</button>
         </div>
       );
@@ -565,12 +593,14 @@ export default function App() {
               onBookClick={() => setRoute('/book')} 
               onNavigate={setRoute}
               config={siteConfig}
+              language={language}
+              onLanguageChange={setLanguage}
             />
-            <JourneySection />
-            <GallerySection items={siteConfig.gallery} />
-            <ServicesGrid />
-            <PricingSection pricing={siteConfig.pricing} />
-            <BranchesSection branches={siteConfig.branches} />
+            <JourneySection language={language} />
+            <GallerySection items={siteConfig.gallery} language={language} />
+            <ServicesGrid language={language} />
+            <PricingSection pricing={siteConfig.pricing} language={language} />
+            <BranchesSection branches={siteConfig.branches} language={language} />
           </motion.div>
         );
       case '/track':
@@ -581,7 +611,7 @@ export default function App() {
             exit={{ opacity: 0 }}
             className="pt-24 min-h-screen bg-brand-bg pb-20"
           >
-            <TrackingPanel order={searchOrder} onSearch={handleSearch} />
+            <TrackingPanel order={searchOrder} onSearch={handleSearch} language={language} />
           </motion.div>
         );
       case '/dashboard':
@@ -596,8 +626,11 @@ export default function App() {
             <Dashboard
               user={user}
               orders={orders}
+              pricing={siteConfig.pricing}
               onNewOrderClick={() => setRoute('/book')}
               onLogout={handleCustomerLogout}
+              onSyncOrderWithPos={handleSyncOrderWithPos}
+              language={language}
             />
           </motion.div>
         );
@@ -614,6 +647,7 @@ export default function App() {
               onVerifyOtp={handleCustomerVerifyOtp}
               onLoginWithOtp={handleCustomerLoginWithOtp}
               onRegister={handleCustomerRegister}
+              language={language}
             />
           </motion.div>
         );
@@ -625,8 +659,8 @@ export default function App() {
             exit={{ opacity: 0 }}
             className="pt-24 min-h-screen bg-brand-bg"
           >
-            <PricingSection pricing={siteConfig.pricing} />
-            <ServicesGrid />
+            <PricingSection pricing={siteConfig.pricing} language={language} />
+            <ServicesGrid language={language} />
           </motion.div>
         );
       case '/branches':
@@ -637,7 +671,7 @@ export default function App() {
             exit={{ opacity: 0 }}
             className="pt-24 min-h-screen bg-brand-bg"
           >
-            <BranchesSection branches={siteConfig.branches} />
+            <BranchesSection branches={siteConfig.branches} language={language} />
           </motion.div>
         );
       case '/contact':
@@ -648,7 +682,7 @@ export default function App() {
             exit={{ opacity: 0 }}
             className="pt-24 pb-20 md:pt-32 min-h-screen bg-brand-bg px-4"
           >
-            <Contact />
+            <Contact language={language} />
           </motion.div>
         );
       case '/book':
@@ -661,9 +695,11 @@ export default function App() {
           >
             <OrderWizard 
               onOrderSuccess={handleNewOrder} 
-              onBack={() => setRoute('/')} 
+              onBack={() => setRoute(user ? '/dashboard' : '/')} 
               pricing={siteConfig.pricing}
               config={siteConfig}
+              user={user}
+              language={language}
             />
           </motion.div>
         );
@@ -728,18 +764,27 @@ export default function App() {
   const hidesPrimaryNavbar = isDriverRoute || route === '/';
 
   return (
-    <div className="min-h-screen flex flex-col font-sans select-none selection:bg-primary/20">
-      {!hidesPrimaryNavbar && <Navbar currentRoute={route} setRoute={setRoute} user={user} config={siteConfig} />}
+    <div dir={language === 'ar' ? 'rtl' : 'ltr'} className="min-h-screen flex flex-col font-sans select-none selection:bg-primary/20">
+      {!hidesPrimaryNavbar && (
+        <Navbar
+          currentRoute={route}
+          setRoute={setRoute}
+          user={user}
+          config={siteConfig}
+          language={language}
+          onLanguageChange={setLanguage}
+        />
+      )}
       
       <main className="flex-1">
         {!loadedRemoteData && (
-          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[70] px-4 py-2 rounded-full bg-gray-900 text-white text-[11px] font-bold tracking-wider">
-            Loading latest data...
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[70] px-4 py-2 rounded-full bg-secondary text-white text-[11px] font-bold tracking-wider">
+            {localize(language, 'جاري تحديث البيانات...', 'Loading latest data...')}
           </div>
         )}
         {(!authReady || !adminReady || !driverReady) && (
           <div className={`fixed left-1/2 -translate-x-1/2 z-[70] px-4 py-2 rounded-full bg-primary text-white text-[11px] font-bold tracking-wider ${isDriverRoute ? 'top-4' : 'top-16'}`}>
-            Restoring your session...
+            {localize(language, 'جاري استعادة الجلسة...', 'Restoring your session...')}
           </div>
         )}
         <AnimatePresence mode="wait">
@@ -747,7 +792,7 @@ export default function App() {
         </AnimatePresence>
       </main>
 
-      {route !== '/dashboard' && route !== '/admin' && route !== '/driver' && <Footer setRoute={setRoute} config={siteConfig} />}
+      {route !== '/dashboard' && route !== '/admin' && route !== '/driver' && <Footer setRoute={setRoute} config={siteConfig} language={language} />}
 
       {/* Floating WhatsApp CTA */}
       {!hidesPrimaryNavbar && (
@@ -769,14 +814,14 @@ export default function App() {
             className={`flex flex-col items-center gap-1 ${route === '/' ? 'text-primary' : 'text-gray-400'}`}
           >
             <div className={`w-1 h-1 rounded-full mb-1 ${route === '/' ? 'bg-primary' : 'transparent'}`} />
-            <span className="text-[10px] font-bold uppercase tracking-widest leading-none">الرئيسية</span>
+            <span className="text-[10px] font-bold uppercase tracking-widest leading-none">{localize(language, 'الرئيسية', 'Home')}</span>
           </button>
           <button 
             onClick={() => setRoute('/track')}
             className={`flex flex-col items-center gap-1 ${route === '/track' ? 'text-primary' : 'text-gray-400'}`}
           >
             <div className={`w-1 h-1 rounded-full mb-1 ${route === '/track' ? 'bg-primary' : 'transparent'}`} />
-            <span className="text-[10px] font-bold uppercase tracking-widest leading-none">تتبع</span>
+            <span className="text-[10px] font-bold uppercase tracking-widest leading-none">{localize(language, 'تتبع', 'Track')}</span>
           </button>
           <button 
             onClick={() => setRoute(user ? '/dashboard' : '/auth')}
@@ -784,7 +829,7 @@ export default function App() {
           >
             <div className={`w-1 h-1 rounded-full mb-1 ${route === '/dashboard' || route === '/auth' ? 'bg-primary' : 'transparent'}`} />
             <span className="text-[10px] font-bold uppercase tracking-widest leading-none">
-              {user ? 'حسابي' : 'دخول'}
+              {user ? localize(language, 'حسابي', 'Account') : localize(language, 'دخول', 'Login')}
             </span>
           </button>
         </div>

@@ -1,6 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&display=swap');
-@import "tailwindcss";
 @import url('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
+@import "tailwindcss";
 
 @theme {
   --font-sans: "Cairo", ui-sans-serif, system-ui, sans-serif;
@@ -28,15 +28,35 @@
   body {
     @apply bg-brand-bg text-gray-900 font-sans antialiased;
     direction: rtl;
+    text-rendering: optimizeLegibility;
   }
 
   h1, h2, h3, h4, h5, h6 {
     @apply font-display;
+    letter-spacing: 0;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  input,
+  textarea,
+  select {
+    @apply text-secondary placeholder:text-slate-300;
+  }
+
+  ::selection {
+    background: rgba(143, 0, 255, 0.18);
+    color: #21002f;
   }
 }
 
 .glass {
-  @apply bg-white/72 backdrop-blur-xl border border-white/70 shadow-xl;
+  @apply bg-white/78 backdrop-blur-xl border border-white/75 shadow-xl shadow-primary/5;
 }
 
 .glass-dark {
@@ -74,6 +94,18 @@
       radial-gradient(circle at 30% 50%, rgba(255, 255, 255, 0.95), transparent 16%),
       radial-gradient(circle at 58% 45%, rgba(255, 255, 255, 0.85), transparent 13%);
     filter: drop-shadow(0 24px 36px rgba(143, 0, 255, 0.22));
+  }
+
+  .brand-panel {
+    @apply border border-white/80 bg-white/88 shadow-[0_24px_70px_rgba(143,0,255,0.09)] backdrop-blur-xl;
+  }
+
+  .brand-focus {
+    @apply outline-none ring-0 transition focus:border-primary focus:bg-white focus:shadow-[0_0_0_4px_rgba(143,0,255,0.10)];
+  }
+
+  .leaflet-container {
+    font-family: "Cairo", ui-sans-serif, system-ui, sans-serif;
   }
 
   .washer-glass {

@@ -6,21 +6,22 @@ import {
   Car, Store, Globe, ChevronLeft, Sparkles
 } from 'lucide-react';
 import { LaundryIcon } from './LaundryIcon';
+import { SiteLanguage, localize } from '../lib/i18n';
 
-export const Contact: React.FC = () => {
+export const Contact: React.FC<{ language?: SiteLanguage }> = ({ language = 'ar' }) => {
   const [activeBranch, setActiveBranch] = useState(1);
   const [activeMap, setActiveMap] = useState('falah');
 
   const branches = [
-    { id: 1, name: 'فرع الفلاح', phone: '02 586 4164', key: 'falah' },
-    { id: 2, name: 'فرع المصفح', phone: '02 563 1778', key: 'musaffah' },
-    { id: 3, name: 'فرع محمد بن زايد', phone: '02 555 5929', key: 'mbz' },
+    { id: 1, name: localize(language, 'فرع الفلاح', 'Al Falah Branch'), phone: '02 586 4164', key: 'falah' },
+    { id: 2, name: localize(language, 'فرع المصفح', 'Mussafah Branch'), phone: '02 563 1778', key: 'musaffah' },
+    { id: 3, name: localize(language, 'فرع محمد بن زايد', 'Mohammed Bin Zayed Branch'), phone: '02 555 5929', key: 'mbz' },
   ];
 
   const drivers = [
-    { name: 'سائق ١', phone: '056 586 5506' },
-    { name: 'سائق ٢', phone: '056 427 0050' },
-    { name: 'سائق ٣', phone: '055 709 9998' },
+    { name: localize(language, 'سائق ١', 'Driver 1'), phone: '056 586 5506' },
+    { name: localize(language, 'سائق ٢', 'Driver 2'), phone: '056 427 0050' },
+    { name: localize(language, 'سائق ٣', 'Driver 3'), phone: '055 709 9998' },
   ];
 
   const maps: Record<string, string> = {
@@ -42,10 +43,14 @@ export const Contact: React.FC = () => {
         />
         <div className="relative z-10 space-y-4">
           <div className="inline-flex items-center gap-2 bg-primary/20 text-primary px-4 py-2 rounded-full border border-primary/30 text-[10px] font-bold uppercase">
-             📍 الإمارات العربية المتحدة — أبوظبي
+             {localize(language, 'الإمارات العربية المتحدة — أبوظبي', 'United Arab Emirates - Abu Dhabi')}
           </div>
-          <h1 className="text-4xl md:text-5xl font-black text-white italic">تواصل <span className="text-primary">معنا</span></h1>
-          <p className="text-primary/60 text-sm md:text-base max-w-2xl mx-auto">نحن هنا لخدمتك — فريق خدمة العملاء متاح ٧ أيام في الأسبوع لاستقبال طلباتك وملاحظاتك.</p>
+          <h1 className="text-4xl md:text-5xl font-black text-white italic">
+            {localize(language, 'تواصل', 'Contact')} <span className="text-primary">{localize(language, 'معنا', 'Us')}</span>
+          </h1>
+          <p className="text-primary/60 text-sm md:text-base max-w-2xl mx-auto">
+            {localize(language, 'نحن هنا لخدمتك — فريق خدمة العملاء متاح ٧ أيام في الأسبوع لاستقبال طلباتك وملاحظاتك.', 'We are here to help. Our customer support team is available 7 days a week for your orders and feedback.')}
+          </p>
         </div>
       </div>
 
@@ -56,8 +61,8 @@ export const Contact: React.FC = () => {
             <Phone size={32} />
           </div>
           <div>
-            <h3 className="font-bold text-gray-900">اتصل بنا</h3>
-            <p className="text-xs text-gray-500 font-medium mt-1">٣ فروع في خدمتكم</p>
+            <h3 className="font-bold text-secondary">{localize(language, 'اتصل بنا', 'Call Us')}</h3>
+            <p className="text-xs text-gray-500 font-medium mt-1">{localize(language, '٣ فروع في خدمتكم', '3 branches ready to serve you')}</p>
           </div>
         </div>
         <div className="bg-white p-8 rounded-[2rem] border border-gray-100 shadow-xl shadow-gray-200/50 flex flex-col items-center text-center space-y-4 hover:border-primary transition-all group">
@@ -65,8 +70,8 @@ export const Contact: React.FC = () => {
             <MessageCircle size={32} />
           </div>
           <div>
-            <h3 className="font-bold text-gray-900">واتساب</h3>
-            <p className="text-xs text-gray-500 font-medium mt-1">رد فوري واستلام سريع</p>
+            <h3 className="font-bold text-secondary">{localize(language, 'واتساب', 'WhatsApp')}</h3>
+            <p className="text-xs text-gray-500 font-medium mt-1">{localize(language, 'رد فوري واستلام سريع', 'Fast replies and pickup')}</p>
           </div>
         </div>
         <div className="bg-white p-8 rounded-[2rem] border border-gray-100 shadow-xl shadow-gray-200/50 flex flex-col items-center text-center space-y-4 hover:border-primary transition-all group">
@@ -74,8 +79,8 @@ export const Contact: React.FC = () => {
             <MapPin size={32} />
           </div>
           <div>
-            <h3 className="font-bold text-gray-900">ابحث عنّا</h3>
-            <p className="text-xs text-gray-500 font-medium mt-1">مواقعنا على الخريطة</p>
+            <h3 className="font-bold text-secondary">{localize(language, 'ابحث عنّا', 'Find Us')}</h3>
+            <p className="text-xs text-gray-500 font-medium mt-1">{localize(language, 'مواقعنا على الخريطة', 'Our locations on the map')}</p>
           </div>
         </div>
       </div>
@@ -87,8 +92,8 @@ export const Contact: React.FC = () => {
             <Store size={24} />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-gray-900">فروعنا الرسمية</h2>
-            <p className="text-xs text-gray-500 font-medium">اختر الفرع للتواصل المباشر</p>
+            <h2 className="text-xl font-bold text-secondary">{localize(language, 'فروعنا الرسمية', 'Official Branches')}</h2>
+            <p className="text-xs text-gray-500 font-medium">{localize(language, 'اختر الفرع للتواصل المباشر', 'Choose a branch for direct contact')}</p>
           </div>
         </div>
 
@@ -108,11 +113,11 @@ export const Contact: React.FC = () => {
               }`}
             >
               <div className={`w-3 h-3 rounded-full mb-4 ${activeBranch === branch.id ? 'bg-primary animate-pulse' : 'bg-gray-300'}`} />
-              <h3 className="font-bold text-gray-900 mb-2">{branch.name}</h3>
+              <h3 className="font-bold text-secondary mb-2">{branch.name}</h3>
               <p className="text-xl font-black text-secondary italic mb-6" dir="ltr">{branch.phone}</p>
               <div className="flex gap-2">
-                <button className="flex-1 bg-white border border-gray-100 rounded-xl py-2 text-[10px] font-bold text-gray-600 hover:bg-gray-50 transition-colors">📞 اتصال</button>
-                <button className="flex-1 bg-white border border-gray-100 rounded-xl py-2 text-[10px] font-bold text-gray-600 hover:bg-gray-50 transition-colors">💬 واتساب</button>
+                <button className="flex-1 bg-white border border-gray-100 rounded-xl py-2 text-[10px] font-bold text-gray-600 hover:bg-gray-50 transition-colors">{localize(language, 'اتصال', 'Call')}</button>
+                <button className="flex-1 bg-white border border-gray-100 rounded-xl py-2 text-[10px] font-bold text-gray-600 hover:bg-gray-50 transition-colors">{localize(language, 'واتساب', 'WhatsApp')}</button>
               </div>
             </motion.div>
           ))}
@@ -126,8 +131,8 @@ export const Contact: React.FC = () => {
             <Car size={24} />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-gray-900">خدمة الاستلام المنزلي</h2>
-            <p className="text-xs text-gray-500 font-medium">أرقام السائقين المباشرة (واتساب متاح)</p>
+            <h2 className="text-xl font-bold text-secondary">{localize(language, 'خدمة الاستلام المنزلي', 'Home Pickup Service')}</h2>
+            <p className="text-xs text-gray-500 font-medium">{localize(language, 'أرقام السائقين المباشرة (واتساب متاح)', 'Direct driver numbers (WhatsApp available)')}</p>
           </div>
         </div>
 
@@ -137,7 +142,7 @@ export const Contact: React.FC = () => {
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 bg-brand-bg rounded-full flex items-center justify-center text-xl grayscale hover:grayscale-0 transition-all border border-gray-100">🧑</div>
                 <div>
-                  <div className="font-bold text-gray-900 text-sm">{driver.name}</div>
+                  <div className="font-bold text-secondary text-sm">{driver.name}</div>
                   <div className="text-primary font-black text-lg italic tracking-tighter" dir="ltr">{driver.phone}</div>
                 </div>
               </div>
@@ -162,8 +167,8 @@ export const Contact: React.FC = () => {
               <Globe size={24} />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-gray-900">مواقعنا على الخريطة</h2>
-              <p className="text-xs text-gray-500 font-medium text-right">مفتوح الآن لخدمتكم</p>
+              <h2 className="text-xl font-bold text-secondary">{localize(language, 'مواقعنا على الخريطة', 'Locations on the Map')}</h2>
+              <p className="text-xs text-gray-500 font-medium text-right">{localize(language, 'مفتوح الآن لخدمتكم', 'Open now to serve you')}</p>
             </div>
           </div>
           <div className="hidden sm:flex gap-2">
@@ -203,14 +208,14 @@ export const Contact: React.FC = () => {
           <div className="w-12 h-12 bg-white text-primary rounded-2xl flex items-center justify-center shadow-sm">
             <Clock size={24} />
           </div>
-          <h3 className="text-xl font-bold text-gray-900">ساعات العمل</h3>
+          <h3 className="text-xl font-bold text-secondary">{localize(language, 'ساعات العمل', 'Working Hours')}</h3>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {[
-            { day: 'السبت – الثلاثاء', time: '٨ ص – ١٠ م' },
-            { day: 'الأربعاء', time: '٨ ص – ١٠ م' },
-            { day: 'الخميس', time: '٨ ص – ١١ م' },
-            { day: 'الجمعة', time: '٢ م – ١١ م' },
+            { day: localize(language, 'السبت – الثلاثاء', 'Saturday - Tuesday'), time: localize(language, '٨ ص – ١٠ م', '8 AM - 10 PM') },
+            { day: localize(language, 'الأربعاء', 'Wednesday'), time: localize(language, '٨ ص – ١٠ م', '8 AM - 10 PM') },
+            { day: localize(language, 'الخميس', 'Thursday'), time: localize(language, '٨ ص – ١١ م', '8 AM - 11 PM') },
+            { day: localize(language, 'الجمعة', 'Friday'), time: localize(language, '٢ م – ١١ م', '2 PM - 11 PM') },
           ].map((h, i) => (
             <div key={i} className="flex justify-between items-center bg-white p-4 rounded-xl border border-gray-50 shadow-sm">
               <span className="text-xs font-bold text-gray-500">{h.day}</span>
@@ -220,7 +225,7 @@ export const Contact: React.FC = () => {
         </div>
         <div className="mt-8 bg-primary/5 rounded-2xl p-4 flex items-center gap-4 text-xs font-medium text-primary">
           <Sparkles size={20} />
-          خدمة الاستلام والتوصيل مخصصة لتوفير وقتكم — نوصي بالطلب قبل موعد الإغلاق بساعة واحدة.
+          {localize(language, 'خدمة الاستلام والتوصيل مخصصة لتوفير وقتكم — نوصي بالطلب قبل موعد الإغلاق بساعة واحدة.', 'Pickup and delivery are designed to save your time. We recommend ordering at least one hour before closing.')}
         </div>
       </section>
 
@@ -231,46 +236,44 @@ export const Contact: React.FC = () => {
             <Mail size={24} />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-gray-900">أرسل لنا رسالة</h2>
-            <p className="text-xs text-gray-500 font-medium">سنرد عليك خلال ٢٤ ساعة</p>
+            <h2 className="text-xl font-bold text-secondary">{localize(language, 'أرسل لنا رسالة', 'Send Us a Message')}</h2>
+            <p className="text-xs text-gray-500 font-medium">{localize(language, 'سنرد عليك خلال ٢٤ ساعة', 'We will reply within 24 hours')}</p>
           </div>
         </div>
 
         <div className="bg-white p-10 rounded-[2.5rem] border border-gray-100 shadow-2xl space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-gray-400 px-1">الاسم الكامل</label>
-              <input type="text" className="w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all text-right" placeholder="أدخل اسمك هنا" />
+              <label className="text-[10px] font-black uppercase text-gray-400 px-1">{localize(language, 'الاسم الكامل', 'Full Name')}</label>
+              <input type="text" className={`w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all ${language === 'ar' ? 'text-right' : 'text-left'}`} placeholder={localize(language, 'أدخل اسمك هنا', 'Enter your name here')} />
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-gray-400 px-1">رقم الجوال</label>
+              <label className="text-[10px] font-black uppercase text-gray-400 px-1">{localize(language, 'رقم الجوال', 'Mobile Number')}</label>
               <input type="tel" className="w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all text-left" placeholder="05X XXX XXXX" dir="ltr" />
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
              <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-gray-400 px-1">نوع الاستفسار</label>
-              <select className="w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all appearance-none text-right">
-                <option>استفسار عن خدمة</option>
-                <option>شكوى أو ملاحظة</option>
-                <option>طلب عروض أسعار</option>
+              <label className="text-[10px] font-black uppercase text-gray-400 px-1">{localize(language, 'نوع الاستفسار', 'Inquiry Type')}</label>
+              <select className={`w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all appearance-none ${language === 'ar' ? 'text-right' : 'text-left'}`}>
+                <option>{localize(language, 'استفسار عن خدمة', 'Service Inquiry')}</option>
+                <option>{localize(language, 'شكوى أو ملاحظة', 'Complaint or Feedback')}</option>
+                <option>{localize(language, 'طلب عروض أسعار', 'Quotation Request')}</option>
               </select>
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-gray-400 px-1">الفرع المعني</label>
-              <select className="w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all appearance-none text-right">
-                <option>فرع الفلاح</option>
-                <option>فرع المصفح</option>
-                <option>فرع محمد بن زايد</option>
+              <label className="text-[10px] font-black uppercase text-gray-400 px-1">{localize(language, 'الفرع المعني', 'Related Branch')}</label>
+              <select className={`w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all appearance-none ${language === 'ar' ? 'text-right' : 'text-left'}`}>
+                {branches.map((branch) => <option key={branch.id}>{branch.name}</option>)}
               </select>
             </div>
           </div>
           <div className="space-y-2">
-            <label className="text-[10px] font-black uppercase text-gray-400 px-1">نص الرسالة</label>
-            <textarea className="w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all min-h-[120px] text-right" placeholder="كيف يمكننا مساعدتك؟" />
+            <label className="text-[10px] font-black uppercase text-gray-400 px-1">{localize(language, 'نص الرسالة', 'Message')}</label>
+            <textarea className={`w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all min-h-[120px] ${language === 'ar' ? 'text-right' : 'text-left'}`} placeholder={localize(language, 'كيف يمكننا مساعدتك؟', 'How can we help you?')} />
           </div>
           <button className="w-full bg-secondary text-white py-5 rounded-[2rem] font-black italic shadow-2xl flex items-center justify-center gap-3 hover:scale-[1.02] active:scale-95 transition-all text-lg">
-             إرسال الرسالة <Send size={20} className="text-primary" />
+             {localize(language, 'إرسال الرسالة', 'Send Message')} <Send size={20} className="text-primary" />
           </button>
         </div>
       </section>
@@ -278,14 +281,14 @@ export const Contact: React.FC = () => {
       {/* Social Media Linkers */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { icon: <Instagram />, name: 'انستقرام', handle: '@inandoutuae' },
-          { icon: <Facebook />, name: 'فيسبوك', handle: 'inandoutuae' },
-          { icon: <Mail />, name: 'البريد الإلكتروني', handle: 'inandoutuae@gmail.com' },
-          { icon: <Store />, name: 'مواقعنا', handle: 'أبوظبي، الإمارات' },
+          { icon: <Instagram />, name: localize(language, 'انستقرام', 'Instagram'), handle: '@inandoutuae' },
+          { icon: <Facebook />, name: localize(language, 'فيسبوك', 'Facebook'), handle: 'inandoutuae' },
+          { icon: <Mail />, name: localize(language, 'البريد الإلكتروني', 'Email'), handle: 'inandoutuae@gmail.com' },
+          { icon: <Store />, name: localize(language, 'مواقعنا', 'Locations'), handle: localize(language, 'أبوظبي، الإمارات', 'Abu Dhabi, UAE') },
         ].map((soc, i) => (
           <div key={i} className="bg-white p-6 rounded-[2rem] border border-gray-100 text-center space-y-2">
             <div className="text-primary flex justify-center">{soc.icon}</div>
-            <div className="font-bold text-gray-900 text-xs">{soc.name}</div>
+            <div className="font-bold text-secondary text-xs">{soc.name}</div>
             <div className="text-[10px] text-gray-400 font-medium">{soc.handle}</div>
           </div>
         ))}

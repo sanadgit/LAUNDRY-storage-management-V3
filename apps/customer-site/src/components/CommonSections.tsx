@@ -4,26 +4,47 @@ import * as Icons from 'lucide-react';
 import { SERVICES } from '../constants';
 import { Branch, PricingItem } from '../types';
 import { LaundryIcon, resolvePricingItemIcon } from './LaundryIcon';
+import { SiteLanguage, formatCurrency, localize } from '../lib/i18n';
 
-export const ServicesGrid: React.FC = () => {
+const SERVICE_COPY_EN: Record<string, { title: string; description: string }> = {
+  wash: { title: 'Regular Wash', description: 'From AED 2' },
+  dry: { title: 'Dry Cleaning', description: 'From AED 15' },
+  iron: { title: 'Iron Only', description: 'From AED 3' },
+  bedding: { title: 'Linens & Blankets', description: 'From AED 20' },
+  dresses: { title: 'Evening Dresses', description: 'From AED 30' },
+};
+
+const GALLERY_LABEL_EN: Record<string, string> = {
+  '1': 'Industrial Washers',
+  '2': 'Order Pickup',
+  '3': 'Steam Ironing',
+  '4': 'Packing & Delivery',
+  '5': 'Garment Tagging',
+  '6': 'Dry Cleaning',
+};
+
+export const ServicesGrid: React.FC<{ language?: SiteLanguage }> = ({ language = 'ar' }) => {
   return (
     <section className="relative overflow-hidden bg-secondary py-24 text-white">
       <div className="absolute inset-0 opacity-[0.08] hero-grid" />
       <div className="mx-auto max-w-7xl px-6">
         <div className="mb-14 grid gap-6 md:grid-cols-[1fr_0.9fr] md:items-end">
           <div className="text-right">
-            <p className="mb-3 text-sm font-black text-success">خدماتنا</p>
+            <p className="mb-3 text-sm font-black text-success">{localize(language, 'خدماتنا', 'Services')}</p>
             <h2 className="text-balance text-4xl font-black leading-tight md:text-6xl">
-              خدمات الغسيل تتحرك في خط واحد واضح.
+              {localize(language, 'خدمات الغسيل تتحرك في خط واحد واضح.', 'Laundry services in one clear flow.')}
             </h2>
           </div>
           <p className="text-sm font-semibold leading-7 text-white/62 md:text-right">
-            من الملابس اليومية إلى المفارش والقطع الحساسة، كل خدمة تدخل نفس نظام العناية والتتبع.
+            {localize(language, 'من الملابس اليومية إلى المفارش والقطع الحساسة، كل خدمة تدخل نفس نظام العناية والتتبع.', 'From daily garments to delicate pieces and home linens, every service follows the same care and tracking system.')}
           </p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-5">
           {SERVICES.map((service, idx) => (
+            (() => {
+              const serviceCopy = language === 'ar' ? service : SERVICE_COPY_EN[service.id] ?? service;
+              return (
             <motion.div
               key={service.id}
               initial={{ opacity: 0, y: 24 }}
@@ -35,13 +56,15 @@ export const ServicesGrid: React.FC = () => {
               <div className="absolute inset-x-6 top-8 h-1 rounded-full bg-white/10" />
               <div className="absolute -left-14 -top-14 h-32 w-32 rounded-full bg-primary/25 blur-3xl transition group-hover:bg-success/30" />
               <div className="relative flex h-full flex-col justify-between">
-                <LaundryIcon name={service.icon} alt={service.title} className="h-20 w-20 drop-shadow-xl" />
+                <LaundryIcon name={service.icon} alt={serviceCopy.title} className="h-20 w-20 drop-shadow-xl" />
                 <div>
-                  <h3 className="mb-2 text-xl font-black">{service.title}</h3>
-                  <p className="text-sm font-black text-success">{service.description}</p>
+                  <h3 className="mb-2 text-xl font-black">{serviceCopy.title}</h3>
+                  <p className="text-sm font-black text-success">{serviceCopy.description}</p>
                 </div>
               </div>
             </motion.div>
+              );
+            })()
           ))}
         </div>
       </div>
@@ -49,7 +72,7 @@ export const ServicesGrid: React.FC = () => {
   );
 };
 
-export const PricingSection: React.FC<{ pricing?: PricingItem[] }> = ({ pricing }) => {
+export const PricingSection: React.FC<{ pricing?: PricingItem[]; language?: SiteLanguage }> = ({ pricing, language = 'ar' }) => {
   const [activeTab, setActiveTab] = useState<'men' | 'women' | 'kids' | 'home'>('men');
   const [serviceType, setServiceType] = useState<'wash_dry' | 'iron' | 'wash_iron' | 'dry'>('wash_dry');
   const [prices, setPrices] = useState<PricingItem[]>(pricing || []);
@@ -59,17 +82,17 @@ export const PricingSection: React.FC<{ pricing?: PricingItem[] }> = ({ pricing 
   }, [pricing]);
 
   const tabs = [
-    { id: 'men', label: 'رجال' },
-    { id: 'women', label: 'نساء' },
-    { id: 'kids', label: 'أطفال' },
-    { id: 'home', label: 'منزلية' },
+    { id: 'men', label: localize(language, 'رجال', 'Men') },
+    { id: 'women', label: localize(language, 'نساء', 'Women') },
+    { id: 'kids', label: localize(language, 'أطفال', 'Kids') },
+    { id: 'home', label: localize(language, 'منزلية', 'Home') },
   ];
 
   const serviceTypes = [
-    { id: 'wash_dry', label: 'غسيل وتنشيف' },
-    { id: 'iron', label: 'كوي فقط' },
-    { id: 'wash_iron', label: 'غسيل وكوي' },
-    { id: 'dry', label: 'تنظيف جاف' },
+    { id: 'wash_dry', label: localize(language, 'غسيل وتنشيف', 'Wash & Dry') },
+    { id: 'iron', label: localize(language, 'كوي فقط', 'Iron Only') },
+    { id: 'wash_iron', label: localize(language, 'غسيل وكوي', 'Wash & Iron') },
+    { id: 'dry', label: localize(language, 'تنظيف جاف', 'Dry Clean') },
   ];
 
   const filteredPrices = prices.filter((item) => item.category === activeTab && item.active !== false);
@@ -79,9 +102,9 @@ export const PricingSection: React.FC<{ pricing?: PricingItem[] }> = ({ pricing 
       <div className="mx-auto max-w-7xl px-6">
         <div className="mb-12 grid gap-6 md:grid-cols-[0.8fr_1.2fr] md:items-end">
           <div className="text-right">
-            <p className="mb-3 text-sm font-black text-primary">الأسعار</p>
+            <p className="mb-3 text-sm font-black text-primary">{localize(language, 'الأسعار', 'Pricing')}</p>
             <h2 className="text-balance text-4xl font-black leading-tight text-secondary md:text-6xl">
-              اختر الخدمة وشاهد السعر فوراً.
+              {localize(language, 'اختر الخدمة وشاهد السعر فوراً.', 'Choose a service and see the price instantly.')}
             </h2>
           </div>
           <div className="rounded-[28px] border border-slate-200 bg-brand-bg p-3">
@@ -146,15 +169,15 @@ export const PricingSection: React.FC<{ pricing?: PricingItem[] }> = ({ pricing 
                       />
                     </div>
                     <div className="text-right">
-                      <h4 className="text-lg font-black text-secondary">{item.name_ar}</h4>
+                      <h4 className="text-lg font-black text-secondary">{language === 'ar' ? item.name_ar : item.name_en}</h4>
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{item.name_en}</p>
                     </div>
                   </div>
                   <div className="text-left">
                     <div className="text-2xl font-black text-primary">
-                      {priceValue} <span className="text-xs">درهم</span>
+                      {formatCurrency(language, Number(priceValue))}
                     </div>
-                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">للقطعة</div>
+                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">{localize(language, 'للقطعة', 'Per Item')}</div>
                   </div>
                 </motion.div>
               );
@@ -166,19 +189,19 @@ export const PricingSection: React.FC<{ pricing?: PricingItem[] }> = ({ pricing 
   );
 };
 
-export const GallerySection: React.FC<{ items: { id: string; icon: string; label: string }[] }> = ({ items }) => {
+export const GallerySection: React.FC<{ items: { id: string; icon: string; label: string }[]; language?: SiteLanguage }> = ({ items, language = 'ar' }) => {
   return (
     <section className="relative overflow-hidden bg-white py-24">
       <div className="mx-auto max-w-7xl px-6">
         <div className="mb-14 flex flex-col justify-between gap-6 md:flex-row md:items-end">
           <div className="max-w-2xl text-right">
-            <p className="mb-3 text-sm font-black text-success">داخل المصبغة</p>
+            <p className="mb-3 text-sm font-black text-success">{localize(language, 'داخل المصبغة', 'Inside the Laundry')}</p>
             <h2 className="text-balance text-4xl font-black leading-tight text-secondary md:text-6xl">
-              تفاصيل صغيرة تصنع خروجاً مرتباً.
+              {localize(language, 'تفاصيل صغيرة تصنع خروجاً مرتباً.', 'Small details make every order leave neatly.')}
             </h2>
           </div>
           <p className="max-w-md text-sm font-semibold leading-7 text-slate-600 md:text-right">
-            لمسات نظيفة من واقع العمل: أجهزة، ترميز، كوي، وتغليف يحافظ على الملابس حتى تصل.
+            {localize(language, 'لمسات نظيفة من واقع العمل: أجهزة، ترميز، كوي، وتغليف يحافظ على الملابس حتى تصل.', 'Real workflow details: machines, tagging, ironing, and packing that protects clothes until delivery.')}
           </p>
         </div>
 
@@ -196,10 +219,10 @@ export const GallerySection: React.FC<{ items: { id: string; icon: string; label
             >
               <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-primary/10 to-transparent" />
               <div className="relative flex h-full flex-col justify-between">
-                <LaundryIcon name={item.icon} alt={item.label} className="h-24 w-24 drop-shadow-sm" />
+                <LaundryIcon name={item.icon} alt={language === 'ar' ? item.label : GALLERY_LABEL_EN[item.id] ?? item.label} className="h-24 w-24 drop-shadow-sm" />
                 <div>
                   <p className="text-xs font-black text-primary">0{idx + 1}</p>
-                  <h3 className="mt-1 text-lg font-black text-secondary">{item.label}</h3>
+                  <h3 className="mt-1 text-lg font-black text-secondary">{language === 'ar' ? item.label : GALLERY_LABEL_EN[item.id] ?? item.label}</h3>
                 </div>
               </div>
             </motion.div>
@@ -210,19 +233,19 @@ export const GallerySection: React.FC<{ items: { id: string; icon: string; label
   );
 };
 
-export const BranchesSection: React.FC<{ branches: Branch[] }> = ({ branches }) => {
+export const BranchesSection: React.FC<{ branches: Branch[]; language?: SiteLanguage }> = ({ branches, language = 'ar' }) => {
   const activeBranches = branches.filter((branch) => branch.status === 'active');
 
   return (
     <section className="bg-brand-bg py-24" id="branches">
       <div className="mx-auto max-w-7xl px-6">
         <div className="mb-12 text-center">
-          <p className="mb-3 text-sm font-black text-primary">الفروع</p>
+          <p className="mb-3 text-sm font-black text-primary">{localize(language, 'الفروع', 'Branches')}</p>
           <h2 className="text-balance text-4xl font-black leading-tight text-secondary md:text-6xl">
-            أقرب نقطة دخول لطلبك.
+            {localize(language, 'أقرب نقطة دخول لطلبك.', 'The closest starting point for your order.')}
           </h2>
           <p className="mx-auto mt-5 max-w-2xl text-sm font-semibold leading-7 text-slate-600">
-            تواصل معنا أو ابدأ الطلب من الموقع، والفريق ينسق الاستلام والتسليم حسب الفرع الأقرب.
+            {localize(language, 'تواصل معنا أو ابدأ الطلب من الموقع، والفريق ينسق الاستلام والتسليم حسب الفرع الأقرب.', 'Contact us or start an order online, and the team will coordinate pickup and delivery through the nearest branch.')}
           </p>
         </div>
 
@@ -240,7 +263,7 @@ export const BranchesSection: React.FC<{ branches: Branch[] }> = ({ branches }) 
                 <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-white shadow-[0_16px_34px_rgba(143,0,255,0.24)]">
                   <Icons.MapPin size={28} />
                 </div>
-                <span className="rounded-full bg-success/10 px-3 py-1 text-[11px] font-black text-success">متاح الآن</span>
+                <span className="rounded-full bg-success/10 px-3 py-1 text-[11px] font-black text-success">{localize(language, 'متاح الآن', 'Available')}</span>
               </div>
               <h3 className="mb-3 text-2xl font-black text-secondary">{branch.name}</h3>
               <p className="mb-6 text-sm font-semibold leading-7 text-slate-500">{branch.address}</p>

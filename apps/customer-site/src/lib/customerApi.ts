@@ -116,6 +116,10 @@ export const customerApi = {
       method: 'PUT',
       body: JSON.stringify({ status }),
     }),
+  syncOrderWithPos: (id: string) =>
+    requestJson<Order>(`/api/customer/orders/${encodeURIComponent(id)}/sync-pos`, {
+      method: 'POST',
+    }),
   getSiteConfig: () => requestJson<SiteConfig | null>('/api/customer/site-config'),
   updateSiteConfig: (config: SiteConfig) =>
     requestJson<SiteConfig>('/api/customer/site-config', {

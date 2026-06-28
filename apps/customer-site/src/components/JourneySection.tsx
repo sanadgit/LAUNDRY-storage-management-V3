@@ -3,8 +3,42 @@ import { motion, useScroll, useTransform } from 'motion/react';
 import { CheckCircle2, CircleDotDashed } from 'lucide-react';
 import { JOURNEY_STEPS } from '../constants';
 import { LaundryIcon } from './LaundryIcon';
+import { SiteLanguage, localize } from '../lib/i18n';
 
-export const JourneySection: React.FC = () => {
+const JOURNEY_EN = [
+  {
+    fullLabel: 'In: Pickup Request',
+    note: 'Your order starts with a clear pickup request, driver assignment, and WhatsApp confirmation.',
+    chips: ['Pickup', 'Driver', 'WhatsApp'],
+  },
+  {
+    fullLabel: 'In: Branch Receiving',
+    note: 'The branch receives and counts the clothes, then links the pickup order with the system order.',
+    chips: ['Receiving', 'Counting', 'POS Sync'],
+  },
+  {
+    fullLabel: 'Care: Sorting & Cleaning',
+    note: 'Items are sorted by garment type and service, then processed through the right cleaning workflow.',
+    chips: ['Sorting', 'Washing', 'Dry Cleaning'],
+  },
+  {
+    fullLabel: 'Care: Pressing & Finishing',
+    note: 'Every item is pressed, checked, and prepared with the finish expected from In & Out Laundry.',
+    chips: ['Ironing', 'Quality Check', 'Finishing'],
+  },
+  {
+    fullLabel: 'Out: Ready Invoice',
+    note: 'Once ready, the invoice and status become visible in the customer dashboard.',
+    chips: ['Invoice', 'Dashboard', 'Ready'],
+  },
+  {
+    fullLabel: 'Out: Delivery',
+    note: 'The driver receives the delivery details and location link to complete the order smoothly.',
+    chips: ['Delivery', 'Location Link', 'Done'],
+  },
+];
+
+export const JourneySection: React.FC<{ language?: SiteLanguage }> = ({ language = 'ar' }) => {
   const [activeStep, setActiveStep] = useState(0);
   const ref = useRef<HTMLElement | null>(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start end', 'end start'] });
@@ -18,12 +52,12 @@ export const JourneySection: React.FC = () => {
 
       <div className="mx-auto grid max-w-7xl gap-12 px-6 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
         <div className="lg:sticky lg:top-28">
-          <p className="mb-3 text-sm font-black text-primary">رحلة الطلب</p>
+          <p className="mb-3 text-sm font-black text-primary">{localize(language, 'رحلة الطلب', 'Order Journey')}</p>
           <h2 className="text-balance text-4xl font-black leading-tight text-secondary md:text-6xl">
-            كل قطعة تدخل من باب واضح وتخرج جاهزة بثقة.
+            {localize(language, 'كل قطعة تدخل من باب واضح وتخرج جاهزة بثقة.', 'Every item enters through a clear door and leaves ready with confidence.')}
           </h2>
           <p className="mt-6 max-w-xl text-base font-semibold leading-8 text-slate-600">
-            نفس فكرة الاسم تتحول إلى تجربة مرئية: دخول، معالجة، ثم خروج. كل مرحلة موثقة وقابلة للتتبع من أول الاستلام حتى آخر تسليم.
+            {localize(language, 'نفس فكرة الاسم تتحول إلى تجربة مرئية: دخول، معالجة، ثم خروج. كل مرحلة موثقة وقابلة للتتبع من أول الاستلام حتى آخر تسليم.', 'The brand idea becomes a visible workflow: in, care, and out. Every step is documented and trackable from pickup to delivery.')}
           </p>
 
           <motion.div style={{ y: sceneY, rotate: sceneRotate }} className="mt-12 hidden h-[360px] lg:block" dir="ltr">
@@ -55,10 +89,14 @@ export const JourneySection: React.FC = () => {
 
           <div className="space-y-5">
             {JOURNEY_STEPS.map((step, idx) => {
+              const englishStep = JOURNEY_EN[idx] ?? JOURNEY_EN[0];
+              const fullLabel = language === 'ar' ? step.fullLabel : englishStep.fullLabel;
+              const note = language === 'ar' ? step.note : englishStep.note;
+              const chips = language === 'ar' ? step.chips : englishStep.chips;
               const isActive = activeStep === idx;
               return (
                 <motion.button
-                  key={step.fullLabel}
+                  key={fullLabel}
                   onClick={() => setActiveStep(idx)}
                   onViewportEnter={() => setActiveStep(idx)}
                   initial={{ opacity: 0, y: 28 }}
@@ -75,11 +113,11 @@ export const JourneySection: React.FC = () => {
                     <div className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl shadow-inner ${
                       isActive ? 'bg-primary text-white' : 'bg-[#fbf4ff] text-secondary'
                     }`}>
-                      <LaundryIcon name={step.key} alt={step.label} className="h-14 w-14" />
+                      <LaundryIcon name={step.key} alt={fullLabel} className="h-14 w-14" />
                     </div>
                     <div className="flex-1">
                       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                        <h3 className="text-2xl font-black text-secondary">{step.fullLabel}</h3>
+                        <h3 className="text-2xl font-black text-secondary">{fullLabel}</h3>
                         <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-black ${
                           isActive ? 'bg-primary text-white' : 'bg-slate-100 text-slate-500'
                         }`}>
@@ -87,9 +125,9 @@ export const JourneySection: React.FC = () => {
                           {String(idx + 1).padStart(2, '0')}
                         </span>
                       </div>
-                      <p className="text-sm font-semibold leading-7 text-slate-600">{step.note}</p>
+                      <p className="text-sm font-semibold leading-7 text-slate-600">{note}</p>
                       <div className="mt-5 flex flex-wrap gap-2">
-                        {step.chips.map((chip) => (
+                        {chips.map((chip) => (
                           <span key={chip} className="rounded-full border border-primary/10 bg-primary/5 px-3 py-1 text-[11px] font-black text-primary">
                             {chip}
                           </span>

@@ -1,25 +1,39 @@
 import React from 'react';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import { Search, MapPin, Calendar, Layers, Clock, CheckCircle, Package } from 'lucide-react';
 import { Order, OrderStatus } from '../types';
 import { ORDER_STATUS_LABEL_AR } from '../lib/orders';
 import { LaundryIcon } from './LaundryIcon';
+import { SiteLanguage, localize } from '../lib/i18n';
 
 interface TrackingPanelProps {
   order: Order | null;
   onSearch: (id: string) => void;
+  language?: SiteLanguage;
 }
 
-export const TrackingPanel: React.FC<TrackingPanelProps> = ({ order, onSearch }) => {
+export const TrackingPanel: React.FC<TrackingPanelProps> = ({ order, onSearch, language = 'ar' }) => {
   const [searchValue, setSearchValue] = React.useState('');
+  const statusLabelEn: Record<OrderStatus, string> = {
+    new: 'New',
+    accepted: 'Accepted',
+    on_the_way: 'Driver on the way',
+    pickup: 'Picked up',
+    washing: 'Cleaning in progress',
+    ready: 'Ready',
+    delivery: 'Out for delivery',
+    completed: 'Completed',
+    delivered: 'Delivered',
+    cancelled: 'Cancelled',
+  };
 
   const statusStages = [
-    { label: 'تم الاستلام', icon: 'pickup_van' },
-    { label: 'تم إدخال البيانات في النظام', icon: 'garment_tag' },
-    { label: 'الغسيل والكوي جارٍ الآن', icon: 'washing_machine', active: true },
-    { label: 'الفرز والتغليف', icon: 'sorting_rack' },
-    { label: 'التخزين المؤقت', icon: 'laundry_bag' },
-    { label: 'التسليم للعميل', icon: 'delivery_scooter' }
+    { label: localize(language, 'تم الاستلام', 'Picked Up'), icon: 'pickup_van' },
+    { label: localize(language, 'تم إدخال البيانات في النظام', 'Entered in System'), icon: 'garment_tag' },
+    { label: localize(language, 'الغسيل والكوي جارٍ الآن', 'Washing & Ironing Now'), icon: 'washing_machine', active: true },
+    { label: localize(language, 'الفرز والتغليف', 'Sorting & Packing'), icon: 'sorting_rack' },
+    { label: localize(language, 'التخزين المؤقت', 'Temporary Storage'), icon: 'laundry_bag' },
+    { label: localize(language, 'التسليم للعميل', 'Customer Delivery'), icon: 'delivery_scooter' }
   ];
 
   return (
@@ -31,8 +45,12 @@ export const TrackingPanel: React.FC<TrackingPanelProps> = ({ order, onSearch })
           className="mx-auto mb-4 h-28 w-28 rounded-[2rem] bg-white/70 p-2 shadow-2xl shadow-primary/10"
           imageClassName="h-full w-full rounded-3xl object-contain"
         />
-        <h1 className="text-3xl md:text-5xl font-extrabold mb-4 italic">تتبع <span className="text-primary italic">طلبك</span></h1>
-        <p className="text-gray-500 font-medium max-w-lg mx-auto">ادخل رقم الطلب لمعرفة مرحلته الحالية في رحلة العناية بملابسك.</p>
+        <h1 className="text-3xl md:text-5xl font-extrabold mb-4 italic">
+          {localize(language, 'تتبع', 'Track')} <span className="text-primary italic">{localize(language, 'طلبك', 'Your Order')}</span>
+        </h1>
+        <p className="text-gray-500 font-medium max-w-lg mx-auto">
+          {localize(language, 'ادخل رقم الطلب لمعرفة مرحلته الحالية في رحلة العناية بملابسك.', 'Enter your order number to see its current care stage.')}
+        </p>
       </div>
 
       {/* Search Bar */}
@@ -40,7 +58,7 @@ export const TrackingPanel: React.FC<TrackingPanelProps> = ({ order, onSearch })
         <div className="glass p-2 rounded-3xl flex items-center gap-2 shadow-2xl shadow-primary/5">
           <input 
             type="text" 
-            placeholder="رقم الطلب (مثال: INO-2024-1048)"
+            placeholder={localize(language, 'رقم الطلب (مثال: INO-2024-1048)', 'Order number (example: INO-2024-1048)')}
             value={searchValue}
             onChange={(e) => setSearchValue(e.target.value)}
             className="flex-1 bg-transparent border-none focus:ring-0 px-6 py-4 text-lg font-bold placeholder:text-gray-300 text-right"
@@ -50,7 +68,7 @@ export const TrackingPanel: React.FC<TrackingPanelProps> = ({ order, onSearch })
             className="bg-primary text-white p-4 rounded-2xl hover:bg-opacity-90 transition-all active:scale-95 flex items-center gap-2 cursor-pointer"
           >
             <Search size={24} />
-            <span className="hidden sm:inline font-bold">تتبع الآن</span>
+            <span className="hidden sm:inline font-bold">{localize(language, 'تتبع الآن', 'Track Now')}</span>
           </button>
         </div>
       </div>
@@ -67,22 +85,22 @@ export const TrackingPanel: React.FC<TrackingPanelProps> = ({ order, onSearch })
             {/* Order Info Card */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="glass p-6 rounded-3xl border-r-4 border-r-primary">
-                <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">رقم الطلب</p>
+                <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">{localize(language, 'رقم الطلب', 'Order No.')}</p>
                 <p className="text-xl font-bold font-display tracking-tight">{order.id}</p>
               </div>
               <div className="glass p-6 rounded-3xl">
-                <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">القطع</p>
+                <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">{localize(language, 'القطع', 'Items')}</p>
                 <div className="flex items-center gap-2">
                   <Layers size={18} className="text-primary" />
-                  <p className="text-xl font-bold font-display">{order.itemCount} قطع</p>
+                  <p className="text-xl font-bold font-display">{order.itemCount} {localize(language, 'قطع', 'items')}</p>
                 </div>
               </div>
               <div className="glass p-6 rounded-3xl">
-                <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">الخدمة</p>
+                <p className="text-[10px] text-gray-400 font-bold uppercase mb-1">{localize(language, 'الخدمة', 'Service')}</p>
                 <p className="text-sm font-bold text-gray-700">{order.serviceType}</p>
               </div>
-              <div className="glass p-6 rounded-3xl bg-gray-900 text-white">
-                <p className="text-[10px] text-white/60 font-bold uppercase mb-1">موعد الاستلام</p>
+              <div className="glass p-6 rounded-3xl bg-secondary text-white">
+                <p className="text-[10px] text-white/60 font-bold uppercase mb-1">{localize(language, 'موعد الاستلام', 'Pickup Time')}</p>
                 <div className="flex items-center gap-2">
                   <Clock size={18} className="text-primary" />
                   <p className="text-sm font-bold">{order.eta}</p>
@@ -100,7 +118,13 @@ export const TrackingPanel: React.FC<TrackingPanelProps> = ({ order, onSearch })
                       className="h-14 w-14 animate-pulse rounded-2xl bg-white/70 p-1"
                       imageClassName="h-full w-full rounded-xl object-contain"
                     />
-                    <p className="text-primary font-bold text-lg italic">ملابسك حالياً في مرحلة {ORDER_STATUS_LABEL_AR[order.status] ?? order.status}</p>
+                    <p className="text-primary font-bold text-lg italic">
+                      {localize(
+                        language,
+                        `ملابسك حالياً في مرحلة ${ORDER_STATUS_LABEL_AR[order.status] ?? order.status}`,
+                        `Your order is currently: ${statusLabelEn[order.status] ?? order.status}`
+                      )}
+                    </p>
                   </div>
                </div>
 
@@ -126,12 +150,16 @@ export const TrackingPanel: React.FC<TrackingPanelProps> = ({ order, onSearch })
                         <div className={`pb-8 flex-1 ${isActive ? 'scale-105' : ''} transition-all`}>
                           <div className="flex items-center gap-2 mb-1">
                             <LaundryIcon name={stage.icon} alt="" className="h-8 w-8" />
-                            <h4 className={`text-sm font-bold ${isActive ? 'text-primary' : isDone ? 'text-gray-900' : 'text-gray-400'}`}>
+                            <h4 className={`text-sm font-bold ${isActive ? 'text-primary' : isDone ? 'text-secondary' : 'text-gray-400'}`}>
                               {stage.label}
                             </h4>
                           </div>
                           <p className="text-[10px] text-gray-400 font-medium">
-                            {isDone ? 'تم التنفيذ بنجاح' : isActive ? 'جاري العمل الآن...' : 'قريباً'}
+                            {isDone
+                              ? localize(language, 'تم التنفيذ بنجاح', 'Completed successfully')
+                              : isActive
+                                ? localize(language, 'جاري العمل الآن...', 'In progress now...')
+                                : localize(language, 'قريباً', 'Coming soon')}
                           </p>
                         </div>
                       </div>
@@ -147,12 +175,12 @@ export const TrackingPanel: React.FC<TrackingPanelProps> = ({ order, onSearch })
                     <MapPin size={24} />
                  </div>
                  <div>
-                    <h5 className="font-bold text-gray-900">فرع الاستلام</h5>
+                    <h5 className="font-bold text-secondary">{localize(language, 'فرع الاستلام', 'Pickup Branch')}</h5>
                     <p className="text-xs text-gray-500">{order.branch}</p>
                  </div>
               </div>
               <button className="text-success font-bold text-sm hover:underline cursor-pointer">
-                تواصل مع الفرع
+                {localize(language, 'تواصل مع الفرع', 'Contact Branch')}
               </button>
             </div>
           </motion.div>
@@ -164,12 +192,12 @@ export const TrackingPanel: React.FC<TrackingPanelProps> = ({ order, onSearch })
                className="mx-auto mb-4 h-28 w-28 rounded-[2rem] bg-white/70 p-2 shadow-xl shadow-primary/10"
                imageClassName="h-full w-full rounded-3xl object-contain"
              />
-             <p className="text-gray-500 font-bold">عذراً، لم نجد طلب بهذا الرقم {searchValue}</p>
+             <p className="text-gray-500 font-bold">
+               {localize(language, `عذراً، لم نجد طلب بهذا الرقم ${searchValue}`, `Sorry, we could not find order ${searchValue}`)}
+             </p>
            </div>
         )}
       </AnimatePresence>
     </div>
   );
 };
-
-import { AnimatePresence } from 'motion/react';
