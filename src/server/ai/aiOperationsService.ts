@@ -104,6 +104,7 @@ const PICKUP_STATUSES = new Set(['new', 'assigned', 'accepted', 'on_the_way', 'p
 const COMPLAINT_STATUSES = new Set(['new', 'assigned', 'investigating', 'waiting_customer', 'resolved', 'closed']);
 const COMPLAINT_TYPES = new Set(['quality', 'delay', 'price', 'delivery', 'lost_item', 'damage', 'staff_behavior', 'other']);
 const PRIORITIES = new Set(['low', 'normal', 'high', 'urgent']);
+const AI_CONVERSATION_STATUSES = new Set(['open', 'pending', 'assigned', 'resolved', 'closed']);
 
 const clamp = (value: unknown, max = 500) => {
   const text = String(value ?? '').trim();
@@ -126,6 +127,12 @@ const envFirst = (env: NodeJS.ProcessEnv, names: string[], fallback = '') => {
 const numberOrNull = (value: unknown) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+};
+
+const positiveInt = (value: unknown, fallback: number, max: number) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(Math.floor(parsed), max);
 };
 
 export const normalizeAiPhone = (value: unknown) => {
@@ -598,6 +605,153 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
     return results;
   };
 
+  const listAiConversations = async (filters: Record<string, unknown> = {}) => {
+    const params: any[] = [];
+    const addParam = (value: any) => {
+      params.push(value);
+      return usePostgres ? `$${params.length}` : '?';
+    };
+    const where: string[] = [];
+    const status = clamp(filters.status, 40);
+    const intent = clamp(filters.intent, 80);
+    const q = clamp(filters.q, 120).toLowerCase();
+    const limit = positiveInt(filters.limit, 80, 300);
+
+    if (status && status !== 'all') {
+      where.push(`c.status = ${addParam(status)}`);
+    }
+    if (intent && intent !== 'all') {
+      where.push(`c.intent = ${addParam(intent)}`);
+    }
+    if (q) {
+      const pattern = `%${q}%`;
+      if (usePostgres) {
+        where.push(
+          `(ac.phone ILIKE ${addParam(pattern)} OR COALESCE(ac.name, '') ILIKE ${addParam(pattern)} OR COALESCE(c.intent, '') ILIKE ${addParam(pattern)})`
+        );
+      } else {
+        where.push(
+          `(LOWER(ac.phone) LIKE ${addParam(pattern)} OR LOWER(COALESCE(ac.name, '')) LIKE ${addParam(pattern)} OR LOWER(COALESCE(c.intent, '')) LIKE ${addParam(pattern)})`
+        );
+      }
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const limitSql = addParam(limit);
+    const result = await query(
+      usePostgres
+        ? `SELECT
+             c.*,
+             ac.phone AS contact_phone,
+             ac.name AS contact_name,
+             ac.role AS contact_role,
+             ac.language AS contact_language,
+             (
+               SELECT m.message_text
+               FROM ai_messages m
+               WHERE m.conversation_id = c.id
+               ORDER BY m.created_at DESC, m.id DESC
+               LIMIT 1
+             ) AS last_message_text,
+             (
+               SELECT m.direction
+               FROM ai_messages m
+               WHERE m.conversation_id = c.id
+               ORDER BY m.created_at DESC, m.id DESC
+               LIMIT 1
+             ) AS last_message_direction,
+             (
+               SELECT COUNT(*)
+               FROM ai_messages m
+               WHERE m.conversation_id = c.id
+             )::int AS message_count
+           FROM ai_conversations c
+           JOIN ai_contacts ac ON ac.id = c.contact_id
+           ${whereSql}
+           ORDER BY COALESCE(c.last_message_at, c.updated_at, c.created_at) DESC, c.id DESC
+           LIMIT ${limitSql}`
+        : `SELECT
+             c.*,
+             ac.phone AS contact_phone,
+             ac.name AS contact_name,
+             ac.role AS contact_role,
+             ac.language AS contact_language,
+             (
+               SELECT m.message_text
+               FROM ai_messages m
+               WHERE m.conversation_id = c.id
+               ORDER BY datetime(m.created_at) DESC, m.id DESC
+               LIMIT 1
+             ) AS last_message_text,
+             (
+               SELECT m.direction
+               FROM ai_messages m
+               WHERE m.conversation_id = c.id
+               ORDER BY datetime(m.created_at) DESC, m.id DESC
+               LIMIT 1
+             ) AS last_message_direction,
+             (
+               SELECT COUNT(*)
+               FROM ai_messages m
+               WHERE m.conversation_id = c.id
+             ) AS message_count
+           FROM ai_conversations c
+           JOIN ai_contacts ac ON ac.id = c.contact_id
+           ${whereSql}
+           ORDER BY datetime(COALESCE(c.last_message_at, c.updated_at, c.created_at)) DESC, c.id DESC
+           LIMIT ${limitSql}`,
+      params
+    );
+    return result.rows;
+  };
+
+  const listAiConversationMessages = async (idRaw: unknown) => {
+    const id = Number(idRaw);
+    if (!Number.isFinite(id)) throw new Error('Valid conversation id is required.');
+    const result = await query(
+      usePostgres
+        ? `SELECT * FROM ai_messages WHERE conversation_id = $1 ORDER BY created_at ASC, id ASC LIMIT 300`
+        : `SELECT * FROM ai_messages WHERE conversation_id = ? ORDER BY datetime(created_at) ASC, id ASC LIMIT 300`,
+      [id]
+    );
+    return result.rows;
+  };
+
+  const updateAiConversation = async (idRaw: unknown, input: Record<string, unknown>) => {
+    const id = Number(idRaw);
+    if (!Number.isFinite(id)) throw new Error('Valid conversation id is required.');
+    const current = await get(usePostgres ? 'SELECT * FROM ai_conversations WHERE id = $1' : 'SELECT * FROM ai_conversations WHERE id = ?', [id]);
+    if (!current) return null;
+    const next = {
+      status:
+        input.status === undefined
+          ? current.status
+          : AI_CONVERSATION_STATUSES.has(String(input.status))
+            ? String(input.status)
+            : current.status,
+      priority:
+        input.priority === undefined
+          ? current.priority
+          : PRIORITIES.has(String(input.priority))
+            ? String(input.priority)
+            : current.priority,
+      assigned_to_phone:
+        input.assigned_to_phone === undefined
+          ? current.assigned_to_phone
+          : nullable(normalizeAiPhone(input.assigned_to_phone), 30),
+    };
+    await run(
+      `UPDATE ai_conversations
+       SET status = ?, priority = ?, assigned_to_phone = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      `UPDATE ai_conversations
+       SET status = $1, priority = $2, assigned_to_phone = $3, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $4`,
+      [next.status, next.priority, next.assigned_to_phone, id]
+    );
+    return get(usePostgres ? 'SELECT * FROM ai_conversations WHERE id = $1' : 'SELECT * FROM ai_conversations WHERE id = ?', [id]);
+  };
+
   const listPickupRequests = async () => {
     const result = await query(
       usePostgres
@@ -802,6 +956,9 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
     processWhatsappWebhook,
     sendWhatsAppText,
     sendAndLogWhatsAppText,
+    listAiConversations,
+    listAiConversationMessages,
+    updateAiConversation,
     listPickupRequests,
     createPickupRequest,
     updatePickupRequest,

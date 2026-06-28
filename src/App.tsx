@@ -14,6 +14,7 @@ import {
   History,
   ListChecks,
   Menu,
+  MessageCircle,
   Phone,
   ReceiptText,
   X,
@@ -54,6 +55,7 @@ const SortingPage = lazy(() => import('./pages/Sorting'));
 const ActiveSortingOrdersPage = lazy(() => import('./pages/ActiveSortingOrders'));
 const AchievementsPage = lazy(() => import('./pages/Achievements'));
 const CustomerAlertsPage = lazy(() => import('./pages/CustomerAlerts'));
+const AiConversationsPage = lazy(() => import('./pages/AiConversations'));
 const TrainingAcademyPage = lazy(() => import('./pages/TrainingAcademyPage'));
 const TrainingTranslationsPage = lazy(() => import('./pages/TrainingTranslationsPage'));
 const POSConnectPage = lazy(() => import('./pages/POSConnect'));
@@ -93,6 +95,7 @@ function MobileTopBar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
     if (location.pathname === '/sorting-orders') return 'Active Sorting Orders';
     if (location.pathname === '/achievements') return 'Achievements';
     if (location.pathname === '/customer-alerts') return 'Customer Alerts';
+    if (location.pathname === '/ai-conversations') return 'AI Conversations';
     if (location.pathname === '/pos-connect') return 'POS Connect';
     if (location.pathname === '/report') return 'Report';
     if (location.pathname === '/performance-report') return 'Performance Report';
@@ -295,6 +298,7 @@ function Sidebar({
     ...(showSorting ? [{ name: 'Active Sorting Orders', path: '/sorting-orders', icon: ListChecks }] : []),
     ...(showAchievements ? [{ name: 'Achievements', path: '/achievements', icon: Trophy }] : []),
     ...(showCustomerAlerts ? [{ name: 'Alerts', path: '/customer-alerts', icon: BellRing }] : []),
+    ...(showManagement ? [{ name: 'AI Conversations', path: '/ai-conversations', icon: MessageCircle }] : []),
     ...(showSearch ? [{ name: 'POS Connect', path: '/pos-connect', icon: Wifi }] : []),
     ...(showManagement ? [{ name: 'Report', path: '/report', icon: ReceiptText }] : []),
     ...(showManagement ? [{ name: 'Operations Report', path: '/operations-report', icon: BarChart3 }] : []),
@@ -523,6 +527,7 @@ function AppLayout() {
   const canOpenBlanketPacking = canOpenSorting && sortingWorkflows.includes('blanket_packing');
   const canOpenAchievements = canAccessAchievements(role);
   const canOpenCustomerAlerts = canAccessCustomerAlerts(role);
+  const canOpenAiConversations = canOpenManagement;
   const canOpenTrainingAcademy = canAccessTrainingAcademy(role);
   const canOpenReport = canOpenManagement;
   const canOpenExpenseTest = canOpenManagement;
@@ -649,6 +654,10 @@ function AppLayout() {
               <Route
                 path="/customer-alerts"
                 element={canOpenCustomerAlerts ? <CustomerAlertsPage /> : <Navigate to={defaultPath} replace />}
+              />
+              <Route
+                path="/ai-conversations"
+                element={canOpenAiConversations ? <AiConversationsPage /> : <Navigate to={defaultPath} replace />}
               />
               <Route
                 path="/training-academy"

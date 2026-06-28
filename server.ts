@@ -13254,6 +13254,34 @@ async function startServer() {
   );
 
   app.get(
+    '/api/ai/conversations',
+    requireAdmin,
+    asyncHandler(async (req: any, res: any) => {
+      const conversations = await aiOperations.listAiConversations(req.query || {});
+      res.json({ ok: true, conversations });
+    })
+  );
+
+  app.get(
+    '/api/ai/conversations/:id/messages',
+    requireAdmin,
+    asyncHandler(async (req: any, res: any) => {
+      const messages = await aiOperations.listAiConversationMessages(req.params.id);
+      res.json({ ok: true, messages });
+    })
+  );
+
+  app.patch(
+    '/api/ai/conversations/:id',
+    requireAdmin,
+    asyncHandler(async (req: any, res: any) => {
+      const conversation = await aiOperations.updateAiConversation(req.params.id, req.body || {});
+      if (!conversation) return res.status(404).json({ ok: false, error: 'Conversation not found.' });
+      res.json({ ok: true, conversation });
+    })
+  );
+
+  app.get(
     '/api/pickups',
     requireAiApiKeyIfConfigured,
     asyncHandler(async (_req: any, res: any) => {
