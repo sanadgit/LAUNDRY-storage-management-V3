@@ -50,6 +50,15 @@ type AiMessage = {
   created_at: string | null;
 };
 
+type PickupActionDraft = {
+  area: string;
+  address: string;
+  google_maps_url: string;
+  preferred_time: string;
+  serviceType: string;
+  notes: string;
+};
+
 const statusOptions: Array<{ value: 'all' | ConversationStatus; label: string }> = [
   { value: 'all', label: 'All' },
   { value: 'open', label: 'Open' },
@@ -91,6 +100,15 @@ const humanize = (value: string | null | undefined) => {
   return text.charAt(0).toUpperCase() + text.slice(1);
 };
 
+const emptyPickupDraft = (): PickupActionDraft => ({
+  area: '',
+  address: '',
+  google_maps_url: '',
+  preferred_time: '',
+  serviceType: 'WhatsApp pickup',
+  notes: '',
+});
+
 export default function AiConversationsPage() {
   const [conversations, setConversations] = useState<AiConversation[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -101,6 +119,7 @@ export default function AiConversationsPage() {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [actionBusy, setActionBusy] = useState<'pickup' | 'complaint' | null>(null);
+  const [pickupDraft, setPickupDraft] = useState<PickupActionDraft>(() => emptyPickupDraft());
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -156,6 +175,8 @@ export default function AiConversationsPage() {
 
   useEffect(() => {
     void loadMessages(selectedId);
+    setPickupDraft(emptyPickupDraft());
+    setNotice(null);
   }, [loadMessages, selectedId]);
 
   const updateConversation = async (patch: Partial<Pick<AiConversation, 'status' | 'priority' | 'assigned_to_phone'>>) => {
@@ -187,9 +208,12 @@ export default function AiConversationsPage() {
       setError(null);
       const response = await axios.post<{ pickup: { id: number } }>(
         `/api/ai/conversations/${selectedConversation.id}/create-pickup`,
-        {}
+        pickupDraft
       );
-      setNotice(`Pickup request #${response.data?.pickup?.id || ''} created from this conversation.`);
+      const orderId = (response.data as any)?.order?.id;
+      setNotice(
+        `Pickup request #${response.data?.pickup?.id || ''}${orderId ? ` and customer order #${orderId}` : ''} created.`
+      );
       await loadConversations();
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'Failed to create pickup request.');
@@ -387,6 +411,44 @@ export default function AiConversationsPage() {
                           {humanize(selectedConversation.intent)}
                         </span>
                       </div>
+                      <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+                        <input
+                          value={pickupDraft.area}
+                          onChange={(event) => setPickupDraft((draft) => ({ ...draft, area: event.target.value }))}
+                          placeholder="Area"
+                          className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-300 focus:bg-white"
+                        />
+                        <input
+                          value={pickupDraft.address}
+                          onChange={(event) => setPickupDraft((draft) => ({ ...draft, address: event.target.value }))}
+                          placeholder="Address"
+                          className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-300 focus:bg-white"
+                        />
+                        <input
+                          value={pickupDraft.google_maps_url}
+                          onChange={(event) => setPickupDraft((draft) => ({ ...draft, google_maps_url: event.target.value }))}
+                          placeholder="Location link"
+                          className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-300 focus:bg-white"
+                        />
+                        <input
+                          value={pickupDraft.preferred_time}
+                          onChange={(event) => setPickupDraft((draft) => ({ ...draft, preferred_time: event.target.value }))}
+                          placeholder="Pickup time"
+                          className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-300 focus:bg-white"
+                        />
+                        <input
+                          value={pickupDraft.serviceType}
+                          onChange={(event) => setPickupDraft((draft) => ({ ...draft, serviceType: event.target.value }))}
+                          placeholder="Service"
+                          className="h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-800 outline-none focus:border-blue-300 focus:bg-white"
+                        />
+                      </div>
+                      <textarea
+                        value={pickupDraft.notes}
+                        onChange={(event) => setPickupDraft((draft) => ({ ...draft, notes: event.target.value }))}
+                        placeholder="Internal notes for driver and order"
+                        className="mt-2 min-h-16 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-blue-300 focus:bg-white"
+                      />
                     </div>
 
                     <div className="flex flex-wrap gap-2">

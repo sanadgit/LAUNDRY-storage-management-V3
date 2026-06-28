@@ -10866,6 +10866,7 @@ const assignDriverAndNotifyForCustomerOrder = async (order: Record<string, unkno
         provider: providerResult.provider,
         driverId: selectedDriver.id,
         driverName: selectedDriver.name,
+        driverPhone: selectedDriver.phone,
       },
     };
   } catch (error: any) {
@@ -10878,10 +10879,93 @@ const assignDriverAndNotifyForCustomerOrder = async (order: Record<string, unkno
         attempted_at: new Date().toISOString(),
         driverId: selectedDriver.id,
         driverName: selectedDriver.name,
+        driverPhone: selectedDriver.phone,
         error: error?.message || 'Failed to send driver WhatsApp notification.',
       },
     };
   }
+};
+
+const saveCustomerOrderRecord = (order: Record<string, any> & { id: string; status: string }) => {
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO customer_orders (id, status, payload, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       status = excluded.status,
+       payload = excluded.payload,
+       updated_at = excluded.updated_at`
+  ).run(order.id, order.status, JSON.stringify(order), now, now);
+};
+
+const buildCustomerOrderFromAiPickup = (
+  pickup: Record<string, any>,
+  conversationId: string,
+  input: Record<string, unknown>
+) => {
+  const orderId = String(input.orderId ?? input.id ?? `AI-${pickup.id}`).trim();
+  const area = String(input.area ?? pickup.area ?? '').trim();
+  const address = String(input.address ?? pickup.address ?? '').trim();
+  const locationLink = String(input.google_maps_url ?? input.locationLink ?? pickup.google_maps_url ?? '').trim();
+  const pickupSlot = String(input.preferred_time ?? pickup.preferred_time ?? 'WhatsApp requested pickup').trim();
+  const customerName = String(input.customer_name ?? pickup.customer_name ?? '').trim() || 'WhatsApp Customer';
+  const customerPhone = String(input.customer_phone ?? pickup.customer_phone ?? '').trim();
+  const notes = String(input.notes ?? pickup.notes ?? '').trim();
+
+  return parseCustomerOrderPayload({
+    id: orderId,
+    dateReceived: new Date().toISOString(),
+    serviceType: String(input.serviceType ?? input.service_type ?? 'WhatsApp pickup').trim() || 'WhatsApp pickup',
+    status: 'new',
+    customerName,
+    customerPhone,
+    phoneNumber: customerPhone,
+    customerNotes: notes,
+    itemCount: 0,
+    amount: 0,
+    totalPrice: 0,
+    paymentStatus: 'pending',
+    priority: input.priority ?? 'normal',
+    paymentMethod: input.paymentMethod ?? input.payment_method ?? 'cash',
+    branch: String(input.branch ?? 'Customer Website').trim() || 'Customer Website',
+    customerArea: area,
+    area,
+    deliveryAddress: [area, address].filter(Boolean).join('، ') || address || area || notes,
+    locationLink,
+    mapLocationLink: locationLink,
+    driverLocationLink: locationLink,
+    pickupSlot,
+    notes,
+    eta: 'Waiting for pickup',
+    source: 'ai_whatsapp',
+    pickupRequestId: pickup.id,
+    aiConversationId: conversationId,
+    bags: [
+      {
+        label: 'WhatsApp pickup request',
+        items: ['Items will be counted at pickup or branch sorting.'],
+      },
+    ],
+  }) as Record<string, any> & { id: string; status: string };
+};
+
+const createCustomerOrderFromAiPickup = async (
+  pickup: Record<string, any>,
+  conversationId: string,
+  input: Record<string, unknown>
+) => {
+  const order = buildCustomerOrderFromAiPickup(pickup, conversationId, input);
+  if (!order) throw new Error('Failed to build customer order from AI pickup request.');
+  const driverEnrichedOrder = (await assignDriverAndNotifyForCustomerOrder(order)) as unknown as Record<string, any> & {
+    id: string;
+    status: string;
+  };
+  const finalOrder = (await notifyCustomerOrderConfirmation(driverEnrichedOrder)) as unknown as Record<string, any> & {
+    id: string;
+    status: string;
+  };
+  saveCustomerOrderRecord(finalOrder);
+  return finalOrder;
 };
 
 const sendOtpViaAipsoft = async (
@@ -13287,7 +13371,13 @@ async function startServer() {
     asyncHandler(async (req: any, res: any) => {
       const pickup = await aiOperations.createPickupFromConversation(req.params.id, req.body || {});
       if (!pickup) return res.status(404).json({ ok: false, error: 'Conversation not found.' });
-      res.json({ ok: true, pickup });
+      const order = await createCustomerOrderFromAiPickup(pickup, String(req.params.id ?? ''), req.body || {});
+      const driverPhone = String(order?.driverNotification?.driverPhone ?? '').trim();
+      await aiOperations.updatePickupRequest(pickup.id, {
+        status: 'assigned',
+        assigned_driver_phone: driverPhone || pickup.assigned_driver_phone,
+      });
+      res.json({ ok: true, pickup, order });
     })
   );
 
@@ -19940,15 +20030,7 @@ async function startServer() {
         ? await notifyCustomerOrderConfirmation(driverEnrichedOrder)
         : driverEnrichedOrder) as Record<string, any> & { id: string; status: string };
 
-      const now = new Date().toISOString();
-      db.prepare(
-        `INSERT INTO customer_orders (id, status, payload, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           status = excluded.status,
-           payload = excluded.payload,
-           updated_at = excluded.updated_at`
-      ).run(finalOrder.id, finalOrder.status, JSON.stringify(finalOrder), now, now);
+      saveCustomerOrderRecord(finalOrder);
 
       res.status(201).json(finalOrder);
     } catch (error: any) {
