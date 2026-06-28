@@ -13255,7 +13255,7 @@ async function startServer() {
 
   app.get(
     '/api/ai/conversations',
-    requireAdmin,
+    requirePicker,
     asyncHandler(async (req: any, res: any) => {
       const conversations = await aiOperations.listAiConversations(req.query || {});
       res.json({ ok: true, conversations });
@@ -13264,7 +13264,7 @@ async function startServer() {
 
   app.get(
     '/api/ai/conversations/:id/messages',
-    requireAdmin,
+    requirePicker,
     asyncHandler(async (req: any, res: any) => {
       const messages = await aiOperations.listAiConversationMessages(req.params.id);
       res.json({ ok: true, messages });
@@ -13273,7 +13273,7 @@ async function startServer() {
 
   app.patch(
     '/api/ai/conversations/:id',
-    requireAdmin,
+    requirePicker,
     asyncHandler(async (req: any, res: any) => {
       const conversation = await aiOperations.updateAiConversation(req.params.id, req.body || {});
       if (!conversation) return res.status(404).json({ ok: false, error: 'Conversation not found.' });
@@ -20032,6 +20032,7 @@ async function startServer() {
     ['/performance-report', '/smart-storage-hub/performance-report'],
     ['/operations-report', '/smart-storage-hub/operations-report'],
     ['/achievements', '/smart-storage-hub/achievements'],
+    ['/ai-conversations', '/smart-storage-hub/ai-conversations'],
     ['/training-academy', '/smart-storage-hub/training-academy'],
     ['/training-academy/translations', '/smart-storage-hub/training-academy/translations'],
   ]);

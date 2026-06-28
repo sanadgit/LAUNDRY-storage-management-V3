@@ -298,7 +298,7 @@ function Sidebar({
     ...(showSorting ? [{ name: 'Active Sorting Orders', path: '/sorting-orders', icon: ListChecks }] : []),
     ...(showAchievements ? [{ name: 'Achievements', path: '/achievements', icon: Trophy }] : []),
     ...(showCustomerAlerts ? [{ name: 'Alerts', path: '/customer-alerts', icon: BellRing }] : []),
-    ...(showManagement ? [{ name: 'AI Conversations', path: '/ai-conversations', icon: MessageCircle }] : []),
+    ...(showCustomerAlerts ? [{ name: 'AI Conversations', path: '/ai-conversations', icon: MessageCircle }] : []),
     ...(showSearch ? [{ name: 'POS Connect', path: '/pos-connect', icon: Wifi }] : []),
     ...(showManagement ? [{ name: 'Report', path: '/report', icon: ReceiptText }] : []),
     ...(showManagement ? [{ name: 'Operations Report', path: '/operations-report', icon: BarChart3 }] : []),
@@ -527,7 +527,7 @@ function AppLayout() {
   const canOpenBlanketPacking = canOpenSorting && sortingWorkflows.includes('blanket_packing');
   const canOpenAchievements = canAccessAchievements(role);
   const canOpenCustomerAlerts = canAccessCustomerAlerts(role);
-  const canOpenAiConversations = canOpenManagement;
+  const canOpenAiConversations = canOpenCustomerAlerts;
   const canOpenTrainingAcademy = canAccessTrainingAcademy(role);
   const canOpenReport = canOpenManagement;
   const canOpenExpenseTest = canOpenManagement;
