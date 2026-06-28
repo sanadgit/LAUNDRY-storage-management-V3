@@ -13281,6 +13281,26 @@ async function startServer() {
     })
   );
 
+  app.post(
+    '/api/ai/conversations/:id/create-pickup',
+    requirePicker,
+    asyncHandler(async (req: any, res: any) => {
+      const pickup = await aiOperations.createPickupFromConversation(req.params.id, req.body || {});
+      if (!pickup) return res.status(404).json({ ok: false, error: 'Conversation not found.' });
+      res.json({ ok: true, pickup });
+    })
+  );
+
+  app.post(
+    '/api/ai/conversations/:id/create-complaint',
+    requirePicker,
+    asyncHandler(async (req: any, res: any) => {
+      const complaint = await aiOperations.createComplaintFromConversation(req.params.id, req.body || {});
+      if (!complaint) return res.status(404).json({ ok: false, error: 'Conversation not found.' });
+      res.json({ ok: true, complaint });
+    })
+  );
+
   app.get(
     '/api/pickups',
     requireAiApiKeyIfConfigured,

@@ -933,6 +933,94 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
     return get(usePostgres ? 'SELECT * FROM complaint_tickets WHERE id = $1' : 'SELECT * FROM complaint_tickets WHERE id = ?', [id]);
   };
 
+  const getAiConversationActionContext = async (idRaw: unknown) => {
+    const id = Number(idRaw);
+    if (!Number.isFinite(id)) throw new Error('Valid conversation id is required.');
+    return get(
+      usePostgres
+        ? `SELECT
+             c.*,
+             ac.phone AS contact_phone,
+             ac.name AS contact_name,
+             ac.role AS contact_role,
+             (
+               SELECT m.message_text
+               FROM ai_messages m
+               WHERE m.conversation_id = c.id AND m.direction = 'inbound'
+               ORDER BY m.created_at DESC, m.id DESC
+               LIMIT 1
+             ) AS last_inbound_text
+           FROM ai_conversations c
+           JOIN ai_contacts ac ON ac.id = c.contact_id
+           WHERE c.id = $1
+           LIMIT 1`
+        : `SELECT
+             c.*,
+             ac.phone AS contact_phone,
+             ac.name AS contact_name,
+             ac.role AS contact_role,
+             (
+               SELECT m.message_text
+               FROM ai_messages m
+               WHERE m.conversation_id = c.id AND m.direction = 'inbound'
+               ORDER BY datetime(m.created_at) DESC, m.id DESC
+               LIMIT 1
+             ) AS last_inbound_text
+           FROM ai_conversations c
+           JOIN ai_contacts ac ON ac.id = c.contact_id
+           WHERE c.id = ?
+           LIMIT 1`,
+      [id]
+    );
+  };
+
+  const buildActionNote = (conversation: any, prefix: string, extra?: unknown) => {
+    const parts = [
+      `${prefix} from WhatsApp AI conversation #${conversation.id}.`,
+      conversation.intent ? `Intent: ${conversation.intent}.` : '',
+      conversation.last_inbound_text ? `Customer message: ${clamp(conversation.last_inbound_text, 1200)}` : '',
+      clamp(extra, 700),
+    ].filter(Boolean);
+    return parts.join(' ');
+  };
+
+  const createPickupFromConversation = async (idRaw: unknown, input: Record<string, unknown> = {}) => {
+    const conversation = await getAiConversationActionContext(idRaw);
+    if (!conversation) return null;
+    const pickup = await createPickupRequest({
+      customer_name: input.customer_name ?? conversation.contact_name,
+      customer_phone: input.customer_phone ?? conversation.contact_phone,
+      branch_id: input.branch_id ?? conversation.branch_id,
+      address: input.address,
+      google_maps_url: input.google_maps_url,
+      latitude: input.latitude,
+      longitude: input.longitude,
+      preferred_time: input.preferred_time,
+      assigned_driver_phone: input.assigned_driver_phone ?? conversation.assigned_to_phone,
+      notes: buildActionNote(conversation, 'Pickup request created', input.notes),
+      created_by: 'admin',
+    });
+    await updateAiConversation(conversation.id, { status: 'assigned', priority: conversation.priority });
+    return pickup;
+  };
+
+  const createComplaintFromConversation = async (idRaw: unknown, input: Record<string, unknown> = {}) => {
+    const conversation = await getAiConversationActionContext(idRaw);
+    if (!conversation) return null;
+    const complaint = await createComplaint({
+      customer_name: input.customer_name ?? conversation.contact_name,
+      customer_phone: input.customer_phone ?? conversation.contact_phone,
+      order_id: input.order_id,
+      branch_id: input.branch_id ?? conversation.branch_id,
+      complaint_type: input.complaint_type ?? 'other',
+      description: input.description ?? buildActionNote(conversation, 'Complaint ticket opened', input.notes),
+      priority: input.priority ?? conversation.priority ?? 'normal',
+      assigned_to_phone: input.assigned_to_phone ?? conversation.assigned_to_phone,
+    });
+    await updateAiConversation(conversation.id, { status: 'assigned', priority: complaint.priority ?? conversation.priority });
+    return complaint;
+  };
+
   return {
     ensureSchema: async () => {
       if (!usePostgres || !pgPool) {
@@ -959,6 +1047,8 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
     listAiConversations,
     listAiConversationMessages,
     updateAiConversation,
+    createPickupFromConversation,
+    createComplaintFromConversation,
     listPickupRequests,
     createPickupRequest,
     updatePickupRequest,

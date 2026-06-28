@@ -7,8 +7,10 @@ import {
   Clock3,
   Loader2,
   MessageCircle,
+  MessageSquareWarning,
   RefreshCw,
   Search,
+  Truck,
   UserRound,
 } from 'lucide-react';
 
@@ -98,6 +100,7 @@ export default function AiConversationsPage() {
   const [loading, setLoading] = useState(false);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [actionBusy, setActionBusy] = useState<'pickup' | 'complaint' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -173,6 +176,44 @@ export default function AiConversationsPage() {
       setError(err?.response?.data?.error || err?.message || 'Failed to update conversation.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const createPickupFromSelected = async () => {
+    if (!selectedConversation) return;
+    try {
+      setActionBusy('pickup');
+      setNotice(null);
+      setError(null);
+      const response = await axios.post<{ pickup: { id: number } }>(
+        `/api/ai/conversations/${selectedConversation.id}/create-pickup`,
+        {}
+      );
+      setNotice(`Pickup request #${response.data?.pickup?.id || ''} created from this conversation.`);
+      await loadConversations();
+    } catch (err: any) {
+      setError(err?.response?.data?.error || err?.message || 'Failed to create pickup request.');
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
+  const createComplaintFromSelected = async () => {
+    if (!selectedConversation) return;
+    try {
+      setActionBusy('complaint');
+      setNotice(null);
+      setError(null);
+      const response = await axios.post<{ complaint: { id: number } }>(
+        `/api/ai/conversations/${selectedConversation.id}/create-complaint`,
+        {}
+      );
+      setNotice(`Complaint ticket #${response.data?.complaint?.id || ''} opened from this conversation.`);
+      await loadConversations();
+    } catch (err: any) {
+      setError(err?.response?.data?.error || err?.message || 'Failed to open complaint ticket.');
+    } finally {
+      setActionBusy(null);
     }
   };
 
@@ -349,6 +390,24 @@ export default function AiConversationsPage() {
                     </div>
 
                     <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={Boolean(actionBusy)}
+                        onClick={() => void createPickupFromSelected()}
+                        className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {actionBusy === 'pickup' ? <Loader2 className="animate-spin" size={15} /> : <Truck size={15} />}
+                        Create Pickup
+                      </button>
+                      <button
+                        type="button"
+                        disabled={Boolean(actionBusy)}
+                        onClick={() => void createComplaintFromSelected()}
+                        className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-black text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {actionBusy === 'complaint' ? <Loader2 className="animate-spin" size={15} /> : <MessageSquareWarning size={15} />}
+                        Open Complaint
+                      </button>
                       {(['open', 'pending', 'assigned', 'resolved', 'closed'] as ConversationStatus[]).map((status) => (
                         <button
                           key={status}
