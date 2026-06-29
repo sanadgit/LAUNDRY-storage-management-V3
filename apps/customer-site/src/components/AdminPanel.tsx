@@ -345,6 +345,107 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ config, onConfigChange, 
   const driversOnline = localConfig.drivers.filter((driver) => ['online', 'available'].includes(driver.status)).length;
   const aiOrders = orders.filter((order) => String((order as any).source || '').includes('ai') || order.id.startsWith('AI-')).length;
   const revenue = orders.reduce((sum, order) => sum + safeNumber(order.amount || order.totalPrice), 0);
+  const activeServiceAreas = localConfig.service_areas.filter((area) => area.active !== false);
+  const activePickupSlots = localConfig.time_slots.filter((slot) => slot.active !== false && !slot.busy);
+  const unassignedOrders = orders.filter((order) => ['new', 'accepted', 'on_the_way', 'pickup'].includes(order.status) && !order.assignedDriverId);
+  const processingOrders = orders.filter((order) => ['washing', 'accepted'].includes(order.status)).length;
+  const readyOrders = orders.filter((order) => ['ready', 'delivery'].includes(order.status)).length;
+  const cancelledOrders = orders.filter((order) => order.status === 'cancelled').length;
+  const unpaidOrders = orders.filter((order) => order.paymentStatus !== 'paid');
+  const delayedOrders = orders.filter((order) => {
+    if (!order.deadline) return false;
+    const deadlineTime = new Date(order.deadline).getTime();
+    return Number.isFinite(deadlineTime) && deadlineTime < Date.now() && !['completed', 'delivered', 'cancelled'].includes(order.status);
+  });
+  const avgOrderValue = orders.length ? revenue / orders.length : 0;
+
+  const getOrderArea = (order: Order) => {
+    const source = [order.deliveryAddress, order.branch, order.customerNotes, order.pos?.customer_address]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    return localConfig.service_areas.find((area) => source.includes(area.name.toLowerCase())) || null;
+  };
+
+  const getOrderDriver = (order: Order) => {
+    if (!order.assignedDriverId) return null;
+    return localConfig.drivers.find((driver) => driver.id === order.assignedDriverId || driver.name === order.assignedDriverId) || null;
+  };
+
+  const gotoOrders = (status = 'all') => {
+    setOrderStatusFilter(status);
+    setActiveSection('orders');
+  };
+
+  const gotoDispatch = (tab: DispatchTab) => {
+    setDispatchTab(tab);
+    setActiveSection('dispatch');
+  };
+
+  const operationalAlerts = [
+    {
+      id: 'unassigned',
+      label: 'طلبات بدون سائق',
+      detail: `${unassignedOrders.length} طلب يحتاج تعيين`,
+      count: unassignedOrders.length,
+      tone: unassignedOrders.length ? 'danger' : 'good',
+      action: () => gotoOrders('new'),
+    },
+    {
+      id: 'uncovered',
+      label: 'مناطق بدون سائق',
+      detail: `${activeServiceAreas.filter((area) => !localConfig.drivers.some((driver) => driver.service_areas?.includes(area.name) || driver.service_areas?.includes(area.id))).length} منطقة غير مغطاة`,
+      count: activeServiceAreas.filter((area) => !localConfig.drivers.some((driver) => driver.service_areas?.includes(area.name) || driver.service_areas?.includes(area.id))).length,
+      tone: activeServiceAreas.some((area) => !localConfig.drivers.some((driver) => driver.service_areas?.includes(area.name) || driver.service_areas?.includes(area.id))) ? 'warn' : 'good',
+      action: () => gotoDispatch('drivers'),
+    },
+    {
+      id: 'offline-drivers',
+      label: 'سائقون غير متصلين',
+      detail: `${localConfig.drivers.filter((driver) => ['offline', 'off'].includes(driver.status)).length} خارج الخدمة`,
+      count: localConfig.drivers.filter((driver) => ['offline', 'off'].includes(driver.status)).length,
+      tone: localConfig.drivers.some((driver) => ['offline', 'off'].includes(driver.status)) ? 'warn' : 'good',
+      action: () => gotoDispatch('drivers'),
+    },
+    {
+      id: 'whatsapp',
+      label: 'WhatsApp API',
+      detail: localConfig.whatsapp_notifications ? 'الإشعارات مفعلة' : 'الإشعارات متوقفة',
+      count: localConfig.whatsapp_notifications ? 0 : 1,
+      tone: localConfig.whatsapp_notifications ? 'good' : 'danger',
+      action: () => setActiveSection('ai'),
+    },
+    {
+      id: 'slots',
+      label: 'فترات الاستلام',
+      detail: `${activePickupSlots.length} فترة متاحة`,
+      count: activePickupSlots.length < 2 ? 1 : 0,
+      tone: activePickupSlots.length < 2 ? 'warn' : 'good',
+      action: () => gotoDispatch('times'),
+    },
+  ];
+
+  const areaWorkload = activeServiceAreas.slice(0, 7).map((area) => {
+    const areaOrders = orders.filter((order) => getOrderArea(order)?.id === area.id);
+    const assignedDrivers = localConfig.drivers.filter((driver) => driver.service_areas?.includes(area.name) || driver.service_areas?.includes(area.id));
+    return { area, orders: areaOrders.length, activeOrders: areaOrders.filter((order) => !['completed', 'delivered', 'cancelled'].includes(order.status)).length, assignedDrivers };
+  });
+
+  const driverWorkload = localConfig.drivers.slice(0, 5).map((driver) => {
+    const driverOrders = orders.filter((order) => order.assignedDriverId === driver.id || order.assignedDriverId === driver.name);
+    return {
+      driver,
+      orders: driverOrders.filter((order) => !['completed', 'delivered', 'cancelled'].includes(order.status)).length,
+      ready: driverOrders.filter((order) => ['ready', 'delivery'].includes(order.status)).length,
+    };
+  });
+
+  const paymentSummary = [
+    { label: 'مدفوع', value: orders.filter((order) => order.paymentStatus === 'paid').length, tone: 'good' },
+    { label: 'غير مدفوع', value: unpaidOrders.length, tone: unpaidOrders.length ? 'warn' : 'neutral' },
+    { label: 'نقد', value: orders.filter((order) => order.paymentMethod === 'cash').length, tone: 'neutral' },
+    { label: 'بطاقة/محفظة', value: orders.filter((order) => order.paymentMethod === 'card' || order.paymentMethod === 'wallet').length, tone: 'info' },
+  ];
 
   const updateOrderStatus = (orderId: string, status: Order['status']) => {
     onOrdersChange(orders.map((order) => (order.id === orderId ? { ...order, status } : order)));
@@ -434,81 +535,235 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ config, onConfigChange, 
 
   const renderOverview = () => (
     <div className="space-y-5">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="rounded-lg border border-cyan-900/20 bg-[#062f35] p-5 text-white shadow-sm">
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusPill value={localConfig.maintenance_mode ? 'صيانة' : 'الموقع يعمل'} tone={localConfig.maintenance_mode ? 'warn' : 'good'} />
+              <StatusPill value={localConfig.whatsapp_notifications ? 'WhatsApp OK' : 'WhatsApp Off'} tone={localConfig.whatsapp_notifications ? 'good' : 'danger'} />
+              <StatusPill value={aiSettings.auto_pickup_enabled ? 'AI Auto' : 'AI Manual'} tone={aiSettings.auto_pickup_enabled ? 'info' : 'warn'} />
+            </div>
+            <h2 className="mt-4 text-2xl font-black tracking-normal md:text-3xl">مركز متابعة التشغيل اليومي</h2>
+            <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-cyan-50/75">
+              ملخص حي للطلبات، التوصيل، السائقين، WhatsApp، والوكيل الذكي. الأرقام تعتمد على الطلبات والإعدادات المحملة في النظام الآن.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 rounded-lg border border-white/10 bg-white/8 p-3">
+            {[
+              ['اليوم', new Date().toLocaleDateString('ar-AE', { weekday: 'long', day: '2-digit', month: 'short' })],
+              ['آخر تحديث', 'الآن'],
+              ['الفروع', localConfig.branches.length],
+              ['المناطق', activeServiceAreas.length],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-lg bg-white/10 p-3">
+                <div className="text-[10px] font-black uppercase tracking-widest text-cyan-100/60">{label}</div>
+                <div className="mt-1 text-sm font-black text-white">{value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {[
-          { label: 'طلبات اليوم', value: todayOrders, icon: <ClipboardList size={18} />, tone: 'info', sub: `${orders.length} كل الطلبات` },
-          { label: 'طلبات الاستلام', value: pickupOrders, icon: <Truck size={18} />, tone: 'good', sub: 'موقع + واتساب' },
-          { label: 'السائقون المتصلون', value: `${driversOnline}/${localConfig.drivers.length}`, icon: <Users size={18} />, tone: 'good', sub: 'Online / available' },
-          { label: 'طلبات AI', value: aiOrders, icon: <Bot size={18} />, tone: 'warn', sub: 'WhatsApp automation' },
+          { label: 'طلبات اليوم', value: todayOrders, icon: <ClipboardList size={18} />, tone: 'info', sub: `${orders.length} كل الطلبات`, action: () => gotoOrders('all') },
+          { label: 'طلبات الاستلام', value: pickupOrders, icon: <Truck size={18} />, tone: 'good', sub: 'جديدة / في الطريق', action: () => gotoOrders('new') },
+          { label: 'قيد المعالجة', value: processingOrders, icon: <Activity size={18} />, tone: 'neutral', sub: 'غسيل أو تجهيز', action: () => gotoOrders('washing') },
+          { label: 'جاهزة للتوصيل', value: readyOrders, icon: <CheckCircle2 size={18} />, tone: 'good', sub: 'Ready / Delivery', action: () => gotoOrders('ready') },
+          { label: 'طلبات متأخرة', value: delayedOrders.length, icon: <AlertCircle size={18} />, tone: delayedOrders.length ? 'danger' : 'good', sub: 'حسب deadline', action: () => gotoOrders('all') },
+          { label: 'إيراد الطلبات', value: formatMoney(revenue), icon: <Banknote size={18} />, tone: 'info', sub: `متوسط ${formatMoney(avgOrderValue)}`, action: () => setActiveSection('orders') },
+          { label: 'السائقون المتصلون', value: `${driversOnline}/${localConfig.drivers.length}`, icon: <Users size={18} />, tone: driversOnline ? 'good' : 'warn', sub: 'Online / available', action: () => gotoDispatch('drivers') },
+          { label: 'طلبات AI', value: aiOrders, icon: <Bot size={18} />, tone: aiOrders ? 'warn' : 'neutral', sub: 'WhatsApp automation', action: () => setActiveSection('ai') },
         ].map((card) => (
-          <div key={card.label} className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="flex items-start justify-between">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-cyan-50 text-cyan-700">{card.icon}</div>
+          <button key={card.label} onClick={card.action} className="rounded-lg border border-slate-200 bg-white p-4 text-right shadow-sm transition hover:-translate-y-0.5 hover:border-cyan-200 hover:shadow-md">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-cyan-50 text-cyan-700">{card.icon}</div>
               <StatusPill value={card.sub} tone={card.tone as any} />
             </div>
-            <div className="mt-5 text-2xl font-black text-slate-950">{card.value}</div>
+            <div className="mt-4 truncate text-2xl font-black text-slate-950">{card.value}</div>
             <div className="mt-1 text-xs font-bold text-slate-500">{card.label}</div>
-          </div>
+          </button>
         ))}
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_24rem]">
-        <Panel title="آخر الطلبات" subtitle="Recent customer orders" icon={<ClipboardList size={18} />} action={<button onClick={() => setActiveSection('orders')} className="text-xs font-black text-cyan-700">عرض الكل</button>}>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-right text-sm">
-              <thead className="text-xs text-slate-500">
-                <tr className="border-b border-slate-100">
-                  <th className="py-2 font-black">الطلب</th>
-                  <th className="py-2 font-black">العميل</th>
-                  <th className="py-2 font-black">الخدمة</th>
-                  <th className="py-2 font-black">الحالة</th>
-                  <th className="py-2 font-black">السائق</th>
-                  <th className="py-2 font-black">المبلغ</th>
-                </tr>
-              </thead>
-              <tbody>
-                {orders.slice(0, 8).map((order) => (
-                  <tr key={order.id} className="border-b border-slate-50">
-                    <td className="py-3 font-black text-slate-900">{order.id}</td>
-                    <td className="py-3">
-                      <div className="font-bold text-slate-800">{order.customerName}</div>
-                      <div className="text-xs font-semibold text-slate-400" dir="ltr">{order.customerPhone || '-'}</div>
-                    </td>
-                    <td className="py-3 font-semibold text-slate-600">{order.serviceType}</td>
-                    <td className="py-3"><StatusPill value={statusLabel[order.status] || order.status} tone={order.status === 'cancelled' ? 'danger' : order.status === 'ready' ? 'good' : 'info'} /></td>
-                    <td className="py-3 text-xs font-bold text-slate-500">{order.assignedDriverId || '-'}</td>
-                    <td className="py-3 font-black text-slate-900">{formatMoney(order.amount || order.totalPrice)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Panel>
-
-        <Panel title="صحة التشغيل" subtitle="Operational Health" icon={<Activity size={18} />}>
-          <div className="space-y-3">
-            {[
-              { label: 'استقبال الطلبات', value: localConfig.accept_orders, note: 'Website Orders' },
-              { label: 'WhatsApp API', value: localConfig.whatsapp_notifications, note: 'Business API templates' },
-              { label: 'التعيين التلقائي للسائقين', value: aiSettings.notify_driver, note: 'Driver Assignment' },
-              { label: 'Auto AI Pickup', value: aiSettings.auto_pickup_enabled, note: 'AI Agent' },
-              { label: 'وضع الصيانة', value: !localConfig.maintenance_mode, note: 'Website Availability' },
-            ].map((row) => (
-              <div key={row.label} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
-                <div>
-                  <div className="text-sm font-black text-slate-800">{row.label}</div>
-                  <div className="text-[11px] font-bold text-slate-400">{row.note}</div>
-                </div>
-                {row.value ? <StatusPill value="OK" tone="good" /> : <StatusPill value="Check" tone="warn" />}
-              </div>
-            ))}
-            <div className="rounded-lg bg-slate-950 p-4 text-white">
-              <div className="text-xs font-bold text-cyan-200">Revenue snapshot</div>
-              <div className="mt-1 text-2xl font-black">{formatMoney(revenue)}</div>
-              <div className="mt-1 text-[11px] text-slate-400">من الطلبات المحملة في اللوحة</div>
+      <div className="grid gap-5 2xl:grid-cols-[minmax(0,1.35fr)_minmax(22rem,0.65fr)]">
+        <div className="space-y-5">
+          <Panel
+            title="التنبيهات المهمة"
+            subtitle="أولويات تحتاج متابعة قبل تراكم التشغيل"
+            icon={<AlertCircle size={18} />}
+            action={<button onClick={() => gotoDispatch('drivers')} className="text-xs font-black text-cyan-700">إدارة التعيين</button>}
+          >
+            <div className="grid gap-3 lg:grid-cols-2">
+              {operationalAlerts.map((alert) => (
+                <button key={alert.id} onClick={alert.action} className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3 text-right transition hover:border-cyan-200 hover:bg-white">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className={cx('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg', alert.tone === 'good' ? 'bg-emerald-50 text-emerald-700' : alert.tone === 'danger' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700')}>
+                      {alert.count ? <AlertCircle size={17} /> : <Check size={17} />}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-black text-slate-800">{alert.label}</div>
+                      <div className="truncate text-xs font-bold text-slate-400">{alert.detail}</div>
+                    </div>
+                  </div>
+                  <StatusPill value={alert.count ? 'راجع' : 'OK'} tone={alert.tone as any} />
+                </button>
+              ))}
             </div>
+          </Panel>
+
+          <Panel title="آخر الطلبات" subtitle="طلبات تحتاج رؤية تشغيلية سريعة" icon={<ClipboardList size={18} />} action={<button onClick={() => setActiveSection('orders')} className="text-xs font-black text-cyan-700">عرض الكل</button>}>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[900px] text-right text-sm">
+                <thead className="text-xs text-slate-500">
+                  <tr className="border-b border-slate-100">
+                    <th className="py-2 font-black">طلب الموقع</th>
+                    <th className="py-2 font-black">طلب النظام</th>
+                    <th className="py-2 font-black">العميل</th>
+                    <th className="py-2 font-black">المنطقة</th>
+                    <th className="py-2 font-black">الحالة</th>
+                    <th className="py-2 font-black">السائق</th>
+                    <th className="py-2 font-black">المبلغ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orders.slice(0, 8).map((order) => {
+                    const area = getOrderArea(order);
+                    const driver = getOrderDriver(order);
+                    return (
+                      <tr key={order.id} className="border-b border-slate-50">
+                        <td className="py-3 font-black text-slate-900">{order.id}</td>
+                        <td className="py-3 text-xs font-bold text-slate-500">{order.systemOrderId || order.posOrderNo || order.pos?.order_no || '-'}</td>
+                        <td className="py-3">
+                          <div className="font-bold text-slate-800">{order.customerName || 'عميل'}</div>
+                          <div className="text-xs font-semibold text-slate-400" dir="ltr">{order.customerPhone || '-'}</div>
+                        </td>
+                        <td className="py-3 text-xs font-bold text-slate-500">{area?.name || order.branch || '-'}</td>
+                        <td className="py-3"><StatusPill value={statusLabel[order.status] || order.status} tone={order.status === 'cancelled' ? 'danger' : order.status === 'ready' ? 'good' : 'info'} /></td>
+                        <td className="py-3 text-xs font-bold text-slate-500">{driver?.name || order.assignedDriverId || '-'}</td>
+                        <td className="py-3 font-black text-slate-900">{formatMoney(order.amount || order.totalPrice || order.pos?.total)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+
+          <div className="grid gap-5 xl:grid-cols-2">
+            <Panel title="توزيع المناطق" subtitle="عدد الطلبات وتغطية السائقين حسب المنطقة" icon={<MapPin size={18} />} action={<button onClick={() => gotoDispatch('areas')} className="text-xs font-black text-cyan-700">إدارة المناطق</button>}>
+              <div className="space-y-3">
+                {areaWorkload.map(({ area, orders: areaOrders, activeOrders, assignedDrivers }) => (
+                  <div key={area.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-black text-slate-800">{area.name}</div>
+                        <div className="text-xs font-bold text-slate-400">{assignedDrivers.length ? assignedDrivers.map((driver) => driver.name).join('، ') : 'بدون سائق مخصص'}</div>
+                      </div>
+                      <StatusPill value={`${activeOrders}/${areaOrders} نشط`} tone={assignedDrivers.length ? 'info' : 'warn'} />
+                    </div>
+                    <div className="mt-3 h-2 rounded-full bg-white">
+                      <div className="h-2 rounded-full bg-cyan-600" style={{ width: `${Math.min(100, activeOrders * 20)}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Panel>
+
+            <Panel title="حالة السائقين" subtitle="الجاهزية الحالية والطلبات المسندة" icon={<Truck size={18} />} action={<button onClick={() => gotoDispatch('drivers')} className="text-xs font-black text-cyan-700">تعديل التعيين</button>}>
+              <div className="space-y-3">
+                {driverWorkload.map(({ driver, orders: driverOrders, ready }) => (
+                  <button key={driver.id} onClick={() => { setSelectedDriverId(driver.id); gotoDispatch('drivers'); }} className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3 text-right transition hover:border-cyan-200 hover:bg-white">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-black text-slate-800">{driver.name}</div>
+                      <div className="truncate text-xs font-bold text-slate-400">{driver.service_areas?.length ? driver.service_areas.join('، ') : driver.branch || 'بدون مناطق'}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <StatusPill value={`${driverOrders} طلب`} tone={driverOrders ? 'info' : 'neutral'} />
+                      <StatusPill value={driverStatusLabel[driver.status] || driver.status} tone={['online', 'available'].includes(driver.status) ? 'good' : driver.status === 'busy' ? 'warn' : 'neutral'} />
+                      {ready > 0 && <StatusPill value={`${ready} جاهز`} tone="good" />}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </Panel>
           </div>
-        </Panel>
+        </div>
+
+        <div className="space-y-5">
+          <Panel title="صحة التشغيل" subtitle="Operational Health" icon={<Activity size={18} />}>
+            <div className="space-y-3">
+              {[
+                { label: 'استقبال الطلبات', value: localConfig.accept_orders, note: 'Website Orders' },
+                { label: 'WhatsApp API', value: localConfig.whatsapp_notifications, note: 'Business API templates' },
+                { label: 'إشعار السائق', value: aiSettings.notify_driver, note: 'Driver Assignment' },
+                { label: 'Auto AI Pickup', value: aiSettings.auto_pickup_enabled, note: 'AI Agent' },
+                { label: 'وضع الموقع', value: !localConfig.maintenance_mode, note: 'Website Availability' },
+              ].map((row) => (
+                <button key={row.label} onClick={() => (row.label.includes('AI') || row.label.includes('WhatsApp') ? setActiveSection('ai') : setActiveSection('system'))} className="flex w-full items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-right transition hover:border-cyan-200 hover:bg-white">
+                  <div>
+                    <div className="text-sm font-black text-slate-800">{row.label}</div>
+                    <div className="text-[11px] font-bold text-slate-400">{row.note}</div>
+                  </div>
+                  {row.value ? <StatusPill value="OK" tone="good" /> : <StatusPill value="Check" tone="warn" />}
+                </button>
+              ))}
+            </div>
+          </Panel>
+
+          <Panel title="AI وواتساب" subtitle="أداء المحادثات والتشغيل التلقائي" icon={<MessageCircle size={18} />} action={<button onClick={() => setActiveSection('ai')} className="text-xs font-black text-cyan-700">فتح AI</button>}>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                ['طلبات AI', aiOrders],
+                ['مراجعة يدوية', aiSettings.manual_review_enabled ? 'اختيارية' : 'مغلقة'],
+                ['الثقة', aiSettings.min_confidence],
+                ['رد طبيعي', aiSettings.natural_customer_reply ? 'مفعل' : 'متوقف'],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                  <div className="text-[11px] font-black text-slate-400">{label}</div>
+                  <div className="mt-1 text-lg font-black text-slate-900">{value}</div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 rounded-lg border border-cyan-100 bg-cyan-50 p-3 text-xs font-bold leading-5 text-cyan-900">
+              الحد الأدنى الذكي لإنشاء طلب تلقائي: اسم العميل ورقم الهاتف. المنطقة والعنوان والموقع والوقت تبقى اختيارية حسب إعدادات AI.
+            </div>
+          </Panel>
+
+          <Panel title="Revenue Snapshot" subtitle="نظرة مالية مختصرة" icon={<Banknote size={18} />}>
+            <div className="rounded-lg bg-slate-950 p-4 text-white">
+              <div className="text-xs font-bold text-cyan-200">إجمالي الطلبات المحملة</div>
+              <div className="mt-1 text-3xl font-black">{formatMoney(revenue)}</div>
+              <div className="mt-1 text-[11px] text-slate-400">متوسط الطلب {formatMoney(avgOrderValue)}، ملغي {cancelledOrders}</div>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {paymentSummary.map((item) => (
+                <button key={item.label} onClick={() => setActiveSection('orders')} className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-right transition hover:border-cyan-200 hover:bg-white">
+                  <div className="text-[11px] font-black text-slate-400">{item.label}</div>
+                  <div className="mt-1 text-xl font-black text-slate-900">{item.value}</div>
+                </button>
+              ))}
+            </div>
+          </Panel>
+
+          <Panel title="اختصارات سريعة" subtitle="إدارة مباشرة بدون البحث في الصفحات" icon={<SlidersHorizontal size={18} />}>
+            <div className="grid gap-2">
+              {[
+                { label: 'إضافة منطقة', icon: <MapPin size={15} />, action: () => { addArea(); gotoDispatch('areas'); } },
+                { label: 'إضافة سائق', icon: <Truck size={15} />, action: () => { addDriver(); gotoDispatch('drivers'); } },
+                { label: 'أوقات الاستلام', icon: <Clock size={15} />, action: () => gotoDispatch('times') },
+                { label: 'طرق الدفع', icon: <Banknote size={15} />, action: () => gotoDispatch('times') },
+                { label: 'إعدادات AI', icon: <Bot size={15} />, action: () => setActiveSection('ai') },
+                { label: 'الأسعار', icon: <Pencil size={15} />, action: () => setActiveSection('pricing') },
+              ].map((item) => (
+                <button key={item.label} onClick={item.action} className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm font-black text-slate-700 transition hover:border-cyan-200 hover:bg-white">
+                  <span>{item.label}</span>
+                  <span className="text-cyan-700">{item.icon}</span>
+                </button>
+              ))}
+            </div>
+          </Panel>
+        </div>
       </div>
     </div>
   );
