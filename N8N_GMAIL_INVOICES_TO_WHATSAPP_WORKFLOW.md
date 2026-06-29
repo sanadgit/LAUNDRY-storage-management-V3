@@ -28,37 +28,43 @@ Create a Gmail OAuth2 credential in n8n:
 
 For self-hosted n8n, you may need Google Cloud OAuth Client ID and Client Secret. Use the redirect URL shown inside the n8n Gmail credential screen.
 
-## Required Workflow Config
+## Required Inline Config
 
 This workflow does not require paid n8n Variables.
 
 Open the node:
 
-`Workflow Config`
+`Parse Invoice Email`
 
-Paste your values there:
+At the top of the code, paste your values in this config block:
 
-```txt
-META_WHATSAPP_ACCESS_TOKEN=EA...
-META_WHATSAPP_PHONE_NUMBER_ID=1190287117501375
-META_GRAPH_API_VERSION=v20.0
-WHATSAPP_INVOICE_RECIPIENTS=971568720885,9715XXXXXXXX
-INVOICE_ALLOWED_SENDERS=taxinvoice@network.ae,digital.services@taqadistribution.com
-GMAIL_INVOICE_SEARCH_QUERY=is:unread has:attachment (from:taxinvoice@network.ae OR from:digital.services@taqadistribution.com)
+```js
+const vars = {
+  META_GRAPH_API_VERSION: 'v20.0',
+  META_WHATSAPP_PHONE_NUMBER_ID: '1190287117501375',
+  META_WHATSAPP_ACCESS_TOKEN: 'EA...',
+  WHATSAPP_INVOICE_RECIPIENTS: '971568720885,9715XXXXXXXX',
+  INVOICE_ALLOWED_SENDERS: 'taxinvoice@network.ae,digital.services@taqadistribution.com'
+};
 ```
 
 Do not add `Bearer` before the token. The HTTP nodes add `Bearer` automatically.
 
+To change the Gmail search query, open:
+
+`Gmail Get Unread Invoice Messages`
+
+Then edit the `Search` field.
+
 ## Workflow Logic
 
 1. Runs every 15 minutes.
-2. `Workflow Config` loads your Meta/Gmail search settings.
-3. Gmail `Get Many Messages` searches unread invoice emails.
-4. Downloads attachments with prefix `attachment_`.
-5. Parses provider, account, bill number, amount, due date, and branch/location.
-6. Uploads the PDF to Meta WhatsApp Cloud API.
-7. Sends the document or text-only summary to every configured recipient.
-8. Marks the Gmail message as read after WhatsApp sending.
+2. Gmail `Get Many Messages` searches unread invoice emails.
+3. Downloads attachments with prefix `attachment_`.
+4. Parses provider, account, bill number, amount, due date, and branch/location.
+5. Uploads the PDF to Meta WhatsApp Cloud API.
+6. Sends the document or text-only summary to every configured recipient.
+7. Marks the Gmail message as read after WhatsApp sending.
 
 ## Recommended Search Query
 
@@ -77,7 +83,7 @@ is:unread has:attachment newer_than:7d
 ## Test Steps
 
 1. Import `n8n-gmail-invoices-to-whatsapp-official.json` into n8n.
-2. Open `Workflow Config` and paste your Meta token, phone number ID, and recipients.
+2. Open `Parse Invoice Email` and paste your Meta token, phone number ID, and recipients in the config block.
 3. Open these Gmail nodes and select your Gmail credential:
    - `Gmail Get Unread Invoice Messages`
    - `Mark Document Gmail Message Read`
