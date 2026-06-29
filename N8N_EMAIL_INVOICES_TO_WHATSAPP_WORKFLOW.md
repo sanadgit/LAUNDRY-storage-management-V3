@@ -4,6 +4,12 @@ Workflow file:
 
 `n8n-email-invoices-to-whatsapp-official.json`
 
+Recommended Gmail workflow:
+
+`n8n-gmail-invoices-to-whatsapp-official.json`
+
+If the invoice mailbox is Gmail, use the Gmail workflow above. Keep this IMAP workflow as a fallback for non-Gmail inboxes or if OAuth setup is blocked.
+
 ## Important Limitation
 
 Meta WhatsApp Business API الرسمي لا يدعم الإرسال إلى WhatsApp Groups.

@@ -1,0 +1,378 @@
+{
+  "name": "Gmail Invoices To WhatsApp Official",
+  "nodes": [
+    {
+      "id": "setup-note",
+      "name": "Setup Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-980, -420],
+      "parameters": {
+        "content": "## Gmail Invoices To WhatsApp Official\n\nReads unread invoice emails from Gmail using the official Gmail node, extracts Network / TAQA / Etisalat / bank fee invoice details, sends the summary and PDF attachment through Meta WhatsApp Cloud API, then marks the Gmail message as read.\n\nImportant: Meta WhatsApp Business API does not support WhatsApp groups. Use WHATSAPP_INVOICE_RECIPIENTS as a comma-separated list of finance/admin phone numbers.\n\nRequired n8n Variables:\n- META_WHATSAPP_ACCESS_TOKEN\n- META_WHATSAPP_PHONE_NUMBER_ID\n- META_GRAPH_API_VERSION, optional, default v20.0\n- WHATSAPP_INVOICE_RECIPIENTS, example: 9715xxxxxxxx,9715yyyyyyyy\n- GMAIL_INVOICE_SEARCH_QUERY, optional\n- INVOICE_ALLOWED_SENDERS, optional comma list\n\nRequired credential:\n- Gmail OAuth2 credential connected to the invoice mailbox."
+      }
+    },
+    {
+      "id": "schedule-trigger",
+      "name": "Every 15 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-900, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "gmail-get-many",
+      "name": "Gmail Get Unread Invoice Messages",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [-640, 0],
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "message",
+        "operation": "getAll",
+        "returnAll": false,
+        "limit": 25,
+        "simple": false,
+        "filters": {
+          "readStatus": "unread",
+          "q": "={{$vars.GMAIL_INVOICE_SEARCH_QUERY || 'is:unread has:attachment (from:taxinvoice@network.ae OR from:digital.services@taqadistribution.com OR from:etisalat OR from:eand OR from:bank)'}}"
+        },
+        "options": {
+          "downloadAttachments": true,
+          "dataPropertyAttachmentsPrefixName": "attachment_"
+        }
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_GMAIL_OAUTH2_CREDENTIAL_ID",
+          "name": "Invoice Gmail OAuth2"
+        }
+      }
+    },
+    {
+      "id": "parse-invoice",
+      "name": "Parse Invoice Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-360, 0],
+      "parameters": {
+        "jsCode": "const vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst clean = (value) => String(value ?? '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\\s+/g, ' ').trim();\nconst linesOf = (value) => String(value ?? '').replace(/<br\\s*\\/?>/gi, '\\n').replace(/<\\/p>/gi, '\\n').replace(/<[^>]*>/g, ' ').split(/\\r?\\n/).map(clean).filter(Boolean);\nconst firstMatch = (text, patterns) => { for (const pattern of patterns) { const match = String(text || '').match(pattern); if (match) return clean(match[1] || match[0]); } return ''; };\nconst moneyMatch = (value) => { const match = String(value || '').replace(/,/g, '').match(/(?:AED|د\\.إ)?\\s*([0-9]+(?:\\.[0-9]{1,2})?)\\s*(?:AED|د\\.إ)?/i); return match ? Number(match[1]) : null; };\nconst normalizePhone = (value) => { const digits = String(value || '').replace(/\\D/g, ''); if (!digits) return ''; return digits.startsWith('971') ? digits : digits.replace(/^0/, '971'); };\nconst recipients = String(vars.WHATSAPP_INVOICE_RECIPIENTS || $env.WHATSAPP_INVOICE_RECIPIENTS || '').split(',').map(normalizePhone).filter(Boolean);\nif (!recipients.length) throw new Error('Set WHATSAPP_INVOICE_RECIPIENTS in n8n Variables. Use comma-separated UAE international numbers without +.');\nconst allowedSenders = String(vars.INVOICE_ALLOWED_SENDERS || $env.INVOICE_ALLOWED_SENDERS || 'taxinvoice@network.ae,digital.services@taqadistribution.com').toLowerCase().split(',').map((item) => item.trim()).filter(Boolean);\nconst headerFrom = $json.headers?.from || $json.From || '';\nconst fromRaw = clean($json.from?.text || $json.from || $json.sender || $json.fromEmail || headerFrom || '');\nconst fromEmail = (fromRaw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/i)?.[0] || fromRaw).toLowerCase();\nconst subject = clean($json.subject || $json.Subject || $json.headers?.subject || '');\nconst text = [$json.text, $json.textAsHtml, $json.html, $json.textPlain, $json.snippet, subject].map((part) => String(part || '')).join('\\n');\nconst compact = clean(text);\nconst isAllowedSender = !allowedSenders.length || allowedSenders.some((sender) => fromEmail.includes(sender));\nconst hasInvoiceKeyword = /invoice|bill|فاتورة|فاتورتك|tax invoice|bank fee|transaction fee|رسوم/i.test(compact);\nif (!isAllowedSender && !hasInvoiceKeyword) return [];\nlet provider = 'Unknown';\nlet category = 'General Invoice';\nif (/network\\.ae|network international|\\bnetwork\\b/i.test(fromEmail + ' ' + compact)) { provider = 'Network International'; category = 'Bank / Network Fees'; }\nelse if (/taqa|taqadistribution|كهرباء|المياه|electricity|water/i.test(fromEmail + ' ' + compact)) { provider = 'TAQA Distribution'; category = 'Electricity & Water'; }\nelse if (/etisalat|eand|e&|اتصالات/i.test(fromEmail + ' ' + compact)) { provider = 'Etisalat / e&'; category = 'Telecom'; }\nelse if (/bank fee|transaction fee|card fee|merchant fee|رسوم/i.test(compact)) { provider = 'Bank Fees'; category = 'Bank Fees'; }\nconst lines = linesOf(text);\nconst accountNumber = firstMatch(compact, [/ACCOUNT NUMBER\\s*([0-9]+)/i, /رقم الحساب\\s*([0-9]+)/i, /Account\\s*No\\.?\\s*([0-9]+)/i]);\nconst billNumber = firstMatch(compact, [/BILL NUMBER\\s*([0-9]+)/i, /رقم الفاتورة\\s*([0-9]+)/i, /Invoice\\s*(?:No|Number)?\\.?\\s*([A-Z0-9-]+)/i]);\nconst period = firstMatch(subject + ' ' + compact, [/period\\s+([0-9]{2}-[0-9]{2}-[0-9]{4}\\s+to\\s+[0-9]{2}-[0-9]{2}-[0-9]{4})/i, /covering the period\\s+([^\\.]+)/i]);\nconst invoiceDate = firstMatch(compact, [/YOUR TAQA Distribution BILL\\s*([0-9]{1,2}\\/[A-Za-z]+\\/[0-9]{4})/i, /فاتورتك\\s*([0-9]{1,2}\\/[\\u0600-\\u06ff]+\\/[0-9]{4})/i, /Invoice Date\\s*([0-9\\-\\/A-Za-z\\u0600-\\u06ff]+)/i]);\nconst dueDate = firstMatch(compact, [/TOTAL TO PAY BY\\s*([0-9]{1,2}\\/[A-Za-z]+\\/[0-9]{4})/i, /الإجمالي المستحق للدفع\\s*([0-9]{1,2}\\/[\\u0600-\\u06ff]+\\/[0-9]{4})/i, /Due Date\\s*([0-9\\-\\/A-Za-z\\u0600-\\u06ff]+)/i]);\nlet totalAmount = firstMatch(compact, [/TOTAL TO PAY(?: BY)?\\s*(?:[0-9]{1,2}\\/[A-Za-z]+\\/[0-9]{4})?\\s*AED\\s*([0-9,.]+)/i, /TOTAL TO PAY INCL VAT\\s*AED\\s*([0-9,.]+)/i, /المبلغ المستحق شاملا ضريبة القيمة المضافة\\s*([0-9,.]+)/i, /AED\\s*([0-9,.]+)/i, /([0-9,.]+)\\s*د\\.إ/i]);\nconst electricityAmount = firstMatch(compact, [/Electricity\\s*Commercial Tariff\\s*([0-9,.]+)/i, /الكهرباء\\s*تجاري\\s*([0-9,.]+)/i]);\nconst waterAmount = firstMatch(compact, [/Water\\s*Commercial Tariff\\s*([0-9,.]+)/i, /المياه\\s*تجاري\\s*([0-9,.]+)/i]);\nconst property = lines.find((line) => /PLOT|SHOP|IN AND OUT|مصبغة|فرع/i.test(line)) || '';\nconst attachmentEntries = Object.entries($binary || {});\nconst pdfEntry = attachmentEntries.find(([, file]) => /pdf/i.test(file?.mimeType || '') || /\\.pdf$/i.test(file?.fileName || '')) || attachmentEntries[0];\nconst hasAttachment = Boolean(pdfEntry);\nconst binaryKey = pdfEntry?.[0];\nconst fileName = clean(pdfEntry?.[1]?.fileName || `${provider.replace(/[^a-z0-9]+/gi, '_')}_${billNumber || Date.now()}.pdf`);\nconst sourceMessageId = $json.id || $json.messageId || '';\nconst details = [];\ndetails.push('Provider: ' + provider);\ndetails.push('Category: ' + category);\nif (accountNumber) details.push('Account: ' + accountNumber);\nif (billNumber) details.push('Bill/Invoice: ' + billNumber);\nif (period) details.push('Period: ' + period);\nif (invoiceDate) details.push('Invoice date: ' + invoiceDate);\nif (dueDate) details.push('Due date: ' + dueDate);\nif (totalAmount) details.push('Total: AED ' + totalAmount);\nif (electricityAmount) details.push('Electricity: AED ' + electricityAmount);\nif (waterAmount) details.push('Water: AED ' + waterAmount);\nif (property) details.push('Location/branch: ' + property);\nconst message = ['New invoice received', ...details, 'From: ' + fromEmail, 'Subject: ' + subject, hasAttachment ? 'Attachment: PDF included' : 'Attachment: no PDF found'].join('\\n');\nconst base = { sourceMessageId, provider, category, fromEmail, subject, accountNumber, billNumber, period, invoiceDate, dueDate, totalAmount: moneyMatch(totalAmount), totalAmountText: totalAmount, electricityAmount: moneyMatch(electricityAmount), waterAmount: moneyMatch(waterAmount), property, fileName, hasAttachment, message, receivedAt: new Date().toISOString() };\nreturn recipients.map((recipient) => ({ json: { ...base, recipient }, binary: hasAttachment ? { invoiceFile: $binary[binaryKey] } : undefined }));"
+      }
+    },
+    {
+      "id": "has-attachment",
+      "name": "Has PDF Attachment?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-80, 0],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-pdf-condition",
+              "leftValue": "={{$json.hasAttachment}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "upload-media",
+      "name": "Upload PDF To Meta WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [200, -140],
+      "parameters": {
+        "method": "POST",
+        "url": "={{'https://graph.facebook.com/' + ($vars.META_GRAPH_API_VERSION || $env.META_GRAPH_API_VERSION || 'v20.0') + '/' + ($vars.META_WHATSAPP_PHONE_NUMBER_ID || $env.META_WHATSAPP_PHONE_NUMBER_ID) + '/media'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.META_WHATSAPP_ACCESS_TOKEN || $env.META_WHATSAPP_ACCESS_TOKEN)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "messaging_product",
+              "value": "whatsapp"
+            },
+            {
+              "name": "type",
+              "value": "application/pdf"
+            },
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "invoiceFile"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      }
+    },
+    {
+      "id": "build-document-message",
+      "name": "Build Document Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, -140],
+      "parameters": {
+        "jsCode": "const original = $('Parse Invoice Email').item.json;\nconst mediaId = $json.id || $json.media_id || $json.mediaId;\nif (!mediaId) throw new Error('Meta media upload did not return media id: ' + JSON.stringify($json));\nreturn [{ json: { ...original, mediaId, body: { messaging_product: 'whatsapp', to: original.recipient, type: 'document', document: { id: mediaId, filename: original.fileName || 'invoice.pdf', caption: original.message } } } }];"
+      }
+    },
+    {
+      "id": "send-document",
+      "name": "Send WhatsApp Document",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [740, -140],
+      "parameters": {
+        "method": "POST",
+        "url": "={{'https://graph.facebook.com/' + ($vars.META_GRAPH_API_VERSION || $env.META_GRAPH_API_VERSION || 'v20.0') + '/' + ($vars.META_WHATSAPP_PHONE_NUMBER_ID || $env.META_WHATSAPP_PHONE_NUMBER_ID) + '/messages'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.META_WHATSAPP_ACCESS_TOKEN || $env.META_WHATSAPP_ACCESS_TOKEN)}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json.body}}",
+        "options": {
+          "timeout": 120000
+        }
+      }
+    },
+    {
+      "id": "mark-document-read",
+      "name": "Mark Document Gmail Message Read",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [1020, -140],
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "message",
+        "operation": "markAsRead",
+        "messageId": "={{$('Build Document Message').item.json.sourceMessageId}}"
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_GMAIL_OAUTH2_CREDENTIAL_ID",
+          "name": "Invoice Gmail OAuth2"
+        }
+      }
+    },
+    {
+      "id": "build-text-message",
+      "name": "Build Text Only Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, 160],
+      "parameters": {
+        "jsCode": "return [{ json: { ...$json, body: { messaging_product: 'whatsapp', to: $json.recipient, type: 'text', text: { preview_url: false, body: $json.message } } } }];"
+      }
+    },
+    {
+      "id": "send-text",
+      "name": "Send WhatsApp Text",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 160],
+      "parameters": {
+        "method": "POST",
+        "url": "={{'https://graph.facebook.com/' + ($vars.META_GRAPH_API_VERSION || $env.META_GRAPH_API_VERSION || 'v20.0') + '/' + ($vars.META_WHATSAPP_PHONE_NUMBER_ID || $env.META_WHATSAPP_PHONE_NUMBER_ID) + '/messages'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.META_WHATSAPP_ACCESS_TOKEN || $env.META_WHATSAPP_ACCESS_TOKEN)}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json.body}}",
+        "options": {
+          "timeout": 120000
+        }
+      }
+    },
+    {
+      "id": "mark-text-read",
+      "name": "Mark Text Gmail Message Read",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [740, 160],
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "message",
+        "operation": "markAsRead",
+        "messageId": "={{$('Build Text Only Message').item.json.sourceMessageId}}"
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_GMAIL_OAUTH2_CREDENTIAL_ID",
+          "name": "Invoice Gmail OAuth2"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 15 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Gmail Get Unread Invoice Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail Get Unread Invoice Messages": {
+      "main": [
+        [
+          {
+            "node": "Parse Invoice Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Invoice Email": {
+      "main": [
+        [
+          {
+            "node": "Has PDF Attachment?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has PDF Attachment?": {
+      "main": [
+        [
+          {
+            "node": "Upload PDF To Meta WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Text Only Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload PDF To Meta WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Build Document Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Document Message": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp Document": {
+      "main": [
+        [
+          {
+            "node": "Mark Document Gmail Message Read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Text Only Message": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp Text": {
+      "main": [
+        [
+          {
+            "node": "Mark Text Gmail Message Read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-06-29T00:00:00.000Z",
+  "versionId": "gmail-invoices-whatsapp-official-v1"
+}
