@@ -212,6 +212,22 @@ const firstNonEmpty = (...values: unknown[]) => {
   return '';
 };
 
+const isUsefulCustomerName = (value: unknown) => {
+  const text = String(value ?? '').trim();
+  if (text.length < 2) return false;
+  if (!/[A-Za-z\u0600-\u06FF]/.test(text)) return false;
+  if (/^(customer|user|unknown|guest|عميل|مستخدم)$/i.test(text)) return false;
+  return true;
+};
+
+const firstUsefulCustomerName = (...values: unknown[]) => {
+  for (const value of values) {
+    const text = String(value ?? '').trim();
+    if (isUsefulCustomerName(text)) return text;
+  }
+  return '';
+};
+
 const normalizeMessageLine = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim();
 
 const extractLabeledValue = (lines: string[], labels: string[]) => {
@@ -274,7 +290,7 @@ const extractPickupDraftFromMessage = (
   const customerName = extractLabeledValue(lines, ['name', 'customer', 'الاسم', 'اسمي', 'اسم العميل']);
 
   const filled = [
-    firstNonEmpty(customerName, options.contactName),
+    firstUsefulCustomerName(customerName, options.contactName),
     firstNonEmpty(areaFromLabel, areaFromKnown),
     firstNonEmpty(addressFromLabel, addressFromText),
     googleMapsUrl,
@@ -283,7 +299,7 @@ const extractPickupDraftFromMessage = (
   ].filter(Boolean).length;
 
   return {
-    customer_name: clamp(firstNonEmpty(customerName, options.contactName), 150),
+    customer_name: clamp(firstUsefulCustomerName(customerName, options.contactName), 150),
     customer_phone: normalizeAiPhone(options.contactPhone),
     area: clamp(firstNonEmpty(areaFromLabel, areaFromKnown), 150),
     address: clamp(firstNonEmpty(addressFromLabel, addressFromText), 1000),
@@ -339,8 +355,7 @@ const parseAiJsonObject = (value: unknown) => {
 };
 
 const pickupDraftHasMinimumData = (draft: PickupDraftSuggestion) => {
-  const hasLocation = Boolean(draft.google_maps_url || (draft.area && draft.address));
-  return Boolean(draft.customer_phone && hasLocation);
+  return Boolean(draft.customer_phone && isUsefulCustomerName(draft.customer_name));
 };
 
 export const normalizeAiPhone = (value: unknown) => {
@@ -530,7 +545,7 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
             {
               role: 'system',
               content:
-                'You are the WhatsApp operations AI for In & Out Laundry in UAE. Return only valid JSON. Classify messages and extract pickup details. Never invent missing customer data. If a pickup can be created, ready_for_auto_create must be true only when a customer phone exists and there is a usable location: either a Google Maps URL, or both area and address. Use Arabic reply for Arabic/Urdu messages and English reply for English messages.',
+                'You are a natural WhatsApp operations AI for In & Out Laundry in UAE. Return only valid JSON. Classify messages and extract pickup details, but do not behave like a rigid form. Never invent missing customer data. A pickup can be created automatically when the WhatsApp phone exists and a clear customer name exists. Area, address, location link, service, and pickup time are helpful but optional; if missing, do not block pickup creation. If customer name is missing or unclear, ask only for the name in a natural way. Use Arabic reply for Arabic/Urdu messages and English reply for English messages.',
             },
             {
               role: 'user',
@@ -552,7 +567,7 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
                     confidence: 'low | medium | high',
                   },
                   missing_fields: ['field names needed before auto create'],
-                  ready_for_auto_create: 'boolean',
+                  ready_for_auto_create: 'boolean; true only when customer_phone and customer_name are available',
                   reply: 'short helpful WhatsApp reply',
                 },
                 known_service_areas: params.knownAreas,

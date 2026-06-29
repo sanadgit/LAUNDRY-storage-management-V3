@@ -10952,7 +10952,8 @@ const buildCustomerOrderFromAiPickup = (
 const createCustomerOrderFromAiPickup = async (
   pickup: Record<string, any>,
   conversationId: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  options: { notifyCustomer?: boolean } = {}
 ) => {
   const order = buildCustomerOrderFromAiPickup(pickup, conversationId, input);
   if (!order) throw new Error('Failed to build customer order from AI pickup request.');
@@ -10960,10 +10961,20 @@ const createCustomerOrderFromAiPickup = async (
     id: string;
     status: string;
   };
-  const finalOrder = (await notifyCustomerOrderConfirmation(driverEnrichedOrder)) as unknown as Record<string, any> & {
-    id: string;
-    status: string;
-  };
+  const shouldNotifyCustomer = options.notifyCustomer === true;
+  const finalOrder = shouldNotifyCustomer
+    ? ((await notifyCustomerOrderConfirmation(driverEnrichedOrder)) as unknown as Record<string, any> & {
+        id: string;
+        status: string;
+      })
+    : ({
+        ...driverEnrichedOrder,
+        customerConfirmation: {
+          status: 'skipped',
+          reason: 'AI conversation uses natural WhatsApp reply instead of order status template.',
+          attempted_at: new Date().toISOString(),
+        },
+      } as Record<string, any> & { id: string; status: string });
   saveCustomerOrderRecord(finalOrder);
   return finalOrder;
 };
@@ -10972,10 +10983,10 @@ const buildAiPickupAutomationReply = (order: Record<string, any>, language: stri
   const isArabic = language === 'ar' || language === 'ur';
   const orderId = String(order.id ?? '').trim() || '-';
   const driverName = String(order.assignedDriverName ?? order.driverNotification?.driverName ?? '').trim();
-  const driverPart = driverName ? (isArabic ? ` تم تعيين السائق: ${driverName}.` : ` Assigned driver: ${driverName}.`) : '';
+  const driverPart = driverName ? (isArabic ? ` وبلغت السائق ${driverName}.` : ` and I notified ${driverName}.`) : '';
   return isArabic
-    ? `تم إنشاء طلب الاستلام رقم ${orderId} بنجاح.${driverPart} ستصلك التحديثات عبر واتساب.`
-    : `Pickup order ${orderId} has been created successfully.${driverPart} You will receive updates on WhatsApp.`;
+    ? `تمام، سجلت لك طلب الاستلام رقم ${orderId}${driverPart} إذا حبيت تضيف العنوان بالتفصيل أو ترسل موقعك، ارسله هنا في أي وقت.`
+    : `Done, I created pickup order ${orderId}${driverPart} If you want to add the exact address or location link, send it here anytime.`;
 };
 
 const sendOtpViaAipsoft = async (
@@ -13322,7 +13333,9 @@ async function startServer() {
           const draft = routed.pickup_draft || {};
           const pickup = await aiOperations.createPickupFromConversation(routed.conversation_id, draft as Record<string, unknown>);
           if (!pickup) return undefined;
-          const order = await createCustomerOrderFromAiPickup(pickup, String(routed.conversation_id), draft as Record<string, unknown>);
+          const order = await createCustomerOrderFromAiPickup(pickup, String(routed.conversation_id), draft as Record<string, unknown>, {
+            notifyCustomer: false,
+          });
           const driverPhone = String(order?.driverNotification?.driverPhone ?? '').trim();
           await aiOperations.updatePickupRequest(pickup.id, {
             status: 'assigned',
@@ -13331,7 +13344,7 @@ async function startServer() {
           const customerConfirmationStatus = String(order?.customerConfirmation?.status ?? '').trim();
           return {
             responseOverride: buildAiPickupAutomationReply(order, routed.language),
-            suppressReply: customerConfirmationStatus === 'sent',
+            suppressReply: false,
             automation: {
               status: 'created',
               type: 'pickup_order',
@@ -13423,7 +13436,9 @@ async function startServer() {
       const actionInput = { ...draft, ...nonEmptyBody };
       const pickup = await aiOperations.createPickupFromConversation(req.params.id, actionInput);
       if (!pickup) return res.status(404).json({ ok: false, error: 'Conversation not found.' });
-      const order = await createCustomerOrderFromAiPickup(pickup, String(req.params.id ?? ''), actionInput);
+      const order = await createCustomerOrderFromAiPickup(pickup, String(req.params.id ?? ''), actionInput, {
+        notifyCustomer: false,
+      });
       const driverPhone = String(order?.driverNotification?.driverPhone ?? '').trim();
       await aiOperations.updatePickupRequest(pickup.id, {
         status: 'assigned',
