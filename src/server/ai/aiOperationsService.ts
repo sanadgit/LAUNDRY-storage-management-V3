@@ -78,6 +78,19 @@ type CreateComplaintInput = {
   assigned_to_phone?: unknown;
 };
 
+type PickupDraftSuggestion = {
+  customer_name: string;
+  customer_phone: string;
+  area: string;
+  address: string;
+  google_maps_url: string;
+  preferred_time: string;
+  serviceType: string;
+  notes: string;
+  source_message: string;
+  confidence: 'low' | 'medium' | 'high';
+};
+
 const AI_ALLOWED_INTENTS: AiIntent[] = [
   'price_inquiry',
   'branch_location',
@@ -133,6 +146,98 @@ const positiveInt = (value: unknown, fallback: number, max: number) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
   return Math.min(Math.floor(parsed), max);
+};
+
+const firstNonEmpty = (...values: unknown[]) => {
+  for (const value of values) {
+    const text = String(value ?? '').trim();
+    if (text) return text;
+  }
+  return '';
+};
+
+const normalizeMessageLine = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim();
+
+const extractLabeledValue = (lines: string[], labels: string[]) => {
+  for (const line of lines) {
+    for (const label of labels) {
+      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const match = line.match(new RegExp(`(?:^|\\b)${escaped}\\s*[:：\\-ـ]?\\s*(.+)$`, 'i'));
+      if (match?.[1]) return normalizeMessageLine(match[1]);
+    }
+  }
+  return '';
+};
+
+const extractPickupDraftFromMessage = (
+  messageRaw: unknown,
+  options: {
+    contactName?: unknown;
+    contactPhone?: unknown;
+    knownAreas?: string[];
+  } = {}
+): PickupDraftSuggestion => {
+  const sourceMessage = clamp(messageRaw, 2500);
+  const lines = sourceMessage
+    .split(/\r?\n|[|؛]/)
+    .map(normalizeMessageLine)
+    .filter(Boolean);
+  const compactText = normalizeMessageLine(sourceMessage);
+  const linkMatch = compactText.match(/(?:https?:\/\/)?(?:maps\.app\.goo\.gl|goo\.gl\/maps|google\.com\/maps|maps\.google\.com)\/[^\s]+/i);
+  const rawLink = linkMatch?.[0] ?? '';
+  const googleMapsUrl = rawLink && !/^https?:\/\//i.test(rawLink) ? `https://${rawLink}` : rawLink;
+  const knownAreas = (options.knownAreas ?? []).map((area) => normalizeMessageLine(area)).filter(Boolean);
+
+  const areaFromLabel = extractLabeledValue(lines, ['area', 'zone', 'المنطقة', 'منطقة', 'الحي', 'حي']);
+  const areaFromKnown =
+    knownAreas.find((area) => compactText.toLowerCase().includes(area.toLowerCase())) ?? '';
+  const addressFromLabel = extractLabeledValue(lines, [
+    'address',
+    'location',
+    'pickup address',
+    'العنوان',
+    'عنوان',
+    'الموقع',
+    'موقع',
+    'مكان الاستلام',
+  ]);
+  const addressFromText =
+    lines.find((line) =>
+      /(street|building|villa|flat|apartment|floor|near|شارع|بناية|مبنى|فيلا|شقة|طابق|قريب|جنب|خلف|أمام)/i.test(line)
+    ) ?? '';
+  const preferredTime =
+    extractLabeledValue(lines, ['time', 'pickup time', 'slot', 'موعد', 'وقت', 'وقت الاستلام']) ||
+    compactText.match(
+      /\b(?:today|tomorrow|morning|evening|afternoon|tonight|after\s+\d+|[01]?\d|2[0-3])(?::[0-5]\d)?\s*(?:am|pm)?\b|(?:اليوم|بكرة|غدا|غداً|الصباح|المساء|بعد الظهر|الساعة\s*[٠-٩0-9: ]+)/i
+    )?.[0] ||
+    '';
+  const serviceType =
+    extractLabeledValue(lines, ['service', 'خدمة', 'الخدمة']) ||
+    compactText.match(/wash\s*(?:and|&)?\s*iron|dry\s*clean|wash|iron|غسيل\s*وكي|غسيل|كوي|كي|تنظيف\s*جاف/i)?.[0] ||
+    '';
+  const customerName = extractLabeledValue(lines, ['name', 'customer', 'الاسم', 'اسمي', 'اسم العميل']);
+
+  const filled = [
+    firstNonEmpty(customerName, options.contactName),
+    firstNonEmpty(areaFromLabel, areaFromKnown),
+    firstNonEmpty(addressFromLabel, addressFromText),
+    googleMapsUrl,
+    preferredTime,
+    serviceType,
+  ].filter(Boolean).length;
+
+  return {
+    customer_name: clamp(firstNonEmpty(customerName, options.contactName), 150),
+    customer_phone: normalizeAiPhone(options.contactPhone),
+    area: clamp(firstNonEmpty(areaFromLabel, areaFromKnown), 150),
+    address: clamp(firstNonEmpty(addressFromLabel, addressFromText), 1000),
+    google_maps_url: clamp(googleMapsUrl, 1000),
+    preferred_time: clamp(preferredTime, 120),
+    serviceType: clamp(serviceType || 'WhatsApp pickup', 120),
+    notes: sourceMessage ? `Auto extracted from WhatsApp: ${sourceMessage}` : '',
+    source_message: sourceMessage,
+    confidence: filled >= 4 ? 'high' : filled >= 2 ? 'medium' : 'low',
+  };
 };
 
 export const normalizeAiPhone = (value: unknown) => {
@@ -270,6 +375,28 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
     return pgPool.query(pgSql, params);
   };
 
+  const getCustomerSiteConfig = async () => {
+    try {
+      const row = await get(
+        usePostgres ? 'SELECT payload FROM customer_site_config WHERE id = $1' : 'SELECT payload FROM customer_site_config WHERE id = ?',
+        [1]
+      );
+      return row?.payload ? JSON.parse(String(row.payload)) : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const getKnownServiceAreas = async () => {
+    const config = await getCustomerSiteConfig();
+    return Array.isArray(config?.service_areas)
+      ? config.service_areas
+          .filter((area: any) => area?.active !== false)
+          .map((area: any) => String(area?.name ?? area?.id ?? '').trim())
+          .filter(Boolean)
+      : [];
+  };
+
   const detectContactRole = async (phone: string): Promise<AiRole> => {
     const normalized = normalizeAiPhone(phone);
     const managerMap: Array<[AiRole, string | undefined]> = [
@@ -294,11 +421,7 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
     }
 
     try {
-      const row = await get(
-        usePostgres ? 'SELECT payload FROM customer_site_config WHERE id = $1' : 'SELECT payload FROM customer_site_config WHERE id = ?',
-        [1]
-      );
-      const config = row?.payload ? JSON.parse(String(row.payload)) : null;
+      const config = await getCustomerSiteConfig();
       const driver = Array.isArray(config?.drivers)
         ? config.drivers.find((item: any) => normalizeAiPhone(item?.phone) === normalized)
         : null;
@@ -974,6 +1097,17 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
     );
   };
 
+  const getPickupDraftForConversation = async (idRaw: unknown) => {
+    const conversation = await getAiConversationActionContext(idRaw);
+    if (!conversation) return null;
+    const knownAreas = await getKnownServiceAreas();
+    return extractPickupDraftFromMessage(conversation.last_inbound_text, {
+      contactName: conversation.contact_name,
+      contactPhone: conversation.contact_phone,
+      knownAreas,
+    });
+  };
+
   const buildActionNote = (conversation: any, prefix: string, extra?: unknown) => {
     const parts = [
       `${prefix} from WhatsApp AI conversation #${conversation.id}.`,
@@ -987,17 +1121,18 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
   const createPickupFromConversation = async (idRaw: unknown, input: Record<string, unknown> = {}) => {
     const conversation = await getAiConversationActionContext(idRaw);
     if (!conversation) return null;
+    const draft = await getPickupDraftForConversation(idRaw);
     const pickup = await createPickupRequest({
-      customer_name: input.customer_name ?? conversation.contact_name,
-      customer_phone: input.customer_phone ?? conversation.contact_phone,
+      customer_name: firstNonEmpty(input.customer_name, draft?.customer_name, conversation.contact_name),
+      customer_phone: firstNonEmpty(input.customer_phone, draft?.customer_phone, conversation.contact_phone),
       branch_id: input.branch_id ?? conversation.branch_id,
-      address: input.address,
-      google_maps_url: input.google_maps_url,
+      address: firstNonEmpty(input.address, draft?.address),
+      google_maps_url: firstNonEmpty(input.google_maps_url, draft?.google_maps_url),
       latitude: input.latitude,
       longitude: input.longitude,
-      preferred_time: input.preferred_time,
+      preferred_time: firstNonEmpty(input.preferred_time, draft?.preferred_time),
       assigned_driver_phone: input.assigned_driver_phone ?? conversation.assigned_to_phone,
-      notes: buildActionNote(conversation, 'Pickup request created', input.notes),
+      notes: buildActionNote(conversation, 'Pickup request created', firstNonEmpty(input.notes, draft?.notes)),
       created_by: 'admin',
     });
     await updateAiConversation(conversation.id, { status: 'assigned', priority: conversation.priority });
@@ -1046,6 +1181,7 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
     sendAndLogWhatsAppText,
     listAiConversations,
     listAiConversationMessages,
+    getPickupDraftForConversation,
     updateAiConversation,
     createPickupFromConversation,
     createComplaintFromConversation,

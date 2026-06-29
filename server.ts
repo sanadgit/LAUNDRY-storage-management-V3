@@ -13355,6 +13355,16 @@ async function startServer() {
     })
   );
 
+  app.get(
+    '/api/ai/conversations/:id/pickup-draft',
+    requirePicker,
+    asyncHandler(async (req: any, res: any) => {
+      const draft = await aiOperations.getPickupDraftForConversation(req.params.id);
+      if (!draft) return res.status(404).json({ ok: false, error: 'Conversation not found.' });
+      res.json({ ok: true, draft });
+    })
+  );
+
   app.patch(
     '/api/ai/conversations/:id',
     requirePicker,
@@ -13369,9 +13379,15 @@ async function startServer() {
     '/api/ai/conversations/:id/create-pickup',
     requirePicker,
     asyncHandler(async (req: any, res: any) => {
-      const pickup = await aiOperations.createPickupFromConversation(req.params.id, req.body || {});
+      const draft = (await aiOperations.getPickupDraftForConversation(req.params.id)) || {};
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const nonEmptyBody = Object.fromEntries(
+        Object.entries(body).filter(([, value]) => String(value ?? '').trim().length > 0)
+      );
+      const actionInput = { ...draft, ...nonEmptyBody };
+      const pickup = await aiOperations.createPickupFromConversation(req.params.id, actionInput);
       if (!pickup) return res.status(404).json({ ok: false, error: 'Conversation not found.' });
-      const order = await createCustomerOrderFromAiPickup(pickup, String(req.params.id ?? ''), req.body || {});
+      const order = await createCustomerOrderFromAiPickup(pickup, String(req.params.id ?? ''), actionInput);
       const driverPhone = String(order?.driverNotification?.driverPhone ?? '').trim();
       await aiOperations.updatePickupRequest(pickup.id, {
         status: 'assigned',

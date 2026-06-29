@@ -51,12 +51,15 @@ type AiMessage = {
 };
 
 type PickupActionDraft = {
+  customer_name?: string;
+  customer_phone?: string;
   area: string;
   address: string;
   google_maps_url: string;
   preferred_time: string;
   serviceType: string;
   notes: string;
+  confidence?: 'low' | 'medium' | 'high';
 };
 
 const statusOptions: Array<{ value: 'all' | ConversationStatus; label: string }> = [
@@ -119,6 +122,7 @@ export default function AiConversationsPage() {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [actionBusy, setActionBusy] = useState<'pickup' | 'complaint' | null>(null);
+  const [draftLoading, setDraftLoading] = useState(false);
   const [pickupDraft, setPickupDraft] = useState<PickupActionDraft>(() => emptyPickupDraft());
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -169,6 +173,36 @@ export default function AiConversationsPage() {
     }
   }, []);
 
+  const loadPickupDraft = useCallback(async (conversationId: number | null) => {
+    if (!conversationId) {
+      setPickupDraft(emptyPickupDraft());
+      return;
+    }
+    try {
+      setDraftLoading(true);
+      const response = await axios.get<{ draft: Partial<PickupActionDraft> }>(
+        `/api/ai/conversations/${conversationId}/pickup-draft`
+      );
+      const draft = response.data?.draft || {};
+      setPickupDraft({
+        ...emptyPickupDraft(),
+        customer_name: draft.customer_name || '',
+        customer_phone: draft.customer_phone || '',
+        area: draft.area || '',
+        address: draft.address || '',
+        google_maps_url: draft.google_maps_url || '',
+        preferred_time: draft.preferred_time || '',
+        serviceType: draft.serviceType || 'WhatsApp pickup',
+        notes: draft.notes || '',
+        confidence: draft.confidence,
+      });
+    } catch {
+      setPickupDraft(emptyPickupDraft());
+    } finally {
+      setDraftLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadConversations();
   }, [loadConversations]);
@@ -177,7 +211,8 @@ export default function AiConversationsPage() {
     void loadMessages(selectedId);
     setPickupDraft(emptyPickupDraft());
     setNotice(null);
-  }, [loadMessages, selectedId]);
+    void loadPickupDraft(selectedId);
+  }, [loadMessages, loadPickupDraft, selectedId]);
 
   const updateConversation = async (patch: Partial<Pick<AiConversation, 'status' | 'priority' | 'assigned_to_phone'>>) => {
     if (!selectedConversation) return;
@@ -206,11 +241,11 @@ export default function AiConversationsPage() {
       setActionBusy('pickup');
       setNotice(null);
       setError(null);
-      const response = await axios.post<{ pickup: { id: number } }>(
+      const response = await axios.post<{ pickup: { id: number }; order?: { id: string } }>(
         `/api/ai/conversations/${selectedConversation.id}/create-pickup`,
         pickupDraft
       );
-      const orderId = (response.data as any)?.order?.id;
+      const orderId = response.data?.order?.id;
       setNotice(
         `Pickup request #${response.data?.pickup?.id || ''}${orderId ? ` and customer order #${orderId}` : ''} created.`
       );
@@ -409,6 +444,9 @@ export default function AiConversationsPage() {
                         </span>
                         <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-black text-slate-600">
                           {humanize(selectedConversation.intent)}
+                        </span>
+                        <span className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-black text-indigo-700">
+                          {draftLoading ? 'Extracting...' : `Draft ${pickupDraft.confidence || 'low'}`}
                         </span>
                       </div>
                       <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
