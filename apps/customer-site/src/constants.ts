@@ -53,13 +53,13 @@ export const INITIAL_SITE_CONFIG: SiteConfig = {
     { id: 3, name: 'إكسبريس', time: '٦ ساعات', extra: 15, desc: '+ ١٥ درهم', active: true },
   ],
   service_areas: [
-    { id: 'khalidiya', name: 'الخالدية', active: true },
-    { id: 'mussaffah', name: 'المصفح', active: true },
-    { id: 'yas', name: 'جزيرة ياس', active: true },
-    { id: 'mbz', name: 'مدينة محمد بن زايد', active: true },
-    { id: 'muroor', name: 'منطقة المرور', active: true },
-    { id: 'bateen', name: 'البطين', active: true },
-    { id: 'saadiyat', name: 'جزيرة السعديات', active: true },
+    { id: 'alfalah', name: 'الفلاح', active: true, delivery_fee: 10, min_order_amount: 50, branch_id: 'alfalah' },
+    { id: 'mussaffah', name: 'المصفح', active: true, delivery_fee: 10, min_order_amount: 50, branch_id: 'mussaffah' },
+    { id: 'mbz', name: 'مدينة محمد بن زايد', active: true, delivery_fee: 10, min_order_amount: 50, branch_id: 'mbz' },
+    { id: 'shamkha', name: 'الشامخة', active: true, delivery_fee: 12, min_order_amount: 60, branch_id: 'alfalah' },
+    { id: 'baniyas', name: 'بني ياس', active: true, delivery_fee: 12, min_order_amount: 60, branch_id: 'alfalah' },
+    { id: 'khalifa_city', name: 'مدينة خليفة', active: true, delivery_fee: 15, min_order_amount: 70, branch_id: 'mbz' },
+    { id: 'musaffah_industrial', name: 'مصفح الصناعية', active: true, delivery_fee: 10, min_order_amount: 50, branch_id: 'mussaffah' },
   ],
   pickup_days: [
     { id: 'today', label: 'اليوم', active: true },
@@ -76,9 +76,9 @@ export const INITIAL_SITE_CONFIG: SiteConfig = {
     { id: '18-20', time: '٦ م – ٨ م', avail: '٢ أماكن متاحة', active: true },
   ],
   payment_methods: [
-    { id: 1, name: 'بطاقة عند التسليم', desc: 'فيزا / مدى', kind: 'card', active: true },
+    { id: 1, name: 'بطاقة عند التسليم', desc: 'فيزا / ماستركارد', kind: 'card', active: true },
     { id: 2, name: 'نقد عند التسليم', desc: 'مبلغ مضبوط', kind: 'cash', active: true },
-    { id: 3, name: 'تحويل مسبق', desc: 'STC Pay / محافظ', kind: 'wallet', active: true },
+    { id: 3, name: 'محفظة رقمية', desc: 'Apple Pay / Google Pay عند توفرها', kind: 'wallet', active: true },
     { id: 4, name: 'رابط دفع', desc: 'يُرسَل واتساب', kind: 'wallet', active: true },
   ],
   pricing: [
@@ -139,7 +139,7 @@ export const INITIAL_SITE_CONFIG: SiteConfig = {
     {
       id: 'alfalah',
       name: 'فرع الفلاح',
-      address: 'شارع الفلاح، الرياض',
+      address: 'الفلاح، أبوظبي، الإمارات العربية المتحدة',
       phone: '025864164',
       whatsapp: '025864164',
       hours: '٨ص – ١٠م',
@@ -149,7 +149,7 @@ export const INITIAL_SITE_CONFIG: SiteConfig = {
     {
       id: 'mussaffah',
       name: 'فرع المصفح',
-      address: 'منطقة المصفح الصناعية',
+      address: 'مصفح M-13، أبوظبي، الإمارات العربية المتحدة',
       phone: '025631778',
       whatsapp: '025631778',
       hours: '٨ص – ١٠م',
@@ -159,7 +159,7 @@ export const INITIAL_SITE_CONFIG: SiteConfig = {
     {
       id: 'mbz',
       name: 'فرع محمد بن زايد',
-      address: 'مدينة محمد بن زايد',
+      address: 'مدينة محمد بن زايد، أبوظبي، الإمارات العربية المتحدة',
       phone: '025555929',
       whatsapp: '025555929',
       hours: '٨ص – ١٠م',
@@ -173,6 +173,8 @@ export const INITIAL_SITE_CONFIG: SiteConfig = {
       name: 'سائق ١',
       phone: '0565865506',
       branch: 'فرع الفلاح',
+      branch_id: 'alfalah',
+      service_areas: ['الفلاح', 'الشامخة', 'بني ياس'],
       status: 'online',
       rating: 4.9,
       total_ratings: 216,
@@ -196,7 +198,22 @@ export const INITIAL_SITE_CONFIG: SiteConfig = {
       condition: 'طلب > ٢٠٠ درهم',
       active: false
     }
-  ]
+  ],
+  ai_settings: {
+    auto_pickup_enabled: true,
+    manual_review_enabled: true,
+    min_confidence: 'medium',
+    require_customer_name: true,
+    require_customer_phone: true,
+    require_area: false,
+    require_address: false,
+    require_location_link: false,
+    require_pickup_time: false,
+    ask_missing_name_only: true,
+    notify_driver: true,
+    natural_customer_reply: true,
+    template_fallback_enabled: false
+  }
 };
 
 export const JOURNEY_STEPS = [

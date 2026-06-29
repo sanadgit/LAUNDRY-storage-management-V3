@@ -181,6 +181,9 @@ export interface ServiceArea {
   id: string;
   name: string;
   active?: boolean;
+  delivery_fee?: number;
+  min_order_amount?: number;
+  branch_id?: string;
 }
 
 export interface PickupDayOption {
@@ -249,6 +252,21 @@ export interface SiteConfig {
   pickup_days: PickupDayOption[];
   time_slots: TimeSlotOption[];
   payment_methods: PaymentMethodOption[];
+  ai_settings?: {
+    auto_pickup_enabled: boolean;
+    manual_review_enabled: boolean;
+    min_confidence: 'low' | 'medium' | 'high';
+    require_customer_name: boolean;
+    require_customer_phone: boolean;
+    require_area: boolean;
+    require_address: boolean;
+    require_location_link: boolean;
+    require_pickup_time: boolean;
+    ask_missing_name_only: boolean;
+    notify_driver: boolean;
+    natural_customer_reply: boolean;
+    template_fallback_enabled: boolean;
+  };
   pricing: PricingItem[];
   branches: Branch[];
   drivers: Driver[];

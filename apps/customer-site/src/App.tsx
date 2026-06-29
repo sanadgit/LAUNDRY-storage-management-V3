@@ -67,6 +67,46 @@ const DRIVER_AUTH_TOKEN_KEY = 'io_driver_auth_token';
 const DRIVER_AUTH_USER_KEY = 'io_driver_auth_user';
 const SITE_LANGUAGE_KEY = 'io_site_language';
 
+const mergeById = <T extends { id: string | number }>(defaults: T[], saved?: T[]): T[] => {
+  const merged = new Map<string | number, T>(defaults.map((item) => [item.id, item]));
+  saved?.forEach((item) => {
+    merged.set(item.id, { ...(merged.get(item.id) || {}), ...item });
+  });
+  return Array.from(merged.values());
+};
+
+const normalizeSiteConfig = (config?: Partial<SiteConfig> | null): SiteConfig => {
+  if (!config) return INITIAL_SITE_CONFIG;
+
+  const mergedPricing = [...INITIAL_SITE_CONFIG.pricing];
+  config.pricing?.forEach((savedItem) => {
+    const idx = mergedPricing.findIndex((item) => item.barcode === savedItem.barcode);
+    if (idx !== -1) {
+      mergedPricing[idx] = { ...mergedPricing[idx], ...savedItem };
+    } else {
+      mergedPricing.push(savedItem);
+    }
+  });
+
+  return {
+    ...INITIAL_SITE_CONFIG,
+    ...config,
+    hero: { ...INITIAL_SITE_CONFIG.hero, ...(config.hero || {}) },
+    social_media: { ...INITIAL_SITE_CONFIG.social_media, ...(config.social_media || {}) },
+    ai_settings: { ...INITIAL_SITE_CONFIG.ai_settings, ...(config.ai_settings || {}) },
+    pricing: mergedPricing,
+    service_areas: mergeById(INITIAL_SITE_CONFIG.service_areas, config.service_areas),
+    branches: mergeById(INITIAL_SITE_CONFIG.branches, config.branches),
+    drivers: mergeById(INITIAL_SITE_CONFIG.drivers, config.drivers),
+    pickup_days: mergeById(INITIAL_SITE_CONFIG.pickup_days, config.pickup_days),
+    time_slots: mergeById(INITIAL_SITE_CONFIG.time_slots, config.time_slots),
+    payment_methods: mergeById(INITIAL_SITE_CONFIG.payment_methods, config.payment_methods),
+    service_options: mergeById(INITIAL_SITE_CONFIG.service_options, config.service_options),
+    offers: mergeById(INITIAL_SITE_CONFIG.offers, config.offers),
+    gallery: mergeById(INITIAL_SITE_CONFIG.gallery, config.gallery),
+  };
+};
+
 export default function App() {
   const [route, setRouteState] = useState(getRouteFromLocation);
   const [language, setLanguage] = useState<SiteLanguage>(() => {
@@ -117,18 +157,7 @@ export default function App() {
     const saved = localStorage.getItem('io_site_config');
     if (!saved) return INITIAL_SITE_CONFIG;
     
-    // Merge logic: ensure all items from INITIAL_SITE_CONFIG exist 
-    const parsed = JSON.parse(saved) as SiteConfig;
-    const mergedPricing = [...INITIAL_SITE_CONFIG.pricing];
-    
-    parsed.pricing.forEach(savedItem => {
-      const idx = mergedPricing.findIndex(p => p.barcode === savedItem.barcode);
-      if (idx !== -1) {
-        mergedPricing[idx] = savedItem; // Use saved values for existing items
-      }
-    });
-
-    return { ...INITIAL_SITE_CONFIG, ...parsed, pricing: mergedPricing };
+    return normalizeSiteConfig(JSON.parse(saved) as SiteConfig);
   });
 
   // Persist state
@@ -330,19 +359,7 @@ export default function App() {
           setOrders(normalizeOrders(remoteOrders));
         }
 
-        if (remoteConfig && typeof remoteConfig === 'object') {
-          const mergedPricing = [...INITIAL_SITE_CONFIG.pricing];
-          remoteConfig.pricing?.forEach((savedItem) => {
-            const idx = mergedPricing.findIndex((item) => item.barcode === savedItem.barcode);
-            if (idx !== -1) mergedPricing[idx] = savedItem;
-          });
-
-          setSiteConfig({
-            ...INITIAL_SITE_CONFIG,
-            ...remoteConfig,
-            pricing: mergedPricing,
-          });
-        }
+        if (remoteConfig && typeof remoteConfig === 'object') setSiteConfig(normalizeSiteConfig(remoteConfig));
       } finally {
         if (!cancelled) setLoadedRemoteData(true);
       }
@@ -760,8 +777,9 @@ export default function App() {
     }
   };
 
+  const isAdminRoute = route === '/admin';
   const isDriverRoute = route === '/driver';
-  const hidesPrimaryNavbar = isDriverRoute || route === '/';
+  const hidesPrimaryNavbar = isAdminRoute || isDriverRoute || route === '/';
 
   return (
     <div dir={language === 'ar' ? 'rtl' : 'ltr'} className="min-h-screen flex flex-col font-sans select-none selection:bg-primary/20">
