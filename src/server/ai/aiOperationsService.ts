@@ -78,6 +78,17 @@ type CreateComplaintInput = {
   assigned_to_phone?: unknown;
 };
 
+type AiMessageAnalysis = {
+  intent: AiIntent;
+  language: string;
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  pickup_draft: PickupDraftSuggestion;
+  missing_fields: string[];
+  ready_for_auto_create: boolean;
+  reply: string;
+  source: 'openai' | 'rules';
+};
+
 type PickupDraftSuggestion = {
   customer_name: string;
   customer_phone: string;
@@ -89,6 +100,39 @@ type PickupDraftSuggestion = {
   notes: string;
   source_message: string;
   confidence: 'low' | 'medium' | 'high';
+};
+
+type RoutedMessageResult = {
+  contact_id: number;
+  conversation_id: number;
+  role: AiRole;
+  language: string;
+  intent: AiIntent;
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  response: string;
+  order_tracking: any;
+  ai_source: 'openai' | 'rules';
+  pickup_draft: PickupDraftSuggestion;
+  missing_fields: string[];
+  auto_create_pickup: boolean;
+};
+
+type WhatsappRoutedEvent = {
+  from: string;
+  to: string;
+  text: string;
+  type: string;
+  routed: RoutedMessageResult;
+};
+
+type WhatsappRoutedActionResult = {
+  responseOverride?: string;
+  suppressReply?: boolean;
+  automation?: Record<string, unknown>;
+} | null;
+
+type ProcessWhatsappWebhookOptions = {
+  onRoutedMessage?: (event: WhatsappRoutedEvent) => Promise<WhatsappRoutedActionResult | void>;
 };
 
 const AI_ALLOWED_INTENTS: AiIntent[] = [
@@ -111,6 +155,18 @@ const AI_ALLOWED_INTENTS: AiIntent[] = [
   'stock_problem',
   'employee_attendance',
   'unknown',
+];
+
+const PICKUP_DRAFT_FIELDS: Array<keyof PickupDraftSuggestion> = [
+  'customer_name',
+  'customer_phone',
+  'area',
+  'address',
+  'google_maps_url',
+  'preferred_time',
+  'serviceType',
+  'notes',
+  'source_message',
 ];
 
 const PICKUP_STATUSES = new Set(['new', 'assigned', 'accepted', 'on_the_way', 'picked_up', 'cancelled', 'completed']);
@@ -240,6 +296,53 @@ const extractPickupDraftFromMessage = (
   };
 };
 
+const emptyPickupDraft = (sourceMessage = ''): PickupDraftSuggestion => ({
+  customer_name: '',
+  customer_phone: '',
+  area: '',
+  address: '',
+  google_maps_url: '',
+  preferred_time: '',
+  serviceType: 'WhatsApp pickup',
+  notes: sourceMessage ? `Auto extracted from WhatsApp: ${sourceMessage}` : '',
+  source_message: sourceMessage,
+  confidence: 'low',
+});
+
+const mergePickupDrafts = (primary: Partial<PickupDraftSuggestion>, fallback: PickupDraftSuggestion): PickupDraftSuggestion => {
+  const merged: any = { ...fallback };
+  for (const field of PICKUP_DRAFT_FIELDS) {
+    const value = String(primary[field] ?? '').trim();
+    if (value) merged[field] = value;
+  }
+  const confidence = String(primary.confidence ?? fallback.confidence ?? 'low');
+  merged.confidence = confidence === 'high' || confidence === 'medium' || confidence === 'low' ? confidence : fallback.confidence;
+  if (!merged.serviceType) merged.serviceType = 'WhatsApp pickup';
+  if (!merged.source_message) merged.source_message = fallback.source_message;
+  return merged as PickupDraftSuggestion;
+};
+
+const parseAiJsonObject = (value: unknown) => {
+  const text = String(value ?? '').trim();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    try {
+      return JSON.parse(match[0]);
+    } catch {
+      return null;
+    }
+  }
+};
+
+const pickupDraftHasMinimumData = (draft: PickupDraftSuggestion) => {
+  const hasLocation = Boolean(draft.google_maps_url || (draft.area && draft.address));
+  return Boolean(draft.customer_phone && hasLocation);
+};
+
 export const normalizeAiPhone = (value: unknown) => {
   let digits = String(value ?? '').replace(/\D/g, '');
   if (!digits) return '';
@@ -358,6 +461,10 @@ const buildReply = (intent: AiIntent, language: string, text: string, orderStatu
 };
 
 export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: AiServiceOptions) => {
+  const openAiKey = envFirst(env, ['OPENAI_API_KEY']);
+  const openAiModel = envFirst(env, ['OPENAI_MODEL'], 'gpt-4.1-mini') || 'gpt-4.1-mini';
+  const autoCreatePickups = !/^(0|false|no)$/i.test(envFirst(env, ['AI_AGENT_AUTO_CREATE_PICKUPS'], 'true'));
+
   const query = async (sql: string, params: any[] = []) => {
     if (!usePostgres || !pgPool) return { rows: sqlite.prepare(sql).all(...params) };
     const result = await pgPool.query(sql, params);
@@ -395,6 +502,104 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
           .map((area: any) => String(area?.name ?? area?.id ?? '').trim())
           .filter(Boolean)
       : [];
+  };
+
+  const analyzeMessageWithOpenAi = async (params: {
+    text: string;
+    contactName?: unknown;
+    contactPhone?: unknown;
+    knownAreas: string[];
+    fallbackDraft: PickupDraftSuggestion;
+  }): Promise<AiMessageAnalysis | null> => {
+    if (!openAiKey) return null;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          Authorization: `Bearer ${openAiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: openAiModel,
+          temperature: 0.1,
+          response_format: { type: 'json_object' },
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You are the WhatsApp operations AI for In & Out Laundry in UAE. Return only valid JSON. Classify messages and extract pickup details. Never invent missing customer data. If a pickup can be created, ready_for_auto_create must be true only when a customer phone exists and there is a usable location: either a Google Maps URL, or both area and address. Use Arabic reply for Arabic/Urdu messages and English reply for English messages.',
+            },
+            {
+              role: 'user',
+              content: JSON.stringify({
+                allowed_intents: AI_ALLOWED_INTENTS,
+                schema: {
+                  intent: 'one allowed intent',
+                  language: 'ar | en | ur',
+                  priority: 'low | normal | high | urgent',
+                  pickup_draft: {
+                    customer_name: 'string',
+                    customer_phone: 'string',
+                    area: 'string',
+                    address: 'string',
+                    google_maps_url: 'string',
+                    preferred_time: 'string',
+                    serviceType: 'string',
+                    notes: 'string',
+                    confidence: 'low | medium | high',
+                  },
+                  missing_fields: ['field names needed before auto create'],
+                  ready_for_auto_create: 'boolean',
+                  reply: 'short helpful WhatsApp reply',
+                },
+                known_service_areas: params.knownAreas,
+                contact_name: params.contactName ?? '',
+                contact_phone: params.contactPhone ?? '',
+                message: params.text,
+              }),
+            },
+          ],
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(JSON.stringify(payload));
+      const parsed = parseAiJsonObject(payload?.choices?.[0]?.message?.content);
+      if (!parsed || typeof parsed !== 'object') return null;
+      const rawIntent = String((parsed as any).intent ?? '').trim() as AiIntent;
+      const intent = AI_ALLOWED_INTENTS.includes(rawIntent) ? rawIntent : detectIntent(params.text);
+      const rawPriority = String((parsed as any).priority ?? '').trim();
+      const priority =
+        rawPriority === 'low' || rawPriority === 'normal' || rawPriority === 'high' || rawPriority === 'urgent'
+          ? rawPriority
+          : intent === 'lost_item' || intent === 'damage_claim'
+            ? 'urgent'
+            : intent === 'complaint'
+              ? 'high'
+              : 'normal';
+      const aiDraft = mergePickupDrafts((parsed as any).pickup_draft ?? {}, params.fallbackDraft);
+      const missingFields = Array.isArray((parsed as any).missing_fields)
+        ? (parsed as any).missing_fields.map((field: unknown) => clamp(field, 60)).filter(Boolean)
+        : [];
+      const readyByAi = Boolean((parsed as any).ready_for_auto_create);
+      return {
+        intent,
+        language: clamp((parsed as any).language, 12) || detectLanguage(params.text),
+        priority,
+        pickup_draft: aiDraft,
+        missing_fields: missingFields,
+        ready_for_auto_create: readyByAi && pickupDraftHasMinimumData(aiDraft),
+        reply: clamp((parsed as any).reply, 1200),
+        source: 'openai',
+      };
+    } catch (error: any) {
+      console.warn('OpenAI AI router failed; falling back to rules:', error?.message || error);
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
   };
 
   const detectContactRole = async (phone: string): Promise<AiRole> => {
@@ -584,9 +789,32 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
 
   const routeIncomingMessage = async (input: RouteMessageInput) => {
     const channel = input.channel ?? 'whatsapp';
-    const language = detectLanguage(input.messageText);
-    const intent = detectIntent(input.messageText);
-    const priority = intent === 'lost_item' || intent === 'damage_claim' ? 'urgent' : intent === 'complaint' ? 'high' : 'normal';
+    const knownAreas = await getKnownServiceAreas();
+    const fallbackDraft = extractPickupDraftFromMessage(input.messageText, {
+      contactName: input.name,
+      contactPhone: input.from,
+      knownAreas,
+    });
+    const aiAnalysis = await analyzeMessageWithOpenAi({
+      text: input.messageText,
+      contactName: input.name,
+      contactPhone: input.from,
+      knownAreas,
+      fallbackDraft,
+    });
+    const language = aiAnalysis?.language || detectLanguage(input.messageText);
+    const intent = aiAnalysis?.intent || detectIntent(input.messageText);
+    const priority =
+      aiAnalysis?.priority || (intent === 'lost_item' || intent === 'damage_claim' ? 'urgent' : intent === 'complaint' ? 'high' : 'normal');
+    const pickupDraft = aiAnalysis?.pickup_draft || fallbackDraft;
+    const missingFields =
+      aiAnalysis?.missing_fields ??
+      (pickupDraftHasMinimumData(pickupDraft) ? [] : ['location']);
+    const autoCreatePickup =
+      autoCreatePickups &&
+      intent === 'pickup_request' &&
+      pickupDraftHasMinimumData(pickupDraft) &&
+      (aiAnalysis?.ready_for_auto_create || pickupDraft.confidence === 'high');
     const contact = await getOrCreateContact(input.from, input.name, language);
     const conversation = await getOrCreateConversation(Number(contact.id), channel, intent, priority);
 
@@ -602,7 +830,13 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
 
     const orderNumber = input.messageText.match(/\b[A-Z]{0,4}\d{3,}\b/i)?.[0];
     const orderStatus = intent === 'order_tracking' && orderNumber ? await trackOrder(orderNumber) : null;
-    const responseText = buildReply(intent, language, input.messageText, orderStatus);
+    const responseText =
+      aiAnalysis?.reply ||
+      (autoCreatePickup
+        ? language === 'ar' || language === 'ur'
+          ? 'تم استلام بيانات طلب الاستلام. سأقوم بإنشاء الطلب وإبلاغ السائق الآن.'
+          : 'Pickup details received. I will create the pickup order and notify the driver now.'
+        : buildReply(intent, language, input.messageText, orderStatus));
 
     await logMessage({
       conversationId: Number(conversation.id),
@@ -623,6 +857,10 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
       priority,
       response: responseText,
       order_tracking: orderStatus,
+      ai_source: aiAnalysis?.source ?? 'rules',
+      pickup_draft: pickupDraft,
+      missing_fields: missingFields,
+      auto_create_pickup: autoCreatePickup,
     };
   };
 
@@ -684,7 +922,7 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
     return providerResponse;
   };
 
-  const processWhatsappWebhook = async (body: any) => {
+  const processWhatsappWebhook = async (body: any, options: ProcessWhatsappWebhookOptions = {}) => {
     const results: any[] = [];
     const entries = Array.isArray(body?.entry) ? body.entry : [];
     for (const entry of entries) {
@@ -706,22 +944,52 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
                 ? `Location: https://www.google.com/maps?q=${message?.location?.latitude},${message?.location?.longitude}`
                 : `[${type} message]`;
           const contact = contactsByWaId.get(from);
+          const to = String(value?.metadata?.display_phone_number ?? value?.metadata?.phone_number_id ?? '');
           const routed = await routeIncomingMessage({
             channel: 'whatsapp',
             from,
-            to: String(value?.metadata?.display_phone_number ?? value?.metadata?.phone_number_id ?? ''),
+            to,
             name: contact?.profile?.name,
             messageText: text,
             messageType: type,
             whatsappMessageId: String(message?.id ?? ''),
           });
+          const actionResultRaw = options.onRoutedMessage
+            ? await options.onRoutedMessage({ from, to, text, type, routed })
+            : null;
+          const actionResult = actionResultRaw || null;
+          const responseText = clamp(actionResult?.responseOverride || routed.response, 4096);
           let sendResult: any = null;
-          try {
-            sendResult = await sendWhatsAppText(from, routed.response);
-          } catch (error: any) {
-            sendResult = { error: error?.message || String(error) };
+          if (actionResult?.suppressReply) {
+            sendResult = { status: 'skipped', reason: 'reply_suppressed_by_automation' };
+          } else {
+            try {
+              sendResult = await sendWhatsAppText(from, responseText);
+              if (responseText !== routed.response) {
+                await logMessage({
+                  conversationId: Number(routed.conversation_id),
+                  direction: 'outbound',
+                  senderPhone: to ? normalizeAiPhone(to) : null,
+                  receiverPhone: normalizeAiPhone(from),
+                  messageType: 'text',
+                  messageText: responseText,
+                  whatsappMessageId: sendResult?.messages?.[0]?.id,
+                  aiResponse: true,
+                });
+              }
+            } catch (error: any) {
+              sendResult = { error: error?.message || String(error) };
+            }
           }
-          results.push({ from, intent: routed.intent, conversation_id: routed.conversation_id, send: sendResult });
+          results.push({
+            from,
+            intent: routed.intent,
+            ai_source: routed.ai_source,
+            auto_create_pickup: routed.auto_create_pickup,
+            conversation_id: routed.conversation_id,
+            automation: actionResult?.automation ?? null,
+            send: sendResult,
+          });
         }
       }
     }
@@ -1101,11 +1369,19 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
     const conversation = await getAiConversationActionContext(idRaw);
     if (!conversation) return null;
     const knownAreas = await getKnownServiceAreas();
-    return extractPickupDraftFromMessage(conversation.last_inbound_text, {
+    const fallbackDraft = extractPickupDraftFromMessage(conversation.last_inbound_text, {
       contactName: conversation.contact_name,
       contactPhone: conversation.contact_phone,
       knownAreas,
     });
+    const aiAnalysis = await analyzeMessageWithOpenAi({
+      text: String(conversation.last_inbound_text ?? ''),
+      contactName: conversation.contact_name,
+      contactPhone: conversation.contact_phone,
+      knownAreas,
+      fallbackDraft,
+    });
+    return aiAnalysis?.pickup_draft ?? fallbackDraft;
   };
 
   const buildActionNote = (conversation: any, prefix: string, extra?: unknown) => {

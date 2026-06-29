@@ -10968,6 +10968,16 @@ const createCustomerOrderFromAiPickup = async (
   return finalOrder;
 };
 
+const buildAiPickupAutomationReply = (order: Record<string, any>, language: string) => {
+  const isArabic = language === 'ar' || language === 'ur';
+  const orderId = String(order.id ?? '').trim() || '-';
+  const driverName = String(order.assignedDriverName ?? order.driverNotification?.driverName ?? '').trim();
+  const driverPart = driverName ? (isArabic ? ` تم تعيين السائق: ${driverName}.` : ` Assigned driver: ${driverName}.`) : '';
+  return isArabic
+    ? `تم إنشاء طلب الاستلام رقم ${orderId} بنجاح.${driverPart} ستصلك التحديثات عبر واتساب.`
+    : `Pickup order ${orderId} has been created successfully.${driverPart} You will receive updates on WhatsApp.`;
+};
+
 const sendOtpViaAipsoft = async (
   phoneNormalized: string,
   phoneE164: string,
@@ -13306,7 +13316,33 @@ async function startServer() {
   app.post(
     '/api/webhooks/whatsapp',
     asyncHandler(async (req: any, res: any) => {
-      const results = await aiOperations.processWhatsappWebhook(req.body);
+      const results = await aiOperations.processWhatsappWebhook(req.body, {
+        onRoutedMessage: async ({ routed }) => {
+          if (!routed.auto_create_pickup) return undefined;
+          const draft = routed.pickup_draft || {};
+          const pickup = await aiOperations.createPickupFromConversation(routed.conversation_id, draft as Record<string, unknown>);
+          if (!pickup) return undefined;
+          const order = await createCustomerOrderFromAiPickup(pickup, String(routed.conversation_id), draft as Record<string, unknown>);
+          const driverPhone = String(order?.driverNotification?.driverPhone ?? '').trim();
+          await aiOperations.updatePickupRequest(pickup.id, {
+            status: 'assigned',
+            assigned_driver_phone: driverPhone || pickup.assigned_driver_phone,
+          });
+          const customerConfirmationStatus = String(order?.customerConfirmation?.status ?? '').trim();
+          return {
+            responseOverride: buildAiPickupAutomationReply(order, routed.language),
+            suppressReply: customerConfirmationStatus === 'sent',
+            automation: {
+              status: 'created',
+              type: 'pickup_order',
+              pickup_id: pickup.id,
+              order_id: order.id,
+              customer_confirmation: customerConfirmationStatus || 'unknown',
+              driver_notification: order?.driverNotification?.status ?? 'unknown',
+            },
+          };
+        },
+      });
       res.json({ ok: true, processed: results.length, results });
     })
   );
