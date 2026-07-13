@@ -1,298 +1,326 @@
-import React, { useState } from 'react';
-import { motion } from 'motion/react';
-import { 
-  Phone, MessageCircle, MapPin, Clock, 
-  Instagram, Facebook, Mail, Send, 
-  Car, Store, Globe, ChevronLeft, Sparkles
+import React, { useMemo, useState } from 'react';
+import { motion, useReducedMotion } from 'motion/react';
+import {
+  Mail,
+  MapPin,
+  MessageCircle,
+  Navigation,
+  Phone,
+  Send,
+  ShieldCheck,
+  Store,
+  Truck,
 } from 'lucide-react';
-import { LaundryIcon } from './LaundryIcon';
+import { SiteConfig } from '../types';
 import { SiteLanguage, localize } from '../lib/i18n';
+import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui';
+import { cn } from '../lib/utils';
 
-export const Contact: React.FC<{ language?: SiteLanguage }> = ({ language = 'ar' }) => {
-  const [activeBranch, setActiveBranch] = useState(1);
-  const [activeMap, setActiveMap] = useState('falah');
+interface ContactProps {
+  config: SiteConfig;
+  language?: SiteLanguage;
+}
 
-  const branches = [
-    { id: 1, name: localize(language, 'فرع الفلاح', 'Al Falah Branch'), phone: '02 586 4164', key: 'falah' },
-    { id: 2, name: localize(language, 'فرع المصفح', 'Mussafah Branch'), phone: '02 563 1778', key: 'musaffah' },
-    { id: 3, name: localize(language, 'فرع محمد بن زايد', 'Mohammed Bin Zayed Branch'), phone: '02 555 5929', key: 'mbz' },
-  ];
+const branchNameEn: Record<string, string> = {
+  alfalah: 'Al Falah Branch',
+  mussaffah: 'Mussaffah Branch',
+  mbz: 'Mohammed Bin Zayed Branch',
+};
 
-  const drivers = [
-    { name: localize(language, 'سائق ١', 'Driver 1'), phone: '056 586 5506' },
-    { name: localize(language, 'سائق ٢', 'Driver 2'), phone: '056 427 0050' },
-    { name: localize(language, 'سائق ٣', 'Driver 3'), phone: '055 709 9998' },
-  ];
+export const Contact: React.FC<ContactProps> = ({ config, language = 'ar' }) => {
+  const branches = useMemo(() => config.branches.filter((branch) => branch.status !== 'closed'), [config.branches]);
+  const [activeBranchId, setActiveBranchId] = useState(branches[0]?.id || '');
+  const activeBranch = branches.find((branch) => branch.id === activeBranchId) || branches[0];
+  const reduceMotion = useReducedMotion();
+  const t = (ar: string, en: string) => localize(language, ar, en);
 
-  const maps: Record<string, string> = {
-    falah: 'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d428.6093021670851!2d54.73065573556334!3d24.42420086473464!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3e5e4b999a38450f%3A0x8f39170f5a0e023d!2z2YXYtdix2LrYqSDYpdmGINij2YbYryDYo9mI2KogSW4mT3V0IExhdW5kcnk!5e0!3m2!1sar!2sae!4v1776829191134!5m2!1sar!2sae',
-    musaffah: 'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d227.1316917411851!2d54.520150889893294!3d24.377578529156047!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3e5e412ae444bce7%3A0xf384760d3a59adb1!2sIn%20%26%20Out%20Laundry%20(Main%20Branch)!5e0!3m2!1sar!2sae!4v1776830011443!5m2!1sar!2sae',
-    mbz: 'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d227.17496212863!2d54.55915472514885!3d24.353479647417085!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3e5e47c1f3a1427d%3A0x5c023caf4004e15!2z2YXYtdio2LrYqSDYpdmGINij2YbYryDYo9mI2KogSW4mT3V0IExhdW5kcnk!5e0!3m2!1sar!2sae!4v1776830138457!5m2!1sar!2sae'
+  return (
+    <div className="mx-auto max-w-6xl space-y-10 pb-20">
+      <section className="overflow-hidden rounded-[2rem] bg-primary text-white shadow-high">
+        <div className="grid gap-8 p-6 md:grid-cols-[1fr_.8fr] md:p-10">
+          <motion.div
+            initial={reduceMotion ? false : { opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            <Badge variant="accent" className="mb-5 border-white/20 bg-white/10 text-white">
+              {t('خدمة العملاء', 'Customer support')}
+            </Badge>
+            <h1 className="max-w-3xl text-4xl font-black leading-tight md:text-6xl">
+              {t('تواصل معنا بالطريقة الأسرع لك.', 'Reach us through the fastest channel for you.')}
+            </h1>
+            <p className="mt-5 max-w-2xl text-base leading-8 text-white/75">
+              {t(
+                'اتصال مباشر، واتساب، بريد، وخريطة الفروع. اختر الفرع أو ابدأ حجز استلام جديد خلال ثوان.',
+                'Direct calls, WhatsApp, email, and branch maps. Choose a branch or start a new pickup booking in seconds.',
+              )}
+            </p>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <Button size="lg" variant="accent" onClick={() => openWhatsApp(config.whatsapp_number, t('أريد حجز استلام', 'I want to book a pickup'))}>
+                <MessageCircle aria-hidden="true" className="size-5" />
+                {t('واتساب عام', 'Main WhatsApp')}
+              </Button>
+              <Button size="lg" variant="secondary" onClick={() => window.location.href = `mailto:${config.contact_email}`}>
+                <Mail aria-hidden="true" className="size-5" />
+                {t('البريد الإلكتروني', 'Email')}
+              </Button>
+            </div>
+          </motion.div>
+
+          <div className="grid gap-3 rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur">
+            <SupportMetric icon={Store} label={t('الفروع', 'Branches')} value={String(branches.length)} />
+            <SupportMetric icon={Truck} label={t('الاستلام والتوصيل', 'Pickup & delivery')} value={config.accept_orders ? t('مفعل', 'Enabled') : t('متوقف', 'Paused')} />
+            <SupportMetric icon={ShieldCheck} label={t('التذاكر', 'Tickets')} value={t('متابعة واضحة', 'Tracked flow')} />
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-3">
+        <QuickAction
+          icon={Phone}
+          title={t('اتصال مباشر', 'Direct call')}
+          text={activeBranch?.phone || config.whatsapp_number}
+          onClick={() => activeBranch?.phone && (window.location.href = `tel:${normalizePhoneForTel(activeBranch.phone)}`)}
+        />
+        <QuickAction
+          icon={MessageCircle}
+          title={t('واتساب', 'WhatsApp')}
+          text={t('حجز، تتبع، دعم', 'Booking, tracking, support')}
+          onClick={() => openWhatsApp(activeBranch?.whatsapp || config.whatsapp_number, t('مرحبًا، أحتاج مساعدة من In & Out Laundry', 'Hi, I need help from In & Out Laundry'))}
+        />
+        <QuickAction
+          icon={MapPin}
+          title={t('الفروع', 'Branches')}
+          text={t('اختر أقرب فرع', 'Choose nearest branch')}
+          onClick={() => activeBranch && window.open(mapUrl(activeBranch.coordinates.lat, activeBranch.coordinates.lng), '_blank', 'noopener,noreferrer')}
+        />
+      </section>
+
+      <section className="grid gap-6 lg:grid-cols-[.95fr_1.05fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('الفروع الرسمية', 'Official branches')}</CardTitle>
+            <CardDescription>{t('اختر الفرع للتواصل أو فتح الخريطة.', 'Choose a branch to contact or open the map.')}</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            {branches.map((branch) => {
+              const active = activeBranch?.id === branch.id;
+              return (
+                <button
+                  key={branch.id}
+                  type="button"
+                  onClick={() => setActiveBranchId(branch.id)}
+                  className={cn(
+                    'rounded-lg border p-4 text-start transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    active ? 'border-primary bg-primary/5' : 'border-border bg-surface hover:border-primary/50',
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-lg font-black">{branchLabel(branch.id, branch.name, language)}</p>
+                      <p className="mt-1 text-sm leading-6 text-muted-foreground">{branch.address}</p>
+                    </div>
+                    <Badge variant={branch.status === 'busy' ? 'warning' : 'success'}>
+                      {branch.status === 'busy' ? t('مشغول', 'Busy') : t('متاح', 'Available')}
+                    </Badge>
+                  </div>
+                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                    <BranchAction
+                      icon={Phone}
+                      label={branch.phone}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        window.location.href = `tel:${normalizePhoneForTel(branch.phone)}`;
+                      }}
+                    />
+                    <BranchAction
+                      icon={MessageCircle}
+                      label={t('واتساب', 'WhatsApp')}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openWhatsApp(branch.whatsapp || branch.phone, t('أريد التواصل مع الفرع', 'I want to contact this branch'));
+                      }}
+                    />
+                  </div>
+                </button>
+              );
+            })}
+          </CardContent>
+        </Card>
+
+        <Card className="overflow-hidden">
+          <CardHeader className="border-b border-border">
+            <CardTitle>{activeBranch ? branchLabel(activeBranch.id, activeBranch.name, language) : t('الخريطة', 'Map')}</CardTitle>
+            <CardDescription>{activeBranch?.address || config.business_address}</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            {activeBranch ? (
+              <iframe
+                src={mapEmbedUrl(activeBranch.coordinates.lat, activeBranch.coordinates.lng)}
+                title={branchLabel(activeBranch.id, activeBranch.name, language)}
+                className="h-[420px] w-full border-0"
+                loading="lazy"
+                allowFullScreen
+              />
+            ) : null}
+            <div className="grid gap-2 border-t border-border p-4 sm:grid-cols-2">
+              <Button variant="secondary" onClick={() => activeBranch && window.open(mapUrl(activeBranch.coordinates.lat, activeBranch.coordinates.lng), '_blank', 'noopener,noreferrer')}>
+                <Navigation aria-hidden="true" className="size-5" />
+                {t('فتح الاتجاهات', 'Open directions')}
+              </Button>
+              <Button variant="accent" onClick={() => openWhatsApp(activeBranch?.whatsapp || config.whatsapp_number, t('أريد حجز استلام من هذا الفرع', 'I want to book pickup from this branch'))}>
+                <MessageCircle aria-hidden="true" className="size-5" />
+                {t('حجز عبر واتساب', 'Book via WhatsApp')}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="grid gap-6 lg:grid-cols-[.85fr_1.15fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('ساعات العمل', 'Working hours')}</CardTitle>
+            <CardDescription>{t('الجدول العام للفروع الحالية.', 'General schedule for current branches.')}</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            {[
+              [t('السبت - الأربعاء', 'Saturday - Wednesday'), t('8 ص - 10 م', '8 AM - 10 PM')],
+              [t('الخميس', 'Thursday'), t('8 ص - 11 م', '8 AM - 11 PM')],
+              [t('الجمعة', 'Friday'), t('2 م - 11 م', '2 PM - 11 PM')],
+            ].map(([day, time]) => (
+              <div key={day} className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted p-4">
+                <span className="font-bold">{day}</span>
+                <span className="font-black text-primary">{time}</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('أرسل رسالة', 'Send a message')}</CardTitle>
+            <CardDescription>{t('النموذج يجهز رسالة بريد واضحة لفريق الدعم.', 'The form prepares a clear email for support.')}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ContactForm config={config} language={language} branchName={activeBranch ? branchLabel(activeBranch.id, activeBranch.name, language) : config.site_name} />
+          </CardContent>
+        </Card>
+      </section>
+    </div>
+  );
+};
+
+const ContactForm = ({ config, language, branchName }: { config: SiteConfig; language: SiteLanguage; branchName: string }) => {
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [topic, setTopic] = useState('service');
+  const [message, setMessage] = useState('');
+  const t = (ar: string, en: string) => localize(language, ar, en);
+
+  const sendEmail = () => {
+    const subject = encodeURIComponent(`${config.site_name} - ${topic}`);
+    const body = encodeURIComponent([
+      `${t('الاسم', 'Name')}: ${name}`,
+      `${t('الهاتف', 'Phone')}: ${phone}`,
+      `${t('الفرع', 'Branch')}: ${branchName}`,
+      `${t('النوع', 'Topic')}: ${topic}`,
+      '',
+      message,
+    ].join('\n'));
+    window.location.href = `mailto:${config.contact_email}?subject=${subject}&body=${body}`;
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-12 pb-20">
-      {/* Hero Header */}
-      <div className="bg-secondary rounded-[2rem] p-12 text-center relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-primary/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-        <LaundryIcon
-          name="outty-support"
-          alt=""
-          className="pointer-events-none absolute bottom-5 left-5 hidden h-32 w-32 rounded-[2rem] bg-white/10 p-2 shadow-2xl shadow-primary/10 md:inline-flex"
-          imageClassName="h-full w-full rounded-3xl object-contain"
+    <div className="grid gap-4">
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label={t('الاسم الكامل', 'Full name')} value={name} onChange={setName} />
+        <Field label={t('رقم الجوال', 'Mobile number')} value={phone} onChange={setPhone} dir="ltr" />
+      </div>
+      <label className="grid gap-2 text-xs font-black">
+        {t('نوع الاستفسار', 'Inquiry type')}
+        <select
+          value={topic}
+          onChange={(event) => setTopic(event.target.value)}
+          className="min-h-12 rounded-lg border border-input bg-surface px-4 text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <option value="service">{t('استفسار عن خدمة', 'Service inquiry')}</option>
+          <option value="complaint">{t('شكوى أو ملاحظة', 'Complaint or feedback')}</option>
+          <option value="commercial">{t('طلب عرض سعر تجاري', 'Commercial quote')}</option>
+        </select>
+      </label>
+      <label className="grid gap-2 text-xs font-black">
+        {t('الرسالة', 'Message')}
+        <textarea
+          value={message}
+          onChange={(event) => setMessage(event.target.value)}
+          className="min-h-32 rounded-lg border border-input bg-surface p-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          placeholder={t('كيف يمكننا مساعدتك؟', 'How can we help you?')}
         />
-        <div className="relative z-10 space-y-4">
-          <div className="inline-flex items-center gap-2 bg-primary/20 text-primary px-4 py-2 rounded-full border border-primary/30 text-[10px] font-bold uppercase">
-             {localize(language, 'الإمارات العربية المتحدة — أبوظبي', 'United Arab Emirates - Abu Dhabi')}
-          </div>
-          <h1 className="text-4xl md:text-5xl font-black text-white italic">
-            {localize(language, 'تواصل', 'Contact')} <span className="text-primary">{localize(language, 'معنا', 'Us')}</span>
-          </h1>
-          <p className="text-primary/60 text-sm md:text-base max-w-2xl mx-auto">
-            {localize(language, 'نحن هنا لخدمتك — فريق خدمة العملاء متاح ٧ أيام في الأسبوع لاستقبال طلباتك وملاحظاتك.', 'We are here to help. Our customer support team is available 7 days a week for your orders and feedback.')}
-          </p>
-        </div>
-      </div>
-
-      {/* Quick Stats/Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-8 rounded-[2rem] border border-gray-100 shadow-xl shadow-gray-200/50 flex flex-col items-center text-center space-y-4 hover:border-primary transition-all group">
-          <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
-            <Phone size={32} />
-          </div>
-          <div>
-            <h3 className="font-bold text-secondary">{localize(language, 'اتصل بنا', 'Call Us')}</h3>
-            <p className="text-xs text-gray-500 font-medium mt-1">{localize(language, '٣ فروع في خدمتكم', '3 branches ready to serve you')}</p>
-          </div>
-        </div>
-        <div className="bg-white p-8 rounded-[2rem] border border-gray-100 shadow-xl shadow-gray-200/50 flex flex-col items-center text-center space-y-4 hover:border-primary transition-all group">
-          <div className="w-16 h-16 bg-success/10 rounded-2xl flex items-center justify-center text-success group-hover:scale-110 transition-transform">
-            <MessageCircle size={32} />
-          </div>
-          <div>
-            <h3 className="font-bold text-secondary">{localize(language, 'واتساب', 'WhatsApp')}</h3>
-            <p className="text-xs text-gray-500 font-medium mt-1">{localize(language, 'رد فوري واستلام سريع', 'Fast replies and pickup')}</p>
-          </div>
-        </div>
-        <div className="bg-white p-8 rounded-[2rem] border border-gray-100 shadow-xl shadow-gray-200/50 flex flex-col items-center text-center space-y-4 hover:border-primary transition-all group">
-          <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
-            <MapPin size={32} />
-          </div>
-          <div>
-            <h3 className="font-bold text-secondary">{localize(language, 'ابحث عنّا', 'Find Us')}</h3>
-            <p className="text-xs text-gray-500 font-medium mt-1">{localize(language, 'مواقعنا على الخريطة', 'Our locations on the map')}</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Branches with Interaction */}
-      <section className="space-y-6">
-        <div className="flex items-center gap-4 px-2">
-          <div className="w-12 h-12 bg-primary/10 text-primary rounded-2xl flex items-center justify-center">
-            <Store size={24} />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-secondary">{localize(language, 'فروعنا الرسمية', 'Official Branches')}</h2>
-            <p className="text-xs text-gray-500 font-medium">{localize(language, 'اختر الفرع للتواصل المباشر', 'Choose a branch for direct contact')}</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {branches.map(branch => (
-            <motion.div
-              layoutId={`branch-${branch.id}`}
-              onClick={() => {
-                setActiveBranch(branch.id);
-                setActiveMap(branch.key);
-              }}
-              key={branch.id}
-              className={`p-6 rounded-[2rem] border-2 cursor-pointer transition-all ${
-                activeBranch === branch.id 
-                  ? 'bg-primary/5 border-primary shadow-xl shadow-primary/10' 
-                  : 'bg-white border-transparent shadow-lg shadow-gray-100 hover:border-gray-200'
-              }`}
-            >
-              <div className={`w-3 h-3 rounded-full mb-4 ${activeBranch === branch.id ? 'bg-primary animate-pulse' : 'bg-gray-300'}`} />
-              <h3 className="font-bold text-secondary mb-2">{branch.name}</h3>
-              <p className="text-xl font-black text-secondary italic mb-6" dir="ltr">{branch.phone}</p>
-              <div className="flex gap-2">
-                <button className="flex-1 bg-white border border-gray-100 rounded-xl py-2 text-[10px] font-bold text-gray-600 hover:bg-gray-50 transition-colors">{localize(language, 'اتصال', 'Call')}</button>
-                <button className="flex-1 bg-white border border-gray-100 rounded-xl py-2 text-[10px] font-bold text-gray-600 hover:bg-gray-50 transition-colors">{localize(language, 'واتساب', 'WhatsApp')}</button>
-              </div>
-            </motion.div>
-          ))}
-        </div>
-      </section>
-
-      {/* Drivers Section */}
-      <section className="space-y-6">
-        <div className="flex items-center gap-4 px-2">
-          <div className="w-12 h-12 bg-primary/10 text-primary rounded-2xl flex items-center justify-center">
-            <Car size={24} />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-secondary">{localize(language, 'خدمة الاستلام المنزلي', 'Home Pickup Service')}</h2>
-            <p className="text-xs text-gray-500 font-medium">{localize(language, 'أرقام السائقين المباشرة (واتساب متاح)', 'Direct driver numbers (WhatsApp available)')}</p>
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          {drivers.map((driver, i) => (
-            <div key={i} className="bg-white p-4 rounded-2xl border border-gray-100 flex items-center justify-between shadow-sm hover:shadow-md transition-shadow">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-brand-bg rounded-full flex items-center justify-center text-xl grayscale hover:grayscale-0 transition-all border border-gray-100">🧑</div>
-                <div>
-                  <div className="font-bold text-secondary text-sm">{driver.name}</div>
-                  <div className="text-primary font-black text-lg italic tracking-tighter" dir="ltr">{driver.phone}</div>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button className="w-10 h-10 rounded-xl bg-gray-50 flex items-center justify-center text-gray-400 hover:text-secondary hover:bg-gray-100 transition-all">
-                  <Phone size={18} />
-                </button>
-                <button className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary hover:bg-primary/20 transition-all">
-                  <MessageCircle size={18} />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Map Integration */}
-      <section className="space-y-6">
-        <div className="flex justify-between items-end px-2">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-primary/10 text-primary rounded-2xl flex items-center justify-center">
-              <Globe size={24} />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold text-secondary">{localize(language, 'مواقعنا على الخريطة', 'Locations on the Map')}</h2>
-              <p className="text-xs text-gray-500 font-medium text-right">{localize(language, 'مفتوح الآن لخدمتكم', 'Open now to serve you')}</p>
-            </div>
-          </div>
-          <div className="hidden sm:flex gap-2">
-            {branches.map(b => (
-              <button 
-                key={b.id}
-                onClick={() => {setActiveMap(b.key); setActiveBranch(b.id);}}
-                className={`px-4 py-2 rounded-xl text-[10px] font-bold transition-all ${
-                  activeMap === b.key ? 'bg-primary text-white' : 'bg-white text-gray-400 border border-gray-100'
-                }`}
-              >
-                {b.name}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="bg-white rounded-[2rem] overflow-hidden border border-gray-100 shadow-2xl relative">
-          <iframe 
-            src={maps[activeMap]}
-            className="w-full h-[400px] border-0"
-            allowFullScreen={true}
-            loading="lazy"
-          />
-          <LaundryIcon
-            name="outty-branch-map"
-            alt=""
-            className="pointer-events-none absolute bottom-4 left-4 hidden h-28 w-28 rounded-3xl bg-white/80 p-2 shadow-2xl shadow-primary/10 backdrop-blur md:inline-flex"
-            imageClassName="h-full w-full rounded-2xl object-contain"
-          />
-        </div>
-      </section>
-
-      {/* Business Hours */}
-      <section className="bg-brand-bg rounded-[2rem] p-8 border border-gray-100">
-        <div className="flex items-center gap-4 mb-8">
-          <div className="w-12 h-12 bg-white text-primary rounded-2xl flex items-center justify-center shadow-sm">
-            <Clock size={24} />
-          </div>
-          <h3 className="text-xl font-bold text-secondary">{localize(language, 'ساعات العمل', 'Working Hours')}</h3>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {[
-            { day: localize(language, 'السبت – الثلاثاء', 'Saturday - Tuesday'), time: localize(language, '٨ ص – ١٠ م', '8 AM - 10 PM') },
-            { day: localize(language, 'الأربعاء', 'Wednesday'), time: localize(language, '٨ ص – ١٠ م', '8 AM - 10 PM') },
-            { day: localize(language, 'الخميس', 'Thursday'), time: localize(language, '٨ ص – ١١ م', '8 AM - 11 PM') },
-            { day: localize(language, 'الجمعة', 'Friday'), time: localize(language, '٢ م – ١١ م', '2 PM - 11 PM') },
-          ].map((h, i) => (
-            <div key={i} className="flex justify-between items-center bg-white p-4 rounded-xl border border-gray-50 shadow-sm">
-              <span className="text-xs font-bold text-gray-500">{h.day}</span>
-              <span className="text-sm font-black text-secondary italic">{h.time}</span>
-            </div>
-          ))}
-        </div>
-        <div className="mt-8 bg-primary/5 rounded-2xl p-4 flex items-center gap-4 text-xs font-medium text-primary">
-          <Sparkles size={20} />
-          {localize(language, 'خدمة الاستلام والتوصيل مخصصة لتوفير وقتكم — نوصي بالطلب قبل موعد الإغلاق بساعة واحدة.', 'Pickup and delivery are designed to save your time. We recommend ordering at least one hour before closing.')}
-        </div>
-      </section>
-
-      {/* Contact Form */}
-      <section className="space-y-6">
-        <div className="flex items-center gap-4 px-2">
-          <div className="w-12 h-12 bg-primary/10 text-primary rounded-2xl flex items-center justify-center">
-            <Mail size={24} />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-secondary">{localize(language, 'أرسل لنا رسالة', 'Send Us a Message')}</h2>
-            <p className="text-xs text-gray-500 font-medium">{localize(language, 'سنرد عليك خلال ٢٤ ساعة', 'We will reply within 24 hours')}</p>
-          </div>
-        </div>
-
-        <div className="bg-white p-10 rounded-[2.5rem] border border-gray-100 shadow-2xl space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-gray-400 px-1">{localize(language, 'الاسم الكامل', 'Full Name')}</label>
-              <input type="text" className={`w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all ${language === 'ar' ? 'text-right' : 'text-left'}`} placeholder={localize(language, 'أدخل اسمك هنا', 'Enter your name here')} />
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-gray-400 px-1">{localize(language, 'رقم الجوال', 'Mobile Number')}</label>
-              <input type="tel" className="w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all text-left" placeholder="05X XXX XXXX" dir="ltr" />
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-             <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-gray-400 px-1">{localize(language, 'نوع الاستفسار', 'Inquiry Type')}</label>
-              <select className={`w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all appearance-none ${language === 'ar' ? 'text-right' : 'text-left'}`}>
-                <option>{localize(language, 'استفسار عن خدمة', 'Service Inquiry')}</option>
-                <option>{localize(language, 'شكوى أو ملاحظة', 'Complaint or Feedback')}</option>
-                <option>{localize(language, 'طلب عروض أسعار', 'Quotation Request')}</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-gray-400 px-1">{localize(language, 'الفرع المعني', 'Related Branch')}</label>
-              <select className={`w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all appearance-none ${language === 'ar' ? 'text-right' : 'text-left'}`}>
-                {branches.map((branch) => <option key={branch.id}>{branch.name}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-black uppercase text-gray-400 px-1">{localize(language, 'نص الرسالة', 'Message')}</label>
-            <textarea className={`w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all min-h-[120px] ${language === 'ar' ? 'text-right' : 'text-left'}`} placeholder={localize(language, 'كيف يمكننا مساعدتك؟', 'How can we help you?')} />
-          </div>
-          <button className="w-full bg-secondary text-white py-5 rounded-[2rem] font-black italic shadow-2xl flex items-center justify-center gap-3 hover:scale-[1.02] active:scale-95 transition-all text-lg">
-             {localize(language, 'إرسال الرسالة', 'Send Message')} <Send size={20} className="text-primary" />
-          </button>
-        </div>
-      </section>
-
-      {/* Social Media Linkers */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          { icon: <Instagram />, name: localize(language, 'انستقرام', 'Instagram'), handle: '@inandoutuae' },
-          { icon: <Facebook />, name: localize(language, 'فيسبوك', 'Facebook'), handle: 'inandoutuae' },
-          { icon: <Mail />, name: localize(language, 'البريد الإلكتروني', 'Email'), handle: 'inandoutuae@gmail.com' },
-          { icon: <Store />, name: localize(language, 'مواقعنا', 'Locations'), handle: localize(language, 'أبوظبي، الإمارات', 'Abu Dhabi, UAE') },
-        ].map((soc, i) => (
-          <div key={i} className="bg-white p-6 rounded-[2rem] border border-gray-100 text-center space-y-2">
-            <div className="text-primary flex justify-center">{soc.icon}</div>
-            <div className="font-bold text-secondary text-xs">{soc.name}</div>
-            <div className="text-[10px] text-gray-400 font-medium">{soc.handle}</div>
-          </div>
-        ))}
-      </div>
+      </label>
+      <Button variant="accent" size="lg" onClick={sendEmail} disabled={!name.trim() || !phone.trim() || !message.trim()}>
+        <Send aria-hidden="true" className="size-5" />
+        {t('إرسال عبر البريد', 'Send via email')}
+      </Button>
     </div>
   );
+};
+
+const Field = ({ label, value, onChange, dir }: { label: string; value: string; onChange: (value: string) => void; dir?: 'rtl' | 'ltr' }) => (
+  <label className="grid gap-2 text-xs font-black">
+    {label}
+    <input
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      dir={dir}
+      className="min-h-12 rounded-lg border border-input bg-surface px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    />
+  </label>
+);
+
+const SupportMetric = ({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: string }) => (
+  <div className="flex items-center gap-3 rounded-lg bg-white/10 p-3">
+    <Icon aria-hidden="true" className="size-5 text-accent" />
+    <div>
+      <p className="text-xs text-white/65">{label}</p>
+      <p className="font-black">{value}</p>
+    </div>
+  </div>
+);
+
+const QuickAction = ({ icon: Icon, title, text, onClick }: { icon: React.ElementType; title: string; text: string; onClick: () => void }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className="rounded-xl border border-border bg-surface p-6 text-center shadow-low transition hover:-translate-y-1 hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+  >
+    <div className="mx-auto mb-4 grid size-14 place-items-center rounded-lg bg-primary text-white">
+      <Icon aria-hidden="true" className="size-6" />
+    </div>
+    <h2 className="font-black">{title}</h2>
+    <p className="mt-2 text-sm text-muted-foreground">{text}</p>
+  </button>
+);
+
+const BranchAction = ({ icon: Icon, label, onClick }: { icon: React.ElementType; label: string; onClick: (event: React.MouseEvent) => void }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className="flex min-h-10 items-center justify-center gap-2 rounded-md border border-border bg-muted px-3 text-xs font-bold transition hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+  >
+    <Icon aria-hidden="true" className="size-4 text-primary" />
+    {label}
+  </button>
+);
+
+const branchLabel = (id: string, name: string, language: SiteLanguage) => language === 'ar' ? name : branchNameEn[id] || name;
+const mapUrl = (lat: number, lng: number) => `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+const mapEmbedUrl = (lat: number, lng: number) => `https://maps.google.com/maps?q=${lat},${lng}&z=14&output=embed`;
+const normalizePhoneForTel = (phone: string) => String(phone || '').replace(/[^\d+]/g, '');
+
+const openWhatsApp = (phone: string | undefined, message: string) => {
+  const raw = String(phone || '').replace(/[^\d]/g, '');
+  if (!raw) return;
+  const normalized = raw.startsWith('971') ? raw : `971${raw.replace(/^0+/, '')}`;
+  window.open(`https://wa.me/${normalized}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
 };

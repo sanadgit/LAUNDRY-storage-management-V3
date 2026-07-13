@@ -10,24 +10,33 @@
 
 import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
-import { Hero } from './components/Hero';
 import { JourneySection } from './components/JourneySection';
-import { TrackingPanel } from './components/TrackingPanel';
 import { ServicesGrid, BranchesSection, GallerySection, PricingSection } from './components/CommonSections';
 import { Footer } from './components/Footer';
-import { Dashboard } from './components/Dashboard';
-import { OrderWizard } from './components/OrderWizard';
+import { PublicHome } from './components/PublicHome';
+import { PublicPickup } from './components/PublicPickup';
+import { PublicTracking } from './components/PublicTracking';
+import { PublicServiceDetails, PublicServicesOverview } from './components/PublicServices';
+import { PublicBranches } from './components/PublicBranches';
+import { PublicComplaint } from './components/PublicComplaint';
+import { PublicStaticPage } from './components/PublicStaticPage';
+import { PublicAreaDetails, PublicAreasOverview } from './components/PublicAreaPages';
+import { CustomerPortal } from './components/CustomerPortal';
 import { AuthWizard } from './components/AuthWizard';
 import { Contact } from './components/Contact';
-import { AdminPanel } from './components/AdminPanel';
+import { OperationsPlatform } from './components/OperationsPlatform';
+import { PosTerminal } from './components/PosTerminal';
+import { AIOperationsDashboard } from './components/AIOperationsDashboard';
+import { ReportsDashboard } from './components/ReportsDashboard';
 import { AdminAccessGate } from './components/AdminAccessGate';
 import { DriverAccessGate } from './components/DriverAccessGate';
 import { DriverPanel } from './components/DriverPanel';
 import { LegalPage } from './components/LegalPages';
+import { PublicFloatingActions } from './components/PublicFloatingActions';
 import { INITIAL_SITE_CONFIG } from './constants';
 import { AdminAuthResponse, AdminUser, CustomerAuthResponse, CustomerUser, DriverAuthResponse, DriverAuthUser, Order, SiteConfig, OrderStatus } from './types';
 import { motion, AnimatePresence } from 'motion/react';
-import { MessageCircle, Settings } from 'lucide-react';
+import { Settings } from 'lucide-react';
 import { normalizeOrders, normalizeOrderStatus } from './lib/orders';
 import { customerApi } from './lib/customerApi';
 import { adminApi } from './lib/adminApi';
@@ -36,28 +45,261 @@ import { SiteLanguage, localize } from './lib/i18n';
 
 const ROUTES = new Set([
   '/',
+  '/about',
   '/track',
   '/dashboard',
+  '/portal',
   '/auth',
   '/services',
+  '/services/wash-iron',
+  '/services/dry-cleaning',
+  '/services/kandoora',
+  '/services/curtains',
+  '/services/carpets',
+  '/services/shoes',
+  '/services/blankets',
+  '/services/luxury-garments',
+  '/services/abaya-care',
   '/branches',
+  '/areas',
+  '/areas/alfalah',
+  '/areas/mussaffah',
+  '/areas/mbz',
+  '/areas/shamkha',
+  '/areas/baniyas',
+  '/areas/khalifa_city',
+  '/areas/musaffah_industrial',
+  '/areas/al_tawahi',
+  '/areas/al_wahda',
+  '/areas/al_khalidiya',
+  '/areas/al_reem',
+  '/areas/al_muroor',
+  '/areas/shakhbout',
+  '/areas/riyadh_city',
+  '/areas/al_mufraj',
+  '/areas/al_wathba',
+  '/areas/al_reef',
+  '/areas/yas_island',
+  '/pricing',
+  '/commercial',
+  '/commercial/hotels',
+  '/commercial/restaurants',
+  '/faq',
+  '/reviews',
+  '/gallery',
+  '/blog',
+  '/blog/details',
+  '/offers',
+  '/care-guides',
+  '/care-guides/details',
   '/contact',
+  '/complaint',
+  '/complaints',
+  '/careers',
   '/book',
   '/admin',
+  '/pos',
+  '/ai-dashboard',
+  '/reports',
   '/driver',
   '/privacy',
   '/terms',
+  '/404',
 ]);
 
 const normalizeRoute = (value: string) => {
   const route = String(value || '/').trim();
-  return ROUTES.has(route) ? route : '/';
+  if (!route || route === '/') return '/';
+  return ROUTES.has(route) ? route : '/404';
+};
+
+const normalizeTrackingReference = (value: unknown) =>
+  String(value ?? '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+
+const orderMatchesTrackingQuery = (order: Order, query: string) => {
+  const normalizedQuery = normalizeTrackingReference(query);
+  if (!normalizedQuery) return false;
+  return [
+    order.id,
+    order.systemOrderId,
+    order.posOrderNo,
+    order.pos?.order_no,
+    order.pos?.system_order_id,
+    order.pos?.source_orders_id,
+    order.pos?.invoice_no,
+  ].some((value) => normalizeTrackingReference(value) === normalizedQuery);
 };
 
 const getRouteFromLocation = () => {
   if (typeof window === 'undefined') return '/';
   return normalizeRoute(window.location.pathname);
 };
+
+const setMetaTag = (name: string, content: string, attribute: 'name' | 'property' = 'name') => {
+  if (typeof document === 'undefined') return;
+  let tag = document.head.querySelector<HTMLMetaElement>(`meta[${attribute}="${name}"]`);
+  if (!tag) {
+    tag = document.createElement('meta');
+    tag.setAttribute(attribute, name);
+    document.head.appendChild(tag);
+  }
+  tag.setAttribute('content', content);
+};
+
+const upsertJsonLd = (id: string, data: unknown) => {
+  if (typeof document === 'undefined') return;
+  let tag = document.getElementById(id) as HTMLScriptElement | null;
+  if (!tag) {
+    tag = document.createElement('script');
+    tag.id = id;
+    tag.type = 'application/ld+json';
+    document.head.appendChild(tag);
+  }
+  tag.textContent = JSON.stringify(data);
+};
+
+const removeJsonLd = (id: string) => {
+  if (typeof document === 'undefined') return;
+  document.getElementById(id)?.remove();
+};
+
+const areaNameForSeo: Record<string, { ar: string; en: string }> = {
+  alfalah: { ar: 'الفلاح', en: 'Al Falah' },
+  mussaffah: { ar: 'المصفح', en: 'Mussaffah' },
+  mbz: { ar: 'مدينة محمد بن زايد', en: 'Mohammed Bin Zayed City' },
+  shamkha: { ar: 'الشامخة', en: 'Al Shamkha' },
+  baniyas: { ar: 'بني ياس', en: 'Baniyas' },
+  khalifa_city: { ar: 'مدينة خليفة', en: 'Khalifa City' },
+  musaffah_industrial: { ar: 'مصفح الصناعية', en: 'Mussaffah Industrial' },
+  al_tawahi: { ar: 'التواهي', en: 'Al Tawahi' },
+  al_wahda: { ar: 'الوحدة', en: 'Al Wahda' },
+  al_khalidiya: { ar: 'الخالدية', en: 'Al Khalidiya' },
+  al_reem: { ar: 'الريم', en: 'Al Reem' },
+  al_muroor: { ar: 'المُرور', en: 'Al Muroor' },
+  shakhbout: { ar: 'شخبوط', en: 'Shakhbout' },
+  riyadh_city: { ar: 'مدينة الرياض', en: 'Riyadh City' },
+  al_mufraj: { ar: 'المفراج', en: 'Al Mufraj' },
+  al_wathba: { ar: 'الوثبة', en: 'Al Wathba' },
+  al_reef: { ar: 'الريف', en: 'Al Reef' },
+  yas_island: { ar: 'جزيرة ياس', en: 'Yas Island' },
+
+};
+
+const pageSeo = (route: string, config: SiteConfig, language: SiteLanguage) => {
+  const t = (ar: string, en: string) => localize(language, ar, en);
+  const siteName = config.site_name || 'In & Out Laundry';
+  const defaultDescription = t(
+    'مصبغة In & Out في أبوظبي للحجز، الاستلام، التوصيل، التتبع، وخدمة العملاء الذكية.',
+    'In & Out Laundry in Abu Dhabi for booking, pickup, delivery, tracking, and smart customer care.',
+  );
+
+  if (route === '/') return {
+    title: t('In & Out Laundry | مصبغة في أبوظبي مع استلام وتوصيل', 'In & Out Laundry | Abu Dhabi pickup and delivery laundry'),
+    description: defaultDescription,
+  };
+  if (route.startsWith('/services/')) return {
+    title: `${t('خدمات المغسلة', 'Laundry services')} | ${siteName}`,
+    description: t('غسيل وكي، تنظيف جاف، كندورة وغترة، عبايات، بطانيات، ستائر، وسجاد مع تتبع واضح.', 'Wash and press, dry cleaning, kandoora and ghutra, abayas, blankets, curtains, and carpets with clear tracking.'),
+  };
+  if (route === '/services') return {
+    title: `${t('كل خدمات المغسلة', 'All laundry services')} | ${siteName}`,
+    description: t('استعرض خدمات In & Out Laundry للأفراد والشركات مع رحلة حجز وتتبع واضحة.', 'Explore In & Out Laundry services for individuals and businesses with clear booking and tracking.'),
+  };
+  if (route === '/pricing') return {
+    title: `${t('أسعار المغسلة', 'Laundry prices')} | ${siteName}`,
+    description: t('قائمة أسعار الغسيل والكوي والتنظيف الجاف حسب نوع القطعة والخدمة.', 'Laundry, press, and dry-cleaning prices by item and service.'),
+  };
+  if (route === '/branches') return {
+    title: `${t('فروع مغسلة In & Out', 'In & Out Laundry branches')} | ${siteName}`,
+    description: t('فروع ومناطق خدمة In & Out Laundry في أبوظبي مع خرائط واتساب وحجز استلام.', 'In & Out Laundry branches and service areas in Abu Dhabi with maps, WhatsApp, and pickup booking.'),
+  };
+  if (route === '/areas') return {
+    title: `${t('مناطق خدمة المغسلة في أبوظبي', 'Laundry service areas in Abu Dhabi')} | ${siteName}`,
+    description: t('استلام وتوصيل مغسلة In & Out في الفلاح، المصفح، محمد بن زايد، الشامخة، بني ياس، ومدينة خليفة.', 'In & Out Laundry pickup and delivery in Al Falah, Mussaffah, MBZ, Al Shamkha, Baniyas, and Khalifa City.'),
+  };
+  if (route.startsWith('/areas/')) {
+    const id = route.replace('/areas/', '');
+    const area = areaNameForSeo[id];
+    const name = area ? localize(language, area.ar, area.en) : id;
+    return {
+      title: t(`مغسلة في ${name} | استلام وتوصيل`, `Laundry in ${name} | Pickup and delivery`),
+      description: t(`خدمة مغسلة In & Out في ${name}: حجز استلام، توصيل، أسعار واضحة، وتتبع الطلب.`, `In & Out Laundry service in ${name}: pickup booking, delivery, clear pricing, and order tracking.`),
+    };
+  }
+  if (route === '/faq') return {
+    title: `${t('الأسئلة الشائعة', 'FAQ')} | ${siteName}`,
+    description: t('إجابات عن الحجز، التتبع، الأسعار، الاستلام، والتوصيل.', 'Answers about booking, tracking, prices, pickup, and delivery.'),
+  };
+  return {
+    title: `${siteName} | ${t('مصبغة فاخرة في أبوظبي', 'Premium laundry in Abu Dhabi')}`,
+    description: defaultDescription,
+  };
+};
+
+const buildLocalBusinessSchema = (config: SiteConfig, origin: string) => ({
+  '@context': 'https://schema.org',
+  '@type': 'LocalBusiness',
+  '@id': `${origin}/#localbusiness`,
+  name: config.site_name || 'In & Out Laundry',
+  image: `${origin}/brand/logo-in-and-out-laundry.png`,
+  url: origin,
+  telephone: config.whatsapp_number,
+  email: config.contact_email,
+  address: {
+    '@type': 'PostalAddress',
+    streetAddress: config.business_address,
+    addressLocality: 'Abu Dhabi',
+    addressCountry: 'AE',
+  },
+  areaServed: config.service_areas.filter((area) => area.active !== false).map((area) => area.name),
+  branchOf: {
+    '@type': 'Organization',
+    name: config.site_name || 'In & Out Laundry',
+  },
+  department: config.branches.map((branch) => ({
+    '@type': 'LocalBusiness',
+    name: branch.name,
+    address: branch.address,
+    telephone: branch.phone,
+    openingHours: branch.hours,
+    geo: {
+      '@type': 'GeoCoordinates',
+      latitude: branch.coordinates.lat,
+      longitude: branch.coordinates.lng,
+    },
+  })),
+});
+
+const buildFaqSchema = (language: SiteLanguage) => ({
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: [
+    {
+      '@type': 'Question',
+      name: localize(language, 'هل يمكن تتبع الطلب؟', 'Can I track my order?'),
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: localize(language, 'نعم، يمكنك تتبع الطلب من صفحة التتبع باستخدام رقم الطلب.', 'Yes, you can track the order from the tracking page using the order ID.'),
+      },
+    },
+    {
+      '@type': 'Question',
+      name: localize(language, 'هل يوجد استلام وتوصيل؟', 'Do you offer pickup and delivery?'),
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: localize(language, 'نعم، حسب المناطق النشطة والفروع المتاحة في أبوظبي.', 'Yes, based on active service areas and available branches in Abu Dhabi.'),
+      },
+    },
+    {
+      '@type': 'Question',
+      name: localize(language, 'كيف أعرف الأسعار؟', 'How can I see prices?'),
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: localize(language, 'يمكنك مراجعة صفحة الأسعار أو التواصل عبر واتساب لتقدير حسب نوع القطعة.', 'You can view the pricing page or contact WhatsApp for an estimate by item type.'),
+      },
+    },
+  ],
+});
 
 const CUSTOMER_AUTH_TOKEN_KEY = 'io_customer_auth_token';
 const CUSTOMER_AUTH_USER_KEY = 'io_customer_auth_user';
@@ -66,6 +308,7 @@ const ADMIN_AUTH_USER_KEY = 'io_admin_auth_user';
 const DRIVER_AUTH_TOKEN_KEY = 'io_driver_auth_token';
 const DRIVER_AUTH_USER_KEY = 'io_driver_auth_user';
 const SITE_LANGUAGE_KEY = 'io_site_language';
+const SITE_DARK_MODE_KEY = 'io_site_dark_mode';
 
 const mergeById = <T extends { id: string | number }>(defaults: T[], saved?: T[]): T[] => {
   const merged = new Map<string | number, T>(defaults.map((item) => [item.id, item]));
@@ -111,8 +354,9 @@ export default function App() {
   const [route, setRouteState] = useState(getRouteFromLocation);
   const [language, setLanguage] = useState<SiteLanguage>(() => {
     const saved = localStorage.getItem(SITE_LANGUAGE_KEY);
-    return saved === 'en' ? 'en' : 'ar';
+    return saved === 'ar' ? 'ar' : 'en';
   });
+  const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem(SITE_DARK_MODE_KEY) === 'true');
   const [searchOrder, setSearchOrder] = useState<Order | null>(null);
   const [orders, setOrders] = useState<Order[]>(() => {
     const saved = localStorage.getItem('io_orders');
@@ -191,6 +435,11 @@ export default function App() {
     document.documentElement.lang = language;
     document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
   }, [language]);
+
+  useEffect(() => {
+    localStorage.setItem(SITE_DARK_MODE_KEY, String(isDarkMode));
+    document.documentElement.classList.toggle('dark', isDarkMode);
+  }, [isDarkMode]);
 
   useEffect(() => {
     if (user) {
@@ -373,10 +622,7 @@ export default function App() {
   }, [authToken, adminToken, driverToken]);
 
   useEffect(() => {
-    if (route === '/dashboard' && authReady && !user) {
-      setRoute('/auth');
-    }
-    if (route === '/book' && authReady && !user) {
+    if ((route === '/dashboard' || route === '/portal') && authReady && !user) {
       setRoute('/auth');
     }
     if (route === '/auth' && authReady && user) {
@@ -392,6 +638,39 @@ export default function App() {
     localStorage.setItem('io_orders', JSON.stringify(orders));
   }, [orders]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const seo = pageSeo(route, siteConfig, language);
+    const origin = window.location.origin;
+    const canonicalUrl = `${origin}${route === '/' ? '/' : route}`;
+
+    document.title = seo.title;
+    setMetaTag('description', seo.description);
+    setMetaTag('og:title', seo.title, 'property');
+    setMetaTag('og:description', seo.description, 'property');
+    setMetaTag('og:type', 'website', 'property');
+    setMetaTag('og:url', canonicalUrl, 'property');
+    setMetaTag('og:image', `${origin}/brand/logo-in-and-out-laundry.png`, 'property');
+    setMetaTag('twitter:card', 'summary_large_image');
+    setMetaTag('twitter:title', seo.title);
+    setMetaTag('twitter:description', seo.description);
+
+    let canonical = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+    if (!canonical) {
+      canonical = document.createElement('link');
+      canonical.rel = 'canonical';
+      document.head.appendChild(canonical);
+    }
+    canonical.href = canonicalUrl;
+
+    upsertJsonLd('local-business-schema', buildLocalBusinessSchema(siteConfig, origin));
+    if (route === '/faq') {
+      upsertJsonLd('faq-schema', buildFaqSchema(language));
+    } else {
+      removeJsonLd('faq-schema');
+    }
+  }, [route, siteConfig, language]);
+
   // Scroll to top on route change
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -400,15 +679,19 @@ export default function App() {
   useEffect(() => {
     if (route !== '/track') return;
     if (typeof window === 'undefined') return;
+    if (!user) {
+      setSearchOrder(null);
+      return;
+    }
     const ticketId = new URLSearchParams(window.location.search).get('id');
     if (!ticketId) return;
-    const found = orders.find((order) => order.id.toLowerCase() === ticketId.toLowerCase());
+    const found = orders.find((order) => orderMatchesTrackingQuery(order, ticketId));
     setSearchOrder(found || null);
-  }, [route, orders]);
+  }, [route, orders, user]);
 
   const handleSearch = (id: string) => {
     const normalizedId = String(id ?? '').trim();
-    const found = orders.find(o => o.id.toLowerCase() === normalizedId.toLowerCase());
+    const found = user ? orders.find((order) => orderMatchesTrackingQuery(order, normalizedId)) : null;
     setSearchOrder(found || null);
     if (typeof window !== 'undefined') {
       const nextUrl = normalizedId ? `/track?id=${encodeURIComponent(normalizedId)}` : '/track';
@@ -422,11 +705,19 @@ export default function App() {
   const handleNewOrder = async (newOrder: Order) => {
     const normalized = normalizeOrders([newOrder])[0];
     if (!normalized) throw new Error(localize(language, 'تعذر تجهيز بيانات الطلب.', 'Could not prepare order data.'));
-    const createdOrder = await customerApi.createOrder(normalized);
-    const created = normalizeOrders([createdOrder])[0];
-    if (!created) throw new Error(localize(language, 'تعذر حفظ الطلب في النظام.', 'Could not save the order in the system.'));
-    setOrders((prev) => [created, ...prev.filter((order) => order.id !== created.id)]);
-    return created;
+    try {
+      const createdOrder = authToken
+        ? await customerApi.createOrder(normalized)
+        : await customerApi.createPublicPickupOrder(normalized);
+      const created = normalizeOrders([createdOrder])[0];
+      if (!created) throw new Error(localize(language, 'تعذر حفظ الطلب في النظام.', 'Could not save the order in the system.'));
+      setOrders((prev) => [created, ...prev.filter((order) => order.id !== created.id)]);
+      return created;
+    } catch (error) {
+      console.warn('Falling back to local public order storage.', error);
+      setOrders((prev) => [normalized, ...prev.filter((order) => order.id !== normalized.id)]);
+      return normalized;
+    }
   };
 
   const handleSyncOrderWithPos = async (orderId: string) => {
@@ -435,6 +726,40 @@ export default function App() {
     if (!synced) throw new Error(localize(language, 'تعذر مزامنة الطلب مع POS.', 'Could not sync the order with POS.'));
     setOrders((prev) => prev.map((order) => (order.id === synced.id ? synced : order)));
     return synced;
+  };
+
+  const handleTrackOrderFromPortal = (order: Order) => {
+    setSearchOrder(order);
+    if (typeof window !== 'undefined') {
+      window.history.pushState({}, '', `/track?id=${encodeURIComponent(order.id)}`);
+      setRouteState('/track');
+      return;
+    }
+    setRoute('/track');
+  };
+
+  const handleReorderFromPortal = (order: Order) => {
+    localStorage.setItem('io_reorder_template', JSON.stringify({
+      sourceOrderId: order.id,
+      serviceType: order.serviceType,
+      branch: order.branch,
+      deliveryAddress: order.deliveryAddress,
+      pickupSlot: order.pickupSlot,
+      items: order.items || [],
+    }));
+    setRoute('/book');
+  };
+
+  const handleSupportFromPortal = (order?: Order) => {
+    if (order) {
+      localStorage.setItem('io_support_context', JSON.stringify({
+        orderId: order.id,
+        serviceType: order.serviceType,
+        branch: order.branch,
+        status: order.status,
+      }));
+    }
+    setRoute('/complaint');
   };
 
   const handleUpdateOrderStatus = (orderId: string, status: OrderStatus) => {
@@ -599,39 +924,11 @@ export default function App() {
 
     switch (route) {
       case '/':
-        return (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            <Hero 
-              onTrackClick={() => setRoute('/track')} 
-              onBookClick={() => setRoute('/book')} 
-              onNavigate={setRoute}
-              config={siteConfig}
-              language={language}
-              onLanguageChange={setLanguage}
-            />
-            <JourneySection language={language} />
-            <GallerySection items={siteConfig.gallery} language={language} />
-            <ServicesGrid language={language} />
-            <PricingSection pricing={siteConfig.pricing} language={language} />
-            <BranchesSection branches={siteConfig.branches} language={language} />
-          </motion.div>
-        );
+        return <PublicHome config={siteConfig} language={language} setRoute={setRoute} />;
       case '/track':
-        return (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="pt-24 min-h-screen bg-brand-bg pb-20"
-          >
-            <TrackingPanel order={searchOrder} onSearch={handleSearch} language={language} />
-          </motion.div>
-        );
+        return <PublicTracking order={searchOrder} orders={orders} onSearch={handleSearch} language={language} config={siteConfig} isAuthenticated={Boolean(user)} />;
       case '/dashboard':
+      case '/portal':
         if (!authReady) return null;
         if (!user) return null;
         return (
@@ -640,11 +937,14 @@ export default function App() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
-            <Dashboard
+            <CustomerPortal
               user={user}
               orders={orders}
               pricing={siteConfig.pricing}
               onNewOrderClick={() => setRoute('/book')}
+              onReorderClick={handleReorderFromPortal}
+              onTrackOrderClick={handleTrackOrderFromPortal}
+              onSupportClick={handleSupportFromPortal}
               onLogout={handleCustomerLogout}
               onSyncOrderWithPos={handleSyncOrderWithPos}
               language={language}
@@ -669,28 +969,45 @@ export default function App() {
           </motion.div>
         );
       case '/services':
-        return (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="pt-24 min-h-screen bg-brand-bg"
-          >
-            <PricingSection pricing={siteConfig.pricing} language={language} />
-            <ServicesGrid language={language} />
-          </motion.div>
-        );
+        return <PublicServicesOverview config={siteConfig} language={language} setRoute={setRoute} />;
+      case '/services/wash-iron':
+      case '/services/dry-cleaning':
+      case '/services/kandoora':
+      case '/services/curtains':
+      case '/services/carpets':
+      case '/services/shoes':
+      case '/services/blankets':
+      case '/services/luxury-garments':
+      case '/services/abaya-care':
+        return <PublicServiceDetails config={siteConfig} language={language} setRoute={setRoute} slug={route.replace('/services/', '')} />;
       case '/branches':
-        return (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="pt-24 min-h-screen bg-brand-bg"
-          >
-            <BranchesSection branches={siteConfig.branches} language={language} />
-          </motion.div>
-        );
+        return <PublicBranches config={siteConfig} language={language} setRoute={setRoute} />;
+      case '/areas':
+        return <PublicAreasOverview config={siteConfig} language={language} setRoute={setRoute} />;
+      case '/areas/alfalah':
+      case '/areas/mussaffah':
+      case '/areas/mbz':
+      case '/areas/shamkha':
+      case '/areas/baniyas':
+      case '/areas/khalifa_city':
+      case '/areas/musaffah_industrial':
+        return <PublicAreaDetails config={siteConfig} language={language} setRoute={setRoute} areaId={route.replace('/areas/', '')} />;
+      case '/about':
+      case '/pricing':
+      case '/commercial':
+      case '/commercial/hotels':
+      case '/commercial/restaurants':
+      case '/faq':
+      case '/reviews':
+      case '/gallery':
+      case '/blog':
+      case '/blog/details':
+      case '/offers':
+      case '/care-guides':
+      case '/care-guides/details':
+      case '/careers':
+      case '/404':
+        return <PublicStaticPage route={route} config={siteConfig} language={language} setRoute={setRoute} />;
       case '/contact':
         return (
           <motion.div
@@ -699,39 +1016,67 @@ export default function App() {
             exit={{ opacity: 0 }}
             className="pt-24 pb-20 md:pt-32 min-h-screen bg-brand-bg px-4"
           >
-            <Contact language={language} />
+            <Contact config={siteConfig} language={language} />
           </motion.div>
         );
+      case '/complaint':
+      case '/complaints':
+        return <PublicComplaint config={siteConfig} language={language} setRoute={setRoute} />;
       case '/book':
-        return (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="pt-24 pb-20 md:pt-32 min-h-screen bg-brand-bg px-4"
-          >
-            <OrderWizard 
-              onOrderSuccess={handleNewOrder} 
-              onBack={() => setRoute(user ? '/dashboard' : '/')} 
-              pricing={siteConfig.pricing}
-              config={siteConfig}
-              user={user}
-              language={language}
-            />
-          </motion.div>
-        );
+        return <PublicPickup config={siteConfig} language={language} onOrderSuccess={handleNewOrder} setRoute={setRoute} />;
       case '/admin':
         if (!adminReady) return null;
         if (!adminUser || !adminToken) {
-          return <AdminAccessGate onLogin={handleAdminLogin} />;
+          return <AdminAccessGate onLogin={handleAdminLogin} language={language} />;
         }
         return (
-          <AdminPanel 
+          <OperationsPlatform 
             config={siteConfig}
             onConfigChange={handleSiteConfigChange}
             orders={orders}
             onOrdersChange={handleOrdersChange}
             onLogout={handleAdminLogout}
+            setRoute={setRoute}
+            language={language}
+          />
+        );
+      case '/pos':
+        if (!adminReady) return null;
+        if (!adminUser || !adminToken) {
+          return <AdminAccessGate onLogin={handleAdminLogin} language={language} />;
+        }
+        return (
+          <PosTerminal
+            pricing={siteConfig.pricing}
+            orders={orders}
+            onOrdersChange={handleOrdersChange}
+            language={language}
+          />
+        );
+      case '/ai-dashboard':
+        if (!adminReady) return null;
+        if (!adminUser || !adminToken) {
+          return <AdminAccessGate onLogin={handleAdminLogin} language={language} />;
+        }
+        return (
+          <AIOperationsDashboard
+            config={siteConfig}
+            orders={orders}
+            language={language}
+          />
+        );
+      case '/reports':
+        if (!adminReady) return null;
+        if (!adminUser || !adminToken) {
+          return <AdminAccessGate onLogin={handleAdminLogin} language={language} />;
+        }
+        return (
+          <ReportsDashboard
+            orders={orders}
+            branches={siteConfig.branches}
+            drivers={siteConfig.drivers}
+            pricing={siteConfig.pricing}
+            language={language}
           />
         );
       case '/driver':
@@ -754,6 +1099,7 @@ export default function App() {
             orders={orders}
             onUpdateOrderStatus={handleUpdateOrderStatus}
             onLogout={handleDriverLogout}
+            language={language}
           />
         );
       case '/privacy':
@@ -773,17 +1119,23 @@ export default function App() {
           />
         );
       default:
-        return <div>404</div>;
+        return <PublicStaticPage route="/404" config={siteConfig} language={language} setRoute={setRoute} />;
     }
   };
 
   const isAdminRoute = route === '/admin';
+  const isPosRoute = route === '/pos';
+  const isAiDashboardRoute = route === '/ai-dashboard';
+  const isReportsRoute = route === '/reports';
   const isDriverRoute = route === '/driver';
-  const hidesPrimaryNavbar = isAdminRoute || isDriverRoute || route === '/';
+  const isDashboardRoute = route === '/dashboard' || route === '/portal';
+  const isBookRoute = route === '/book';
+  const hidesPublicLayout = isAdminRoute || isPosRoute || isAiDashboardRoute || isReportsRoute || isDriverRoute || isBookRoute;
+  const hidesFloatingActions = hidesPublicLayout || isDashboardRoute;
 
   return (
-    <div dir={language === 'ar' ? 'rtl' : 'ltr'} className="min-h-screen flex flex-col font-sans select-none selection:bg-primary/20">
-      {!hidesPrimaryNavbar && (
+    <div dir={language === 'ar' ? 'rtl' : 'ltr'} className="min-h-screen flex flex-col bg-background font-sans text-foreground selection:bg-primary/20">
+      {!hidesPublicLayout && (
         <Navbar
           currentRoute={route}
           setRoute={setRoute}
@@ -791,6 +1143,8 @@ export default function App() {
           config={siteConfig}
           language={language}
           onLanguageChange={setLanguage}
+          isDarkMode={isDarkMode}
+          onDarkModeChange={setIsDarkMode}
         />
       )}
       
@@ -810,48 +1164,9 @@ export default function App() {
         </AnimatePresence>
       </main>
 
-      {route !== '/dashboard' && route !== '/admin' && route !== '/driver' && <Footer setRoute={setRoute} config={siteConfig} language={language} />}
+      {route !== '/dashboard' && route !== '/portal' && route !== '/admin' && route !== '/driver' && route !== '/book' && <Footer setRoute={setRoute} config={siteConfig} language={language} />}
 
-      {/* Floating WhatsApp CTA */}
-      {!hidesPrimaryNavbar && (
-        <motion.button
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          className="fixed bottom-24 md:bottom-8 right-8 z-50 w-16 h-16 bg-success text-white rounded-full flex items-center justify-center shadow-2xl shadow-success/40 cursor-pointer"
-        >
-          <MessageCircle size={32} />
-          <span className="absolute -top-1 -right-1 w-5 h-5 bg-danger rounded-full flex items-center justify-center text-[10px] font-bold">1</span>
-        </motion.button>
-      )}
-
-      {/* Sticky Bottom Nav (Mobile Only) */}
-      {!hidesPrimaryNavbar && (
-        <div className="md:hidden fixed bottom-0 left-0 right-0 glass h-20 px-6 flex items-center justify-between z-40 border-t border-gray-100">
-          <button 
-            onClick={() => setRoute('/')}
-            className={`flex flex-col items-center gap-1 ${route === '/' ? 'text-primary' : 'text-gray-400'}`}
-          >
-            <div className={`w-1 h-1 rounded-full mb-1 ${route === '/' ? 'bg-primary' : 'transparent'}`} />
-            <span className="text-[10px] font-bold uppercase tracking-widest leading-none">{localize(language, 'الرئيسية', 'Home')}</span>
-          </button>
-          <button 
-            onClick={() => setRoute('/track')}
-            className={`flex flex-col items-center gap-1 ${route === '/track' ? 'text-primary' : 'text-gray-400'}`}
-          >
-            <div className={`w-1 h-1 rounded-full mb-1 ${route === '/track' ? 'bg-primary' : 'transparent'}`} />
-            <span className="text-[10px] font-bold uppercase tracking-widest leading-none">{localize(language, 'تتبع', 'Track')}</span>
-          </button>
-          <button 
-            onClick={() => setRoute(user ? '/dashboard' : '/auth')}
-            className={`flex flex-col items-center gap-1 ${route === '/dashboard' || route === '/auth' ? 'text-primary' : 'text-gray-400'}`}
-          >
-            <div className={`w-1 h-1 rounded-full mb-1 ${route === '/dashboard' || route === '/auth' ? 'bg-primary' : 'transparent'}`} />
-            <span className="text-[10px] font-bold uppercase tracking-widest leading-none">
-              {user ? localize(language, 'حسابي', 'Account') : localize(language, 'دخول', 'Login')}
-            </span>
-          </button>
-        </div>
-      )}
+      {!hidesFloatingActions && <PublicFloatingActions config={siteConfig} language={language} setRoute={setRoute} />}
     </div>
   );
 }

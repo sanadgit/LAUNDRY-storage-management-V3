@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ChevronRight, ChevronLeft, Sparkles } from 'lucide-react';
 import { SiteLanguage, formatNumber, localize } from '../lib/i18n';
 
+
 interface AuthWizardProps {
   onSendOtp: (payload: {
     phone: string;
@@ -230,25 +231,54 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
         {step === 0 && (
           <motion.div
             key="splash"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            initial={{ opacity: 0, scale: 0.96, y: 40 }}
+            animate={{
+              opacity: 1,
+              scale: 1,
+              y: 0,
+              transition: {
+                duration: .7,
+                ease: [0.22, 1, 0.36, 1]
+              }
+            }}
+            exit={{
+              opacity: 0,
+              scale: .98,
+              y: -20,
+              transition: { duration: .35 }
+            }}
             className="flex-1 bg-secondary p-10 flex flex-col items-center justify-center text-center space-y-8"
           >
-            <div className="w-24 h-24 bg-primary/20 rounded-full flex items-center justify-center border-4 border-primary/40 shadow-2xl">
+            <motion.div
+              animate={{
+                scale: [1, 1.05, 1],
+                rotate: [0, -3, 3, 0],
+                boxShadow: [
+                  "0 0 0 rgba(0,0,0,0)",
+                  "0 0 35px rgba(255,180,0,.35)",
+                  "0 0 0 rgba(0,0,0,0)"
+                ]
+              }}
+              transition={{
+                duration: 4,
+                repeat: Infinity,
+                ease: "easeInOut"
+              }}
+              className="w-24 h-24 bg-primary/20 rounded-full flex items-center justify-center border-4 border-primary/40 shadow-2xl"
+            >
               <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center font-black text-white text-2xl italic tracking-tighter">
                 I&O
               </div>
-            </div>
+            </motion.div>
             
             <div>
-              <h1 className="text-white text-3xl font-black mb-1">In & <span className="text-primary italic">Out</span></h1>
-              <p className="text-primary/60 text-xs font-medium">
+              <h1 className="text-white text-3xl font-black mb-1">In & <span className="text-primary text-white ">Out Laundry</span></h1> 
+              <p className="text-primary text-white/90 text-xs font-medium">
                 {localize(language, 'مصبغة ان اند اوت — ملابسك في أيدٍ أمينة', 'In & Out Laundry - Your clothes are in good hands')}
               </p>
             </div>
 
-            <p className="text-primary/40 text-sm leading-relaxed max-w-[280px]">
+            <p className="text-primary text-white/90 text-sm leading-relaxed max-w-[280px]">
               {localize(language, 'من الاستلام حتى التسليم، نهتم بأدق التفاصيل لنضمن لك نظافة مثالية.', 'From pickup to delivery, we care for every detail for a cleaner experience.')}
             </p>
 
@@ -267,9 +297,9 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                   setMode('login');
                   setStep(1);
                 }}
-                className="w-full text-primary/60 text-xs font-bold hover:text-white transition-colors"
+                className="w-full text-primary text-white/80 text-xs font-bold hover:text-white transition-colors"
               >
-                {localize(language, 'لديك حساب بالفعل؟', 'Already have an account?')} <span className="text-primary underline">{localize(language, 'تسجيل الدخول', 'Log In')}</span>
+                {localize(language, 'لديك حساب بالفعل؟', 'Already have an account?')} <span className="text-primary underline text-white ">{localize(language, 'تسجيل الدخول', 'Log In')}</span>
               </button>
             </div>
 
@@ -279,10 +309,41 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                   { val: language === 'ar' ? '٢٤س' : '24h', lbl: localize(language, 'تسليم سريع', 'Fast Delivery') },
                   { val: language === 'ar' ? '٩٩٪' : '99%', lbl: localize(language, 'نسبة الرضا', 'Satisfaction') }
                 ].map((stat, i) => (
-                  <div key={i} className="text-center">
-                    <p className="text-primary font-black text-lg">{stat.val}</p>
-                    <p className="text-primary/60 text-[9px] font-bold uppercase tracking-wider">{stat.lbl}</p>
-                  </div>
+                  <motion.div
+                    key={i}
+                    initial={{
+                      opacity:0,
+                      y:20
+                    }}
+                    animate={{
+                      opacity:1,
+                      y:0
+                    }}
+                    transition={{
+                      delay:i*.15,
+                      duration:.5
+                    }}
+                    whileHover={{
+                      scale:1.08
+                    }}
+                    className="text-center"
+                  >
+                    <motion.p
+                      animate={{
+                        scale:[1,1.12,1]
+                      }}
+                      transition={{
+                        delay:i*.3,
+                        duration:1.5,
+                        repeat:Infinity,
+                        repeatDelay:5
+                      }}
+                      className="text-logo text-xl font-black"
+                    >
+                      {stat.val}
+                    </motion.p>
+                    <p className="text-primary text-white/80 text-[9px] font-bold uppercase tracking-wider">{stat.lbl}</p>
+                  </motion.div>
                 ))}
             </div>
           </motion.div>
@@ -291,13 +352,53 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
         {step > 0 && step < 5 && (
           <motion.div
             key="form"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
+            initial={{
+              opacity: 0,
+              x: 80,
+              scale: .98
+            }}
+            animate={{
+              opacity: 1,
+              x: 0,
+              scale: 1,
+              transition: {
+                duration: .55,
+                ease: [0.22, 1, 0.36, 1]
+              }
+            }}
+            exit={{
+              opacity: 0,
+              x: -80,
+              scale: .98,
+              transition: {
+                duration: .35
+              }
+            }}
             className="flex-1 flex flex-col"
           >
             {/* Top Bar */}
-            <div className="bg-secondary p-6 flex items-center gap-4">
+            <div className="relative overflow-hidden p-6 flex items-center gap-4" style={{
+              background: 'linear-gradient(145deg,#071B35,#0D2E5C,#0B4A6F)'
+            }}>
+              <motion.div
+                className="absolute inset-0 opacity-20"
+                animate={{
+                  backgroundPosition: [
+                    '0% 50%',
+                    '100% 50%',
+                    '0% 50%'
+                  ]
+                }}
+                transition={{
+                  duration: 15,
+                  repeat: Infinity,
+                  ease: 'linear'
+                }}
+                style={{
+                  backgroundImage: 'radial-gradient(circle,#ffffff55 1px,transparent 1px)',
+                  backgroundSize: '30px 30px'
+                }}
+              />
               <button 
                 onClick={() => step === 1 ? setStep(0) : setStep(step - 1)}
                 className="w-10 h-10 bg-primary/20 rounded-xl flex items-center justify-center text-primary hover:bg-primary/30 transition-colors"
@@ -311,7 +412,7 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                     : (step === 1 ? localize(language, 'رقم الجوال', 'Mobile Number') : step === 2 ? localize(language, 'رمز التحقق', 'Verification Code') : step === 3 ? localize(language, 'بيانات الحساب', 'Account Details') : localize(language, 'تفضيلاتك', 'Preferences'))}
                 </h3>
                 {mode === 'register' && (
-                  <p className="text-primary/60 text-[10px] font-bold uppercase tracking-widest">
+                  <p className="text-white/60 text-[10px] font-bold uppercase tracking-widest">
                     {num(step)} {localize(language, 'من', 'of')} {num(4)} {localize(language, 'خطوات', 'steps')}
                   </p>
                 )}
@@ -323,9 +424,15 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
             {mode === 'register' && (
               <div className="bg-gray-50 flex justify-center gap-2 py-4 border-b border-gray-100">
                 {[1, 2, 3, 4].map(i => (
-                  <div 
-                    key={i} 
-                    className={`h-1.5 rounded-full transition-all duration-300 ${step === i ? 'w-8 bg-primary' : i < step ? 'w-4 bg-primary/40' : 'w-4 bg-gray-200'}`} 
+                  <motion.div
+                    key={i}
+                    layout
+                    transition={{
+                      type: "spring",
+                      stiffness: 250,
+                      damping: 22
+                    }}
+                    className={`h-1.5 rounded-full transition-all duration-300 ${step === i ? 'w-8 bg-primary' : i < step ? 'w-4 bg-primary/40' : 'w-4 bg-gray-200'}`}
                   />
                 ))}
               </div>
@@ -369,7 +476,7 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                         value={loginPhone}
                         onChange={(e) => setLoginPhone(e.target.value)}
                         placeholder="05X XXX XXXX"
-                        className="w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm text-left transition-all"
+                        className="w-full bg-gray-50 border-2 border-transparent focus:border-primary focus:shadow-xl focus:shadow-primary/20 focus:scale-[1.02] p-4 rounded-2xl font-bold outline-none text-sm text-left transition-all duration-300"
                         dir="ltr"
                       />
                     </div>
@@ -413,7 +520,7 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                       </div>
                     </div>
                     <div className="flex gap-4">
-                      <select className="bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm appearance-none">
+                      <select className="bg-gray-50 border-2 border-transparent focus:border-primary focus:shadow-xl focus:shadow-primary/20 focus:scale-[1.02] p-4 rounded-2xl font-bold outline-none text-sm appearance-none duration-300">
                         <option>🇦🇪 +971</option>
                         <option>🇸🇦 +966</option>
                       </select>
@@ -422,7 +529,7 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
                         placeholder="05X XXX XXXX"
-                        className="flex-1 bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm text-left"
+                        className="flex-1 bg-gray-50 border-2 border-transparent focus:border-primary focus:shadow-xl focus:shadow-primary/20 focus:scale-[1.02] p-4 rounded-2xl font-bold outline-none text-sm text-left transition-all duration-300"
                         dir="ltr"
                       />
                     </div>
@@ -462,7 +569,7 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                             document.getElementById(`otp-${i-1}`)?.focus();
                           }
                         }}
-                        className="w-12 h-14 bg-gray-50 border-2 border-transparent focus:border-primary rounded-xl text-center text-xl font-black outline-none transition-all"
+                        className="w-12 h-14 bg-gray-50 border-2 border-transparent focus:border-primary focus:shadow-xl focus:shadow-primary/20 focus:scale-[1.02] rounded-xl text-center text-xl font-black outline-none transition-all duration-300"
                       />
                     ))}
                   </div>
@@ -502,7 +609,7 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                         value={customer.name}
                         onChange={(e) => setCustomer({...customer, name: e.target.value})}
                         placeholder={localize(language, 'مثال: محمد عبدالله', 'Example: Mohammed Abdullah')}
-                        className="w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all"
+                        className="w-full bg-gray-50 border-2 border-transparent focus:border-primary focus:shadow-xl focus:shadow-primary/20 focus:scale-[1.02] p-4 rounded-2xl font-bold outline-none text-sm transition-all duration-300"
                       />
                     </div>
                     <div className="space-y-2">
@@ -512,26 +619,48 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                         value={customer.password}
                         onChange={(e) => setCustomer({...customer, password: e.target.value})}
                         placeholder={localize(language, 'إن أردت الدخول مستقبلاً بكلمة مرور', 'Use it later if you prefer password login')}
-                        className="w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all"
+                        className="w-full bg-gray-50 border-2 border-transparent focus:border-primary focus:shadow-xl focus:shadow-primary/20 focus:scale-[1.02] p-4 rounded-2xl font-bold outline-none text-sm transition-all duration-300"
                       />
                     </div>
                     <div className="space-y-4">
                       <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">{localize(language, 'نوع العميل', 'Customer Type')}</label>
                       <div className="grid grid-cols-2 gap-4">
-                        <button 
+                        <motion.button 
                           onClick={() => setCustomer({...customer, type: 'individual'})}
+                          whileHover={{
+                            y: -5,
+                            scale: 1.04
+                          }}
+                          whileTap={{
+                            scale: .97
+                          }}
+                          transition={{
+                            type: "spring",
+                            stiffness: 350
+                          }}
                           className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2 ${customer.type === 'individual' ? 'bg-primary/5 border-primary shadow-lg' : 'bg-white border-gray-100'}`}
                         >
                           <span className="text-2xl">🏠</span>
                           <span className="text-xs font-bold text-secondary">{localize(language, 'أفراد', 'Individual')}</span>
-                        </button>
-                        <button 
+                        </motion.button>
+                        <motion.button 
                           onClick={() => setCustomer({...customer, type: 'business'})}
+                          whileHover={{
+                            y: -5,
+                            scale: 1.04
+                          }}
+                          whileTap={{
+                            scale: .97
+                          }}
+                          transition={{
+                            type: "spring",
+                            stiffness: 350
+                          }}
                           className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2 ${customer.type === 'business' ? 'bg-primary/5 border-primary shadow-lg' : 'bg-white border-gray-100'}`}
                         >
                           <span className="text-2xl">🏢</span>
                           <span className="text-xs font-bold text-secondary">{localize(language, 'أعمال', 'Business')}</span>
-                        </button>
+                        </motion.button>
                       </div>
                     </div>
                   </div>
@@ -556,7 +685,7 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
                       <select 
                         value={customer.area}
                         onChange={(e) => setCustomer({...customer, area: e.target.value})}
-                        className="w-full bg-gray-50 border-2 border-transparent focus:border-primary p-4 rounded-2xl font-bold outline-none text-sm transition-all"
+                        className="w-full bg-gray-50 border-2 border-transparent focus:border-primary focus:shadow-xl focus:shadow-primary/20 focus:scale-[1.02] p-4 rounded-2xl font-bold outline-none text-sm transition-all duration-300"
                       >
                         <option value="">{localize(language, '— اختر منطقتك —', '-- Choose your area --')}</option>
                         <option>{localize(language, 'الخالدية', 'Al Khalidiyah')}</option><option>{localize(language, 'المصفح', 'Mussafah')}</option><option>{localize(language, 'جزيرة ياس', 'Yas Island')}</option>
@@ -628,7 +757,19 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
             className="flex-1 flex flex-col items-center justify-center p-10 text-center space-y-8"
           >
             <div className="w-24 h-24 bg-primary/10 text-primary rounded-full flex items-center justify-center border-2 border-primary/20 shadow-inner">
-               <Sparkles size={40} className="animate-pulse" />
+               <motion.div
+                 animate={{
+                   rotate: [0, 360],
+                   scale: [1, 1.12, 1]
+                 }}
+                 transition={{
+                   repeat: Infinity,
+                   duration: 6,
+                   ease: "linear"
+                 }}
+               >
+                 <Sparkles size={40} />
+               </motion.div>
             </div>
             <h2 className="text-3xl font-black italic tracking-tight text-secondary">
               {localize(language, 'أهلاً بك،', 'Welcome,')} <span className="text-primary">{customer.name.split(' ')[0] || localize(language, 'ضيفنا', 'Guest')}!</span>

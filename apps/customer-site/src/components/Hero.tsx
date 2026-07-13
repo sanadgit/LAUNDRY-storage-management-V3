@@ -59,7 +59,18 @@ export const Hero: React.FC<HeroProps> = ({ onTrackClick, onBookClick, onNavigat
         />
 
         <header dir="ltr" className="absolute inset-x-0 top-0 z-20 flex items-center justify-between px-5 py-6 md:px-[3.6%] md:py-[2%]">
-          <BrandLogo language={language} onClick={() => goTo('/')} />
+          <div className="flex items-center gap-2 sm:gap-3">
+            <BrandLogo language={language} onClick={() => goTo('/')} />
+            {language === 'ar' ? (
+              <button onClick={() => goTo('/')} className="hidden cursor-pointer sm:block transition hover:opacity-80 font-black text-secondary text-xs md:text-sm">
+                مصبغة<br/>ان اند اوت
+              </button>
+            ) : (
+              <button onClick={() => goTo('/')} className="hidden cursor-pointer sm:block transition hover:opacity-80 font-black text-secondary text-xs md:text-sm leading-tight text-left">
+                In & Out<br/>Laundry
+              </button>
+            )}
+          </div>
 
           <nav className="hidden items-center gap-11 md:flex" dir="rtl">
             {navLinks.map((link) => (

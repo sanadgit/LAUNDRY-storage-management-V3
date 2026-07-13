@@ -307,6 +307,22 @@ export interface CustomerOtpVerifyResponse {
   expires_at: number;
 }
 
+export interface PublicTrackVerificationResponse {
+  challengeId: string;
+  maskedPhone: string;
+  expires_at: number;
+  cooldown_until: number;
+  provider: 'twilio' | 'aipsoft' | 'meta_whatsapp' | 'mock';
+  channel: 'sms' | 'whatsapp';
+  dev_code?: string;
+}
+
+export interface PublicTrackVerifyResponse {
+  verified: boolean;
+  maskedPhone: string;
+  order: Order;
+}
+
 export interface AdminUser {
   id: number;
   username: string;

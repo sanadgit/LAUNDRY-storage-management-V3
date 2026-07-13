@@ -1,16 +1,22 @@
 import React, { useState } from 'react';
+import { LockKeyhole, ShieldCheck } from 'lucide-react';
+import { SiteLanguage, localize } from '../lib/i18n';
+import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input } from './ui';
 
 interface AdminAccessGateProps {
   onLogin: (payload: { username: string; password: string }) => Promise<void>;
+  language?: SiteLanguage;
 }
 
-export const AdminAccessGate: React.FC<AdminAccessGateProps> = ({ onLogin }) => {
+export const AdminAccessGate: React.FC<AdminAccessGateProps> = ({ onLogin, language = 'ar' }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const t = (ar: string, en: string) => localize(language, ar, en);
 
-  const submit = async () => {
+  const submit = async (event?: React.FormEvent) => {
+    event?.preventDefault();
     if (!username.trim() || !password) return;
     setError('');
     setIsSubmitting(true);
@@ -25,43 +31,48 @@ export const AdminAccessGate: React.FC<AdminAccessGateProps> = ({ onLogin }) => 
   };
 
   return (
-    <div className="min-h-screen bg-brand-bg flex items-center justify-center px-4">
-      <div className="w-full max-w-md bg-white border border-gray-100 rounded-3xl p-8 shadow-2xl">
-        <h2 className="text-2xl font-black text-gray-900 italic mb-2">Admin Access</h2>
-        <p className="text-sm text-gray-500 mb-6">Sign in with an admin account to open the control panel.</p>
-
-        <div className="space-y-4">
-          <input
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder="Username"
-            className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold outline-none focus:border-primary"
-          />
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
-            className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold outline-none focus:border-primary"
-          />
-        </div>
-
-        {error && (
-          <div className="mt-4 rounded-xl border border-danger/20 bg-danger/5 px-3 py-2 text-xs font-semibold text-danger">
-            {error}
+    <div className="grid min-h-screen place-items-center bg-background px-4 py-10">
+      <Card className="w-full max-w-md overflow-hidden">
+        <CardHeader className="border-b border-border bg-primary text-white">
+          <div className="mb-4 grid size-12 place-items-center rounded-md bg-white/10">
+            <ShieldCheck aria-hidden="true" className="size-6 text-accent" />
           </div>
-        )}
+          <CardTitle className="text-2xl text-white">{t('دخول الإدارة', 'Admin Access')}</CardTitle>
+          <CardDescription className="text-white/70">
+            {t('سجّل الدخول بحساب إداري لفتح الأسطح الداخلية.', 'Sign in with an admin account to open internal surfaces.')}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-6">
+          <form onSubmit={(event) => void submit(event)} className="grid gap-4">
+            <Input
+              label={t('اسم المستخدم', 'Username')}
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              autoComplete="username"
+              required
+            />
+            <Input
+              label={t('كلمة المرور', 'Password')}
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="current-password"
+              required
+            />
 
-        <button
-          onClick={() => {
-            void submit();
-          }}
-          disabled={isSubmitting || !username.trim() || !password}
-          className="mt-6 w-full rounded-2xl bg-primary py-3 text-sm font-black text-white disabled:opacity-50"
-        >
-          {isSubmitting ? 'Signing in...' : 'Sign In'}
-        </button>
-      </div>
+            {error ? (
+              <div className="rounded-lg border border-danger/20 bg-danger/10 px-3 py-2 text-sm font-semibold text-danger" role="alert">
+                {error}
+              </div>
+            ) : null}
+
+            <Button type="submit" variant="accent" size="lg" disabled={isSubmitting || !username.trim() || !password}>
+              <LockKeyhole aria-hidden="true" className="size-5" />
+              {isSubmitting ? t('جاري الدخول...', 'Signing in...') : t('دخول', 'Sign in')}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   );
 };

@@ -1,8 +1,18 @@
 import React from 'react';
-import { Facebook, Instagram, Twitter, Mail, Phone, MapPin, ArrowRight } from 'lucide-react';
+import {
+  ArrowUpRight,
+  Facebook,
+  Instagram,
+  Mail,
+  MapPin,
+  Phone,
+  ShieldCheck,
+  Sparkles,
+} from 'lucide-react';
 import { SiteConfig } from '../types';
-import { BrandLogo } from './BrandLogo';
 import { SiteLanguage, localize } from '../lib/i18n';
+import { BrandLogo } from './BrandLogo';
+import { Button, Input } from './ui';
 
 interface FooterProps {
   setRoute: (route: string) => void;
@@ -10,125 +20,169 @@ interface FooterProps {
   language: SiteLanguage;
 }
 
+const footerGroups = [
+  {
+    key: 'company',
+    ar: 'الشركة',
+    en: 'Company',
+    links: [
+      ['about', 'من نحن', 'About', '/about'],
+      ['reviews', 'آراء العملاء', 'Reviews', '/reviews'],
+      ['gallery', 'المعرض', 'Gallery', '/gallery'],
+      ['careers', 'الوظائف', 'Careers', '/careers'],
+    ],
+  },
+  {
+    key: 'services',
+    ar: 'الخدمات',
+    en: 'Services',
+    links: [
+      ['services', 'كل الخدمات', 'All services', '/services'],
+      ['abaya', 'العناية بالعبايات', 'Abaya care', '/services/abaya-care'],
+      ['blankets', 'البطانيات', 'Blankets', '/services/blankets'],
+      ['commercial', 'الغسيل التجاري', 'Commercial', '/commercial'],
+    ],
+  },
+  {
+    key: 'support',
+    ar: 'الدعم',
+    en: 'Support',
+    links: [
+      ['track', 'تتبع الطلب', 'Track order', '/track'],
+      ['areas', 'مناطق الخدمة', 'Service areas', '/areas'],
+      ['faq', 'الأسئلة الشائعة', 'FAQ', '/faq'],
+      ['complaint', 'شكوى', 'Complaint', '/complaint'],
+      ['contact', 'تواصل معنا', 'Contact', '/contact'],
+    ],
+  },
+  {
+    key: 'resources',
+    ar: 'المحتوى',
+    en: 'Resources',
+    links: [
+      ['blog', 'المدونة', 'Blog', '/blog'],
+      ['offers', 'العروض', 'Offers', '/offers'],
+      ['care-guides', 'أدلة العناية', 'Care guides', '/care-guides'],
+      ['privacy', 'الخصوصية', 'Privacy', '/privacy'],
+    ],
+  },
+];
+
 export const Footer: React.FC<FooterProps> = ({ setRoute, config, language }) => {
-  const handleInternalLink = (event: React.MouseEvent<HTMLAnchorElement>, route: string) => {
+  const year = new Date().getFullYear();
+
+  const routeLink = (path: string) => (event: React.MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
-    setRoute(route);
+    setRoute(path);
   };
 
   return (
-    <footer className="bg-secondary text-white pt-24 pb-12 overflow-hidden relative">
-      {/* Decorative gradient */}
-      <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-primary/10 rounded-full blur-[120px] -translate-x-1/2 -translate-y-1/2" />
+    <footer className="relative overflow-hidden bg-[#1f1a23] text-white">
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/70 to-transparent" aria-hidden="true" />
 
-      <div className="max-w-7xl mx-auto px-6 relative z-10">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 mb-16">
-          {/* Brand */}
-          <div>
-            <BrandLogo language={language} dark className="mb-8" />
-            <p className="text-gray-400 text-sm leading-relaxed mb-8">
-              {localize(language, config.hero.subtitle, 'Laundry pickup, cleaning, ironing, and delivery with clear order tracking.')}
+      <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-20">
+        <div className="grid gap-10 lg:grid-cols-[1.2fr_1.7fr_1fr]">
+          <section className="flex flex-col gap-6">
+            <BrandLogo language={language} dark />
+            <p className="max-w-sm text-sm leading-7 text-white/68">
+              {localize(
+                language,
+                'منصة غسيل فاخرة مدعومة بالذكاء الاصطناعي للحجز، التتبع، وخدمة العملاء في الإمارات.',
+                'Premium AI-powered laundry for booking, tracking, and customer care across the UAE.',
+              )}
             </p>
-            <div className="flex gap-4">
-              <button className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center hover:bg-primary transition-colors cursor-pointer"><Instagram size={18} /></button>
-              <button className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center hover:bg-primary transition-colors cursor-pointer"><Facebook size={18} /></button>
-              <button className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center hover:bg-primary transition-colors cursor-pointer"><Twitter size={18} /></button>
+            <div className="flex flex-wrap gap-3">
+              <a
+                href={config.social_media.instagram || '#'}
+                className="grid size-11 place-items-center rounded-md border border-white/10 bg-white/5 text-white transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                aria-label="Instagram"
+              >
+                <Instagram aria-hidden="true" className="size-4" />
+              </a>
+              <a
+                href={config.social_media.facebook || '#'}
+                className="grid size-11 place-items-center rounded-md border border-white/10 bg-white/5 text-white transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                aria-label="Facebook"
+              >
+                <Facebook aria-hidden="true" className="size-4" />
+              </a>
             </div>
-          </div>
+          </section>
 
-          {/* Quick Links */}
-          <div>
-            <h4 className="font-bold mb-8 uppercase text-xs tracking-widest text-primary">{localize(language, 'روابط سريعة', 'Quick Links')}</h4>
-            <ul className="space-y-4">
-              {[
-                [localize(language, 'الرئيسية', 'Home'), '/'],
-                [localize(language, 'تتبع الطلب', 'Track Order'), '/track'],
-                [localize(language, 'الخدمات', 'Services'), '/services'],
-                [localize(language, 'الفروع', 'Branches'), '/branches'],
-                [localize(language, 'تواصل معنا', 'Contact'), '/contact'],
-              ].map(([link, path]) => (
-                <li key={link}>
-                  <button onClick={() => setRoute(path)} className="text-gray-400 text-sm hover:text-white transition-colors flex items-center gap-2 group cursor-pointer">
-                    <ArrowRight size={14} className="opacity-0 -mr-4 group-hover:opacity-100 group-hover:mr-0 transition-all rotate-180" />
-                    {link}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
+          <nav className="grid gap-8 sm:grid-cols-2 xl:grid-cols-4" aria-label={localize(language, 'روابط التذييل', 'Footer navigation')}>
+            {footerGroups.map((group) => (
+              <section key={group.key}>
+                <h2 className="font-mono text-xs font-bold uppercase tracking-[0.1em] text-accent">
+                  {localize(language, group.ar, group.en)}
+                </h2>
+                <ul className="mt-4 flex flex-col gap-3">
+                  {group.links.map(([key, ar, en, path]) => (
+                    <li key={key}>
+                      <a
+                        href={path}
+                        onClick={routeLink(path)}
+                        className="inline-flex min-h-8 items-center gap-2 text-sm font-bold text-white/64 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      >
+                        {localize(language, ar, en)}
+                        <ArrowUpRight aria-hidden="true" className="size-3.5 rtl:rotate-[-90deg]" />
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </nav>
 
-          {/* Contact */}
-          <div>
-            <h4 className="font-bold mb-8 uppercase text-xs tracking-widest text-primary">{localize(language, 'تواصل معنا', 'Contact')}</h4>
-            <ul className="space-y-6">
-              <li className="flex gap-4">
-                <MapPin size={20} className="text-primary flex-shrink-0" />
-                <a 
-                  href={config.google_maps_url} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="text-gray-400 text-sm text-right hover:text-white transition-colors"
-                >
-                  {localize(language, config.business_address, 'Abu Dhabi, Musaffah M-13, United Arab Emirates')}
-                </a>
-              </li>
-              <li className="flex gap-4">
-                <Phone size={20} className="text-primary flex-shrink-0" />
-                <div className="text-right">
-                  <p className="text-gray-400 text-sm" dir="ltr">{config.whatsapp_number}</p>
-                </div>
-              </li>
-              <li className="flex gap-4">
-                <Mail size={20} className="text-primary flex-shrink-0" />
-                <p className="text-gray-400 text-sm text-right">{config.contact_email}</p>
-              </li>
-            </ul>
-          </div>
-
-          {/* Newsletter */}
-          <div>
-            <h4 className="font-bold mb-8 uppercase text-xs tracking-widest text-primary">{localize(language, 'القائمة البريدية', 'Newsletter')}</h4>
-            <p className="text-gray-400 text-sm mb-6 text-right">{localize(language, 'ابقَ على اطلاع بأحدث عروضنا وخدماتنا.', 'Stay updated with offers and service updates.')}</p>
-            <div className="flex bg-white/5 p-2 rounded-2xl border border-white/10">
-              <input type="email" placeholder={localize(language, 'البريد الإلكتروني', 'Email address')} className="bg-transparent border-none focus:ring-0 text-sm px-3 flex-1 text-right" />
-              <button className="bg-primary p-3 rounded-xl hover:bg-opacity-90 transition-all rotate-180 cursor-pointer">
-                <ArrowRight size={18} />
-              </button>
-            </div>
-          </div>
+          <section className="rounded-[1.5rem] border border-white/10 bg-white/[0.04] p-5">
+            <h2 className="flex items-center gap-2 text-sm font-black text-white">
+              <Sparkles aria-hidden="true" className="size-4 text-accent" />
+              {localize(language, 'تحديثات وعروض', 'Updates and offers')}
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-white/60">
+              {localize(language, 'اشترك للحصول على عروض الخدمات والتنبيهات المهمة.', 'Get service offers and important updates.')}
+            </p>
+            <form className="mt-4 flex  flex-col gap-3" onSubmit={(event) => event.preventDefault()}>
+              <Input
+                type="email"
+                label={localize(language, 'البريد الإلكتروني', 'Email')}
+                placeholder="name@example.com"
+                className="bg-white text-secondary"
+              />
+              <Button variant="accent" type="submit">
+                {localize(language, 'اشتراك', 'Subscribe')}
+              </Button>
+            </form>
+          </section>
         </div>
 
-        <hr className="border-white/5 mb-12" />
+        <div className="mt-12 grid gap-4 border-t border-white/10 pt-8 md:grid-cols-3">
+          <a href={config.google_maps_url} target="_blank" rel="noopener noreferrer" className="flex min-h-11 items-start gap-3 text-sm text-white/64 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+            <MapPin aria-hidden="true" className="mt-1 size-4 shrink-0 text-accent" />
+            <span>{localize(language, config.business_address, 'Abu Dhabi, Musaffah M-13, United Arab Emirates')}</span>
+          </a>
+          <a href={`tel:${config.whatsapp_number || '0568720885'}`} dir="ltr" className="flex min-h-11 items-center gap-3 text-sm text-white/64 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+            <Phone aria-hidden="true" className="size-4 shrink-0 text-accent" />
+            {config.whatsapp_number}
+          </a>
+          <a href={`mailto:${config.contact_email}`} className="flex min-h-11 items-center gap-3 text-sm text-white/64 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+            <Mail aria-hidden="true" className="size-4 shrink-0 text-accent" />
+            {config.contact_email}
+          </a>
+        </div>
 
-        <div className="flex flex-col md:flex-row justify-between items-center gap-6 text-gray-500 text-[10px] font-bold uppercase tracking-widest">
-          <p>{config.footer_text}</p>
-          <div className="flex flex-wrap justify-center gap-6 md:gap-8">
-            <a
-              href="/privacy"
-              onClick={(event) => handleInternalLink(event, '/privacy')}
-              className="hover:text-white transition-colors"
-            >
-              Privacy Policy
+        <div className="mt-8 flex flex-col gap-4 border-t border-white/10 pt-8 text-xs font-bold text-white/45 md:flex-row md:items-center md:justify-between">
+          <p>{localize(language, config.footer_text, `In & Out Laundry © ${year}. All rights reserved.`)}</p>
+          <div className="flex flex-wrap gap-4">
+            <a href="/privacy" onClick={routeLink('/privacy')} className="hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+              {localize(language, 'سياسة الخصوصية', 'Privacy Policy')}
             </a>
-            <a
-              href="/terms"
-              onClick={(event) => handleInternalLink(event, '/terms')}
-              className="hover:text-white transition-colors"
-            >
-              Terms & Conditions
+            <a href="/terms" onClick={routeLink('/terms')} className="hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+              {localize(language, 'الشروط والأحكام', 'Terms')}
             </a>
-            <button 
-              onClick={() => setRoute('/driver')}
-              className="text-white/20 hover:text-primary transition-colors cursor-pointer border-r border-white/10 pr-8"
-            >
-              {localize(language, 'تطبيق السائق', 'Driver App')}
-            </button>
-            <button 
-              onClick={() => setRoute('/admin')}
-              className="text-white/20 hover:text-primary transition-colors cursor-pointer border-r border-white/10 pr-8"
-            >
-              {localize(language, 'دخول الإدارة', 'Admin')}
-            </button>
+            <span className="inline-flex items-center gap-1 text-white/55">
+              <ShieldCheck aria-hidden="true" className="size-3.5 text-accent" />
+              {localize(language, 'WCAG AA جاهز', 'WCAG AA ready')}
+            </span>
           </div>
         </div>
       </div>

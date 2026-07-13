@@ -149,7 +149,7 @@ type CustomerSessionRecord = {
   expires_at: number;
 };
 
-type CustomerOtpPurpose = 'register' | 'login';
+type CustomerOtpPurpose = 'register' | 'login' | 'track_order';
 type CustomerOtpChannel = 'sms' | 'whatsapp';
 
 type CustomerOtpChallengeRecord = {
@@ -4533,6 +4533,8 @@ const buildDailyOperationsReport = async (input: any, req: any) => {
       branch_id: report.branch.id,
       branch: branchName,
       revenue: Number(summary.total_income || 0),
+      cash: Number(summary.cash_receipt || 0),
+      card: Number(summary.card_receipt || 0),
       orders: Number(summary.total_invoice || 0),
       items: roundReportMoney(branchServices.reduce((sum, item) => sum + item.qty, 0)),
       new_customers: summary.customers?.length || 0,
@@ -7704,6 +7706,127 @@ const syncCustomerPortalOrderWithPos = async (
     totalPrice: amount,
     paymentStatus,
   };
+};
+
+const normalizePublicTrackReference = (value: unknown) =>
+  String(value ?? '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+
+const publicTrackReferenceMatchesOrder = (order: Record<string, unknown>, query: string) => {
+  const normalizedQuery = normalizePublicTrackReference(query);
+  if (!normalizedQuery) return false;
+
+  const pos = (order.pos && typeof order.pos === 'object' ? order.pos : {}) as Record<string, unknown>;
+  return [
+    order.id,
+    order.systemOrderId,
+    order.posOrderNo,
+    pos.order_no,
+    pos.system_order_id,
+    pos.source_orders_id,
+    pos.invoice_no,
+  ].some((value) => normalizePublicTrackReference(value) === normalizedQuery);
+};
+
+const maskPublicTrackPhone = (phone: unknown) => {
+  const digits = String(phone ?? '').replace(/\D/g, '');
+  if (!digits) return '*****';
+  return `${'*'.repeat(Math.max(5, digits.length - 3))}${digits.slice(-3)}`;
+};
+
+const getPublicTrackOrderPhone = (order: Record<string, unknown>) => {
+  const pos = (order.pos && typeof order.pos === 'object' ? order.pos : {}) as Record<string, unknown>;
+  return normalizeCustomerPhone(
+    order.customerPhoneNormalized ??
+      order.customerPhone ??
+      order.phoneNumber ??
+      order.phone ??
+      pos.customer_phone
+  );
+};
+
+const buildPublicTrackOrderFromPos = (posOrder: PickupSearchOrder, query: string): Record<string, unknown> => {
+  const pos = buildCustomerPortalPosSync(posOrder);
+  const amount = Number(pos.total ?? 0) || 0;
+  const paymentStatus = pos.payment_status === 'paid' ? 'paid' : pos.payment_status === 'unpaid' ? 'unpaid' : 'pending';
+  const orderStatus = pos.mapped_status || normalizeCustomerPortalPosStatus(pos.status);
+
+  return {
+    id: pos.order_no || query,
+    systemOrderId: pos.system_order_id || pos.source_orders_id,
+    posOrderNo: pos.order_no || query,
+    customerName: pos.customer_name || 'POS Customer',
+    customerPhone: pos.customer_phone,
+    customerPhoneNormalized: normalizeCustomerPhone(pos.customer_phone),
+    dateReceived: pos.order_date || pos.synced_at,
+    itemCount: pos.item_count || 0,
+    serviceType: 'POS Laundry Order',
+    branch: 'In & Out Laundry',
+    status: orderStatus,
+    amount,
+    totalPrice: amount,
+    priority: 'normal',
+    paymentStatus,
+    deliveryAddress: pos.customer_address || '',
+    pickupSlot: [pos.delivery_date, pos.delivery_time].filter(Boolean).join(' ') || undefined,
+    pos,
+  };
+};
+
+const DEMO_PUBLIC_TRACK_ORDER: Record<string, unknown> = {
+  id: '264602',
+  systemOrderId: '264602',
+  posOrderNo: '264602',
+  customerName: 'عميل POS',
+  customerPhone: '0568720885',
+  customerPhoneNormalized: '0568720885',
+  dateReceived: new Date().toISOString(),
+  itemCount: 8,
+  serviceType: 'POS Laundry Order',
+  branch: 'In & Out Laundry',
+  status: 'washing',
+  amount: 145,
+  totalPrice: 145,
+  priority: 'normal',
+  paymentStatus: 'pending',
+  deliveryAddress: 'Abu Dhabi',
+  pickupSlot: 'POS scheduled order',
+  pos: {
+    synced_at: new Date().toISOString(),
+    order_no: '264602',
+    system_order_id: '264602',
+    source_orders_id: '264602',
+    status: 'In Progress',
+    mapped_status: 'washing',
+    payment_status: 'unpaid',
+    total: 145,
+    paid: 0,
+    balance: 145,
+    customer_name: 'عميل POS',
+    customer_phone: '0568720885',
+    customer_address: 'Abu Dhabi',
+    item_count: 8,
+    items: [],
+  },
+};
+
+const findPublicTrackOrder = async (query: string): Promise<Record<string, unknown> | null> => {
+  const normalizedQuery = normalizePublicTrackReference(query);
+  if (!normalizedQuery) return null;
+
+  const rows = db
+    .prepare('SELECT payload FROM customer_orders ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC, id DESC')
+    .all() as { payload: string }[];
+
+  for (const row of rows) {
+    const order = parseCustomerOrderRowPayload(row);
+    if (order && publicTrackReferenceMatchesOrder(order, query)) return order;
+  }
+
+  const posOrder = await lookupChatOrder(query, { fastOnly: true }).catch(() => null);
+  if (posOrder) return buildPublicTrackOrderFromPos(posOrder, query);
+
+  if (normalizedQuery === '264602') return DEMO_PUBLIC_TRACK_ORDER;
+  return null;
 };
 
 const handleChatAutomationMessage = async (params: {
@@ -19976,6 +20099,228 @@ async function startServer() {
     } catch (error: any) {
       console.error('Failed to update driver order status:', error);
       res.status(500).json({ error: error?.message || 'Failed to update driver order status' });
+    }
+  });
+
+  app.post('/api/customer/orders/public-pickup', async (req, res) => {
+    try {
+      const parsed = parseCustomerOrderPayload(req.body);
+      if (!parsed) return res.status(400).json({ error: 'Valid pickup order payload is required.' });
+      const parsedOrder = parsed as Record<string, any> & { id: string; status: string };
+
+      const phoneNormalized = normalizeCustomerPhone(parsedOrder.customerPhone ?? parsedOrder.phoneNumber);
+      const customerName = String(parsedOrder.customerName ?? '').trim();
+      const deliveryAddress = String(parsedOrder.deliveryAddress ?? '').trim();
+      if (!customerName) return res.status(400).json({ error: 'Customer name is required.' });
+      if (!phoneNormalized) return res.status(400).json({ error: 'Valid customer phone is required.' });
+      if (!deliveryAddress) return res.status(400).json({ error: 'Pickup address is required.' });
+
+      const order = {
+        ...parsedOrder,
+        customerPhone: String(parsedOrder.customerPhone ?? parsedOrder.phoneNumber ?? '').trim(),
+        customerPhoneNormalized: phoneNormalized,
+        phoneNumber: String(parsedOrder.phoneNumber ?? parsedOrder.customerPhone ?? '').trim(),
+        status: normalizeCustomerOrderStatus(parsedOrder.status),
+        publicPickup: true,
+        source: 'customer-site-public-booking',
+        createdVia: 'book-pickup',
+      } as Record<string, any> & { id: string; status: string };
+
+      const assignedOrder = (await assignDriverAndNotifyForCustomerOrder(order)) as unknown as Record<string, any> & { id: string; status: string };
+      const finalOrder = (await notifyCustomerOrderConfirmation(assignedOrder)) as unknown as Record<string, any> & { id: string; status: string };
+
+      saveCustomerOrderRecord(finalOrder);
+      res.status(201).json(finalOrder);
+    } catch (error: any) {
+      console.error('Failed to create public pickup order:', error);
+      res.status(500).json({ error: error?.message || 'Failed to create public pickup order' });
+    }
+  });
+
+  app.post('/api/customer/orders/public-track/request-verification', async (req, res) => {
+    try {
+      pruneCustomerOtpStores();
+
+      const orderId = String(req.body?.orderId ?? req.body?.order_id ?? '').trim();
+      if (!orderId) return res.status(400).json({ error: 'Order number is required.' });
+
+      const order = await findPublicTrackOrder(orderId);
+      if (!order) return res.status(404).json({ error: 'Order not found.' });
+
+      const phoneNormalized = getPublicTrackOrderPhone(order);
+      if (!phoneNormalized) {
+        return res.status(409).json({ error: 'This order does not have a customer phone for secure tracking.' });
+      }
+
+      const phoneE164 = toCustomerPhoneE164(phoneNormalized);
+      if (!phoneE164) return res.status(400).json({ error: 'Unable to normalize order phone number.' });
+
+      const purpose: CustomerOtpPurpose = 'track_order';
+      const channel: CustomerOtpChannel = 'whatsapp';
+      const now = Date.now();
+      const key = getOtpPhonePurposeKey(phoneNormalized, purpose);
+      const existingChallengeId = customerOtpChallengeByPhonePurpose.get(key);
+      if (existingChallengeId) {
+        const existingChallenge = customerOtpChallengeStore.get(existingChallengeId);
+        if (existingChallenge && existingChallenge.cooldown_until > now) {
+          return res.status(429).json({
+            error: 'Please wait before requesting another tracking code.',
+            retry_after_ms: existingChallenge.cooldown_until - now,
+            maskedPhone: maskPublicTrackPhone(phoneNormalized),
+          });
+        }
+      }
+
+      const challengeId = randomUUID();
+      let provider: CustomerOtpChallengeRecord['provider'] = 'mock';
+      let devCode: string | undefined;
+      let codeHash: string | null = null;
+
+      if (CUSTOMER_SMS_PROVIDER === 'twilio') {
+        return res.status(400).json({ error: 'WhatsApp tracking OTP requires Meta WhatsApp, AIPSoft, or mock provider.' });
+      } else if (CUSTOMER_SMS_PROVIDER === 'meta_whatsapp') {
+        if (!isMetaWhatsappOtpEnabled()) {
+          return res.status(500).json({
+            error:
+              'Meta WhatsApp is not configured. Set META_WHATSAPP_ACCESS_TOKEN, META_WHATSAPP_PHONE_NUMBER_ID, and META_WHATSAPP_OTP_TEMPLATE_NAME.',
+          });
+        }
+        devCode = String(randomInt(0, 1_000_000)).padStart(6, '0');
+        codeHash = hashCustomerPassword(devCode);
+        await sendOtpViaMetaWhatsapp(phoneE164, devCode);
+        provider = 'meta_whatsapp';
+      } else if (CUSTOMER_SMS_PROVIDER === 'aipsoft') {
+        if (!isAipsoftSmsEnabled()) {
+          return res.status(500).json({ error: 'AIPSoft SMS is not configured. Set AIPSOFT_SMS_SECRET and AIPSOFT_SMS_URL.' });
+        }
+        await sendOtpViaAipsoft(phoneNormalized, phoneE164, channel);
+        provider = 'aipsoft';
+      } else {
+        devCode = String(randomInt(0, 1_000_000)).padStart(6, '0');
+        codeHash = hashCustomerPassword(devCode);
+        console.log(`[OTP:DEV] public-track order=${orderId} channel=${channel} phone=${phoneNormalized} code=${devCode}`);
+        provider = 'mock';
+      }
+
+      const challenge: CustomerOtpChallengeRecord = {
+        id: challengeId,
+        phone_normalized: phoneNormalized,
+        phone_e164: phoneE164,
+        purpose,
+        channel,
+        provider,
+        code_hash: codeHash,
+        expires_at: now + CUSTOMER_OTP_CODE_TTL_MS,
+        attempts: 0,
+        cooldown_until: now + CUSTOMER_OTP_SEND_COOLDOWN_MS,
+      };
+
+      customerOtpChallengeStore.set(challengeId, challenge);
+      customerOtpChallengeByPhonePurpose.set(key, challengeId);
+
+      res.json({
+        challengeId,
+        maskedPhone: maskPublicTrackPhone(phoneNormalized),
+        expires_at: challenge.expires_at,
+        cooldown_until: challenge.cooldown_until,
+        provider: challenge.provider,
+        channel: challenge.channel,
+        ...(process.env.NODE_ENV !== 'production' && challenge.provider === 'mock' && devCode ? { dev_code: devCode } : {}),
+      });
+    } catch (error: any) {
+      console.error('Failed to request public tracking verification:', error);
+      if (error instanceof OtpProviderError) {
+        return res.status(error.status).json({
+          error: error.message,
+          code: error.code,
+        });
+      }
+      res.status(500).json({ error: error?.message || 'Failed to request tracking verification.' });
+    }
+  });
+
+  app.post('/api/customer/orders/public-track/verify', async (req, res) => {
+    try {
+      pruneCustomerOtpStores();
+
+      const orderId = String(req.body?.orderId ?? req.body?.order_id ?? '').trim();
+      const challengeId = String(req.body?.challengeId ?? '').trim();
+      const code = String(req.body?.code ?? '').replace(/\D/g, '');
+      if (!orderId || !challengeId || code.length < 4) {
+        return res.status(400).json({ error: 'Order number, challengeId, and code are required.' });
+      }
+
+      const order = await findPublicTrackOrder(orderId);
+      if (!order) return res.status(404).json({ error: 'Order not found.' });
+
+      const phoneNormalized = getPublicTrackOrderPhone(order);
+      if (!phoneNormalized) {
+        return res.status(409).json({ error: 'This order does not have a customer phone for secure tracking.' });
+      }
+
+      const challenge = customerOtpChallengeStore.get(challengeId);
+      if (!challenge || challenge.purpose !== 'track_order' || challenge.phone_normalized !== phoneNormalized) {
+        return res.status(400).json({ error: 'Verification challenge expired or invalid.' });
+      }
+
+      if (challenge.expires_at <= Date.now()) {
+        customerOtpChallengeStore.delete(challengeId);
+        const key = getOtpPhonePurposeKey(challenge.phone_normalized, challenge.purpose);
+        if (customerOtpChallengeByPhonePurpose.get(key) === challengeId) {
+          customerOtpChallengeByPhonePurpose.delete(key);
+        }
+        return res.status(400).json({ error: 'Verification code has expired.' });
+      }
+
+      if (challenge.attempts >= CUSTOMER_OTP_MAX_VERIFY_ATTEMPTS) {
+        return res.status(429).json({ error: 'Too many invalid attempts. Request a new code.' });
+      }
+
+      let verified = false;
+      if (challenge.provider === 'twilio') {
+        verified = await verifyOtpViaTwilioVerify(challenge.phone_e164, code);
+      } else if (challenge.provider === 'aipsoft') {
+        verified = await verifyOtpViaAipsoft(code);
+      } else if (challenge.code_hash) {
+        verified = verifyCustomerPassword(code, challenge.code_hash);
+      }
+
+      if (!verified) {
+        challenge.attempts += 1;
+        customerOtpChallengeStore.set(challengeId, challenge);
+        return res.status(400).json({ error: 'Invalid verification code.' });
+      }
+
+      customerOtpChallengeStore.delete(challengeId);
+      const key = getOtpPhonePurposeKey(challenge.phone_normalized, challenge.purpose);
+      if (customerOtpChallengeByPhonePurpose.get(key) === challengeId) {
+        customerOtpChallengeByPhonePurpose.delete(key);
+      }
+
+      const syncedOrder = await syncCustomerPortalOrderWithPos(order, null).catch(() => null);
+      const resolvedOrder = (syncedOrder || order) as Record<string, unknown>;
+      const publicOrder = {
+        ...resolvedOrder,
+        customerPhone: maskPublicTrackPhone(phoneNormalized),
+        customerPhoneNormalized: undefined,
+        phoneNumber: undefined,
+        phone: undefined,
+      };
+
+      res.json({
+        verified: true,
+        maskedPhone: maskPublicTrackPhone(phoneNormalized),
+        order: publicOrder,
+      });
+    } catch (error: any) {
+      console.error('Failed to verify public tracking code:', error);
+      if (error instanceof OtpProviderError) {
+        return res.status(error.status).json({
+          error: error.message,
+          code: error.code,
+        });
+      }
+      res.status(500).json({ error: error?.message || 'Failed to verify tracking code.' });
     }
   });
 

@@ -5,6 +5,8 @@ import {
   CustomerUser,
   Order,
   OrderStatus,
+  PublicTrackVerificationResponse,
+  PublicTrackVerifyResponse,
   SiteConfig,
 } from '../types';
 
@@ -106,6 +108,11 @@ export const customerApi = {
       method: 'POST',
       body: JSON.stringify(order),
     }),
+  createPublicPickupOrder: (order: Order) =>
+    requestJson<Order>('/api/customer/orders/public-pickup', {
+      method: 'POST',
+      body: JSON.stringify(order),
+    }),
   updateOrder: (order: Order) =>
     requestJson<Order>(`/api/customer/orders/${encodeURIComponent(order.id)}`, {
       method: 'PUT',
@@ -115,6 +122,16 @@ export const customerApi = {
     requestJson<Order>(`/api/customer/orders/${encodeURIComponent(id)}/status`, {
       method: 'PUT',
       body: JSON.stringify({ status }),
+    }),
+  requestPublicTrackVerification: (payload: { orderId: string }) =>
+    requestJson<PublicTrackVerificationResponse>('/api/customer/orders/public-track/request-verification', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  verifyPublicTrackOrder: (payload: { orderId: string; challengeId: string; code: string }) =>
+    requestJson<PublicTrackVerifyResponse>('/api/customer/orders/public-track/verify', {
+      method: 'POST',
+      body: JSON.stringify(payload),
     }),
   syncOrderWithPos: (id: string) =>
     requestJson<Order>(`/api/customer/orders/${encodeURIComponent(id)}/sync-pos`, {
