@@ -10498,8 +10498,8 @@ const sendMetaWhatsappTemplateMessage = async (
     body: JSON.stringify(payload),
   });
 
+  const rawBody = await response.text().catch(() => '');
   if (!response.ok) {
-    const rawBody = await response.text().catch(() => '');
     const parsed = tryParseJson(rawBody) as {
       error?: {
         message?: string;
@@ -10516,10 +10516,15 @@ const sendMetaWhatsappTemplateMessage = async (
       rawBody || `status=${response.status}`
     );
   }
+
+  return tryParseJson(rawBody) as {
+    messages?: Array<{ id?: string; message_status?: string }>;
+    contacts?: Array<{ wa_id?: string; input?: string }>;
+  };
 };
 
 const sendOtpViaMetaWhatsapp = async (phoneE164: string, code: string) => {
-  await sendMetaWhatsappTemplateMessage(
+  return sendMetaWhatsappTemplateMessage(
     phoneE164,
     META_WHATSAPP_OTP_TEMPLATE_NAME,
     META_WHATSAPP_OTP_TEMPLATE_LANGUAGE,
@@ -19629,7 +19634,11 @@ async function startServer() {
         }
         devCode = String(randomInt(0, 1_000_000)).padStart(6, '0');
         codeHash = hashCustomerPassword(devCode);
-        await sendOtpViaMetaWhatsapp(phoneE164, devCode);
+        const metaResult = await sendOtpViaMetaWhatsapp(phoneE164, devCode);
+        const metaMessage = Array.isArray(metaResult?.messages) ? metaResult.messages[0] : undefined;
+        console.log(
+          `[customer-auth] Meta OTP accepted purpose=${purpose} phone=${maskPublicTrackPhone(phoneNormalized)} template=${META_WHATSAPP_OTP_TEMPLATE_NAME} language=${META_WHATSAPP_OTP_TEMPLATE_LANGUAGE} message_id=${metaMessage?.id ?? 'n/a'} status=${metaMessage?.message_status ?? 'accepted'}`
+        );
         provider = 'meta_whatsapp';
       } else if (CUSTOMER_SMS_PROVIDER === 'aipsoft') {
         if (!isAipsoftSmsEnabled()) {
@@ -20187,7 +20196,11 @@ async function startServer() {
         }
         devCode = String(randomInt(0, 1_000_000)).padStart(6, '0');
         codeHash = hashCustomerPassword(devCode);
-        await sendOtpViaMetaWhatsapp(phoneE164, devCode);
+        const metaResult = await sendOtpViaMetaWhatsapp(phoneE164, devCode);
+        const metaMessage = Array.isArray(metaResult?.messages) ? metaResult.messages[0] : undefined;
+        console.log(
+          `[public-track] Meta OTP accepted order=${orderId} phone=${maskPublicTrackPhone(phoneNormalized)} template=${META_WHATSAPP_OTP_TEMPLATE_NAME} language=${META_WHATSAPP_OTP_TEMPLATE_LANGUAGE} message_id=${metaMessage?.id ?? 'n/a'} status=${metaMessage?.message_status ?? 'accepted'}`
+        );
         provider = 'meta_whatsapp';
       } else if (CUSTOMER_SMS_PROVIDER === 'aipsoft') {
         if (!isAipsoftSmsEnabled()) {
