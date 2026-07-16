@@ -96,10 +96,7 @@ export const PublicPickup: React.FC<PublicPickupProps> = ({ config, language, on
     const saved = window.localStorage.getItem('io_selected_pickup_area');
     return activeAreas.some((area) => area.id === saved) ? String(saved) : defaultArea;
   });
-  const [selectedServiceIds, setSelectedServiceIds] = useState<number[]>(() => {
-    const first = activeServiceOptions[0]?.id;
-    return first ? [first] : [];
-  });
+  const [selectedServiceIds, setSelectedServiceIds] = useState<number[]>([]);
   const [selectedDate, setSelectedDate] = useState('date-0');
   const [selectedTime, setSelectedTime] = useState(() => config.time_slots.find((slot) => slot.active !== false && !slot.busy)?.id || config.time_slots[0]?.id || '');
   const [delivery, setDelivery] = useState<'standard' | 'express'>('standard');
@@ -130,7 +127,10 @@ export const PublicPickup: React.FC<PublicPickupProps> = ({ config, language, on
   const deliveryFee = selectedAreaData?.delivery_fee ?? config.delivery_fee;
   const minimumOrder = selectedAreaData?.min_order_amount ?? config.min_order_amount;
   const rawServiceEstimate = selectedServices.reduce((sum, service) => sum + getServiceBasePrice(config, service.priceKey), 0);
-  const baseServiceEstimate = Math.max(rawServiceEstimate || minimumOrder, minimumOrder);
+  const hasSelectedServices = selectedServices.length > 0;
+  const baseServiceEstimate = hasSelectedServices ? Math.max(rawServiceEstimate, minimumOrder) : 0;
+  const visibleDeliveryFee = hasSelectedServices ? deliveryFee : 0;
+  const visibleExpressFee = hasSelectedServices && delivery === 'express' ? 50 : 0;
   const bookingSteps = [
     t('منطقة الاستلام', 'Pickup area'),
     t('اختيار الخدمات', 'Services'),
@@ -140,9 +140,9 @@ export const PublicPickup: React.FC<PublicPickupProps> = ({ config, language, on
   ];
 
   const total = useMemo(() => {
-    const expressFee = delivery === 'express' ? 50 : 0;
-    return baseServiceEstimate + deliveryFee + expressFee;
-  }, [baseServiceEstimate, delivery, deliveryFee]);
+    if (!hasSelectedServices) return 0;
+    return baseServiceEstimate + visibleDeliveryFee + visibleExpressFee;
+  }, [baseServiceEstimate, hasSelectedServices, visibleDeliveryFee, visibleExpressFee]);
 
   useEffect(() => {
     if (!selectedArea && defaultArea) setSelectedArea(defaultArea);
@@ -167,7 +167,7 @@ export const PublicPickup: React.FC<PublicPickupProps> = ({ config, language, on
   const toggleService = (serviceId: number) => {
     setSelectedServiceIds((prev) => {
       if (prev.includes(serviceId)) {
-        return prev.length > 1 ? prev.filter((id) => id !== serviceId) : prev;
+        return prev.filter((id) => id !== serviceId);
       }
       return [...prev, serviceId];
     });
@@ -679,11 +679,11 @@ export const PublicPickup: React.FC<PublicPickupProps> = ({ config, language, on
                 ) : null}
                 <div className="flex justify-between text-[#464350]">
                   <span>{t('رسوم السرعة', 'Express Surcharge')}</span>
-                  <span className="font-medium text-[#0D0D0D]">AED {delivery === 'express' ? '50.00' : '0.00'}</span>
+                  <span className="font-medium text-[#0D0D0D]">AED {visibleExpressFee.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-[#464350]">
                   <span>{t('رسوم التوصيل', 'Delivery Fee')}</span>
-                  <span className="font-medium text-[#0D0D0D]">AED {deliveryFee.toFixed(2)}</span>
+                  <span className="font-medium text-[#0D0D0D]">AED {visibleDeliveryFee.toFixed(2)}</span>
                 </div>
               </div>
               <div className="mb-8 flex items-end justify-between">
