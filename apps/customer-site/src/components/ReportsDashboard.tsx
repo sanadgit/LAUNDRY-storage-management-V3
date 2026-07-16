@@ -90,7 +90,7 @@ export const ReportsDashboard: React.FC<ReportsDashboardProps> = ({
   const complaintSeries = useMemo(() => buildComplaintSeries(filteredOrders, language), [filteredOrders, language]);
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(140,35,112,0.12),transparent_34%),linear-gradient(180deg,#F2F2F2,#ffffff)] text-foreground">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(89,46,242,0.12),transparent_34%),linear-gradient(180deg,#F2F2F2,#ffffff)] text-foreground">
       <header className="border-b border-white/70 bg-white/64 shadow-low backdrop-blur-3xl">
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
           <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">

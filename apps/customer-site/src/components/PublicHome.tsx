@@ -201,7 +201,7 @@ function HeroVisual({ language }: Pick<PublicHomeProps, 'language'>) {
             </span>
           </div>
           <div className="mt-5">
-            <div className="relative h-2 overflow-hidden rounded-full bg-[#BF88B0]">
+            <div className="relative h-2 overflow-hidden rounded-full bg-[#B7A7F2]">
               <div className="absolute inset-y-0 start-0 w-[58%] rounded-full bg-gradient-to-r from-secondary to-accent" />
             </div>
             <div className="mt-4 grid grid-cols-3 gap-2 md:grid-cols-6">
@@ -370,7 +370,7 @@ function QuickActionRail({ language, setRoute }: Pick<PublicHomeProps, 'language
               onClick={() => setRoute(action.path)}
               className="group flex min-h-28 items-center gap-4 rounded-[1.35rem] p-4 text-start transition hover:bg-white hover:shadow-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <span className="grid size-14 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-primary to-[#8C2370] text-white shadow-medium">
+              <span className="grid size-14 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-primary to-[#592EF2] text-white shadow-medium">
                 <Icon aria-hidden="true" className="size-6" />
               </span>
               <span>
@@ -451,7 +451,7 @@ function ServicesSection({ language, setRoute }: Pick<PublicHomeProps, 'language
                 className="group relative h-[390px] w-full overflow-hidden rounded-[2rem] bg-secondary text-start shadow-medium transition hover:-translate-y-1 hover:shadow-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <img src={service.img} alt="" className="absolute inset-0 h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]" draggable={false} />
-                <div className="absolute inset-0 bg-gradient-to-t from-[#1f1a23]/78 via-[#1f1a23]/12 to-transparent" aria-hidden="true" />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#0D0D0D]/78 via-[#0D0D0D]/12 to-transparent" aria-hidden="true" />
                 <div className="absolute inset-x-4 bottom-4 rounded-[1.5rem] border border-white/30 bg-white/66 p-5 shadow-glass backdrop-blur-3xl">
                   <div className="flex items-start justify-between gap-4">
                     <div>
@@ -481,7 +481,7 @@ function ProcessSection({ language }: Pick<PublicHomeProps, 'language'>) {
         description={localize(language, 'رحلة قصيرة ومقروءة من الحجز إلى التسليم. لا ازدحام، لا غموض، ولا خطوات مخفية.', 'A readable journey from booking to delivery. No clutter, no ambiguity, no hidden steps.')}
       />
       <div className="relative mt-14">
-        <div className="absolute left-0 right-0 top-10 hidden h-1 rounded-full bg-[#BF88B0] md:block" aria-hidden="true" />
+        <div className="absolute left-0 right-0 top-10 hidden h-1 rounded-full bg-[#B7A7F2] md:block" aria-hidden="true" />
         <div className="absolute left-0 top-10 hidden h-1 w-[72%] rounded-full bg-gradient-to-r from-secondary to-accent md:block" aria-hidden="true" />
         <div className="grid gap-4 md:grid-cols-5">
           {processSteps.map((step, index) => {
@@ -489,7 +489,7 @@ function ProcessSection({ language }: Pick<PublicHomeProps, 'language'>) {
             return (
               <Reveal key={step.title.en} delay={index * 0.04}>
                 <div className="relative h-full rounded-[1.5rem] border border-white/70 bg-white p-5 shadow-low">
-                  <span className="relative z-10 grid size-20 place-items-center rounded-[1.35rem] bg-gradient-to-br from-primary to-[#8C2370] text-white shadow-medium">
+                  <span className="relative z-10 grid size-20 place-items-center rounded-[1.35rem] bg-gradient-to-br from-primary to-[#592EF2] text-white shadow-medium">
                     <Icon aria-hidden="true" className="size-7" />
                   </span>
                   <h3 className="mt-6 font-display text-lg font-extrabold text-foreground">{t(language, step.title)}</h3>
@@ -506,7 +506,7 @@ function ProcessSection({ language }: Pick<PublicHomeProps, 'language'>) {
 
 function TechnologySection({ language, setRoute }: Pick<PublicHomeProps, 'language' | 'setRoute'>) {
   return (
-    <SectionShell className="bg-[#1f1a23] text-white">
+    <SectionShell className="bg-[#0D0D0D] text-white">
       <div className="grid gap-12 lg:grid-cols-[0.92fr_1.08fr] lg:items-center">
         <Reveal className="flex flex-col gap-7">
           <span className="grid size-16 place-items-center rounded-2xl bg-white/10 text-accent">
@@ -578,7 +578,7 @@ function TrackingSection({ language, setRoute }: Pick<PublicHomeProps, 'language
               <span className="w-fit rounded-full bg-secondary px-4 py-2 font-mono text-xs font-bold uppercase text-white">ETA 7:30 PM</span>
             </div>
             <div className="mt-7">
-              <div className="relative hidden h-2 rounded-full bg-[#BF88B0] md:block">
+              <div className="relative hidden h-2 rounded-full bg-[#B7A7F2] md:block">
                 <div className="absolute inset-y-0 start-0 w-[66%] rounded-full bg-gradient-to-r from-secondary to-accent" />
               </div>
               <div className="mt-0 grid gap-4 md:mt-6 md:grid-cols-6">
@@ -596,7 +596,7 @@ function TrackingSection({ language, setRoute }: Pick<PublicHomeProps, 'language
                 })}
               </div>
             </div>
-            <div className="mt-8 rounded-[1.5rem] bg-[#fbf0fe] p-5">
+            <div className="mt-8 rounded-[1.5rem] bg-[#F4F1FF] p-5">
               <p className="text-sm font-bold text-foreground">{localize(language, 'آخر تحديث', 'Latest update')}</p>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
                 {localize(language, 'تم فحص القطع الحساسة، وسيتم التغليف بعد الكوي النهائي.', 'Delicate pieces passed inspection and will move to packaging after final pressing.')}
@@ -814,7 +814,7 @@ function FaqSection({ language, setRoute }: Pick<PublicHomeProps, 'language' | '
 function FinalCta({ language, setRoute }: Pick<PublicHomeProps, 'language' | 'setRoute'>) {
   return (
     <SectionShell>
-      <div className="overflow-hidden rounded-[2rem] bg-gradient-to-br from-primary via-[#8C2370] to-secondary p-8 text-white shadow-high md:p-12">
+      <div className="overflow-hidden rounded-[2rem] bg-gradient-to-br from-primary via-[#592EF2] to-secondary p-8 text-white shadow-high md:p-12">
         <div className="grid gap-8 lg:grid-cols-[1fr_auto] lg:items-center">
           <div>
             <p className="font-mono text-xs font-bold uppercase leading-5 text-white/70">Premium Digital Care</p>

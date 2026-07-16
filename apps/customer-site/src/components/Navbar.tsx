@@ -168,7 +168,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 >
                   <div className="grid grid-cols-3 gap-3">
                     {megaColumns.map((column) => (
-                      <section key={column.title} className="rounded-[1.1rem] bg-[#fbf0fe]/80 p-3 dark:bg-white/[0.04]">
+                      <section key={column.title} className="rounded-[1.1rem] bg-[#F4F1FF]/80 p-3 dark:bg-white/[0.04]">
                         <h3 className="mb-2 font-mono text-xs font-bold uppercase tracking-[0.1em] text-primary">{column.title}</h3>
                         <div className="flex flex-col gap-1">
                           {column.items.map((item) => (

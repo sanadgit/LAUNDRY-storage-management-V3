@@ -97,11 +97,11 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({ driver, orders, onUpda
   };
 
   return (
-    <main className="min-h-screen bg-[#F2F2F2] text-[#1f1a23]">
+    <main className="min-h-screen bg-[#F2F2F2] text-[#0D0D0D]">
       <div className="grid min-h-screen lg:grid-cols-[300px_1fr]">
         <aside className="hidden border-e border-white/70 bg-white/58 p-4 shadow-glass backdrop-blur-3xl lg:block">
           <div className="flex h-full flex-col">
-            <div className="rounded-2xl bg-gradient-to-br from-primary to-[#A65390] p-5 text-white shadow-high">
+            <div className="rounded-2xl bg-gradient-to-br from-primary to-[#7D5CF2] p-5 text-white shadow-high">
               <div className="flex items-center gap-3">
                 <span className="grid size-12 place-items-center rounded-xl bg-white/16">
                   <Route className="size-6" />
@@ -134,7 +134,7 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({ driver, orders, onUpda
                 return (
                   <button
                     key={item.label}
-                    className={cn('flex min-h-12 items-center gap-3 rounded-xl px-3 text-start text-sm font-bold', index === 0 ? 'bg-primary text-white' : 'text-[#4c4354] hover:bg-white/72')}
+                    className={cn('flex min-h-12 items-center gap-3 rounded-xl px-3 text-start text-sm font-bold', index === 0 ? 'bg-primary text-white' : 'text-[#464350] hover:bg-white/72')}
                     type="button"
                   >
                     <Icon className="size-5" />
@@ -160,11 +160,11 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({ driver, orders, onUpda
             <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
               <div>
                 <p className="font-mono text-xs font-bold uppercase tracking-[0.1em] text-primary">In & Out Driver</p>
-                <h1 className="mt-1 font-display text-3xl font-extrabold text-[#1f1a23] md:text-5xl">{t('لوحة مهام السائق', 'Driver mission board')}</h1>
+                <h1 className="mt-1 font-display text-3xl font-extrabold text-[#0D0D0D] md:text-5xl">{t('لوحة مهام السائق', 'Driver mission board')}</h1>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <div className="relative">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#7e7385]" />
+                  <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#6d667d]" />
                   <input
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
@@ -182,10 +182,10 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({ driver, orders, onUpda
 
           <div className="grid gap-5 p-4 md:p-6 xl:grid-cols-[1.1fr_0.9fr]">
             <section className="overflow-hidden rounded-[2rem] border border-white/70 bg-white/62 shadow-glass backdrop-blur-3xl">
-              <div className="flex items-center justify-between border-b border-[#BF88B0] p-5">
+              <div className="flex items-center justify-between border-b border-[#B7A7F2] p-5">
                 <div>
                   <h2 className="font-display text-2xl font-extrabold">{t('مسار اليوم', 'Today route')}</h2>
-                  <p className="mt-1 text-sm text-[#4c4354]">{t('عرض سريع للطلبات النشطة وموقع العميل.', 'Fast view for active missions and customer location.')}</p>
+                  <p className="mt-1 text-sm text-[#464350]">{t('عرض سريع للطلبات النشطة وموقع العميل.', 'Fast view for active missions and customer location.')}</p>
                 </div>
                 <span className="rounded-full bg-secondary px-3 py-1 font-mono text-xs font-bold uppercase text-white">Live</span>
               </div>
@@ -195,7 +195,7 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({ driver, orders, onUpda
                 <div className="absolute left-[8%] top-[18%] h-[66%] w-[78%] rounded-[48%] border border-primary/15" />
                 <div className="absolute left-[20%] top-[28%] h-[45%] w-[58%] rounded-[48%] border border-secondary/20" />
                 <div className="absolute left-[15%] right-[10%] top-1/2 h-2 -translate-y-1/2 rounded-full bg-gradient-to-r from-secondary via-accent to-primary opacity-70" />
-                <div className="absolute bottom-[22%] left-[22%] right-[18%] h-2 rotate-[-22deg] rounded-full bg-gradient-to-r from-primary via-[#cfc2d6] to-secondary opacity-50" />
+                <div className="absolute bottom-[22%] left-[22%] right-[18%] h-2 rotate-[-22deg] rounded-full bg-gradient-to-r from-primary via-[#B7A7F2] to-secondary opacity-50" />
 
                 {fleet.map((item) => {
                   const selected = item.id === selectedDriverId;
@@ -228,11 +228,11 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({ driver, orders, onUpda
                     <div className="mt-2 flex items-start justify-between gap-3">
                       <div>
                         <h3 className="font-display text-xl font-extrabold" dir="ltr">{activeOrder.id}</h3>
-                        <p className="mt-1 text-sm font-semibold text-[#4c4354]">{activeOrder.customerName}</p>
+                        <p className="mt-1 text-sm font-semibold text-[#464350]">{activeOrder.customerName}</p>
                       </div>
                       <span className="rounded-full bg-[#F2F2F2] px-3 py-1 text-xs font-bold text-primary">{statusLabel[activeOrder.status]}</span>
                     </div>
-                    <p className="mt-3 flex items-start gap-2 text-sm leading-6 text-[#4c4354]">
+                    <p className="mt-3 flex items-start gap-2 text-sm leading-6 text-[#464350]">
                       <MapPin className="mt-1 size-4 shrink-0 text-primary" />
                       {activeOrder.deliveryAddress || 'Customer villa address pending'}
                     </p>
@@ -253,7 +253,7 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({ driver, orders, onUpda
                 <div className="mb-4 flex items-center justify-between">
                   <div>
                     <h2 className="font-display text-2xl font-extrabold">{t('بطاقة السائق', 'Driver card')}</h2>
-                    <p className="text-sm text-[#4c4354]">{t('حالة السائق ونطاق العمل الحالي.', 'Driver state and current working zone.')}</p>
+                    <p className="text-sm text-[#464350]">{t('حالة السائق ونطاق العمل الحالي.', 'Driver state and current working zone.')}</p>
                   </div>
                   <Navigation className="size-6 text-primary" />
                 </div>
@@ -270,11 +270,11 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({ driver, orders, onUpda
                       key={item.id}
                       type="button"
                       onClick={() => setSelectedDriverId(item.id)}
-                      className={cn('grid gap-3 rounded-2xl border p-4 text-start transition sm:grid-cols-[1fr_auto] sm:items-center', selectedDriverId === item.id ? 'border-primary bg-[#F2F2F2]/45' : 'border-[#cfc2d6] bg-white hover:border-primary/40')}
+                      className={cn('grid gap-3 rounded-2xl border p-4 text-start transition sm:grid-cols-[1fr_auto] sm:items-center', selectedDriverId === item.id ? 'border-primary bg-[#F2F2F2]/45' : 'border-[#B7A7F2] bg-white hover:border-primary/40')}
                     >
                       <span>
                         <span className="block font-display text-lg font-extrabold">{item.name}</span>
-                        <span className="mt-1 block text-sm text-[#4c4354]">{item.zone} · {item.load} active · ETA {item.eta}</span>
+                        <span className="mt-1 block text-sm text-[#464350]">{item.zone} · {item.load} active · ETA {item.eta}</span>
                       </span>
                       <span className={cn('w-fit rounded-full px-3 py-1 text-xs font-bold', String(item.status).toLowerCase() === 'online' || String(item.status).toLowerCase() === 'available' ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning')}>{item.status}</span>
                     </button>
@@ -286,7 +286,7 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({ driver, orders, onUpda
                 <div className="mb-4 flex items-center justify-between">
                   <div>
                     <h2 className="font-display text-2xl font-extrabold">{t('قائمة الطلبات', 'Order queue')}</h2>
-                    <p className="text-sm text-[#4c4354]">{t('طلبات الاستلام والتسليم الجاهزة.', 'Pickup and ready delivery missions.')}</p>
+                    <p className="text-sm text-[#464350]">{t('طلبات الاستلام والتسليم الجاهزة.', 'Pickup and ready delivery missions.')}</p>
                   </div>
                   <ClipboardList className="size-6 text-primary" />
                 </div>
@@ -296,13 +296,13 @@ export const DriverPanel: React.FC<DriverPanelProps> = ({ driver, orders, onUpda
                       key={order.id}
                       type="button"
                       onClick={() => setSelectedOrderId(order.id)}
-                      className={cn('rounded-2xl border p-4 text-start transition', (activeOrder?.id === order.id) ? 'border-primary bg-[#F2F2F2]/45' : 'border-[#cfc2d6] bg-white hover:border-primary/40')}
+                      className={cn('rounded-2xl border p-4 text-start transition', (activeOrder?.id === order.id) ? 'border-primary bg-[#F2F2F2]/45' : 'border-[#B7A7F2] bg-white hover:border-primary/40')}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <p className="font-display text-lg font-extrabold" dir="ltr">{order.id}</p>
-                          <p className="mt-1 text-sm text-[#4c4354]">{order.customerName} · {order.serviceType}</p>
-                          <p className="mt-2 flex items-start gap-2 text-xs text-[#7e7385]">
+                          <p className="mt-1 text-sm text-[#464350]">{order.customerName} · {order.serviceType}</p>
+                          <p className="mt-2 flex items-start gap-2 text-xs text-[#6d667d]">
                             <MapPin className="mt-0.5 size-3.5 shrink-0 text-primary" />
                             {order.deliveryAddress || t('العنوان غير مكتمل', 'Address pending')}
                           </p>
@@ -424,7 +424,7 @@ const DriverActions = ({ order, language, compact = false }: { order: Order; lan
 const Metric = ({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: string }) => (
   <div className="rounded-2xl border border-white/70 bg-white/72 p-4 shadow-glass backdrop-blur-3xl">
     <Icon className="size-5 text-primary" />
-    <p className="mt-4 text-sm font-semibold text-[#4c4354]">{label}</p>
+    <p className="mt-4 text-sm font-semibold text-[#464350]">{label}</p>
     <p className="mt-1 font-display text-2xl font-extrabold text-primary">{value}</p>
   </div>
 );
@@ -441,7 +441,7 @@ const ContactCard = ({ icon: Icon, label, value }: { icon: React.ElementType; la
       <Icon className="size-5" />
     </span>
     <span>
-      <span className="block text-xs font-bold uppercase text-[#7e7385]">{label}</span>
+      <span className="block text-xs font-bold uppercase text-[#6d667d]">{label}</span>
       <span className="mt-1 block font-bold">{value}</span>
     </span>
   </div>

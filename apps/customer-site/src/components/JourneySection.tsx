@@ -105,13 +105,13 @@ export const JourneySection: React.FC<{ language?: SiteLanguage }> = ({ language
                   transition={{ duration: 0.45, delay: idx * 0.03 }}
                   className={`group relative w-full overflow-hidden rounded-[24px] border p-5 text-right transition-all md:p-7 ${
                     isActive
-                      ? 'border-primary/30 bg-white shadow-[0_24px_70px_rgba(143,0,255,0.12)]'
+                      ? 'border-primary/30 bg-white shadow-[0_24px_70px_rgba(89,46,242,0.12)]'
                       : 'border-white/80 bg-white/70 shadow-[0_12px_36px_rgba(15,23,42,0.04)] hover:border-primary/20'
                   }`}
                 >
                   <div className="flex flex-col gap-5 md:flex-row md:items-start">
                     <div className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl shadow-inner ${
-                      isActive ? 'bg-primary text-white' : 'bg-[#fbf4ff] text-secondary'
+                      isActive ? 'bg-primary text-white' : 'bg-[#F4F1FF] text-secondary'
                     }`}>
                       <LaundryIcon name={step.key} alt={fullLabel} className="h-14 w-14" />
                     </div>

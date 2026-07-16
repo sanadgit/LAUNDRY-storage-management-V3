@@ -65,7 +65,7 @@ export const AIOperationsDashboard: React.FC<AIOperationsDashboardProps> = ({ co
   };
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(140,35,112,0.12),transparent_34%),linear-gradient(180deg,#F2F2F2,#ffffff)] text-foreground">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(89,46,242,0.12),transparent_34%),linear-gradient(180deg,#F2F2F2,#ffffff)] text-foreground">
       <section className="border-b border-white/70 bg-gradient-to-br from-primary via-[#8f4fda] to-secondary text-white shadow-high">
         <div className="mx-auto grid max-w-7xl gap-8 px-4 py-8 sm:px-6 md:grid-cols-[1fr_.82fr] md:items-center lg:px-8">
           <motion.div

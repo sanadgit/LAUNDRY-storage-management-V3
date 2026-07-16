@@ -467,7 +467,7 @@ const FullPricingList = ({
         <div className="overflow-x-auto">
           <table className="w-full min-w-[820px] border-collapse text-sm">
             <thead>
-              <tr className="bg-[#fbf0fe] text-start">
+              <tr className="bg-[#F4F1FF] text-start">
                 <th className="px-5 py-4 text-start font-black text-foreground">{t('القطعة', 'Item')}</th>
                 <th className="px-4 py-4 text-start font-black text-foreground">{t('التصنيف', 'Category')}</th>
                 {serviceColumns.map((service) => (

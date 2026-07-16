@@ -378,7 +378,7 @@ export const AuthWizard: React.FC<AuthWizardProps> = ({
           >
             {/* Top Bar */}
             <div className="relative overflow-hidden p-6 flex items-center gap-4" style={{
-              background: 'linear-gradient(145deg,#071B35,#0D2E5C,#0B4A6F)'
+              background: 'linear-gradient(145deg,#0D0D0D,#592EF2,#7D5CF2)'
             }}>
               <motion.div
                 className="absolute inset-0 opacity-20"

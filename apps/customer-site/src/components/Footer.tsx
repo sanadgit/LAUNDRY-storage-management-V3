@@ -77,7 +77,7 @@ export const Footer: React.FC<FooterProps> = ({ setRoute, config, language }) =>
   };
 
   return (
-    <footer className="relative overflow-hidden bg-[#1f1a23] text-white">
+    <footer className="relative overflow-hidden bg-[#0D0D0D] text-white">
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/70 to-transparent" aria-hidden="true" />
 
       <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-20">
@@ -160,7 +160,7 @@ export const Footer: React.FC<FooterProps> = ({ setRoute, config, language }) =>
             <MapPin aria-hidden="true" className="mt-1 size-4 shrink-0 text-accent" />
             <span>{localize(language, config.business_address, 'Abu Dhabi, Musaffah M-13, United Arab Emirates')}</span>
           </a>
-          <a href={`tel:${config.whatsapp_number || '0568720885'}`} dir="ltr" className="flex min-h-11 items-center gap-3 text-sm text-white/64 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+          <a href={`tel:${config.whatsapp_number }`} dir="ltr" className="flex min-h-11 items-center gap-3 text-sm text-white/64 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
             <Phone aria-hidden="true" className="size-4 shrink-0 text-accent" />
             {config.whatsapp_number}
           </a>

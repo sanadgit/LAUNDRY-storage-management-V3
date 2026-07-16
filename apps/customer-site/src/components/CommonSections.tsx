@@ -131,7 +131,7 @@ export const PricingSection: React.FC<{ pricing?: PricingItem[]; language?: Site
               onClick={() => setServiceType(type.id as typeof serviceType)}
               className={`whitespace-nowrap rounded-full border px-5 py-3 text-xs font-black transition ${
                 serviceType === type.id
-                  ? 'border-primary bg-primary text-white shadow-[0_14px_35px_rgba(143,0,255,0.22)]'
+                  ? 'border-primary bg-primary text-white shadow-[0_14px_35px_rgba(89,46,242,0.22)]'
                   : 'border-slate-200 bg-white text-slate-500 hover:border-primary/30'
               }`}
             >
@@ -158,10 +158,10 @@ export const PricingSection: React.FC<{ pricing?: PricingItem[]; language?: Site
                   initial={{ opacity: 0, y: 18 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: idx * 0.025 }}
-                  className="group flex items-center justify-between gap-4 rounded-[26px] border border-slate-200 bg-white p-5 shadow-[0_14px_44px_rgba(15,23,42,0.05)] transition hover:-translate-y-1 hover:border-primary/30 hover:shadow-[0_24px_70px_rgba(143,0,255,0.11)]"
+                  className="group flex items-center justify-between gap-4 rounded-[26px] border border-slate-200 bg-white p-5 shadow-[0_14px_44px_rgba(15,23,42,0.05)] transition hover:-translate-y-1 hover:border-primary/30 hover:shadow-[0_24px_70px_rgba(89,46,242,0.11)]"
                 >
                   <div className="flex items-center gap-4">
-                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#fbf4ff] transition group-hover:scale-105">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#F4F1FF] transition group-hover:scale-105">
                       <LaundryIcon
                         name={resolvePricingItemIcon(item)}
                         alt={item.name_ar}
@@ -260,7 +260,7 @@ export const BranchesSection: React.FC<{ branches: Branch[]; language?: SiteLang
               className="rounded-[30px] border border-white bg-white p-7 shadow-[0_24px_70px_rgba(15,23,42,0.07)]"
             >
               <div className="mb-7 flex items-center justify-between gap-4">
-                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-white shadow-[0_16px_34px_rgba(143,0,255,0.24)]">
+                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-white shadow-[0_16px_34px_rgba(89,46,242,0.24)]">
                   <Icons.MapPin size={28} />
                 </div>
                 <span className="rounded-full bg-success/10 px-3 py-1 text-[11px] font-black text-success">{localize(language, 'متاح الآن', 'Available')}</span>

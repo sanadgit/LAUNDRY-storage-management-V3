@@ -39,7 +39,7 @@ export const PublicFloatingActions: React.FC<PublicFloatingActionsProps> = ({ co
         <button
           type="button"
           onClick={() => setAiOpen((open) => !open)}
-          className="relative grid size-13 place-items-center rounded-pill border border-white/60 bg-gradient-to-br from-primary to-[#8C2370] text-white shadow-high transition duration-base hover:-translate-y-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background motion-reduce:transform-none motion-reduce:transition-none md:size-14"
+          className="relative grid size-13 place-items-center rounded-pill border border-white/60 bg-gradient-to-br from-primary to-[#592EF2] text-white shadow-high transition duration-base hover:-translate-y-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background motion-reduce:transform-none motion-reduce:transition-none md:size-14"
           aria-expanded={aiOpen}
           aria-controls="ai-assistant-placeholder"
           aria-label={localize(language, 'فتح مساعد الذكاء الاصطناعي', 'Open AI assistant')}

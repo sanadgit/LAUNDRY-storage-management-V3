@@ -145,7 +145,7 @@ export const OperationsPlatform: React.FC<OperationsPlatformProps> = ({
   };
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(140,35,112,0.13),transparent_34%),linear-gradient(180deg,#F2F2F2,#ffffff)] text-foreground">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(89,46,242,0.13),transparent_34%),linear-gradient(180deg,#F2F2F2,#ffffff)] text-foreground">
       <div className="grid min-h-screen lg:grid-cols-[280px_1fr]">
         <aside className="hidden border-e border-white/70 bg-white/62 shadow-glass backdrop-blur-3xl lg:block">
           <div className="sticky top-0 flex h-screen flex-col">

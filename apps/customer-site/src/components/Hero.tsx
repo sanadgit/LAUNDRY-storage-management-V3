@@ -120,7 +120,7 @@ export const Hero: React.FC<HeroProps> = ({ onTrackClick, onBookClick, onNavigat
             </button>
             <button
               onClick={onBookClick}
-              className="rounded-full bg-primary px-5 py-2.5 text-xs font-black text-white shadow-[0_18px_42px_rgba(143,0,255,0.24)] transition hover:bg-[#7400d1] active:scale-95 md:px-10 md:py-3.5 md:text-base"
+              className="rounded-full bg-primary px-5 py-2.5 text-xs font-black text-white shadow-[0_18px_42px_rgba(89,46,242,0.24)] transition hover:bg-[#4520d6] active:scale-95 md:px-10 md:py-3.5 md:text-base"
             >
               {localize(language, 'اطلب الآن', 'Book Now')}
             </button>
@@ -151,7 +151,7 @@ export const Hero: React.FC<HeroProps> = ({ onTrackClick, onBookClick, onNavigat
             <button
               type="button"
               onClick={onBookClick}
-              className="rounded-full bg-primary py-3 text-xl font-black text-white shadow-[0_18px_42px_rgba(143,0,255,0.24)] transition hover:bg-[#7400d1] active:scale-95"
+              className="rounded-full bg-primary py-3 text-xl font-black text-white shadow-[0_18px_42px_rgba(89,46,242,0.24)] transition hover:bg-[#4520d6] active:scale-95"
             >
               {localize(language, 'اطلب الآن', 'Book Now')}
             </button>
@@ -182,7 +182,7 @@ export const Hero: React.FC<HeroProps> = ({ onTrackClick, onBookClick, onNavigat
             <button
               type="button"
               onClick={onBookClick}
-              className="rounded-full bg-primary py-3 text-base font-black text-white shadow-[0_18px_42px_rgba(143,0,255,0.24)]"
+              className="rounded-full bg-primary py-3 text-base font-black text-white shadow-[0_18px_42px_rgba(89,46,242,0.24)]"
             >
               {localize(language, 'اطلب الآن', 'Book Now')}
             </button>
