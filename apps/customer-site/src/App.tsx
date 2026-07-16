@@ -25,6 +25,7 @@ import { CustomerPortal } from './components/CustomerPortal';
 import { AuthWizard } from './components/AuthWizard';
 import { Contact } from './components/Contact';
 import { OperationsPlatform } from './components/OperationsPlatform';
+import { AdminPanel } from './components/AdminPanel';
 import { PosTerminal } from './components/PosTerminal';
 import { AIOperationsDashboard } from './components/AIOperationsDashboard';
 import { ReportsDashboard } from './components/ReportsDashboard';
@@ -98,6 +99,7 @@ const ROUTES = new Set([
   '/careers',
   '/book',
   '/admin',
+  '/admin/settings',
   '/pos',
   '/ai-dashboard',
   '/reports',
@@ -905,7 +907,7 @@ export default function App() {
   };
 
   const renderPage = () => {
-    if (siteConfig.maintenance_mode && route !== '/admin' && route !== '/auth') {
+    if (siteConfig.maintenance_mode && route !== '/admin' && route !== '/admin/settings' && route !== '/auth') {
       return (
         <div className="min-h-screen bg-secondary flex flex-col items-center justify-center p-8 text-center">
           <div className="w-20 h-20 bg-primary/20 rounded-full flex items-center justify-center mb-6 text-primary animate-pulse">
@@ -1040,6 +1042,21 @@ export default function App() {
             language={language}
           />
         );
+      case '/admin/settings':
+        if (!adminReady) return null;
+        if (!adminUser || !adminToken) {
+          return <AdminAccessGate onLogin={handleAdminLogin} language={language} />;
+        }
+        return (
+          <AdminPanel
+            config={siteConfig}
+            onConfigChange={handleSiteConfigChange}
+            orders={orders}
+            onOrdersChange={handleOrdersChange}
+            onLogout={handleAdminLogout}
+            onBackToOperations={() => setRoute('/admin')}
+          />
+        );
       case '/pos':
         if (!adminReady) return null;
         if (!adminUser || !adminToken) {
@@ -1123,7 +1140,7 @@ export default function App() {
     }
   };
 
-  const isAdminRoute = route === '/admin';
+  const isAdminRoute = route === '/admin' || route === '/admin/settings';
   const isPosRoute = route === '/pos';
   const isAiDashboardRoute = route === '/ai-dashboard';
   const isReportsRoute = route === '/reports';
@@ -1164,7 +1181,7 @@ export default function App() {
         </AnimatePresence>
       </main>
 
-      {route !== '/dashboard' && route !== '/portal' && route !== '/admin' && route !== '/driver' && route !== '/book' && <Footer setRoute={setRoute} config={siteConfig} language={language} />}
+      {route !== '/dashboard' && route !== '/portal' && route !== '/admin' && route !== '/admin/settings' && route !== '/driver' && route !== '/book' && <Footer setRoute={setRoute} config={siteConfig} language={language} />}
 
       {!hidesFloatingActions && <PublicFloatingActions config={siteConfig} language={language} setRoute={setRoute} />}
     </div>

@@ -52,6 +52,7 @@ interface AdminPanelProps {
   orders: Order[];
   onOrdersChange: (orders: Order[]) => void;
   onLogout: () => void;
+  onBackToOperations?: () => void;
 }
 
 type SectionId = 'overview' | 'orders' | 'dispatch' | 'pricing' | 'content' | 'ai' | 'system';
@@ -228,7 +229,7 @@ function Panel({
   );
 }
 
-export const AdminPanel: React.FC<AdminPanelProps> = ({ config, onConfigChange, orders, onOrdersChange, onLogout }) => {
+export const AdminPanel: React.FC<AdminPanelProps> = ({ config, onConfigChange, orders, onOrdersChange, onLogout, onBackToOperations }) => {
   const [activeSection, setActiveSection] = useState<SectionId>('overview');
   const [dispatchTab, setDispatchTab] = useState<DispatchTab>('areas');
   const [localConfig, setLocalConfig] = useState<SiteConfig>(config);
@@ -1496,6 +1497,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ config, onConfigChange, 
                 <p className="mt-1 text-sm font-semibold text-slate-500">{sectionTitle[activeSection].subtitle}</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                {onBackToOperations ? (
+                  <button onClick={onBackToOperations} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-black text-slate-600 hover:bg-slate-50">
+                    <ChevronLeft size={15} /> العمليات
+                  </button>
+                ) : null}
                 <div className="hidden items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500 md:flex">
                   <Bell size={15} />
                   آخر تحديث: الآن

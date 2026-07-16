@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Repeat2,
   Server,
+  Settings,
   SlidersHorizontal,
   ShieldCheck,
   Truck,
@@ -200,6 +201,10 @@ export const OperationsPlatform: React.FC<OperationsPlatformProps> = ({
                 <Button variant="secondary" onClick={() => setRoute('/reports')}>
                   <Archive aria-hidden="true" className="size-5" />
                   {t('التقارير', 'Reports')}
+                </Button>
+                <Button variant="secondary" onClick={() => setRoute('/admin/settings')}>
+                  <Settings aria-hidden="true" className="size-5" />
+                  {t('الإعدادات', 'Settings')}
                 </Button>
                 <Input
                   aria-label={t('بحث', 'Search')}
