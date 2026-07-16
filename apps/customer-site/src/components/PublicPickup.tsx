@@ -672,26 +672,51 @@ export const PublicPickup: React.FC<PublicPickupProps> = ({ config, language, on
               <div className="mb-6 space-y-4 border-b border-[#B7A7F2] pb-6">
                 <div className="flex justify-between text-[#464350]">
                   <span>{t('الخدمات', 'Services')} ({selectedServices.length})</span>
-                  <span className="font-medium text-[#0D0D0D]">AED {baseServiceEstimate.toFixed(2)}</span>
+                  <span className={cn('font-medium', hasSelectedServices ? 'text-[#0D0D0D]' : 'text-primary')}>
+                    {hasSelectedServices ? `AED ${baseServiceEstimate.toFixed(2)}` : t('اختر خدمة', 'Choose service')}
+                  </span>
                 </div>
                 {selectedServicesSummary ? (
                   <p className="-mt-2 text-xs font-semibold leading-5 text-[#6d667d]">{selectedServicesSummary}</p>
-                ) : null}
+                ) : (
+                  <p className="-mt-2 text-xs font-semibold leading-5 text-[#6d667d]">
+                    {t('ابدأ باختيار خدمة من الخطوة الثانية لعرض السعر الأولي.', 'Choose a service in step two to show the first estimate.')}
+                  </p>
+                )}
+                <div className="rounded-2xl border border-primary/10 bg-white/70 p-3">
+                  <div className="flex justify-between gap-4 text-sm text-[#464350]">
+                    <span>{t('الحد الأدنى للمنطقة', 'Area minimum')}</span>
+                    <span className="font-medium text-[#0D0D0D]">AED {Number(minimumOrder || 0).toFixed(2)}</span>
+                  </div>
+                  <p className="mt-1 text-xs font-semibold leading-5 text-[#6d667d]">
+                    {t('معلومة إرشادية، ولا تدخل في الإجمالي قبل اختيار خدمة.', 'For guidance only, not added to the total before a service is selected.')}
+                  </p>
+                </div>
                 <div className="flex justify-between text-[#464350]">
                   <span>{t('رسوم السرعة', 'Express Surcharge')}</span>
-                  <span className="font-medium text-[#0D0D0D]">AED {visibleExpressFee.toFixed(2)}</span>
+                  <span className="font-medium text-[#0D0D0D]">
+                    {hasSelectedServices ? `AED ${visibleExpressFee.toFixed(2)}` : t('بعد الخدمة', 'After service')}
+                  </span>
                 </div>
                 <div className="flex justify-between text-[#464350]">
                   <span>{t('رسوم التوصيل', 'Delivery Fee')}</span>
-                  <span className="font-medium text-[#0D0D0D]">AED {visibleDeliveryFee.toFixed(2)}</span>
+                  <span className="font-medium text-[#0D0D0D]">
+                    {hasSelectedServices ? `AED ${visibleDeliveryFee.toFixed(2)}` : t('بعد الخدمة', 'After service')}
+                  </span>
                 </div>
               </div>
               <div className="mb-8 flex items-end justify-between">
                 <div>
-                  <p className="font-mono text-[12px] font-semibold uppercase leading-4 tracking-[0.1em] text-[#6d667d]">{t('الإجمالي التقريبي', 'ESTIMATED TOTAL')}</p>
-                  <p className="text-3xl font-extrabold text-primary">AED {total.toFixed(2)}</p>
+                  <p className="font-mono text-[12px] font-semibold uppercase leading-4 tracking-[0.1em] text-[#6d667d]">
+                    {hasSelectedServices ? t('الإجمالي التقريبي', 'ESTIMATED TOTAL') : t('التقدير الأولي', 'FIRST ESTIMATE')}
+                  </p>
+                  <p className={cn('font-extrabold text-primary', hasSelectedServices ? 'text-3xl' : 'max-w-[220px] text-xl leading-7')}>
+                    {hasSelectedServices ? `AED ${total.toFixed(2)}` : t('اختر خدمة لعرض التقدير', 'Choose a service to estimate')}
+                  </p>
                 </div>
-                <span className="text-end text-xs text-[#464350]">{t('شامل الضريبة', 'VAT included')}</span>
+                <span className="text-end text-xs text-[#464350]">
+                  {hasSelectedServices ? t('شامل الضريبة', 'VAT included') : t('لا توجد رسوم محسوبة بعد', 'No charges yet')}
+                </span>
               </div>
               {validationError ? (
                 <div className="mb-5 rounded-2xl border border-primary/20 bg-primary/5 p-4 text-sm font-bold leading-6 text-primary">
