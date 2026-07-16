@@ -368,6 +368,12 @@ export const normalizeAiPhone = (value: unknown) => {
   return digits;
 };
 
+const maskAiPhone = (value: unknown) => {
+  const digits = normalizeAiPhone(value);
+  if (!digits) return '*****';
+  return `${'*'.repeat(Math.max(5, digits.length - 3))}${digits.slice(-3)}`;
+};
+
 export const detectLanguage = (text: unknown) => {
   const value = String(text ?? '');
   if (/[\u0600-\u06FF]/.test(value)) return 'ar';
@@ -947,6 +953,32 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
         const contactsByWaId = new Map<string, any>();
         for (const contact of Array.isArray(value.contacts) ? value.contacts : []) {
           contactsByWaId.set(String(contact?.wa_id ?? ''), contact);
+        }
+        for (const status of Array.isArray(value.statuses) ? value.statuses : []) {
+          const errors = Array.isArray(status?.errors) ? status.errors : [];
+          const errorSummary = errors
+            .map((error: any) =>
+              [
+                error?.code ? `code=${error.code}` : '',
+                error?.title ? `title=${error.title}` : '',
+                error?.message ? `message=${error.message}` : '',
+                error?.error_data?.details ? `details=${error.error_data.details}` : '',
+              ]
+                .filter(Boolean)
+                .join(' ')
+            )
+            .filter(Boolean)
+            .join(' | ');
+          console.log(
+            `[whatsapp-webhook] status id=${String(status?.id ?? 'n/a')} recipient=${maskAiPhone(status?.recipient_id)} status=${String(status?.status ?? 'unknown')} timestamp=${String(status?.timestamp ?? 'n/a')}${errorSummary ? ` ${errorSummary}` : ''}`
+          );
+          results.push({
+            type: 'status',
+            id: String(status?.id ?? ''),
+            recipient: maskAiPhone(status?.recipient_id),
+            status: String(status?.status ?? ''),
+            errors: errors.length,
+          });
         }
         for (const message of Array.isArray(value.messages) ? value.messages : []) {
           const from = String(message?.from ?? '').trim();
