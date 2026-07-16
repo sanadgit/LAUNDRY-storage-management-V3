@@ -8,6 +8,8 @@ import {
   PublicTrackVerificationResponse,
   PublicTrackVerifyResponse,
   SiteConfig,
+  SyncHealthResponse,
+  SyncRetryResponse,
 } from '../types';
 
 let authToken: string | null = null;
@@ -135,6 +137,11 @@ export const customerApi = {
     }),
   syncOrderWithPos: (id: string) =>
     requestJson<Order>(`/api/customer/orders/${encodeURIComponent(id)}/sync-pos`, {
+      method: 'POST',
+    }),
+  getSyncHealth: () => requestJson<SyncHealthResponse>('/api/sync/health'),
+  retrySyncQueue: () =>
+    requestJson<SyncRetryResponse>('/api/sync/retry', {
       method: 'POST',
     }),
   getSiteConfig: () => requestJson<SiteConfig | null>('/api/customer/site-config'),

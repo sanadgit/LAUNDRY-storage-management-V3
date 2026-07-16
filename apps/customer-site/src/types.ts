@@ -323,6 +323,48 @@ export interface PublicTrackVerifyResponse {
   order: Order;
 }
 
+export interface SyncQueueItem {
+  id: number;
+  entity_type: string;
+  entity_id: string;
+  operation: string;
+  target: string;
+  status: 'pending' | 'failed' | 'synced' | 'dead' | string;
+  attempts: number;
+  last_error?: string | null;
+  next_attempt_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface SyncHealthResponse {
+  ok: boolean;
+  local_first: boolean;
+  checked_at: string;
+  local: {
+    ok: boolean;
+    customer_orders?: number;
+    error?: string;
+  };
+  supabase: {
+    configured: boolean;
+    reachable: boolean;
+    customer_orders?: number | null;
+    error?: string;
+  };
+  supabase_configured: boolean;
+  supabase_reachable: boolean;
+  retry_ms: number;
+  max_attempts: number;
+  counts: Record<string, number>;
+  latest: SyncQueueItem[];
+}
+
+export interface SyncRetryResponse {
+  ok: boolean;
+  processed: number;
+  skipped?: string;
+}
+
 export interface AdminUser {
   id: number;
   username: string;

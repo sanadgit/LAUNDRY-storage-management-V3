@@ -179,6 +179,9 @@ customer_orders
   - Supabase reachable
   - عدد طلبات Supabase إن أمكن
   - counts لحالات `sync_queue`
+- إضافة تبويب `المزامنة` داخل Operations Platform.
+- عرض حالة SQLite و Supabase والطابور وآخر عمليات المزامنة.
+- إضافة زر تحديث وزر إعادة محاولة من داخل لوحة العمليات.
 
 ## المرحلة التالية مباشرة
 
@@ -188,4 +191,5 @@ customer_orders
 4. إنشاء طلب Book Pickup تجريبي.
 5. التأكد أن الطلب يظهر محليا أولا، ثم يظهر في Supabase.
 6. تجربة Track Order على طلب محلي وطلب موجود في Supabase فقط.
-7. إضافة لوحة صغيرة داخل Operations Platform تعرض حالة المزامنة بدون استخدام curl.
+7. اختبار لوحة المزامنة على السيرفر بعد ضبط مفاتيح Supabase.
+8. إضافة تنبيه بصري في الهيدر إذا زادت failed/dead jobs.

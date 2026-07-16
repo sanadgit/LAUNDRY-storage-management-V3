@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Archive,
@@ -9,16 +9,22 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Clock3,
+  Database,
   LayoutDashboard,
   LogOut,
   PackageCheck,
   ReceiptText,
+  RefreshCw,
+  Repeat2,
+  Server,
   SlidersHorizontal,
   ShieldCheck,
   Truck,
   Users,
+  WifiOff,
 } from 'lucide-react';
-import { Branch, Driver, Order, OrderStatus, PricingItem, SiteConfig } from '../types';
+import { Branch, Driver, Order, OrderStatus, PricingItem, SiteConfig, SyncHealthResponse } from '../types';
+import { customerApi } from '../lib/customerApi';
 import { formatCurrency, localize, SiteLanguage } from '../lib/i18n';
 import { cn } from '../lib/utils';
 import { Badge } from './ui/badge';
@@ -37,7 +43,7 @@ interface OperationsPlatformProps {
   language?: SiteLanguage;
 }
 
-type OpsModule = 'overview' | 'orders' | 'complaints' | 'drivers' | 'branches' | 'inventory' | 'expenses' | 'handover';
+type OpsModule = 'overview' | 'orders' | 'complaints' | 'drivers' | 'branches' | 'inventory' | 'expenses' | 'handover' | 'sync';
 
 const modules: Array<{ id: OpsModule; ar: string; en: string; icon: React.ElementType; roles: string }> = [
   { id: 'overview', ar: 'نظرة عامة', en: 'Overview', icon: LayoutDashboard, roles: 'Staff, Supervisor, Admin' },
@@ -48,6 +54,7 @@ const modules: Array<{ id: OpsModule; ar: string; en: string; icon: React.Elemen
   { id: 'inventory', ar: 'المخزون', en: 'Inventory', icon: Boxes, roles: 'Staff, Supervisor' },
   { id: 'expenses', ar: 'المصروفات', en: 'Expenses', icon: Banknote, roles: 'Supervisor, Admin' },
   { id: 'handover', ar: 'تسليم الشفت', en: 'Shift Handover', icon: ClipboardCheck, roles: 'Staff, Supervisor' },
+  { id: 'sync', ar: 'المزامنة', en: 'Sync Health', icon: Database, roles: 'Admin' },
 ];
 
 const workflow: Array<{ status: OrderStatus; ar: string; en: string }> = [
@@ -281,6 +288,7 @@ export const OperationsPlatform: React.FC<OperationsPlatformProps> = ({
             {activeModule === 'inventory' ? <Inventory language={language} pricing={config.pricing} /> : null}
             {activeModule === 'expenses' ? <Expenses language={language} /> : null}
             {activeModule === 'handover' ? <Handover language={language} checklist={checklist} setChecklist={setChecklist} /> : null}
+            {activeModule === 'sync' ? <SyncHealth language={language} /> : null}
           </section>
         </div>
       </div>
@@ -608,6 +616,262 @@ const Handover = ({ language, checklist, setChecklist }: { language: SiteLanguag
       </CardContent>
     </Card>
   );
+};
+
+const SyncHealth = ({ language }: { language: SiteLanguage }) => {
+  const t = (ar: string, en: string) => localize(language, ar, en);
+  const [health, setHealth] = useState<SyncHealthResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [error, setError] = useState('');
+  const [retryMessage, setRetryMessage] = useState('');
+
+  const loadHealth = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      setHealth(await customerApi.getSyncHealth());
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : String(loadError));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const retryQueue = async () => {
+    setRetrying(true);
+    setError('');
+    setRetryMessage('');
+    try {
+      const result = await customerApi.retrySyncQueue();
+      setRetryMessage(
+        result.skipped
+          ? t(`تم تخطي العملية: ${result.skipped}`, `Skipped: ${result.skipped}`)
+          : t(`تمت معالجة ${result.processed} عملية`, `Processed ${result.processed} jobs`),
+      );
+      await loadHealth();
+    } catch (retryError) {
+      setError(retryError instanceof Error ? retryError.message : String(retryError));
+    } finally {
+      setRetrying(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadHealth();
+  }, []);
+
+  const counts = health?.counts || {};
+  const pending = Number(counts.pending || 0);
+  const failed = Number(counts.failed || 0);
+  const dead = Number(counts.dead || 0);
+  const synced = Number(counts.synced || 0);
+  const overallVariant = !health
+    ? 'neutral'
+    : health.local.ok && (!health.supabase_configured || health.supabase_reachable) && dead === 0
+      ? 'success'
+      : dead > 0 || !health.local.ok
+        ? 'danger'
+        : 'warning';
+
+  return (
+    <div className="grid gap-6">
+      <Card>
+        <CardHeader className="border-b border-border">
+          <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <CardTitle>{t('مراقبة المزامنة', 'Sync health')}</CardTitle>
+                <Badge variant={overallVariant} withIcon>
+                  {health
+                    ? overallVariant === 'success'
+                      ? t('مستقر', 'Stable')
+                      : overallVariant === 'danger'
+                        ? t('يتطلب تدخل', 'Needs action')
+                        : t('متابعة', 'Watch')
+                    : t('غير محمل', 'Not loaded')}
+                </Badge>
+              </div>
+              <CardDescription>
+                {health?.checked_at ? `${t('آخر فحص', 'Last check')}: ${formatSyncDate(health.checked_at, language)}` : t('حالة القاعدة المحلية و Supabase.', 'Local database and Supabase status.')}
+              </CardDescription>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" onClick={loadHealth} loading={loading}>
+                <RefreshCw aria-hidden="true" className="size-5" />
+                {t('تحديث', 'Refresh')}
+              </Button>
+              <Button variant="accent" onClick={retryQueue} loading={retrying} disabled={retrying || loading}>
+                <Repeat2 aria-hidden="true" className="size-5" />
+                {t('إعادة المحاولة', 'Retry queue')}
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-5 p-5">
+          {error ? (
+            <div className="flex items-start gap-3 rounded-lg border border-danger/20 bg-danger/10 p-4 text-sm font-bold text-danger">
+              <AlertTriangle aria-hidden="true" className="mt-0.5 size-5" />
+              <span>{error}</span>
+            </div>
+          ) : null}
+          {retryMessage ? (
+            <div className="flex items-start gap-3 rounded-lg border border-success/20 bg-success/10 p-4 text-sm font-bold text-success">
+              <CheckCircle2 aria-hidden="true" className="mt-0.5 size-5" />
+              <span>{retryMessage}</span>
+            </div>
+          ) : null}
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <SyncMetric
+              icon={Database}
+              label={t('SQLite المحلي', 'Local SQLite')}
+              value={health?.local.ok ? t('متصل', 'Online') : t('غير متصل', 'Offline')}
+              detail={`${t('طلبات', 'Orders')}: ${health?.local.customer_orders ?? 0}`}
+              variant={health?.local.ok ? 'success' : 'danger'}
+            />
+            <SyncMetric
+              icon={health?.supabase_reachable ? Server : WifiOff}
+              label="Supabase"
+              value={!health?.supabase_configured ? t('غير مهيأ', 'Not configured') : health.supabase_reachable ? t('متصل', 'Reachable') : t('متعذر', 'Unreachable')}
+              detail={`${t('طلبات', 'Orders')}: ${health?.supabase.customer_orders ?? '-'}`}
+              variant={!health?.supabase_configured ? 'neutral' : health.supabase_reachable ? 'success' : 'warning'}
+            />
+            <SyncMetric
+              icon={Clock3}
+              label={t('بانتظار المزامنة', 'Pending sync')}
+              value={String(pending + failed)}
+              detail={`${t('فاشلة', 'Failed')}: ${failed}`}
+              variant={pending + failed > 0 ? 'warning' : 'success'}
+            />
+            <SyncMetric
+              icon={AlertTriangle}
+              label={t('متوقفة نهائيا', 'Dead jobs')}
+              value={String(dead)}
+              detail={`${t('متزامنة', 'Synced')}: ${synced}`}
+              variant={dead > 0 ? 'danger' : 'success'}
+            />
+          </div>
+
+          {health?.supabase.error ? (
+            <div className="rounded-lg border border-warning/20 bg-warning/10 p-4 text-sm font-bold text-warning">
+              {health.supabase.error}
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('آخر عمليات الطابور', 'Latest queue jobs')}</CardTitle>
+          <CardDescription>{t('آخر 20 عملية مزامنة محفوظة في السيرفر.', 'Latest 20 sync jobs stored on the server.')}</CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="hidden overflow-x-auto lg:block">
+            <table className="w-full text-sm">
+              <thead className="border-b border-border bg-muted text-xs text-muted-foreground">
+                <tr>
+                  <th className="p-3 text-start">{t('الكيان', 'Entity')}</th>
+                  <th className="p-3 text-start">{t('العملية', 'Operation')}</th>
+                  <th className="p-3 text-start">{t('الحالة', 'Status')}</th>
+                  <th className="p-3 text-start">{t('المحاولات', 'Attempts')}</th>
+                  <th className="p-3 text-start">{t('آخر تحديث', 'Updated')}</th>
+                  <th className="p-3 text-start">{t('الخطأ', 'Error')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(health?.latest || []).map((item) => (
+                  <tr key={item.id} className="border-b border-border">
+                    <td className="p-3">
+                      <p className="font-black">{item.entity_type}</p>
+                      <p className="text-xs text-muted-foreground" dir="ltr">{item.entity_id}</p>
+                    </td>
+                    <td className="p-3">{item.operation}</td>
+                    <td className="p-3"><Badge variant={syncStatusVariant(item.status)}>{item.status}</Badge></td>
+                    <td className="p-3 font-bold">{item.attempts}</td>
+                    <td className="p-3">{formatSyncDate(item.updated_at, language)}</td>
+                    <td className="max-w-sm truncate p-3 text-xs text-muted-foreground">{item.last_error || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="grid gap-3 p-3 lg:hidden">
+            {(health?.latest || []).map((item) => (
+              <div key={item.id} className="rounded-lg border border-border bg-surface p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-black">{item.entity_type}</p>
+                    <p className="truncate text-xs text-muted-foreground" dir="ltr">{item.entity_id}</p>
+                  </div>
+                  <Badge variant={syncStatusVariant(item.status)}>{item.status}</Badge>
+                </div>
+                <div className="mt-3 grid gap-2 text-sm">
+                  <InfoLine label={t('العملية', 'Operation')} value={item.operation} />
+                  <InfoLine label={t('المحاولات', 'Attempts')} value={String(item.attempts)} />
+                  <InfoLine label={t('آخر تحديث', 'Updated')} value={formatSyncDate(item.updated_at, language)} />
+                </div>
+                {item.last_error ? <p className="mt-3 text-xs font-bold text-danger">{item.last_error}</p> : null}
+              </div>
+            ))}
+          </div>
+          {health && health.latest.length === 0 ? (
+            <div className="p-6 text-center text-sm font-bold text-muted-foreground">
+              {t('لا توجد عمليات مزامنة في الطابور.', 'No sync jobs in the queue.')}
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+    </div>
+  );
+};
+
+const SyncMetric = ({
+  icon: Icon,
+  label,
+  value,
+  detail,
+  variant,
+}: {
+  icon: React.ElementType;
+  label: string;
+  value: string;
+  detail: string;
+  variant: 'neutral' | 'success' | 'warning' | 'danger';
+}) => {
+  const MetricIcon = Icon as any;
+  return (
+    <div className="rounded-lg border border-border bg-surface p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="grid size-11 place-items-center rounded-md bg-muted text-primary">
+          <MetricIcon aria-hidden="true" className="size-5" />
+        </div>
+        <Badge variant={variant}>{value}</Badge>
+      </div>
+      <p className="mt-4 text-xs font-bold text-muted-foreground">{label}</p>
+      <p className="mt-1 text-sm font-black">{detail}</p>
+    </div>
+  );
+};
+
+const syncStatusVariant = (status: string): 'neutral' | 'success' | 'warning' | 'danger' | 'info' | 'accent' => {
+  if (status === 'synced') return 'success';
+  if (status === 'failed') return 'warning';
+  if (status === 'dead') return 'danger';
+  if (status === 'pending') return 'info';
+  return 'neutral';
+};
+
+const formatSyncDate = (value: string | null | undefined, language: SiteLanguage) => {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return new Intl.DateTimeFormat(language === 'ar' ? 'ar-AE' : 'en-AE', {
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
 };
 
 const OrderRow = ({ order, language, selected, toggle, setOrderStatus, assignDriver, drivers, setConfirmOrder }: OrderRenderProps) => {
