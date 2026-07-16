@@ -106,6 +106,7 @@ export const PublicPickup: React.FC<PublicPickupProps> = ({ config, language, on
   const [validationError, setValidationError] = useState('');
   const [notes, setNotes] = useState(() => reorderTemplate?.sourceOrderId ? localize(language, `إعادة طلب من ${reorderTemplate.sourceOrderId}`, `Reorder from ${reorderTemplate.sourceOrderId}`) : '');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submittedOrder, setSubmittedOrder] = useState<Order | null>(null);
   const t = (ar: string, en: string) => localize(language, ar, en);
 
   const dates = useMemo(() => buildPickupDates(language), [language]);
@@ -228,6 +229,28 @@ export const PublicPickup: React.FC<PublicPickupProps> = ({ config, language, on
     setValidationError(t('تم حفظ المسودة على هذا الجهاز.', 'Draft saved on this device.'));
   };
 
+  const resetBooking = () => {
+    setSubmittedOrder(null);
+    setCurrentStep(0);
+    setSelectedServiceIds([]);
+    setSelectedDate('date-0');
+    setSelectedTime(timeSlots.find((slot) => !slot.busy)?.id || timeSlots[0]?.id || '');
+    setDelivery('standard');
+    setCustomerName('');
+    setCustomerPhone('');
+    setAddressDetails('');
+    setNotes('');
+    setValidationError('');
+  };
+
+  const trackSubmittedOrder = () => {
+    if (!submittedOrder) return;
+    if (typeof window !== 'undefined') {
+      window.history.pushState({}, '', `/track?id=${encodeURIComponent(submittedOrder.id)}`);
+    }
+    setRoute('/track');
+  };
+
   const confirmPickup = async () => {
     if (isSubmitting) return;
     setValidationError('');
@@ -271,13 +294,112 @@ export const PublicPickup: React.FC<PublicPickupProps> = ({ config, language, on
     try {
       const created = await onOrderSuccess(order);
       if (typeof window !== 'undefined') {
-        window.history.pushState({}, '', `/track?id=${encodeURIComponent(created.id)}`);
+        window.localStorage.removeItem('io_pickup_draft');
       }
-      setRoute('/track');
+      setSubmittedOrder(created);
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  if (submittedOrder) {
+    const customerConfirmationStatus = String((submittedOrder as any).customerConfirmation?.status ?? '').trim();
+    const driverNotificationStatus = String((submittedOrder as any).driverNotification?.status ?? '').trim();
+    const confirmationSent = customerConfirmationStatus === 'sent';
+    const driverNotified = driverNotificationStatus === 'sent';
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="min-h-[100dvh] overflow-x-hidden bg-[#F2F2F2] px-4 py-8 font-sans text-[#0D0D0D] md:px-8"
+        dir={language === 'ar' ? 'rtl' : 'ltr'}
+      >
+        <div className="mx-auto flex min-h-[calc(100dvh-4rem)] max-w-5xl items-center justify-center">
+          <section className="w-full overflow-hidden rounded-[36px] border border-white/60 bg-white/72 shadow-high backdrop-blur-2xl">
+            <div className="bg-gradient-to-br from-primary via-[#592EF2] to-secondary px-6 py-10 text-white md:px-10">
+              <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <div className="mb-5 grid size-16 place-items-center rounded-2xl bg-white/16">
+                    <CheckCircle2 className="size-9" aria-hidden="true" />
+                  </div>
+                  <p className="font-mono text-xs font-bold uppercase tracking-[0.12em] text-white/72">
+                    {t('تم تأكيد طلب الاستلام', 'Pickup confirmed')}
+                  </p>
+                  <h1 className="mt-3 font-display text-[34px] font-black leading-[42px] md:text-[52px] md:leading-[60px]">
+                    {t('طلبك جاهز للمتابعة.', 'Your pickup is ready to track.')}
+                  </h1>
+                  <p className="mt-4 max-w-2xl text-sm font-medium leading-7 text-white/78 md:text-base">
+                    {t('أنشأنا رقم طلب قابل للتتبع، وسيصلك تأكيد واتساب على رقم العميل إذا كان قالب التأكيد مفعلا.', 'We created a trackable order number. WhatsApp confirmation is sent when the confirmation template is active.')}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/18 bg-white/12 p-4 text-start">
+                  <p className="font-mono text-[11px] font-bold uppercase text-white/70">{t('رقم الطلب', 'Order ID')}</p>
+                  <p className="mt-2 font-display text-3xl font-black" dir="ltr">{submittedOrder.id}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-6 p-6 md:grid-cols-[1.1fr_0.9fr] md:p-10">
+              <div className="space-y-4">
+                <div className="grid gap-3 rounded-3xl border border-primary/10 bg-primary/5 p-5 sm:grid-cols-2">
+                  <InfoMini label={t('الخدمات', 'Services')} value={submittedOrder.serviceType || '-'} />
+                  <InfoMini label={t('الموعد', 'Pickup')} value={submittedOrder.pickupSlot || '-'} />
+                  <InfoMini label={t('المنطقة والفرع', 'Area and branch')} value={submittedOrder.branch || selectedBranch?.name || config.site_name} />
+                  <InfoMini label={t('الإجمالي التقريبي', 'Estimated total')} value={`AED ${Number(submittedOrder.totalPrice ?? submittedOrder.amount ?? 0).toFixed(2)}`} />
+                  <InfoMini label={t('الهاتف', 'Phone')} value={submittedOrder.customerPhone || customerPhone || '-'} />
+                  <InfoMini label={t('العنوان', 'Address')} value={submittedOrder.deliveryAddress || '-'} />
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <StatusPill
+                    icon={<Phone className="size-5" aria-hidden="true" />}
+                    title={t('تأكيد واتساب', 'WhatsApp confirmation')}
+                    value={confirmationSent ? t('تم الإرسال', 'Sent') : t('قيد المعالجة', 'Pending')}
+                    active={confirmationSent}
+                  />
+                  <StatusPill
+                    icon={<Truck className="size-5" aria-hidden="true" />}
+                    title={t('إشعار العمليات', 'Operations notification')}
+                    value={driverNotified ? t('تم إشعار السائق', 'Driver notified') : t('قيد التعيين', 'Assignment pending')}
+                    active={driverNotified}
+                  />
+                </div>
+              </div>
+
+              <aside className="rounded-3xl border border-[#B7A7F2]/70 bg-[#F4F1FF] p-6">
+                <ShieldCheck className="size-8 text-primary" aria-hidden="true" />
+                <h2 className="mt-5 font-display text-2xl font-black text-[#0D0D0D]">
+                  {t('ماذا بعد؟', 'What happens next?')}
+                </h2>
+                <div className="mt-5 space-y-4 text-sm font-semibold leading-6 text-[#464350]">
+                  <p>{t('سيتم مراجعة الطلب وتأكيد السائق حسب المنطقة والموعد.', 'The team reviews the order and confirms the driver by area and pickup slot.')}</p>
+                  <p>{t('يمكنك تتبع الطلب برقم الطلب، وسيطلب النظام كود واتساب للأمان عند عدم تسجيل الدخول.', 'You can track with the order ID. Guest tracking uses WhatsApp verification for security.')}</p>
+                </div>
+                <div className="mt-8 grid gap-3">
+                  <button
+                    type="button"
+                    onClick={trackSubmittedOrder}
+                    className="flex min-h-12 items-center justify-center gap-3 rounded-full bg-primary px-6 font-bold text-white shadow-lg shadow-primary/25 transition hover:bg-[#4520d6] active:scale-95"
+                  >
+                    {t('تتبع الطلب', 'Track order')}
+                    <ArrowRight className="size-5" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetBooking}
+                    className="min-h-12 rounded-full border border-primary bg-white px-6 font-bold text-primary transition hover:bg-primary/5 active:scale-95"
+                  >
+                    {t('حجز طلب جديد', 'Book another pickup')}
+                  </button>
+                </div>
+              </aside>
+            </div>
+          </section>
+        </div>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div
@@ -804,5 +926,27 @@ const InfoMini = ({ label, value }: { label: string; value: string }) => (
   <div className="min-w-0">
     <p className="text-[11px] font-black uppercase tracking-[0.08em] text-[#6d667d]">{label}</p>
     <p className="mt-1 truncate text-sm font-bold text-[#0D0D0D]">{value}</p>
+  </div>
+);
+
+const StatusPill = ({
+  icon,
+  title,
+  value,
+  active,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  value: string;
+  active: boolean;
+}) => (
+  <div className={cn('flex items-center gap-4 rounded-2xl border p-4', active ? 'border-primary/20 bg-primary/5' : 'border-[#B7A7F2]/70 bg-white/70')}>
+    <span className={cn('grid size-11 shrink-0 place-items-center rounded-xl', active ? 'bg-primary text-white' : 'bg-[#F4F1FF] text-primary')}>
+      {icon}
+    </span>
+    <span className="min-w-0">
+      <span className="block text-xs font-black uppercase tracking-[0.08em] text-[#6d667d]">{title}</span>
+      <span className="mt-1 block truncate text-sm font-bold text-[#0D0D0D]">{value}</span>
+    </span>
   </div>
 );
