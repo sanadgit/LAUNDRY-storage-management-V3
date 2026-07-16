@@ -520,6 +520,21 @@ db.exec(`
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS sync_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    target TEXT NOT NULL DEFAULT 'supabase',
+    payload TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    next_attempt_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE TABLE IF NOT EXISTS customer_alert_templates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -813,6 +828,8 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_logs_request_id ON logs(request_id);
   CREATE INDEX IF NOT EXISTS idx_customer_orders_status ON customer_orders(status);
   CREATE INDEX IF NOT EXISTS idx_customer_orders_updated_at ON customer_orders(updated_at);
+  CREATE INDEX IF NOT EXISTS idx_sync_queue_status_next ON sync_queue(status, next_attempt_at, updated_at);
+  CREATE INDEX IF NOT EXISTS idx_sync_queue_entity ON sync_queue(entity_type, entity_id, target);
   CREATE INDEX IF NOT EXISTS idx_customer_alert_templates_active ON customer_alert_templates(is_active, updated_at);
   CREATE INDEX IF NOT EXISTS idx_customer_alert_logs_order_no ON customer_alert_logs(order_no, sent_at);
   CREATE INDEX IF NOT EXISTS idx_customer_alert_logs_status ON customer_alert_logs(status, sent_at);
@@ -11014,6 +11031,135 @@ const assignDriverAndNotifyForCustomerOrder = async (order: Record<string, unkno
   }
 };
 
+const SYNC_QUEUE_MAX_ATTEMPTS = Math.max(1, Number(process.env.SYNC_QUEUE_MAX_ATTEMPTS ?? 12) || 12);
+const SYNC_QUEUE_RETRY_MS = Math.max(15_000, Number(process.env.SYNC_QUEUE_RETRY_MS ?? 60_000) || 60_000);
+let syncQueueProcessing = false;
+
+const enqueueSyncJob = (input: {
+  entityType: string;
+  entityId: string;
+  operation: string;
+  target?: string;
+  payload: unknown;
+  error?: unknown;
+}) => {
+  const now = new Date().toISOString();
+  const payload = JSON.stringify(input.payload ?? {});
+  const lastError = String(input.error instanceof Error ? input.error.message : input.error ?? '').slice(0, 1000) || null;
+  const existing = db
+    .prepare(
+      `SELECT id FROM sync_queue
+       WHERE entity_type = ? AND entity_id = ? AND operation = ? AND target = ? AND status IN ('pending', 'failed')
+       ORDER BY id DESC
+       LIMIT 1`
+    )
+    .get(input.entityType, input.entityId, input.operation, input.target ?? 'supabase') as { id: number } | undefined;
+
+  if (existing?.id) {
+    db.prepare(
+      `UPDATE sync_queue
+       SET payload = ?, status = 'pending', last_error = COALESCE(?, last_error), next_attempt_at = ?, updated_at = ?
+       WHERE id = ?`
+    ).run(payload, lastError, now, now, existing.id);
+    return existing.id;
+  }
+
+  const result = db.prepare(
+    `INSERT INTO sync_queue (entity_type, entity_id, operation, target, payload, status, attempts, last_error, next_attempt_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)`
+  ).run(input.entityType, input.entityId, input.operation, input.target ?? 'supabase', payload, lastError, now, now, now);
+  return Number(result.lastInsertRowid);
+};
+
+const markSyncJobDone = (id: number) => {
+  const now = new Date().toISOString();
+  db.prepare(`UPDATE sync_queue SET status = 'synced', last_error = NULL, updated_at = ? WHERE id = ?`).run(now, id);
+};
+
+const markSyncJobFailed = (id: number, attempts: number, error: unknown) => {
+  const now = new Date().toISOString();
+  const finalStatus = attempts >= SYNC_QUEUE_MAX_ATTEMPTS ? 'dead' : 'failed';
+  const nextAttemptAt = new Date(Date.now() + Math.min(60 * 60 * 1000, SYNC_QUEUE_RETRY_MS * Math.max(1, attempts))).toISOString();
+  const message = String(error instanceof Error ? error.message : error ?? 'Unknown sync error').slice(0, 1000);
+  db.prepare(
+    `UPDATE sync_queue
+     SET status = ?, attempts = ?, last_error = ?, next_attempt_at = ?, updated_at = ?
+     WHERE id = ?`
+  ).run(finalStatus, attempts, message, finalStatus === 'dead' ? null : nextAttemptAt, now, id);
+};
+
+const upsertCustomerOrderToSupabase = async (order: Record<string, any> & { id: string; status: string }, updatedAt?: string) => {
+  if (!supabaseAdmin) throw new Error('Supabase admin is not configured.');
+  const now = updatedAt || new Date().toISOString();
+  const { error } = await supabaseAdmin.from('customer_orders').upsert(
+    {
+      id: order.id,
+      status: order.status,
+      payload: order,
+      updated_at: now,
+    },
+    { onConflict: 'id' }
+  );
+  if (error) throw error;
+};
+
+const mirrorCustomerOrderToSupabase = async (
+  order: Record<string, any> & { id: string; status: string },
+  updatedAt?: string
+) => {
+  try {
+    await upsertCustomerOrderToSupabase(order, updatedAt);
+  } catch (error) {
+    enqueueSyncJob({
+      entityType: 'customer_order',
+      entityId: order.id,
+      operation: 'upsert',
+      payload: { order, updatedAt },
+      error,
+    });
+    console.warn(`[sync] queued customer_order upsert id=${order.id}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+const processSyncQueue = async (limit = 20) => {
+  if (!supabaseAdmin) return { processed: 0, skipped: 'supabase_not_configured' };
+  if (syncQueueProcessing) return { processed: 0, skipped: 'already_running' };
+  syncQueueProcessing = true;
+  let processed = 0;
+  try {
+    const now = new Date().toISOString();
+    const rows = db
+      .prepare(
+        `SELECT * FROM sync_queue
+         WHERE target = 'supabase'
+           AND status IN ('pending', 'failed')
+           AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+         ORDER BY datetime(updated_at) ASC, id ASC
+         LIMIT ?`
+      )
+      .all(now, limit) as Array<Record<string, any>>;
+
+    for (const row of rows) {
+      const attempts = Number(row.attempts ?? 0) + 1;
+      try {
+        const payload = tryParseJson(row.payload) as Record<string, any>;
+        if (row.entity_type === 'customer_order' && row.operation === 'upsert') {
+          await upsertCustomerOrderToSupabase(payload.order, payload.updatedAt);
+        } else {
+          throw new Error(`Unsupported sync job ${row.entity_type}:${row.operation}`);
+        }
+        markSyncJobDone(Number(row.id));
+        processed += 1;
+      } catch (error) {
+        markSyncJobFailed(Number(row.id), attempts, error);
+      }
+    }
+    return { processed };
+  } finally {
+    syncQueueProcessing = false;
+  }
+};
+
 const saveCustomerOrderRecord = (order: Record<string, any> & { id: string; status: string }) => {
   const now = new Date().toISOString();
   db.prepare(
@@ -11024,6 +11170,7 @@ const saveCustomerOrderRecord = (order: Record<string, any> & { id: string; stat
        payload = excluded.payload,
        updated_at = excluded.updated_at`
   ).run(order.id, order.status, JSON.stringify(order), now, now);
+  void mirrorCustomerOrderToSupabase(order, now);
 };
 
 const buildCustomerOrderFromAiPickup = (
@@ -13670,6 +13817,38 @@ async function startServer() {
       ],
     });
   });
+
+  app.get('/api/sync/status', requireOperationsManager, (_req, res) => {
+    const counts = db
+      .prepare(`SELECT status, COUNT(*) AS count FROM sync_queue GROUP BY status`)
+      .all() as Array<{ status: string; count: number }>;
+    const latest = db
+      .prepare(
+        `SELECT id, entity_type, entity_id, operation, target, status, attempts, last_error, next_attempt_at, updated_at
+         FROM sync_queue
+         ORDER BY datetime(updated_at) DESC, id DESC
+         LIMIT 20`
+      )
+      .all();
+    res.json({
+      ok: true,
+      local_first: true,
+      supabase_configured: Boolean(supabaseAdmin),
+      retry_ms: SYNC_QUEUE_RETRY_MS,
+      max_attempts: SYNC_QUEUE_MAX_ATTEMPTS,
+      counts: counts.reduce((acc, row) => ({ ...acc, [row.status]: row.count }), {}),
+      latest,
+    });
+  });
+
+  app.post(
+    '/api/sync/retry',
+    requireOperationsManager,
+    asyncHandler(async (_req: any, res: any) => {
+      const result = await processSyncQueue(50);
+      res.json({ ok: true, ...result });
+    })
+  );
 
   app.post(
     '/api/chat-automation/telegram/webhook',
@@ -20641,6 +20820,12 @@ async function startServer() {
     if (mode !== 'production') {
       console.log('DEV mode uses Vite middleware (many module requests are expected in Network tab).');
     }
+    setTimeout(() => {
+      void processSyncQueue().catch((error) => console.warn('[sync] initial queue processing failed:', error));
+    }, 5_000);
+    setInterval(() => {
+      void processSyncQueue().catch((error) => console.warn('[sync] queue processing failed:', error));
+    }, SYNC_QUEUE_RETRY_MS).unref?.();
   });
 }
 

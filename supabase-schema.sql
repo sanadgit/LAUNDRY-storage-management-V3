@@ -207,3 +207,16 @@ CREATE INDEX IF NOT EXISTS idx_blankets_slot_status ON blankets(store, row, "col
 CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_logs_request_id ON logs(request_id);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+
+-- Customer website orders mirror.
+-- The server remains local-first; this table is a Supabase mirror used for portal/reporting/fallback reads.
+CREATE TABLE IF NOT EXISTS customer_orders (
+  id text PRIMARY KEY,
+  status text NOT NULL DEFAULT 'new',
+  payload jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_customer_orders_status ON customer_orders(status);
+CREATE INDEX IF NOT EXISTS idx_customer_orders_updated_at ON customer_orders(updated_at DESC);
