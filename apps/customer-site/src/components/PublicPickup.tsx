@@ -126,6 +126,7 @@ export const PublicPickup: React.FC<PublicPickupProps> = ({ config, language, on
   const selectedAreaData = activeAreas.find((area) => area.id === selectedArea) || activeAreas[0];
   const selectedBranch = config.branches.find((branch) => branch.id === selectedAreaData?.branch_id) || config.branches[0];
   const selectedServices = activeServiceOptions.filter((service) => selectedServiceIds.includes(service.id));
+  const selectedServicesSummary = selectedServices.map((service) => service.name).join(' + ');
   const deliveryFee = selectedAreaData?.delivery_fee ?? config.delivery_fee;
   const minimumOrder = selectedAreaData?.min_order_amount ?? config.min_order_amount;
   const rawServiceEstimate = selectedServices.reduce((sum, service) => sum + getServiceBasePrice(config, service.priceKey), 0);
@@ -192,6 +193,24 @@ export const PublicPickup: React.FC<PublicPickupProps> = ({ config, language, on
     setCurrentStep((step) => Math.min(step + 1, bookingSteps.length - 1));
   };
 
+  const goToStep = (targetStep: number) => {
+    if (targetStep <= currentStep) {
+      setValidationError('');
+      setCurrentStep(targetStep);
+      return;
+    }
+    for (let step = 0; step < targetStep; step += 1) {
+      const message = validateStep(step);
+      if (message) {
+        setValidationError(message);
+        setCurrentStep(step);
+        return;
+      }
+    }
+    setValidationError('');
+    setCurrentStep(targetStep);
+  };
+
   const saveDraft = () => {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem('io_pickup_draft', JSON.stringify({
@@ -228,7 +247,7 @@ export const PublicPickup: React.FC<PublicPickupProps> = ({ config, language, on
       customerNotes: notes,
       dateReceived: new Date().toISOString(),
       itemCount: Math.max(1, selectedServices.length),
-      serviceType: reorderTemplate?.serviceType || selectedServices.map((service) => service.name).join(' + '),
+      serviceType: reorderTemplate?.serviceType || selectedServicesSummary,
       branch: selectedBranch?.name || reorderTemplate?.branch || 'In & Out Laundry',
       assignedDriverId: config.drivers.find((driver) => driver.branch_id === selectedBranch?.id || driver.service_areas?.includes(selectedAreaData?.name || ''))?.id,
       status: 'new',
@@ -308,7 +327,7 @@ export const PublicPickup: React.FC<PublicPickupProps> = ({ config, language, on
               <button
                 key={step}
                 type="button"
-                onClick={() => setCurrentStep(index)}
+                onClick={() => goToStep(index)}
                 className={cn(
                   'flex min-h-12 items-center gap-3 rounded-2xl px-3 text-start transition',
                   active && 'bg-primary text-white shadow-sm',
@@ -635,7 +654,7 @@ export const PublicPickup: React.FC<PublicPickupProps> = ({ config, language, on
               </h3>
               <div className="grid gap-3 rounded-2xl border border-primary/10 bg-primary/5 p-4 text-sm md:grid-cols-2">
                 <InfoMini label={t('المنطقة', 'Area')} value={selectedAreaData?.name || '-'} />
-                <InfoMini label={t('الخدمات', 'Services')} value={selectedServices.map((service) => service.name).join(' + ') || '-'} />
+                <InfoMini label={t('الخدمات', 'Services')} value={selectedServicesSummary || '-'} />
                 <InfoMini label={t('الموعد', 'Pickup')} value={`${selectedDateLabel?.label || '-'} / ${selectedTimeLabel?.time || '-'}`} />
                 <InfoMini label={t('العميل', 'Customer')} value={customerName || '-'} />
                 <InfoMini label={t('الهاتف', 'Phone')} value={customerPhone || '-'} />
@@ -652,9 +671,12 @@ export const PublicPickup: React.FC<PublicPickupProps> = ({ config, language, on
               <h4 className="mb-6 font-display text-xl font-semibold">{t('ملخص الطلب', 'Summary')}</h4>
               <div className="mb-6 space-y-4 border-b border-[#B7A7F2] pb-6">
                 <div className="flex justify-between text-[#464350]">
-                  <span>{t('الخدمات', 'Services')} (8)</span>
+                  <span>{t('الخدمات', 'Services')} ({selectedServices.length})</span>
                   <span className="font-medium text-[#0D0D0D]">AED {baseServiceEstimate.toFixed(2)}</span>
                 </div>
+                {selectedServicesSummary ? (
+                  <p className="-mt-2 text-xs font-semibold leading-5 text-[#6d667d]">{selectedServicesSummary}</p>
+                ) : null}
                 <div className="flex justify-between text-[#464350]">
                   <span>{t('رسوم السرعة', 'Express Surcharge')}</span>
                   <span className="font-medium text-[#0D0D0D]">AED {delivery === 'express' ? '50.00' : '0.00'}</span>
