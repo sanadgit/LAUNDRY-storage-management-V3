@@ -7830,17 +7830,25 @@ const findPublicTrackOrder = async (query: string): Promise<Record<string, unkno
   const normalizedQuery = normalizePublicTrackReference(query);
   if (!normalizedQuery) return null;
 
-  const rows = db
-    .prepare('SELECT payload FROM customer_orders ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC, id DESC')
-    .all() as { payload: string }[];
+  const rows = readLocalCustomerOrders();
 
-  for (const row of rows) {
-    const order = parseCustomerOrderRowPayload(row);
-    if (order && publicTrackReferenceMatchesOrder(order, query)) return order;
+  for (const order of rows) {
+    if (publicTrackReferenceMatchesOrder(order, query)) return order;
   }
 
   const posOrder = await lookupChatOrder(query, { fastOnly: true }).catch(() => null);
   if (posOrder) return buildPublicTrackOrderFromPos(posOrder, query);
+
+  try {
+    const remoteOrders = await fetchSupabaseCustomerOrders(200);
+    for (const order of remoteOrders) {
+      if (!publicTrackReferenceMatchesOrder(order, query)) continue;
+      cacheSupabaseCustomerOrderLocally(order);
+      return order;
+    }
+  } catch (error) {
+    console.warn(`[public-track] Supabase fallback read failed query=${query}: ${error instanceof Error ? error.message : String(error)}`);
+  }
 
   if (normalizedQuery === '264602') return DEMO_PUBLIC_TRACK_ORDER;
   return null;
@@ -11160,8 +11168,9 @@ const processSyncQueue = async (limit = 20) => {
   }
 };
 
-const saveCustomerOrderRecord = (order: Record<string, any> & { id: string; status: string }) => {
+const upsertCustomerOrderLocalOnly = (order: Record<string, any> & { id: string; status: string }, updatedAt?: string) => {
   const now = new Date().toISOString();
+  const timestamp = updatedAt || now;
   db.prepare(
     `INSERT INTO customer_orders (id, status, payload, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?)
@@ -11169,7 +11178,12 @@ const saveCustomerOrderRecord = (order: Record<string, any> & { id: string; stat
        status = excluded.status,
        payload = excluded.payload,
        updated_at = excluded.updated_at`
-  ).run(order.id, order.status, JSON.stringify(order), now, now);
+  ).run(order.id, order.status, JSON.stringify(order), timestamp, timestamp);
+};
+
+const saveCustomerOrderRecord = (order: Record<string, any> & { id: string; status: string }) => {
+  const now = new Date().toISOString();
+  upsertCustomerOrderLocalOnly(order, now);
   void mirrorCustomerOrderToSupabase(order, now);
 };
 
@@ -11701,6 +11715,159 @@ const parseCustomerOrderRowPayload = (row: { payload: string }) => {
     return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
   } catch {
     return null;
+  }
+};
+
+const normalizeSupabaseCustomerOrder = (row: Record<string, any> | null | undefined) => {
+  if (!row) return null;
+  let payload = row.payload;
+  if (typeof payload === 'string') {
+    try {
+      payload = JSON.parse(payload);
+    } catch {
+      payload = null;
+    }
+  }
+  if (!payload || typeof payload !== 'object') return null;
+
+  const id = String((payload as Record<string, unknown>).id ?? row.id ?? '').trim();
+  if (!id) return null;
+  const status = normalizeCustomerOrderStatus((payload as Record<string, unknown>).status ?? row.status);
+  return {
+    ...(payload as Record<string, unknown>),
+    id,
+    status,
+  };
+};
+
+const readLocalCustomerOrderById = (id: string) => {
+  const row = db.prepare('SELECT payload FROM customer_orders WHERE id = ?').get(id) as { payload: string } | undefined;
+  return row ? parseCustomerOrderRowPayload(row) : null;
+};
+
+const readLocalCustomerOrders = () => {
+  const rows = db
+    .prepare('SELECT payload FROM customer_orders ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC, id DESC')
+    .all() as { payload: string }[];
+  return rows.map(parseCustomerOrderRowPayload).filter(Boolean) as Record<string, unknown>[];
+};
+
+const fetchSupabaseCustomerOrderById = async (id: string) => {
+  if (!supabaseAdmin) return null;
+  const { data, error } = await supabaseAdmin.from('customer_orders').select('*').eq('id', id).maybeSingle();
+  if (error) throw error;
+  return normalizeSupabaseCustomerOrder(data as Record<string, any> | null);
+};
+
+const fetchSupabaseCustomerOrders = async (limit = 200) => {
+  if (!supabaseAdmin) return [];
+  const { data, error } = await supabaseAdmin
+    .from('customer_orders')
+    .select('*')
+    .order('updated_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (Array.isArray(data) ? data : [])
+    .map((row) => normalizeSupabaseCustomerOrder(row as Record<string, any>))
+    .filter(Boolean) as Record<string, unknown>[];
+};
+
+const cacheSupabaseCustomerOrderLocally = (order: Record<string, unknown>) => {
+  const id = String(order.id ?? '').trim();
+  if (!id) return;
+  const status = normalizeCustomerOrderStatus(order.status);
+  upsertCustomerOrderLocalOnly({ ...(order as Record<string, any>), id, status });
+};
+
+const findCustomerOrderByIdLocalFirst = async (id: string) => {
+  const local = readLocalCustomerOrderById(id);
+  if (local) return { order: local, source: 'local' as const };
+
+  try {
+    const remote = await fetchSupabaseCustomerOrderById(id);
+    if (!remote) return { order: null, source: 'none' as const };
+    cacheSupabaseCustomerOrderLocally(remote);
+    return { order: remote, source: 'supabase' as const };
+  } catch (error) {
+    console.warn(`[sync] Supabase fallback read failed for customer_order id=${id}: ${error instanceof Error ? error.message : String(error)}`);
+    return { order: null, source: 'none' as const };
+  }
+};
+
+const listCustomerOrdersLocalFirst = async () => {
+  const localOrders = readLocalCustomerOrders();
+  if (!supabaseAdmin) return { orders: localOrders, source: 'local' as const, supabaseError: null as string | null };
+
+  try {
+    const remoteOrders = await fetchSupabaseCustomerOrders();
+    const byId = new Map<string, Record<string, unknown>>();
+    for (const order of localOrders) {
+      const id = String(order.id ?? '').trim();
+      if (id) byId.set(id, order);
+    }
+    for (const order of remoteOrders) {
+      const id = String(order.id ?? '').trim();
+      if (!id || byId.has(id)) continue;
+      byId.set(id, order);
+      cacheSupabaseCustomerOrderLocally(order);
+    }
+    return { orders: Array.from(byId.values()), source: 'local_supabase' as const, supabaseError: null as string | null };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[sync] Supabase customer_orders list fallback failed: ${message}`);
+    return { orders: localOrders, source: 'local' as const, supabaseError: message };
+  }
+};
+
+const getSyncQueueCounts = () => {
+  const counts = db
+    .prepare(`SELECT status, COUNT(*) AS count FROM sync_queue GROUP BY status`)
+    .all() as Array<{ status: string; count: number }>;
+  return counts.reduce<Record<string, number>>((acc, row) => {
+    acc[row.status] = Number(row.count) || 0;
+    return acc;
+  }, {});
+};
+
+const checkLocalDatabaseHealth = () => {
+  try {
+    db.prepare('SELECT 1 AS ok').get();
+    const pendingOrders = db.prepare('SELECT COUNT(*) AS count FROM customer_orders').get() as { count: number };
+    return {
+      ok: true,
+      customer_orders: Number(pendingOrders?.count ?? 0),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+};
+
+const checkSupabaseCustomerOrdersHealth = async () => {
+  if (!supabaseAdmin) {
+    return {
+      configured: false,
+      reachable: false,
+      error: 'Supabase admin is not configured.',
+    };
+  }
+
+  try {
+    const { error, count } = await supabaseAdmin.from('customer_orders').select('id', { count: 'exact', head: true });
+    if (error) throw error;
+    return {
+      configured: true,
+      reachable: true,
+      customer_orders: count ?? null,
+    };
+  } catch (error) {
+    return {
+      configured: true,
+      reachable: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 };
 
@@ -13818,10 +13985,8 @@ async function startServer() {
     });
   });
 
-  app.get('/api/sync/status', requireOperationsManager, (_req, res) => {
-    const counts = db
-      .prepare(`SELECT status, COUNT(*) AS count FROM sync_queue GROUP BY status`)
-      .all() as Array<{ status: string; count: number }>;
+  const buildSyncHealthResponse = async () => {
+    const counts = getSyncQueueCounts();
     const latest = db
       .prepare(
         `SELECT id, entity_type, entity_id, operation, target, status, attempts, last_error, next_attempt_at, updated_at
@@ -13830,16 +13995,38 @@ async function startServer() {
          LIMIT 20`
       )
       .all();
-    res.json({
+    const local = checkLocalDatabaseHealth();
+    const supabase = await checkSupabaseCustomerOrdersHealth();
+    return {
       ok: true,
       local_first: true,
-      supabase_configured: Boolean(supabaseAdmin),
+      checked_at: new Date().toISOString(),
+      local,
+      supabase,
+      supabase_configured: supabase.configured,
+      supabase_reachable: supabase.reachable,
       retry_ms: SYNC_QUEUE_RETRY_MS,
       max_attempts: SYNC_QUEUE_MAX_ATTEMPTS,
-      counts: counts.reduce((acc, row) => ({ ...acc, [row.status]: row.count }), {}),
+      counts,
       latest,
-    });
-  });
+    };
+  };
+
+  app.get(
+    '/api/sync/status',
+    requireOperationsManager,
+    asyncHandler(async (_req: any, res: any) => {
+      res.json(await buildSyncHealthResponse());
+    })
+  );
+
+  app.get(
+    '/api/sync/health',
+    requireOperationsManager,
+    asyncHandler(async (_req: any, res: any) => {
+      res.json(await buildSyncHealthResponse());
+    })
+  );
 
   app.post(
     '/api/sync/retry',
@@ -20277,11 +20464,7 @@ async function startServer() {
         assignedDriverId: shouldAutoAssign ? driverAuth.driver_id : (assignedDriverId || driverAuth.driver_id),
       };
 
-      db.prepare(
-        `UPDATE customer_orders
-         SET status = ?, payload = ?, updated_at = ?
-         WHERE id = ?`
-      ).run(requestedStatus, JSON.stringify(nextPayload), new Date().toISOString(), id);
+      saveCustomerOrderRecord({ ...(nextPayload as Record<string, any>), id, status: requestedStatus });
 
       res.json(nextPayload);
     } catch (error: any) {
@@ -20516,18 +20699,14 @@ async function startServer() {
     }
   });
 
-  app.get('/api/customer/orders', requireCustomerOrAdminAuth, (req: any, res) => {
+  app.get('/api/customer/orders', requireCustomerOrAdminAuth, async (req: any, res) => {
     try {
-      const rows = db
-        .prepare('SELECT payload FROM customer_orders ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC, id DESC')
-        .all() as { payload: string }[];
+      const result = await listCustomerOrdersLocalFirst();
       const customer = getCustomerUserFromSession(req.customerAuth as CustomerSessionRecord | undefined);
 
-      const orders = rows
-        .map(parseCustomerOrderRowPayload)
-        .filter(Boolean)
-        .filter((order) => !req.customerAuth || isCustomerOrderOwner(order as Record<string, unknown>, customer));
+      const orders = result.orders.filter((order) => !req.customerAuth || isCustomerOrderOwner(order, customer));
 
+      res.setHeader('X-Customer-Orders-Read-Source', result.source);
       res.json(orders);
     } catch (error: any) {
       console.error('Failed to fetch customer orders:', error);
@@ -20535,15 +20714,13 @@ async function startServer() {
     }
   });
 
-  app.get('/api/customer/orders/:id', requireCustomerOrAdminAuth, (req: any, res) => {
+  app.get('/api/customer/orders/:id', requireCustomerOrAdminAuth, async (req: any, res) => {
     try {
       const id = String(req.params.id ?? '').trim();
       if (!id) return res.status(400).json({ error: 'Order id is required.' });
 
-      const row = db.prepare('SELECT payload FROM customer_orders WHERE id = ?').get(id) as { payload: string } | undefined;
-      if (!row) return res.status(404).json({ error: 'Order not found.' });
-
-      const order = parseCustomerOrderRowPayload(row);
+      const result = await findCustomerOrderByIdLocalFirst(id);
+      const order = result.order;
       if (!order) return res.status(404).json({ error: 'Order not found.' });
 
       if (req.customerAuth) {
@@ -20553,6 +20730,7 @@ async function startServer() {
         }
       }
 
+      res.setHeader('X-Customer-Order-Read-Source', result.source);
       res.json(order);
     } catch (error: any) {
       console.error('Failed to fetch customer order:', error);
@@ -20565,10 +20743,8 @@ async function startServer() {
       const id = String(req.params.id ?? '').trim();
       if (!id) return res.status(400).json({ error: 'Order id is required.' });
 
-      const row = db.prepare('SELECT payload FROM customer_orders WHERE id = ?').get(id) as { payload: string } | undefined;
-      if (!row) return res.status(404).json({ error: 'Order not found.' });
-
-      const order = parseCustomerOrderRowPayload(row);
+      const found = await findCustomerOrderByIdLocalFirst(id);
+      const order = found.order;
       if (!order) return res.status(404).json({ error: 'Order not found.' });
 
       const customer = getCustomerUserFromSession(req.customerAuth as CustomerSessionRecord | undefined);
@@ -20589,11 +20765,7 @@ async function startServer() {
         status: nextStatus,
       };
 
-      db.prepare(
-        `UPDATE customer_orders
-         SET status = ?, payload = ?, updated_at = ?
-         WHERE id = ?`
-      ).run(nextStatus, JSON.stringify(nextPayload), new Date().toISOString(), id);
+      saveCustomerOrderRecord({ ...(nextPayload as Record<string, any>), id, status: nextStatus });
 
       res.json(nextPayload);
     } catch (error: any) {
@@ -20654,11 +20826,7 @@ async function startServer() {
       const existing = db.prepare('SELECT id FROM customer_orders WHERE id = ?').get(id) as { id: string } | undefined;
       if (!existing) return res.status(404).json({ error: 'Order not found.' });
 
-      db.prepare(
-        `UPDATE customer_orders
-         SET status = ?, payload = ?, updated_at = ?
-         WHERE id = ?`
-      ).run(incoming.status, JSON.stringify(incoming), new Date().toISOString(), id);
+      saveCustomerOrderRecord(incoming as Record<string, any> & { id: string; status: string });
 
       res.json(incoming);
     } catch (error: any) {
@@ -20680,13 +20848,9 @@ async function startServer() {
       const nextPayload = {
         ...payload,
         status: requestedStatus,
-      };
+      } as Record<string, any> & { id: string; status: string };
 
-      db.prepare(
-        `UPDATE customer_orders
-         SET status = ?, payload = ?, updated_at = ?
-         WHERE id = ?`
-      ).run(requestedStatus, JSON.stringify(nextPayload), new Date().toISOString(), id);
+      saveCustomerOrderRecord({ ...nextPayload, id, status: requestedStatus });
 
       res.json(nextPayload);
     } catch (error: any) {

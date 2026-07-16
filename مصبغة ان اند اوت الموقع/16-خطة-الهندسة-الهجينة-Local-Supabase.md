@@ -156,7 +156,7 @@ customer_orders
 
 ## الحالة الحالية
 
-تم تنفيذ بداية المرحلة 1 و 2 و 3:
+تم تنفيذ المرحلة 1 و 2 و 3، وبدأ تنفيذ المرحلة 4 و 5:
 
 - إضافة خطة الهندسة الهجينة.
 - إضافة جدول `sync_queue`.
@@ -166,6 +166,19 @@ customer_orders
 - إضافة API لإعادة محاولة المزامنة يدويا.
 - إضافة جدول `customer_orders` إلى `supabase-schema.sql`.
 - إضافة متغيرات البيئة المطلوبة في `.env.example`.
+- إضافة قراءة Local-first لطلبات العملاء.
+- إضافة Supabase fallback read للطلب الواحد وقائمة الطلبات.
+- إضافة Supabase fallback read لمسار Track Order بعد المحلي و POS.
+- عند العثور على طلب في Supabase فقط، يتم تخزين نسخة محلية لتقليل الاعتماد الخارجي لاحقا.
+- توحيد تحديثات حالة الطلبات والسائقين والمديرين على مسار حفظ واحد يرسل التحديثات إلى طابور المزامنة.
+- إضافة `/api/sync/health` بجانب `/api/sync/status`.
+- إضافة فحص:
+  - local database ok
+  - عدد الطلبات المحلية
+  - Supabase configured
+  - Supabase reachable
+  - عدد طلبات Supabase إن أمكن
+  - counts لحالات `sync_queue`
 
 ## المرحلة التالية مباشرة
 
@@ -174,4 +187,5 @@ customer_orders
 3. تشغيل `/api/sync/status` من حساب مدير للتأكد من الحالة.
 4. إنشاء طلب Book Pickup تجريبي.
 5. التأكد أن الطلب يظهر محليا أولا، ثم يظهر في Supabase.
-6. إضافة Supabase fallback read للطلبات عند الحاجة فقط.
+6. تجربة Track Order على طلب محلي وطلب موجود في Supabase فقط.
+7. إضافة لوحة صغيرة داخل Operations Platform تعرض حالة المزامنة بدون استخدام curl.
