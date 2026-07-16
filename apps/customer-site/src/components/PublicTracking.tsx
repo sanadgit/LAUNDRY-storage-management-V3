@@ -96,7 +96,9 @@ export const PublicTracking: React.FC<PublicTrackingProps> = ({ order, orders, o
   const [isRequestingCode, setIsRequestingCode] = useState(false);
   const [isVerifyingCode, setIsVerifyingCode] = useState(false);
   const [trackError, setTrackError] = useState('');
+  const [autoRequestedOrderId, setAutoRequestedOrderId] = useState('');
   const reduceMotion = useReducedMotion();
+  const t = (ar: string, en: string) => localize(language, ar, en);
   const activeOrder = isAuthenticated ? order : verifiedGuestOrder;
   const activeIndex = activeOrder ? statusStageIndex[activeOrder.status] : -1;
   const recentOrders = useMemo(() => (isAuthenticated ? orders.slice(0, 3) : []), [isAuthenticated, orders]);
@@ -110,15 +112,8 @@ export const PublicTracking: React.FC<PublicTrackingProps> = ({ order, orders, o
     if (order?.id) setQuery(order.id);
   }, [order?.id]);
 
-  useEffect(() => {
-    if (typeof window === 'undefined' || isAuthenticated) return;
-    const ticketId = new URLSearchParams(window.location.search).get('id');
-    if (ticketId) setQuery(ticketId);
-  }, [isAuthenticated]);
-
-  const submitSearch = async (event: React.FormEvent) => {
-    event.preventDefault();
-    const orderId = query.trim();
+  const requestGuestVerification = async (orderIdRaw: string) => {
+    const orderId = orderIdRaw.trim();
     setTrackError('');
     setVerifiedGuestOrder(null);
     setVerificationCode('');
@@ -128,8 +123,6 @@ export const PublicTracking: React.FC<PublicTrackingProps> = ({ order, orders, o
     }
 
     onSearch(orderId);
-
-    if (isAuthenticated) return;
 
     setIsRequestingCode(true);
     try {
@@ -147,6 +140,35 @@ export const PublicTracking: React.FC<PublicTrackingProps> = ({ order, orders, o
     } finally {
       setIsRequestingCode(false);
     }
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const ticketId = new URLSearchParams(window.location.search).get('id')?.trim() || '';
+    if (!ticketId) return;
+    setQuery(ticketId);
+    if (isAuthenticated) return;
+    if (autoRequestedOrderId === ticketId || verification?.orderId === ticketId || verifiedGuestOrder?.id === ticketId) return;
+    setAutoRequestedOrderId(ticketId);
+    void requestGuestVerification(ticketId);
+  }, [autoRequestedOrderId, isAuthenticated, verification?.orderId, verifiedGuestOrder?.id]);
+
+  const submitSearch = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const orderId = query.trim();
+    if (isAuthenticated) {
+      setTrackError('');
+      setVerifiedGuestOrder(null);
+      setVerificationCode('');
+      if (!orderId) {
+        setTrackError(t('اكتب رقم الطلب أولًا.', 'Enter the order number first.'));
+        return;
+      }
+      onSearch(orderId);
+      return;
+    }
+    setAutoRequestedOrderId(orderId);
+    await requestGuestVerification(orderId);
   };
 
   const verifyCode = async (event: React.FormEvent) => {
@@ -176,7 +198,6 @@ export const PublicTracking: React.FC<PublicTrackingProps> = ({ order, orders, o
     }
   };
 
-  const t = (ar: string, en: string) => localize(language, ar, en);
   const displayStatus = activeOrder ? statusLabel[activeOrder.status] : null;
 
   return (
@@ -224,7 +245,11 @@ export const PublicTracking: React.FC<PublicTrackingProps> = ({ order, orders, o
                 />
                 <Button type="submit" variant="accent" size="lg">
                   {isRequestingCode ? <RefreshCw aria-hidden="true" className="size-5 animate-spin" /> : <Search aria-hidden="true" className="size-5" />}
-                  {isAuthenticated ? t('تتبع الآن', 'Track now') : t('إرسال كود التحقق', 'Send verification code')}
+                  {isAuthenticated
+                    ? t('تتبع الآن', 'Track now')
+                    : verification
+                      ? t('إعادة إرسال كود التحقق', 'Resend verification code')
+                      : t('إرسال كود التحقق', 'Send verification code')}
                 </Button>
               </form>
 
@@ -298,6 +323,28 @@ export const PublicTracking: React.FC<PublicTrackingProps> = ({ order, orders, o
 
       <section className="mx-auto grid max-w-7xl gap-6 px-4 py-10 sm:px-6 lg:grid-cols-[.8fr_1.2fr] lg:px-8">
         <div className="grid gap-6 lg:self-start">
+          {!isAuthenticated && query.trim() ? (
+            <Card className="border-primary/20 bg-primary/5">
+              <CardContent className="flex gap-4 p-5">
+                <div className="grid size-12 shrink-0 place-items-center rounded-lg bg-primary text-white">
+                  <ShieldCheck aria-hidden="true" className="size-5" />
+                </div>
+                <div>
+                  <p className="font-black text-foreground">{t('تتبع آمن برقم الطلب', 'Secure tracking by order ID')}</p>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                    {verification
+                      ? t(`تم إرسال كود لتأكيد رقم الهاتف للأمان إلى الرقم ${verification.maskedPhone}`, `A security code was sent to the phone ending ${verification.maskedPhone}`)
+                      : isRequestingCode
+                        ? t('نرسل كود واتساب إلى رقم الهاتف المرتبط بالطلب...', 'Sending a WhatsApp code to the phone linked to this order...')
+                        : activeOrder
+                          ? t('تم التحقق من الكود ويمكنك الآن مشاهدة تفاصيل الطلب.', 'The code is verified and order details are now visible.')
+                          : t('لن نعرض تفاصيل الطلب قبل تأكيد رقم الهاتف المرتبط به.', 'Order details stay hidden until the linked phone is verified.')}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+
           <Card>
             <CardHeader>
               <CardTitle>{activeOrder ? activeOrder.id : t('نتيجة التتبع محمية', 'Tracking result is protected')}</CardTitle>
