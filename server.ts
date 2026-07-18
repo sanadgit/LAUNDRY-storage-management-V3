@@ -7649,6 +7649,95 @@ const buildCustomerPortalPosSync = (order: PickupSearchOrder) => {
   };
 };
 
+const getV1PosPhoneVariants = (value: unknown) => {
+  const normalized = normalizeAiPhone(value);
+  const digits = normalizePosConnectPhone(value);
+  const variants = new Set<string>();
+  if (digits) variants.add(digits.startsWith('00') ? digits.slice(2) : digits);
+  if (normalized) {
+    variants.add(normalized);
+    if (normalized.startsWith('971') && normalized.length === 12) {
+      variants.add(`0${normalized.slice(3)}`);
+      variants.add(normalized.slice(3));
+    }
+  }
+  return Array.from(variants).filter(Boolean);
+};
+
+const posOrderMatchesV1Phone = (order: PickupSearchOrder, requesterPhone: unknown) => {
+  const requesterVariants = new Set(getV1PosPhoneVariants(requesterPhone));
+  if (!requesterVariants.size) return false;
+  const orderVariants = getV1PosPhoneVariants(order.customer_phone);
+  return orderVariants.some((variant) => requesterVariants.has(variant));
+};
+
+const buildV1LivePosOrder = (order: PickupSearchOrder) => {
+  const pos = buildCustomerPortalPosSync(order);
+  const mappedStatus = normalizeCustomerPortalPosStatus(pos.status);
+  const readyConfirmed = mappedStatus === 'ready';
+  const delivered = mappedStatus === 'delivered';
+  return {
+    order_id: pos.order_no || order.order_no,
+    order_no: pos.order_no || order.order_no,
+    system_order_id: pos.system_order_id || pos.source_orders_id,
+    source_orders_id: pos.source_orders_id,
+    invoice_id: pos.invoice_id,
+    invoice_no: pos.invoice_no,
+    status: mappedStatus,
+    posStatus: pos.status,
+    order_status: pos.status,
+    mapped_status: mappedStatus,
+    ready: readyConfirmed,
+    readyConfirmed,
+    packingComplete: readyConfirmed,
+    delivered,
+    customer_name: pos.customer_name,
+    customer_phone: pos.customer_phone,
+    branch: 'In & Out Laundry',
+    total: pos.total,
+    paid: pos.paid,
+    balance: pos.balance,
+    payment_status: pos.payment_status,
+    expected_delivery: [pos.delivery_date, pos.delivery_time].filter(Boolean).join(' ') || null,
+    delivery_date: pos.delivery_date,
+    delivery_time: pos.delivery_time,
+    item_count: pos.item_count,
+    source: 'pos_live',
+    pos,
+  };
+};
+
+const findV1LivePosOrderForPhone = async (orderId: string, requesterPhone: string) => {
+  const order = (await lookupChatOrder(orderId, { fastOnly: true }).catch(() => null)) || (await lookupChatOrder(orderId).catch(() => null));
+  if (!order) return null;
+  if (!posOrderMatchesV1Phone(order, requesterPhone)) {
+    return {
+      unauthorized: true,
+      order,
+    };
+  }
+  return {
+    unauthorized: false,
+    order,
+  };
+};
+
+const buildV1PosCustomerFromOrders = (phone: string, orders: PickupSearchOrder[]) => {
+  const firstOrder = orders[0];
+  const displayName = String(firstOrder?.customer_name ?? '').trim() || 'POS Customer';
+  return {
+    id: `pos:${phone}`,
+    customerId: `pos:${phone}`,
+    name: displayName,
+    displayName,
+    phone,
+    phone_normalized: phone,
+    source: 'pos_live',
+    verification: 'phone_matched_pos_orders',
+    orderCount: orders.length,
+  };
+};
+
 const findCustomerPortalPosOrder = async (
   order: Record<string, unknown>,
   customer: CustomerUserRecord | null | undefined
@@ -14083,6 +14172,33 @@ async function startServer() {
         ))
       );
       const unique = Array.from(new Map(customers.map((item) => [`${item.source}:${item.id}`, item])).values());
+      if (unique.length === 0) {
+        try {
+          const liveOrders = await lookupChatPhoneOrders(phone);
+          if (liveOrders.length > 0) {
+            const customer = buildV1PosCustomerFromOrders(phone, liveOrders);
+            return res.json(
+              v1Success(
+                'customers.by-phone',
+                correlationId,
+                {
+                  status: 'FOUND',
+                  normalizedPhone: phone,
+                  customers: [customer],
+                  customer,
+                  source: 'pos_live',
+                  sourceNote: 'Resolved from live POS order search. Customer details are limited to verified phone-matched orders.',
+                },
+                startedAt
+              )
+            );
+          }
+        } catch (error: any) {
+          return res
+            .status(502)
+            .json(v1Failure('customers.by-phone', correlationId, 'POS_UNAVAILABLE', 'POS customer lookup is unavailable.', startedAt));
+        }
+      }
       const status = unique.length === 0 ? 'NOT_FOUND' : unique.length === 1 ? 'FOUND' : 'AMBIGUOUS';
       res.json(
         v1Success(
@@ -14276,14 +14392,70 @@ async function startServer() {
     requireAiApiKeyIfConfigured,
     asyncHandler(async (req: any, res: any) => {
       const startedAt = Date.now();
+      const correlationId = req.query.correlationId ?? req.query.correlation_id;
+      const requesterPhone = normalizeAiPhone(req.query.customerPhone ?? req.query.customer_phone ?? req.query.phone);
       const trackedOrder = await aiOperations.trackOrder(
         req.params.orderId,
-        req.query.customerPhone ?? req.query.customer_phone ?? req.query.phone
+        requesterPhone
       );
       if (!trackedOrder) {
-        return res.status(404).json(v1Failure('pos.orders.status', req.query.correlationId, 'NOT_FOUND', 'Order not found or POS unavailable.', startedAt));
+        if (!requesterPhone) {
+          return res
+            .status(400)
+            .json(v1Failure('pos.orders.status', correlationId, 'CUSTOMER_NOT_VERIFIED', 'Customer phone is required before showing POS order status.', startedAt));
+        }
+        const liveResult = await findV1LivePosOrderForPhone(String(req.params.orderId ?? ''), requesterPhone).catch((error: any) => {
+          const code = /session|login|cookie/i.test(String(error?.message ?? '')) ? 'POS_SESSION_EXPIRED' : 'POS_UNAVAILABLE';
+          return { error: { code } };
+        });
+        if ((liveResult as any)?.error) {
+          return res
+            .status(502)
+            .json(v1Failure('pos.orders.status', correlationId, (liveResult as any).error.code, 'POS order lookup is unavailable.', startedAt));
+        }
+        if (!liveResult) {
+          return res.status(404).json(v1Failure('pos.orders.status', correlationId, 'ORDER_NOT_FOUND', 'Order not found.', startedAt));
+        }
+        const liveOrderResult = liveResult as { unauthorized: boolean; order: PickupSearchOrder };
+        if (liveOrderResult.unauthorized) {
+          return res
+            .status(403)
+            .json(v1Failure('pos.orders.status', correlationId, 'ORDER_NOT_AUTHORIZED', 'Order cannot be shown for this customer phone.', startedAt));
+        }
+        const liveOrder = buildV1LivePosOrder(liveOrderResult.order);
+        return res.json(
+          v1Success(
+            'pos.orders.status',
+            correlationId,
+            {
+              ...liveOrder,
+              owned: true,
+              verified: true,
+              order: liveOrder,
+            },
+            startedAt
+          )
+        );
       }
-      res.json(v1Success('pos.orders.status', req.query.correlationId ?? req.query.correlation_id, { order: trackedOrder }, startedAt));
+      if (trackedOrder.authorization === 'verification_required') {
+        return res
+          .status(403)
+          .json(v1Failure('pos.orders.status', correlationId, 'ORDER_NOT_AUTHORIZED', 'Order cannot be shown for this customer phone.', startedAt));
+      }
+      res.json(
+        v1Success(
+          'pos.orders.status',
+          correlationId,
+          {
+            ...trackedOrder,
+            owned: true,
+            verified: trackedOrder.verified !== false,
+            source: 'local_customer_orders',
+            order: trackedOrder,
+          },
+          startedAt
+        )
+      );
     })
   );
 
@@ -14308,6 +14480,41 @@ async function startServer() {
         );
       } catch {
         orders = [];
+      }
+      const requestedPhone = normalizeAiPhone(req.query.customerPhone ?? req.query.customer_phone ?? req.query.phone);
+      if (orders.length === 0 && requestedPhone) {
+        const expectedPosCustomerId = `pos:${requestedPhone}`;
+        if (customerId.startsWith('pos:') && customerId !== expectedPosCustomerId) {
+          return res
+            .status(403)
+            .json(v1Failure('customers.orders.active', req.query.correlationId ?? req.query.correlation_id, 'CUSTOMER_NOT_VERIFIED', 'Customer phone does not match POS customer id.', startedAt));
+        }
+        try {
+          const liveOrders = (await lookupChatPhoneOrders(requestedPhone))
+            .filter((order) => normalizeCustomerPortalPosStatus(order.order_status) !== 'delivered')
+            .slice(0, 20)
+            .map(buildV1LivePosOrder);
+          if (liveOrders.length > 0) {
+            return res.json(
+              v1Success(
+                'customers.orders.active',
+                req.query.correlationId ?? req.query.correlation_id,
+                {
+                  customerId,
+                  normalizedPhone: requestedPhone,
+                  orders: liveOrders,
+                  status: liveOrders.length === 1 ? 'ONE_ACTIVE_ORDER' : 'MULTIPLE_ACTIVE_ORDERS',
+                  source: 'pos_live',
+                },
+                startedAt
+              )
+            );
+          }
+        } catch {
+          return res
+            .status(502)
+            .json(v1Failure('customers.orders.active', req.query.correlationId ?? req.query.correlation_id, 'POS_UNAVAILABLE', 'POS active order lookup is unavailable.', startedAt));
+        }
       }
       res.json(
         v1Success(
