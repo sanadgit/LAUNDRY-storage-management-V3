@@ -18,7 +18,15 @@
     "reset:supabase:from-sqlite": "node scripts/reset-supabase-from-sqlite.mjs",
     "dedupe:supabase": "tsx scripts/dedupe-supabase-data.ts",
     "migrate:postgres": "tsx scripts/migrate-sqlite-to-postgres.ts",
-    "migrate:ai": "tsx scripts/apply-ai-migrations.ts"
+    "migrate:ai": "tsx scripts/apply-ai-migrations.ts",
+    "test:ai": "tsx --test tests/ai/*.test.ts",
+    "validate:n8n-workflows": "node scripts/validate-n8n-workflows.cjs",
+    "validate:n8n-strict": "node scripts/validate-n8n-workflows.js",
+    "validate:n8n-mvp": "node scripts/validate-n8n-mvp-package.cjs",
+    "validate:n8n-pickup-driver": "node scripts/validate-n8n-pickup-driver-package.cjs",
+    "validate:n8n-complaint-handoff": "node scripts/validate-n8n-complaint-handoff-package.cjs",
+    "audit:n8n-live": "node scripts/audit-n8n-live-integration-readiness.cjs",
+    "generate:n8n-workflows": "node scripts/generate-required-n8n-workflows.cjs"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

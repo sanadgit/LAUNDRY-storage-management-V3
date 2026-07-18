@@ -1,4 +1,5 @@
 import { readFileSync } from 'fs';
+import { randomUUID } from 'crypto';
 import path from 'path';
 import type { Pool } from 'pg';
 
@@ -51,6 +52,7 @@ type RouteMessageInput = {
   messageText: string;
   messageType?: string;
   whatsappMessageId?: string;
+  correlationId?: string;
 };
 
 type CreatePickupInput = {
@@ -76,6 +78,16 @@ type CreateComplaintInput = {
   description?: unknown;
   priority?: unknown;
   assigned_to_phone?: unknown;
+};
+
+type DriverAssignmentInput = {
+  pickup_request_id?: unknown;
+  delivery_request_id?: unknown;
+  task_type?: unknown;
+  priority?: unknown;
+  service_area?: unknown;
+  branch_id?: unknown;
+  created_by?: unknown;
 };
 
 type AiMessageAnalysis = {
@@ -105,6 +117,10 @@ type PickupDraftSuggestion = {
 type RoutedMessageResult = {
   contact_id: number;
   conversation_id: number;
+  correlation_id?: string;
+  inbound_message_id?: number | null;
+  outbound_message_id?: number | null;
+  human_escalation_id?: number | null;
   role: AiRole;
   language: string;
   intent: AiIntent;
@@ -115,6 +131,7 @@ type RoutedMessageResult = {
   pickup_draft: PickupDraftSuggestion;
   missing_fields: string[];
   auto_create_pickup: boolean;
+  duplicate_message: boolean;
 };
 
 type WhatsappRoutedEvent = {
@@ -169,11 +186,47 @@ const PICKUP_DRAFT_FIELDS: Array<keyof PickupDraftSuggestion> = [
   'source_message',
 ];
 
-const PICKUP_STATUSES = new Set(['new', 'assigned', 'accepted', 'on_the_way', 'picked_up', 'cancelled', 'completed']);
+const PICKUP_STATUSES = new Set([
+  'new',
+  'assigned',
+  'accepted',
+  'on_the_way',
+  'arrived',
+  'picked_up',
+  'customer_unavailable',
+  'failed',
+  'cancelled',
+  'completed',
+]);
 const COMPLAINT_STATUSES = new Set(['new', 'assigned', 'investigating', 'waiting_customer', 'resolved', 'closed']);
 const COMPLAINT_TYPES = new Set(['quality', 'delay', 'price', 'delivery', 'lost_item', 'damage', 'staff_behavior', 'other']);
 const PRIORITIES = new Set(['low', 'normal', 'high', 'urgent']);
 const AI_CONVERSATION_STATUSES = new Set(['open', 'pending', 'assigned', 'resolved', 'closed']);
+const ACTIVE_DRIVER_ASSIGNMENT_STATUSES = new Set(['assigned', 'accepted', 'on_the_way', 'arrived']);
+const DRIVER_ASSIGNMENT_STATUSES = new Set([
+  'assigned',
+  'accepted',
+  'on_the_way',
+  'arrived',
+  'picked_up',
+  'delivered',
+  'customer_unavailable',
+  'failed',
+  'cancelled',
+]);
+const DRIVER_AVAILABLE_STATUSES = new Set(['online', 'available', 'busy']);
+
+const DRIVER_ASSIGNMENT_TRANSITIONS: Record<string, string[]> = {
+  assigned: ['accepted', 'failed', 'cancelled'],
+  accepted: ['on_the_way', 'cancelled'],
+  on_the_way: ['arrived', 'customer_unavailable', 'cancelled'],
+  arrived: ['picked_up', 'delivered', 'cancelled'],
+  customer_unavailable: ['assigned', 'cancelled'],
+  picked_up: [],
+  delivered: [],
+  failed: [],
+  cancelled: [],
+};
 
 const clamp = (value: unknown, max = 500) => {
   const text = String(value ?? '').trim();
@@ -197,6 +250,10 @@ const numberOrNull = (value: unknown) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 };
+
+const jsonPayload = (value: unknown) => JSON.stringify(value ?? {});
+
+const createCorrelationId = () => `corr_${randomUUID()}`;
 
 const positiveInt = (value: unknown, fallback: number, max: number) => {
   const parsed = Number(value);
@@ -354,6 +411,19 @@ const parseAiJsonObject = (value: unknown) => {
   }
 };
 
+const extractResponsesOutputText = (payload: any) => {
+  const direct = String(payload?.output_text ?? '').trim();
+  if (direct) return direct;
+  const chunks: string[] = [];
+  for (const output of Array.isArray(payload?.output) ? payload.output : []) {
+    for (const content of Array.isArray(output?.content) ? output.content : []) {
+      const text = String(content?.text ?? '').trim();
+      if (text) chunks.push(text);
+    }
+  }
+  return chunks.join('\n').trim();
+};
+
 const pickupDraftHasMinimumData = (draft: PickupDraftSuggestion) => {
   return Boolean(draft.customer_phone && isUsefulCustomerName(draft.customer_name));
 };
@@ -367,6 +437,65 @@ export const normalizeAiPhone = (value: unknown) => {
   if (digits.startsWith('5') && digits.length === 9) return `971${digits}`;
   return digits;
 };
+
+const getAiPhoneVariants = (value: unknown) => {
+  const normalized = normalizeAiPhone(value);
+  const digits = String(value ?? '').replace(/\D/g, '');
+  const variants = new Set<string>();
+  if (digits) variants.add(digits.startsWith('00') ? digits.slice(2) : digits);
+  if (normalized) {
+    variants.add(normalized);
+    if (normalized.startsWith('971') && normalized.length === 12) {
+      variants.add(`0${normalized.slice(3)}`);
+      variants.add(normalized.slice(3));
+    }
+  }
+  return Array.from(variants).filter(Boolean);
+};
+
+const getOrderPhoneCandidates = (payload: any) => {
+  const values = [
+    payload?.customerPhoneNormalized,
+    payload?.customerPhone,
+    payload?.phoneNumber,
+    payload?.phone,
+    payload?.mobile,
+    payload?.customer_mobile,
+    payload?.pos?.customer_phone,
+    payload?.pos?.phone,
+    payload?.pos?.mobile,
+  ];
+  return Array.from(new Set(values.flatMap(getAiPhoneVariants))).filter(Boolean);
+};
+
+const isOrderPhoneAuthorized = (payload: any, requesterPhoneRaw: unknown) => {
+  const requesterVariants = new Set(getAiPhoneVariants(requesterPhoneRaw));
+  if (!requesterVariants.size) return false;
+  return getOrderPhoneCandidates(payload).some((candidate) => requesterVariants.has(candidate));
+};
+
+const normalizeDispatchText = (value: unknown) =>
+  String(value ?? '')
+    .toLowerCase()
+    .replace(/[إأآ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const dispatchTextMatches = (source: unknown, target: unknown) => {
+  const left = normalizeDispatchText(source);
+  const right = normalizeDispatchText(target);
+  if (!left || !right) return false;
+  return left.includes(right) || right.includes(left);
+};
+
+const normalizeDriverAssignmentStatus = (value: unknown) =>
+  String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
 
 const maskAiPhone = (value: unknown) => {
   const digits = normalizeAiPhone(value);
@@ -391,10 +520,10 @@ export const detectIntent = (text: unknown): AiIntent => {
   if (/(price|cost|how much|rate|سعر|كم|بكم|تكلفة)/i.test(lower)) return 'price_inquiry';
   if (/(pickup|collect|استلام|استلم|تعال|خذ الملابس|book pickup)/i.test(lower)) return 'pickup_request';
   if (/(deliver|delivery|توصيل|وصل|استلام الطلب جاهز)/i.test(lower)) return 'delivery_request';
-  if (/(track|status|order|invoice|رقم الطلب|تتبع|حالة الطلب|فاتورة|وين طلبي)/i.test(lower)) return 'order_tracking';
-  if (/(complaint|complain|شكوى|زعلان|تأخير|تاخير|متأخر|bad service|مشكلة)/i.test(lower)) return 'complaint';
   if (/(lost|missing|ضائع|ضاعت|مفقود)/i.test(lower)) return 'lost_item';
   if (/(damage|damaged|burn|stain|تلف|خرب|محروق|بقعة)/i.test(lower)) return 'damage_claim';
+  if (/(complaint|complain|شكوى|زعلان|تأخير|تاخير|متأخر|bad service|مشكلة)/i.test(lower)) return 'complaint';
+  if (/(track|status|order|invoice|رقم الطلب|تتبع|حالة الطلب|فاتورة|وين طلبي)/i.test(lower)) return 'order_tracking';
   if (/(branch|location|map|address|فرع|موقع|عنوان|الخريطة)/i.test(lower)) return 'branch_location';
   if (/(open|hours|timing|دوام|مواعيد|ساعات|يفتح|يغلق)/i.test(lower)) return 'opening_hours';
   if (/(pay|payment|invoice|paid|دفع|مدفوع|حساب|فاتورة)/i.test(lower)) return 'payment_question';
@@ -411,18 +540,28 @@ export const detectIntent = (text: unknown): AiIntent => {
   return 'unknown';
 };
 
+const AI_MIGRATIONS = [
+  {
+    sqlite: '20260628_ai_operations_agent_phase1.sqlite.sql',
+    postgres: '20260628_ai_operations_agent_phase1.postgres.sql',
+  },
+  {
+    sqlite: '20260717_ai_customer_service_agent_foundation.sqlite.sql',
+    postgres: '20260717_ai_customer_service_agent_foundation.postgres.sql',
+  },
+  {
+    sqlite: '20260718_n8n_live_adapter.sqlite.sql',
+    postgres: '20260718_n8n_live_adapter.postgres.sql',
+  },
+];
+
 const migrationSql = (provider: 'sqlite' | 'postgres') =>
-  readFileSync(
-    path.resolve(
-      process.cwd(),
-      'database',
-      'migrations',
-      provider === 'postgres'
-        ? '20260628_ai_operations_agent_phase1.postgres.sql'
-        : '20260628_ai_operations_agent_phase1.sqlite.sql'
-    ),
-    'utf8'
-  );
+  AI_MIGRATIONS.map((migration) =>
+    readFileSync(
+      path.resolve(process.cwd(), 'database', 'migrations', provider === 'postgres' ? migration.postgres : migration.sqlite),
+      'utf8'
+    )
+  ).join('\n\n');
 
 const buildReply = (intent: AiIntent, language: string, text: string, orderStatus?: any) => {
   const isArabic = language === 'ar' || language === 'ur';
@@ -443,6 +582,11 @@ const buildReply = (intent: AiIntent, language: string, text: string, orderStatu
   }
   if (intent === 'order_tracking') {
     if (orderStatus) {
+      if (orderStatus.authorization === 'verification_required') {
+        return isArabic
+          ? 'لحماية بياناتك، أحتاج أتأكد من ملكية الطلب قبل عرض حالته. من فضلك أرسل رقم الهاتف المسجل على الطلب أو آخر 4 أرقام منه.'
+          : 'To protect customer privacy, I need to verify ownership before sharing this order status. Please send the phone number registered on the order, or its last 4 digits.';
+      }
       return isArabic
         ? `حالة الطلب ${orderStatus.order_id}: ${orderStatus.status}.`
         : `Order ${orderStatus.order_id} status: ${orderStatus.status}.`;
@@ -484,6 +628,7 @@ const buildReply = (intent: AiIntent, language: string, text: string, orderStatu
 export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: AiServiceOptions) => {
   const openAiKey = envFirst(env, ['OPENAI_API_KEY']);
   const openAiModel = envFirst(env, ['OPENAI_MODEL'], 'gpt-4.1-mini') || 'gpt-4.1-mini';
+  const openAiBaseUrl = envFirst(env, ['OPENAI_BASE_URL'], 'https://api.openai.com') || 'https://api.openai.com';
   const autoCreatePickups = !/^(0|false|no)$/i.test(envFirst(env, ['AI_AGENT_AUTO_CREATE_PICKUPS'], 'true'));
 
   const query = async (sql: string, params: any[] = []) => {
@@ -525,18 +670,263 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
       : [];
   };
 
+  const getConfiguredDispatchData = async () => {
+    const config = await getCustomerSiteConfig();
+    const drivers = Array.isArray(config?.drivers) ? config.drivers : [];
+    const serviceAreas = Array.isArray(config?.service_areas) ? config.service_areas : [];
+    return { drivers, serviceAreas };
+  };
+
+  const resolveServiceAreaForDispatch = (source: unknown, serviceAreas: any[]) => {
+    const sourceText = String(source ?? '').trim();
+    if (!sourceText) return null;
+    const activeAreas = serviceAreas.filter((area) => area?.active !== false);
+    return (
+      activeAreas.find((area) => dispatchTextMatches(sourceText, area?.name) || dispatchTextMatches(sourceText, area?.id)) ??
+      null
+    );
+  };
+
+  const getDriverActiveTaskCounts = async (): Promise<Map<string, number>> => {
+    const result = await query(
+      usePostgres
+        ? `SELECT driver_phone, COUNT(*)::int AS count
+           FROM driver_assignments
+           WHERE status IN ('assigned', 'accepted', 'on_the_way', 'arrived')
+             AND driver_phone IS NOT NULL
+           GROUP BY driver_phone`
+        : `SELECT driver_phone, COUNT(*) AS count
+           FROM driver_assignments
+           WHERE status IN ('assigned', 'accepted', 'on_the_way', 'arrived')
+             AND driver_phone IS NOT NULL
+           GROUP BY driver_phone`
+    );
+    return new Map<string, number>(
+      result.rows.map((row: any) => [normalizeAiPhone(row.driver_phone), Number(row.count ?? 0)])
+    );
+  };
+
+  const rankDispatchDrivers = async (params: {
+    serviceArea?: any;
+    branchId?: unknown;
+    sourceText?: unknown;
+    priority?: unknown;
+  }) => {
+    const { drivers } = await getConfiguredDispatchData();
+    const workload = await getDriverActiveTaskCounts();
+    const serviceAreaName = String(params.serviceArea?.name ?? params.serviceArea?.id ?? params.sourceText ?? '').trim();
+    const serviceAreaBranch = String(params.serviceArea?.branch_id ?? '').trim();
+    const requestedBranch = String(params.branchId ?? '').trim();
+    const candidates = drivers
+      .map((driver: any) => {
+        const phone = normalizeAiPhone(driver?.phone);
+        const status = String(driver?.status ?? '').toLowerCase().trim();
+        if (!phone || !DRIVER_AVAILABLE_STATUSES.has(status)) return null;
+        const driverAreas = Array.isArray(driver?.service_areas) ? driver.service_areas : [];
+        const areaMatch = driverAreas.some(
+          (area: unknown) =>
+            dispatchTextMatches(area, serviceAreaName) ||
+            dispatchTextMatches(area, params.serviceArea?.id) ||
+            dispatchTextMatches(area, params.sourceText)
+        );
+        const branchMatch =
+          Boolean(requestedBranch) &&
+          (dispatchTextMatches(driver?.branch_id, requestedBranch) || dispatchTextMatches(driver?.branch, requestedBranch));
+        const areaBranchMatch =
+          Boolean(serviceAreaBranch) &&
+          (dispatchTextMatches(driver?.branch_id, serviceAreaBranch) || dispatchTextMatches(driver?.branch, serviceAreaBranch));
+        const currentTasks = workload.get(phone) ?? 0;
+        const score =
+          (areaMatch ? 100 : 0) +
+          (branchMatch || areaBranchMatch ? 35 : 0) +
+          (status === 'available' ? 20 : status === 'online' ? 15 : 5) -
+          currentTasks * 12 +
+          (String(params.priority ?? '') === 'urgent' ? 5 : 0);
+        return {
+          driver,
+          phone,
+          status,
+          areaMatch,
+          branchMatch: branchMatch || areaBranchMatch,
+          currentTasks,
+          score,
+        };
+      })
+      .filter(Boolean)
+      .sort((a: any, b: any) => b.score - a.score || a.currentTasks - b.currentTasks || String(a.driver?.id ?? '').localeCompare(String(b.driver?.id ?? '')));
+    return candidates as Array<{
+      driver: any;
+      phone: string;
+      status: string;
+      areaMatch: boolean;
+      branchMatch: boolean;
+      currentTasks: number;
+      score: number;
+    }>;
+  };
+
+  const getActiveDriverAssignmentForTask = async (taskType: string, taskId: number) => {
+    if (!taskId) return null;
+    const column = taskType === 'delivery' ? 'delivery_request_id' : 'pickup_request_id';
+    return get(
+      usePostgres
+        ? `SELECT * FROM driver_assignments
+           WHERE ${column} = $1 AND status IN ('assigned', 'accepted', 'on_the_way', 'arrived')
+           ORDER BY created_at DESC LIMIT 1`
+        : `SELECT * FROM driver_assignments
+           WHERE ${column} = ? AND status IN ('assigned', 'accepted', 'on_the_way', 'arrived')
+           ORDER BY datetime(created_at) DESC LIMIT 1`,
+      [taskId]
+    );
+  };
+
+  const recordAiToolCallStarted = async (params: {
+    correlationId: string;
+    toolName: string;
+    intent?: string;
+    idempotencyKey?: string;
+    requestPayload?: unknown;
+  }) => {
+    const payload = jsonPayload(params.requestPayload ?? {});
+    if (!usePostgres || !pgPool) {
+      const info = sqlite.prepare(
+        `INSERT INTO ai_tool_calls (
+          correlation_id, tool_name, intent, status, idempotency_key, request_payload, started_at, created_at
+        ) VALUES (?, ?, ?, 'started', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+      ).run(
+        params.correlationId,
+        params.toolName,
+        params.intent ?? null,
+        params.idempotencyKey ?? null,
+        payload
+      );
+      return Number(info.lastInsertRowid);
+    }
+    const inserted = await pgPool.query(
+      `INSERT INTO ai_tool_calls (
+        correlation_id, tool_name, intent, status, idempotency_key, request_payload, started_at, created_at
+      ) VALUES ($1, $2, $3, 'started', $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      RETURNING id`,
+      [
+        params.correlationId,
+        params.toolName,
+        params.intent ?? null,
+        params.idempotencyKey ?? null,
+        payload,
+      ]
+    );
+    return Number(inserted.rows?.[0]?.id ?? 0) || null;
+  };
+
+  const completeAiToolCall = async (idRaw: unknown, params: {
+    status: 'succeeded' | 'failed';
+    intent?: string;
+    responsePayload?: unknown;
+    errorCode?: string;
+    errorMessage?: string;
+  }) => {
+    const id = Number(idRaw);
+    if (!Number.isFinite(id) || id <= 0) return;
+    const payload = jsonPayload(params.responsePayload ?? {});
+    if (!usePostgres || !pgPool) {
+      sqlite.prepare(
+        `UPDATE ai_tool_calls
+         SET status = ?, intent = COALESCE(?, intent), response_payload = ?,
+             error_code = ?, error_message = ?, completed_at = CURRENT_TIMESTAMP
+         WHERE id = ?`
+      ).run(
+        params.status,
+        params.intent ?? null,
+        payload,
+        params.errorCode ?? null,
+        params.errorMessage ?? null,
+        id
+      );
+      return;
+    }
+    await pgPool.query(
+      `UPDATE ai_tool_calls
+       SET status = $1, intent = COALESCE($2, intent), response_payload = $3,
+           error_code = $4, error_message = $5, completed_at = CURRENT_TIMESTAMP
+       WHERE id = $6`,
+      [
+        params.status,
+        params.intent ?? null,
+        payload,
+        params.errorCode ?? null,
+        params.errorMessage ?? null,
+        id,
+      ]
+    );
+  };
+
+  const openAiAnalysisSchema = {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      intent: { type: 'string', enum: AI_ALLOWED_INTENTS },
+      language: { type: 'string', enum: ['ar', 'en', 'ur', 'hi', 'tl', 'auto'] },
+      priority: { type: 'string', enum: ['low', 'normal', 'high', 'urgent'] },
+      pickup_draft: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          customer_name: { type: 'string' },
+          customer_phone: { type: 'string' },
+          area: { type: 'string' },
+          address: { type: 'string' },
+          google_maps_url: { type: 'string' },
+          preferred_time: { type: 'string' },
+          serviceType: { type: 'string' },
+          notes: { type: 'string' },
+          confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
+        },
+        required: [
+          'customer_name',
+          'customer_phone',
+          'area',
+          'address',
+          'google_maps_url',
+          'preferred_time',
+          'serviceType',
+          'notes',
+          'confidence',
+        ],
+      },
+      missing_fields: {
+        type: 'array',
+        items: { type: 'string' },
+      },
+      ready_for_auto_create: { type: 'boolean' },
+      reply: { type: 'string' },
+    },
+    required: ['intent', 'language', 'priority', 'pickup_draft', 'missing_fields', 'ready_for_auto_create', 'reply'],
+  };
+
   const analyzeMessageWithOpenAi = async (params: {
     text: string;
     contactName?: unknown;
     contactPhone?: unknown;
     knownAreas: string[];
     fallbackDraft: PickupDraftSuggestion;
+    correlationId: string;
   }): Promise<AiMessageAnalysis | null> => {
     if (!openAiKey) return null;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 12000);
+    const toolCallId = await recordAiToolCallStarted({
+      correlationId: params.correlationId,
+      toolName: 'openai.responses.customer_message_analysis',
+      idempotencyKey: `openai-analysis:${params.correlationId}`,
+      requestPayload: {
+        model: openAiModel,
+        message_length: String(params.text ?? '').length,
+        contact_phone_masked: maskAiPhone(params.contactPhone),
+        known_area_count: params.knownAreas.length,
+      },
+    });
     try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      const response = await fetch(`${openAiBaseUrl.replace(/\/+$/, '')}/v1/responses`, {
         method: 'POST',
         signal: controller.signal,
         headers: {
@@ -546,12 +936,12 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
         body: JSON.stringify({
           model: openAiModel,
           temperature: 0.1,
-          response_format: { type: 'json_object' },
-          messages: [
+          max_output_tokens: 900,
+          input: [
             {
               role: 'system',
               content:
-                'You are a natural WhatsApp operations AI for In & Out Laundry in UAE. Return only valid JSON. Classify messages and extract pickup details, but do not behave like a rigid form. Never invent missing customer data. A pickup can be created automatically when the WhatsApp phone exists and a clear customer name exists. Area, address, location link, service, and pickup time are helpful but optional; if missing, do not block pickup creation. If customer name is missing or unclear, ask only for the name in a natural way. Use Arabic reply for Arabic/Urdu messages and English reply for English messages.',
+                'You are a natural WhatsApp operations AI for In & Out Laundry in UAE. Classify messages and extract pickup details. Never invent prices, order status, POS data, branch coverage, customer records, or missing customer data. Resolve high-risk lost/damaged items before generic order tracking. A pickup can be auto-created only when WhatsApp phone and a clear customer name are available. If customer name is missing or unclear, ask only for the name. Use Arabic for Arabic/Urdu messages and English for English messages. Keep replies short and customer-friendly.',
             },
             {
               role: 'user',
@@ -583,16 +973,24 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
               }),
             },
           ],
+          text: {
+            format: {
+              type: 'json_schema',
+              name: 'laundry_customer_message_analysis',
+              strict: true,
+              schema: openAiAnalysisSchema,
+            },
+          },
         }),
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(JSON.stringify(payload));
-      const parsed = parseAiJsonObject(payload?.choices?.[0]?.message?.content);
+      const parsed = parseAiJsonObject(extractResponsesOutputText(payload));
       if (!parsed || typeof parsed !== 'object') return null;
       const rawIntent = String((parsed as any).intent ?? '').trim() as AiIntent;
       const intent = AI_ALLOWED_INTENTS.includes(rawIntent) ? rawIntent : detectIntent(params.text);
       const rawPriority = String((parsed as any).priority ?? '').trim();
-      const priority =
+      const priority: AiMessageAnalysis['priority'] =
         rawPriority === 'low' || rawPriority === 'normal' || rawPriority === 'high' || rawPriority === 'urgent'
           ? rawPriority
           : intent === 'lost_item' || intent === 'damage_claim'
@@ -605,7 +1003,7 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
         ? (parsed as any).missing_fields.map((field: unknown) => clamp(field, 60)).filter(Boolean)
         : [];
       const readyByAi = Boolean((parsed as any).ready_for_auto_create);
-      return {
+      const result: AiMessageAnalysis = {
         intent,
         language: clamp((parsed as any).language, 12) || detectLanguage(params.text),
         priority,
@@ -615,7 +1013,27 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
         reply: clamp((parsed as any).reply, 1200),
         source: 'openai',
       };
+      await completeAiToolCall(toolCallId, {
+        status: 'succeeded',
+        intent,
+        responsePayload: {
+          response_id: payload?.id ?? null,
+          intent,
+          language: result.language,
+          priority,
+          missing_fields: missingFields,
+          ready_for_auto_create: result.ready_for_auto_create,
+          usage: payload?.usage ?? null,
+        },
+      });
+      return result;
     } catch (error: any) {
+      await completeAiToolCall(toolCallId, {
+        status: 'failed',
+        responsePayload: {},
+        errorCode: error?.name === 'AbortError' ? 'OPENAI_TIMEOUT' : 'OPENAI_ANALYSIS_FAILED',
+        errorMessage: error?.message || String(error),
+      });
       console.warn('OpenAI AI router failed; falling back to rules:', error?.message || error);
       return null;
     } finally {
@@ -760,30 +1178,458 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
     whatsappMessageId?: string;
     aiResponse?: boolean;
   }) => {
-    await run(
+    const values = [
+      params.conversationId,
+      params.direction,
+      params.senderPhone ?? null,
+      params.receiverPhone ?? null,
+      params.messageType ?? 'text',
+      params.messageText ?? null,
+      params.mediaUrl ?? null,
+      params.whatsappMessageId ?? null,
+      params.aiResponse ? 1 : 0,
+    ];
+    if (!usePostgres || !pgPool) {
+      const info = sqlite.prepare(
+        `INSERT INTO ai_messages (
+          conversation_id, direction, sender_phone, receiver_phone, message_type, message_text,
+          media_url, whatsapp_message_id, ai_response, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+      ).run(...values);
+      return Number(info.lastInsertRowid);
+    }
+    const inserted = await pgPool.query(
       `INSERT INTO ai_messages (
         conversation_id, direction, sender_phone, receiver_phone, message_type, message_text,
         media_url, whatsapp_message_id, ai_response, created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-      `INSERT INTO ai_messages (
-        conversation_id, direction, sender_phone, receiver_phone, message_type, message_text,
-        media_url, whatsapp_message_id, ai_response, created_at
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)`,
-      [
-        params.conversationId,
-        params.direction,
-        params.senderPhone ?? null,
-        params.receiverPhone ?? null,
-        params.messageType ?? 'text',
-        params.messageText ?? null,
-        params.mediaUrl ?? null,
-        params.whatsappMessageId ?? null,
-        params.aiResponse ? 1 : 0,
-      ]
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
+       RETURNING id`,
+      values
     );
+    return Number(inserted.rows?.[0]?.id ?? 0) || null;
   };
 
-  const trackOrder = async (orderIdRaw: unknown) => {
+  const upsertCustomerChannelLink = async (params: {
+    contactId: number;
+    channel: AiChannel;
+    channelUserId: string;
+    normalizedPhone: string;
+    source?: string;
+  }) => {
+    const channelUserId = clamp(params.channelUserId, 120);
+    const normalizedPhone = normalizeAiPhone(params.normalizedPhone || params.channelUserId);
+    if (!params.contactId || !channelUserId) return null;
+    const metadata = jsonPayload({
+      source: params.source ?? 'ai_agent',
+      normalized_phone: normalizedPhone,
+      phone_masked: maskAiPhone(normalizedPhone),
+    });
+
+    if (!usePostgres || !pgPool) {
+      sqlite.prepare(
+        `INSERT INTO customer_channel_links (
+          contact_id, channel, channel_user_id, normalized_phone, is_primary, verification_status,
+          verified_at, metadata, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, 1, 'channel_verified', CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT(channel, channel_user_id) DO UPDATE SET
+          contact_id = excluded.contact_id,
+          normalized_phone = excluded.normalized_phone,
+          is_primary = 1,
+          verification_status = 'channel_verified',
+          verified_at = CURRENT_TIMESTAMP,
+          metadata = excluded.metadata,
+          updated_at = CURRENT_TIMESTAMP`
+      ).run(params.contactId, params.channel, channelUserId, normalizedPhone, metadata);
+      return get(
+        'SELECT * FROM customer_channel_links WHERE channel = ? AND channel_user_id = ? LIMIT 1',
+        [params.channel, channelUserId]
+      );
+    }
+
+    const result = await pgPool.query(
+      `INSERT INTO customer_channel_links (
+        contact_id, channel, channel_user_id, normalized_phone, is_primary, verification_status,
+        verified_at, metadata, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, TRUE, 'channel_verified', CURRENT_TIMESTAMP, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      ON CONFLICT(channel, channel_user_id) DO UPDATE SET
+        contact_id = EXCLUDED.contact_id,
+        normalized_phone = EXCLUDED.normalized_phone,
+        is_primary = TRUE,
+        verification_status = 'channel_verified',
+        verified_at = CURRENT_TIMESTAMP,
+        metadata = EXCLUDED.metadata,
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING *`,
+      [params.contactId, params.channel, channelUserId, normalizedPhone, metadata]
+    );
+    return result.rows[0] ?? null;
+  };
+
+  const upsertConversationSummary = async (params: {
+    conversationId: number;
+    contactId: number;
+    summary: string;
+    language: string;
+    intent: AiIntent;
+    sourceMessageId?: number | null;
+    humanEscalationId?: number | null;
+  }) => {
+    const summary = clamp(params.summary, 1800);
+    if (!summary) return null;
+    const values = [
+      summary,
+      params.language,
+      params.intent,
+      params.humanEscalationId ?? null,
+      params.sourceMessageId ?? null,
+      params.conversationId,
+    ];
+
+    if (!usePostgres || !pgPool) {
+      const info = sqlite.prepare(
+        `UPDATE conversation_summaries
+         SET summary = ?, detected_language = ?, last_intent = ?, human_escalation_id = COALESCE(?, human_escalation_id),
+             source_message_id = COALESCE(?, source_message_id), updated_at = CURRENT_TIMESTAMP
+         WHERE conversation_id = ? AND deleted_at IS NULL`
+      ).run(...values);
+      if (info.changes === 0) {
+        const inserted = sqlite.prepare(
+          `INSERT INTO conversation_summaries (
+            conversation_id, contact_id, summary, detected_language, last_intent, human_escalation_id,
+            source_message_id, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+        ).run(
+          params.conversationId,
+          params.contactId,
+          summary,
+          params.language,
+          params.intent,
+          params.humanEscalationId ?? null,
+          params.sourceMessageId ?? null
+        );
+        return get('SELECT * FROM conversation_summaries WHERE id = ? LIMIT 1', [Number(inserted.lastInsertRowid)]);
+      }
+      return get(
+        'SELECT * FROM conversation_summaries WHERE conversation_id = ? AND deleted_at IS NULL LIMIT 1',
+        [params.conversationId]
+      );
+    }
+
+    const updated = await pgPool.query(
+      `UPDATE conversation_summaries
+       SET summary = $1, detected_language = $2, last_intent = $3, human_escalation_id = COALESCE($4, human_escalation_id),
+           source_message_id = COALESCE($5, source_message_id), updated_at = CURRENT_TIMESTAMP
+       WHERE conversation_id = $6 AND deleted_at IS NULL
+       RETURNING *`,
+      values
+    );
+    if (updated.rows[0]) return updated.rows[0];
+    const inserted = await pgPool.query(
+      `INSERT INTO conversation_summaries (
+        conversation_id, contact_id, summary, detected_language, last_intent, human_escalation_id,
+        source_message_id, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      RETURNING *`,
+      [
+        params.conversationId,
+        params.contactId,
+        summary,
+        params.language,
+        params.intent,
+        params.humanEscalationId ?? null,
+        params.sourceMessageId ?? null,
+      ]
+    );
+    return inserted.rows[0] ?? null;
+  };
+
+  const createHumanEscalationIfNeeded = async (params: {
+    conversationId: number;
+    contactId: number;
+    branchId?: unknown;
+    intent: AiIntent;
+    priority: RoutedMessageResult['priority'];
+    reasonText: string;
+  }) => {
+    const mustEscalate =
+      params.priority === 'urgent' ||
+      params.intent === 'lost_item' ||
+      params.intent === 'damage_claim';
+    if (!mustEscalate) return null;
+    const reason = clamp(params.reasonText, 1000) || `Auto escalation for ${params.intent}`;
+    const existing = await get(
+      usePostgres
+        ? `SELECT * FROM human_escalations
+           WHERE conversation_id = $1 AND status NOT IN ('resolved', 'closed')
+           ORDER BY created_at DESC LIMIT 1`
+        : `SELECT * FROM human_escalations
+           WHERE conversation_id = ? AND status NOT IN ('resolved', 'closed')
+           ORDER BY datetime(created_at) DESC LIMIT 1`,
+      [params.conversationId]
+    );
+    if (existing) return existing;
+
+    const severity = params.intent === 'lost_item' || params.intent === 'damage_claim' ? 'urgent' : params.priority;
+    if (!usePostgres || !pgPool) {
+      const info = sqlite.prepare(
+        `INSERT INTO human_escalations (
+          conversation_id, contact_id, branch_id, reason, severity, status, escalated_by, metadata, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 'open', 'ai', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+      ).run(
+        params.conversationId,
+        params.contactId,
+        numberOrNull(params.branchId),
+        reason,
+        severity,
+        jsonPayload({ intent: params.intent, priority: params.priority })
+      );
+      return get('SELECT * FROM human_escalations WHERE id = ? LIMIT 1', [Number(info.lastInsertRowid)]);
+    }
+
+    const inserted = await pgPool.query(
+      `INSERT INTO human_escalations (
+        conversation_id, contact_id, branch_id, reason, severity, status, escalated_by, metadata, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, 'open', 'ai', $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      RETURNING *`,
+      [
+        params.conversationId,
+        params.contactId,
+        numberOrNull(params.branchId),
+        reason,
+        severity,
+        jsonPayload({ intent: params.intent, priority: params.priority }),
+      ]
+    );
+    return inserted.rows[0] ?? null;
+  };
+
+  const logNotification = async (params: {
+    conversationId?: number | null;
+    contactId?: number | null;
+    channel: string;
+    recipientPhone?: unknown;
+    messageType?: string;
+    providerMessageId?: unknown;
+    idempotencyKey?: unknown;
+    status: string;
+    errorCode?: unknown;
+    errorMessage?: unknown;
+    metadata?: unknown;
+  }) => {
+    const payload = [
+      params.conversationId ?? null,
+      params.contactId ?? null,
+      clamp(params.channel, 30),
+      nullable(normalizeAiPhone(params.recipientPhone), 30),
+      nullable(params.messageType ?? 'text', 30),
+      nullable(params.providerMessageId, 255),
+      nullable(params.idempotencyKey, 160),
+      clamp(params.status, 40) || 'queued',
+      nullable(params.errorCode, 80),
+      nullable(params.errorMessage, 1000),
+      jsonPayload(params.metadata ?? {}),
+    ];
+    if (!usePostgres || !pgPool) {
+      const info = sqlite.prepare(
+        `INSERT INTO notification_logs (
+          conversation_id, contact_id, channel, recipient_phone, message_type, provider_message_id,
+          idempotency_key, status, error_code, error_message, metadata,
+          sent_at, failed_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'sent' THEN CURRENT_TIMESTAMP ELSE NULL END,
+          CASE WHEN ? = 'failed' THEN CURRENT_TIMESTAMP ELSE NULL END, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+      ).run(...payload, params.status, params.status);
+      return Number(info.lastInsertRowid);
+    }
+    const inserted = await pgPool.query(
+      `INSERT INTO notification_logs (
+        conversation_id, contact_id, channel, recipient_phone, message_type, provider_message_id,
+        idempotency_key, status, error_code, error_message, metadata,
+        sent_at, failed_at, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+        CASE WHEN $12 = 'sent' THEN CURRENT_TIMESTAMP ELSE NULL END,
+        CASE WHEN $13 = 'failed' THEN CURRENT_TIMESTAMP ELSE NULL END,
+        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      RETURNING id`,
+      [...payload, params.status, params.status]
+    );
+    return Number(inserted.rows?.[0]?.id ?? 0) || null;
+  };
+
+  const recordWhatsAppStatusNotification = async (status: any) => {
+    const providerMessageId = String(status?.id ?? '').trim();
+    const rawStatus = String(status?.status ?? 'unknown').trim() || 'unknown';
+    const normalizedStatus = rawStatus === 'delivered' || rawStatus === 'read' || rawStatus === 'failed' ? rawStatus : rawStatus === 'sent' ? 'sent' : 'status';
+    const errors = Array.isArray(status?.errors) ? status.errors : [];
+    const firstError = errors[0] ?? {};
+    if (!providerMessageId) return null;
+
+    const existing = await get(
+      usePostgres
+        ? `SELECT * FROM notification_logs
+           WHERE provider_message_id = $1
+           ORDER BY created_at DESC LIMIT 1`
+        : `SELECT * FROM notification_logs
+           WHERE provider_message_id = ?
+           ORDER BY datetime(created_at) DESC LIMIT 1`,
+      [providerMessageId]
+    );
+
+    if (existing) {
+      if (!usePostgres || !pgPool) {
+        sqlite.prepare(
+          `UPDATE notification_logs
+           SET status = ?,
+               delivered_at = CASE WHEN ? = 'delivered' THEN CURRENT_TIMESTAMP ELSE delivered_at END,
+               read_at = CASE WHEN ? = 'read' THEN CURRENT_TIMESTAMP ELSE read_at END,
+               failed_at = CASE WHEN ? = 'failed' THEN CURRENT_TIMESTAMP ELSE failed_at END,
+               error_code = COALESCE(?, error_code),
+               error_message = COALESCE(?, error_message),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`
+        ).run(
+          normalizedStatus,
+          normalizedStatus,
+          normalizedStatus,
+          normalizedStatus,
+          nullable(firstError?.code, 80),
+          nullable(firstError?.message || firstError?.title, 1000),
+          existing.id
+        );
+        return existing.id;
+      }
+      await pgPool.query(
+        `UPDATE notification_logs
+         SET status = $1,
+             delivered_at = CASE WHEN $2 = 'delivered' THEN CURRENT_TIMESTAMP ELSE delivered_at END,
+             read_at = CASE WHEN $3 = 'read' THEN CURRENT_TIMESTAMP ELSE read_at END,
+             failed_at = CASE WHEN $4 = 'failed' THEN CURRENT_TIMESTAMP ELSE failed_at END,
+             error_code = COALESCE($5, error_code),
+             error_message = COALESCE($6, error_message),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $7`,
+        [
+          normalizedStatus,
+          normalizedStatus,
+          normalizedStatus,
+          normalizedStatus,
+          nullable(firstError?.code, 80),
+          nullable(firstError?.message || firstError?.title, 1000),
+          existing.id,
+        ]
+      );
+      return existing.id;
+    }
+
+    return logNotification({
+      channel: 'whatsapp',
+      recipientPhone: status?.recipient_id,
+      providerMessageId,
+      idempotencyKey: `status:${providerMessageId}:${normalizedStatus}`,
+      status: normalizedStatus,
+      errorCode: firstError?.code,
+      errorMessage: firstError?.message || firstError?.title,
+      metadata: { source: 'whatsapp_status_webhook', raw_status: rawStatus },
+    });
+  };
+
+  const buildMemorySummary = (params: {
+    contactName?: unknown;
+    contactPhone?: unknown;
+    channel: AiChannel;
+    language: string;
+    intent: AiIntent;
+    priority: RoutedMessageResult['priority'];
+    messageType?: string;
+    missingFields: string[];
+    autoCreatePickup: boolean;
+    humanEscalationId?: number | null;
+  }) => {
+    const missing = params.missingFields.length ? params.missingFields.join(', ') : 'none';
+    const escalation = params.humanEscalationId ? ` Human escalation #${params.humanEscalationId} is open.` : '';
+    const pickupState = params.autoCreatePickup ? ' Pickup creation was approved by the router.' : '';
+    return [
+      `Customer ${firstUsefulCustomerName(params.contactName) || 'unknown'} contacted via ${params.channel}.`,
+      `Phone normalized to ${normalizeAiPhone(params.contactPhone) || 'unknown'}; language=${params.language}; intent=${params.intent}; priority=${params.priority}.`,
+      `Last message type=${params.messageType || 'text'}; missing_fields=${missing}.`,
+      pickupState,
+      escalation,
+    ].join(' ').replace(/\s+/g, ' ').trim();
+  };
+
+  const getRoutedDuplicateMessage = async (whatsappMessageIdRaw: unknown): Promise<RoutedMessageResult | null> => {
+    const whatsappMessageId = clamp(whatsappMessageIdRaw, 255);
+    if (!whatsappMessageId) return null;
+    const row = await get(
+      usePostgres
+        ? `SELECT
+             m.id AS message_id,
+             c.id AS conversation_id,
+             c.intent,
+             c.priority,
+             c.status,
+             ac.id AS contact_id,
+             ac.phone AS contact_phone,
+             ac.role AS contact_role,
+             ac.language AS contact_language,
+             (
+               SELECT om.message_text
+               FROM ai_messages om
+               WHERE om.conversation_id = c.id
+                 AND om.direction = 'outbound'
+                 AND om.id > m.id
+               ORDER BY om.created_at ASC, om.id ASC
+               LIMIT 1
+             ) AS response_text
+           FROM ai_messages m
+           JOIN ai_conversations c ON c.id = m.conversation_id
+           JOIN ai_contacts ac ON ac.id = c.contact_id
+           WHERE m.whatsapp_message_id = $1 AND m.direction = 'inbound'
+           LIMIT 1`
+        : `SELECT
+             m.id AS message_id,
+             c.id AS conversation_id,
+             c.intent,
+             c.priority,
+             c.status,
+             ac.id AS contact_id,
+             ac.phone AS contact_phone,
+             ac.role AS contact_role,
+             ac.language AS contact_language,
+             (
+               SELECT om.message_text
+               FROM ai_messages om
+               WHERE om.conversation_id = c.id
+                 AND om.direction = 'outbound'
+                 AND om.id > m.id
+               ORDER BY datetime(om.created_at) ASC, om.id ASC
+               LIMIT 1
+             ) AS response_text
+           FROM ai_messages m
+           JOIN ai_conversations c ON c.id = m.conversation_id
+           JOIN ai_contacts ac ON ac.id = c.contact_id
+           WHERE m.whatsapp_message_id = ? AND m.direction = 'inbound'
+           LIMIT 1`,
+      [whatsappMessageId]
+    );
+    if (!row) return null;
+    return {
+      contact_id: Number(row.contact_id),
+      conversation_id: Number(row.conversation_id),
+      role: (row.contact_role || 'unknown') as AiRole,
+      language: String(row.contact_language || 'auto'),
+      intent: (row.intent || 'unknown') as AiIntent,
+      priority: (row.priority || 'normal') as RoutedMessageResult['priority'],
+      response: String(row.response_text || ''),
+      order_tracking: null,
+      ai_source: 'rules',
+      pickup_draft: emptyPickupDraft(),
+      missing_fields: [],
+      auto_create_pickup: false,
+      duplicate_message: true,
+    };
+  };
+
+  const trackOrder = async (orderIdRaw: unknown, requesterPhoneRaw?: unknown) => {
     const orderId = clamp(orderIdRaw, 80);
     if (!orderId) return null;
     try {
@@ -793,9 +1639,20 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
       );
       if (!row?.payload) return null;
       const payload = JSON.parse(String(row.payload));
+      const requesterPhone = normalizeAiPhone(requesterPhoneRaw);
+      if (requesterPhone && !isOrderPhoneAuthorized(payload, requesterPhone)) {
+        return {
+          order_id: payload.id ?? orderId,
+          authorization: 'verification_required',
+          verified: false,
+          reason: getOrderPhoneCandidates(payload).length ? 'phone_mismatch' : 'order_phone_missing',
+        };
+      }
       const total = Number(payload?.pos?.total ?? payload?.totalPrice ?? payload?.amount ?? 0) || 0;
       return {
         order_id: payload.id ?? orderId,
+        authorization: requesterPhone ? 'verified' : 'internal',
+        verified: Boolean(requesterPhone),
         customer_name: payload.customerName ?? payload.name ?? 'Customer',
         branch: payload.branch ?? payload.pos?.branch ?? null,
         status: payload.pos?.status ?? payload.status ?? 'unknown',
@@ -810,6 +1667,10 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
 
   const routeIncomingMessage = async (input: RouteMessageInput) => {
     const channel = input.channel ?? 'whatsapp';
+    const duplicateMessage = await getRoutedDuplicateMessage(input.whatsappMessageId);
+    if (duplicateMessage) return duplicateMessage;
+    const correlationId = clamp(input.correlationId, 120) || createCorrelationId();
+
     const knownAreas = await getKnownServiceAreas();
     const fallbackDraft = extractPickupDraftFromMessage(input.messageText, {
       contactName: input.name,
@@ -822,6 +1683,7 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
       contactPhone: input.from,
       knownAreas,
       fallbackDraft,
+      correlationId,
     });
     const language = aiAnalysis?.language || detectLanguage(input.messageText);
     const intent = aiAnalysis?.intent || detectIntent(input.messageText);
@@ -837,9 +1699,16 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
       pickupDraftHasMinimumData(pickupDraft) &&
       (aiAnalysis?.ready_for_auto_create || pickupDraft.confidence === 'high');
     const contact = await getOrCreateContact(input.from, input.name, language);
+    await upsertCustomerChannelLink({
+      contactId: Number(contact.id),
+      channel,
+      channelUserId: normalizeAiPhone(input.from) || String(input.from ?? ''),
+      normalizedPhone: normalizeAiPhone(input.from),
+      source: channel === 'whatsapp' ? 'whatsapp_inbound' : 'ai_router',
+    });
     const conversation = await getOrCreateConversation(Number(contact.id), channel, intent, priority);
 
-    await logMessage({
+    const inboundMessageId = await logMessage({
       conversationId: Number(conversation.id),
       direction: 'inbound',
       senderPhone: normalizeAiPhone(input.from),
@@ -850,7 +1719,7 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
     });
 
     const orderNumber = input.messageText.match(/\b[A-Z]{0,4}\d{3,}\b/i)?.[0];
-    const orderStatus = intent === 'order_tracking' && orderNumber ? await trackOrder(orderNumber) : null;
+    const orderStatus = intent === 'order_tracking' && orderNumber ? await trackOrder(orderNumber, input.from) : null;
     const responseText =
       aiAnalysis?.reply ||
       (autoCreatePickup
@@ -859,7 +1728,16 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
           : 'Pickup details received. I will create the pickup order and notify the driver now.'
         : buildReply(intent, language, input.messageText, orderStatus));
 
-    await logMessage({
+    const humanEscalation = await createHumanEscalationIfNeeded({
+      conversationId: Number(conversation.id),
+      contactId: Number(contact.id),
+      branchId: conversation.branch_id,
+      intent,
+      priority,
+      reasonText: input.messageText,
+    });
+
+    const outboundMessageId = await logMessage({
       conversationId: Number(conversation.id),
       direction: 'outbound',
       senderPhone: input.to ? normalizeAiPhone(input.to) : null,
@@ -869,9 +1747,33 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
       aiResponse: true,
     });
 
+    await upsertConversationSummary({
+      conversationId: Number(conversation.id),
+      contactId: Number(contact.id),
+      summary: buildMemorySummary({
+        contactName: contact.name || input.name,
+        contactPhone: contact.phone || input.from,
+        channel,
+        language,
+        intent,
+        priority,
+        messageType: input.messageType ?? 'text',
+        missingFields,
+        autoCreatePickup,
+        humanEscalationId: humanEscalation?.id ? Number(humanEscalation.id) : null,
+      }),
+      language,
+      intent,
+      sourceMessageId: inboundMessageId,
+      humanEscalationId: humanEscalation?.id ? Number(humanEscalation.id) : null,
+    });
+
     return {
       contact_id: Number(contact.id),
       conversation_id: Number(conversation.id),
+      inbound_message_id: inboundMessageId,
+      outbound_message_id: outboundMessageId,
+      human_escalation_id: humanEscalation?.id ? Number(humanEscalation.id) : null,
       role: contact.role as AiRole,
       language,
       intent,
@@ -882,6 +1784,8 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
       pickup_draft: pickupDraft,
       missing_fields: missingFields,
       auto_create_pickup: autoCreatePickup,
+      duplicate_message: false,
+      correlation_id: correlationId,
     };
   };
 
@@ -928,19 +1832,54 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
     const to = normalizeAiPhone(toRaw);
     const message = clamp(messageRaw, 4096);
     const contact = await getOrCreateContact(to, undefined, detectLanguage(message));
-    const conversation = await getOrCreateConversation(Number(contact.id), 'whatsapp', detectIntent(message), 'normal');
-    const providerResponse = await sendWhatsAppText(to, message);
-    await logMessage({
-      conversationId: Number(conversation.id),
-      direction: 'outbound',
-      senderPhone: normalizeAiPhone(envFirst(env, ['WHATSAPP_PHONE_NUMBER_ID', 'META_WHATSAPP_PHONE_NUMBER_ID'])),
-      receiverPhone: to,
-      messageType: 'text',
-      messageText: message,
-      whatsappMessageId: providerResponse?.messages?.[0]?.id,
-      aiResponse: false,
+    await upsertCustomerChannelLink({
+      contactId: Number(contact.id),
+      channel: 'whatsapp',
+      channelUserId: to,
+      normalizedPhone: to,
+      source: 'whatsapp_outbound',
     });
-    return providerResponse;
+    const conversation = await getOrCreateConversation(Number(contact.id), 'whatsapp', detectIntent(message), 'normal');
+    try {
+      const providerResponse = await sendWhatsAppText(to, message);
+      const providerMessageId = providerResponse?.messages?.[0]?.id;
+      await logMessage({
+        conversationId: Number(conversation.id),
+        direction: 'outbound',
+        senderPhone: normalizeAiPhone(envFirst(env, ['WHATSAPP_PHONE_NUMBER_ID', 'META_WHATSAPP_PHONE_NUMBER_ID'])),
+        receiverPhone: to,
+        messageType: 'text',
+        messageText: message,
+        whatsappMessageId: providerMessageId,
+        aiResponse: false,
+      });
+      await logNotification({
+        conversationId: Number(conversation.id),
+        contactId: Number(contact.id),
+        channel: 'whatsapp',
+        recipientPhone: to,
+        messageType: 'text',
+        providerMessageId,
+        idempotencyKey: providerMessageId || `manual:${Number(conversation.id)}:${Date.now()}`,
+        status: 'sent',
+        metadata: { source: 'sendAndLogWhatsAppText' },
+      });
+      return providerResponse;
+    } catch (error: any) {
+      await logNotification({
+        conversationId: Number(conversation.id),
+        contactId: Number(contact.id),
+        channel: 'whatsapp',
+        recipientPhone: to,
+        messageType: 'text',
+        idempotencyKey: `manual-failed:${Number(conversation.id)}:${Date.now()}`,
+        status: 'failed',
+        errorCode: 'NOTIFICATION_SEND_FAILED',
+        errorMessage: error?.message || String(error),
+        metadata: { source: 'sendAndLogWhatsAppText' },
+      });
+      throw error;
+    }
   };
 
   const processWhatsappWebhook = async (body: any, options: ProcessWhatsappWebhookOptions = {}) => {
@@ -972,12 +1911,14 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
           console.log(
             `[whatsapp-webhook] status id=${String(status?.id ?? 'n/a')} recipient=${maskAiPhone(status?.recipient_id)} status=${String(status?.status ?? 'unknown')} timestamp=${String(status?.timestamp ?? 'n/a')}${errorSummary ? ` ${errorSummary}` : ''}`
           );
+          const notificationLogId = await recordWhatsAppStatusNotification(status);
           results.push({
             type: 'status',
             id: String(status?.id ?? ''),
             recipient: maskAiPhone(status?.recipient_id),
             status: String(status?.status ?? ''),
             errors: errors.length,
+            notification_log_id: notificationLogId,
           });
         }
         for (const message of Array.isArray(value.messages) ? value.messages : []) {
@@ -1001,6 +1942,18 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
             messageType: type,
             whatsappMessageId: String(message?.id ?? ''),
           });
+          if (routed.duplicate_message) {
+            results.push({
+              from,
+              intent: routed.intent,
+              ai_source: routed.ai_source,
+              auto_create_pickup: false,
+              conversation_id: routed.conversation_id,
+              duplicate_message: true,
+              send: { status: 'skipped', reason: 'duplicate_whatsapp_message' },
+            });
+            continue;
+          }
           const actionResultRaw = options.onRoutedMessage
             ? await options.onRoutedMessage({ from, to, text, type, routed })
             : null;
@@ -1012,6 +1965,23 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
           } else {
             try {
               sendResult = await sendWhatsAppText(from, responseText);
+              const providerMessageId = sendResult?.messages?.[0]?.id;
+              await logNotification({
+                conversationId: Number(routed.conversation_id),
+                contactId: Number(routed.contact_id),
+                channel: 'whatsapp',
+                recipientPhone: from,
+                messageType: 'text',
+                providerMessageId,
+                idempotencyKey: providerMessageId || `webhook:${String(message?.id ?? '')}:reply`,
+                status: 'sent',
+                metadata: {
+                  source: 'whatsapp_webhook_auto_reply',
+                  inbound_wamid: String(message?.id ?? ''),
+                  intent: routed.intent,
+                  correlation_id: routed.correlation_id ?? null,
+                },
+              });
               if (responseText !== routed.response) {
                 await logMessage({
                   conversationId: Number(routed.conversation_id),
@@ -1020,12 +1990,29 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
                   receiverPhone: normalizeAiPhone(from),
                   messageType: 'text',
                   messageText: responseText,
-                  whatsappMessageId: sendResult?.messages?.[0]?.id,
+                  whatsappMessageId: providerMessageId,
                   aiResponse: true,
                 });
               }
             } catch (error: any) {
               sendResult = { error: error?.message || String(error) };
+              await logNotification({
+                conversationId: Number(routed.conversation_id),
+                contactId: Number(routed.contact_id),
+                channel: 'whatsapp',
+                recipientPhone: from,
+                messageType: 'text',
+                idempotencyKey: `webhook:${String(message?.id ?? '')}:reply_failed`,
+                status: 'failed',
+                errorCode: 'NOTIFICATION_SEND_FAILED',
+                errorMessage: error?.message || String(error),
+                metadata: {
+                  source: 'whatsapp_webhook_auto_reply',
+                  inbound_wamid: String(message?.id ?? ''),
+                  intent: routed.intent,
+                  correlation_id: routed.correlation_id ?? null,
+                },
+              });
             }
           }
           results.push({
@@ -1284,6 +2271,236 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
     return get(usePostgres ? 'SELECT * FROM pickup_requests WHERE id = $1' : 'SELECT * FROM pickup_requests WHERE id = ?', [id]);
   };
 
+  const assignDriverToPickupRequest = async (idRaw: unknown, input: DriverAssignmentInput = {}) => {
+    const pickupId = Number(idRaw);
+    if (!Number.isFinite(pickupId) || pickupId <= 0) throw new Error('Valid pickup id is required.');
+    const pickup = await get(
+      usePostgres ? 'SELECT * FROM pickup_requests WHERE id = $1' : 'SELECT * FROM pickup_requests WHERE id = ?',
+      [pickupId]
+    );
+    if (!pickup) return null;
+
+    const existing = await getActiveDriverAssignmentForTask('pickup', pickupId);
+    if (existing) {
+      return {
+        assignment: existing,
+        driver: null,
+        candidates: [],
+        status: 'already_assigned',
+      };
+    }
+
+    const { serviceAreas } = await getConfiguredDispatchData();
+    const sourceText = firstNonEmpty(
+      input.service_area,
+      pickup.address,
+      pickup.notes,
+      pickup.google_maps_url
+    );
+    const serviceArea = resolveServiceAreaForDispatch(sourceText, serviceAreas);
+    const candidates = await rankDispatchDrivers({
+      serviceArea,
+      branchId: input.branch_id ?? pickup.branch_id ?? serviceArea?.branch_id,
+      sourceText,
+      priority: input.priority,
+    });
+    const selected = candidates[0] ?? null;
+    if (!selected) {
+      return {
+        assignment: null,
+        driver: null,
+        candidates: [],
+        status: 'no_driver_available',
+      };
+    }
+
+    const driverContact = await getOrCreateContact(selected.phone, selected.driver?.name, 'auto');
+    const metadata = jsonPayload({
+      source: 'ai_driver_dispatch',
+      driver_id: selected.driver?.id ?? null,
+      driver_name: selected.driver?.name ?? null,
+      driver_status: selected.status,
+      service_area_id: serviceArea?.id ?? null,
+      service_area_name: serviceArea?.name ?? null,
+      service_area_branch_id: serviceArea?.branch_id ?? null,
+      area_match: selected.areaMatch,
+      branch_match: selected.branchMatch,
+      current_tasks: selected.currentTasks,
+      candidate_count: candidates.length,
+    });
+    const branchId = numberOrNull(input.branch_id ?? pickup.branch_id);
+    const createdBy = clamp(input.created_by ?? 'ai', 80) || 'ai';
+
+    let assignment: any = null;
+    if (!usePostgres || !pgPool) {
+      const info = sqlite.prepare(
+        `INSERT INTO driver_assignments (
+          task_type, pickup_request_id, delivery_request_id, driver_contact_id, driver_phone,
+          branch_id, service_area, status, ranking_score, metadata, created_at, updated_at, created_by
+        ) VALUES ('pickup', ?, NULL, ?, ?, ?, ?, 'assigned', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)`
+      ).run(
+        pickupId,
+        Number(driverContact.id),
+        selected.phone,
+        branchId,
+        nullable(serviceArea?.name ?? sourceText, 150),
+        selected.score,
+        metadata,
+        createdBy
+      );
+      assignment = await get('SELECT * FROM driver_assignments WHERE id = ? LIMIT 1', [Number(info.lastInsertRowid)]);
+    } else {
+      const inserted = await pgPool.query(
+        `INSERT INTO driver_assignments (
+          task_type, pickup_request_id, delivery_request_id, driver_contact_id, driver_phone,
+          branch_id, service_area, status, ranking_score, metadata, created_at, updated_at, created_by
+        ) VALUES ('pickup', $1, NULL, $2, $3, $4, $5, 'assigned', $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $8)
+        RETURNING *`,
+        [
+          pickupId,
+          Number(driverContact.id),
+          selected.phone,
+          branchId,
+          nullable(serviceArea?.name ?? sourceText, 150),
+          selected.score,
+          metadata,
+          createdBy,
+        ]
+      );
+      assignment = inserted.rows[0] ?? null;
+    }
+
+    await updatePickupRequest(pickupId, {
+      status: 'assigned',
+      assigned_driver_phone: selected.phone,
+    });
+
+    return {
+      assignment,
+      driver: {
+        id: selected.driver?.id ?? null,
+        name: selected.driver?.name ?? null,
+        phone: selected.phone,
+        score: selected.score,
+      },
+      candidates: candidates.slice(0, 5).map((candidate) => ({
+        id: candidate.driver?.id ?? null,
+        name: candidate.driver?.name ?? null,
+        phone: candidate.phone,
+        score: candidate.score,
+        current_tasks: candidate.currentTasks,
+        area_match: candidate.areaMatch,
+        branch_match: candidate.branchMatch,
+      })),
+      status: 'assigned',
+    };
+  };
+
+  const updateDriverAssignmentStatus = async (idRaw: unknown, input: Record<string, unknown> = {}) => {
+    const id = Number(idRaw);
+    if (!Number.isFinite(id) || id <= 0) throw new Error('Valid driver assignment id is required.');
+    const nextStatus = normalizeDriverAssignmentStatus(input.status);
+    if (!DRIVER_ASSIGNMENT_STATUSES.has(nextStatus)) throw new Error('Valid driver assignment status is required.');
+
+    const current = await get(
+      usePostgres ? 'SELECT * FROM driver_assignments WHERE id = $1' : 'SELECT * FROM driver_assignments WHERE id = ?',
+      [id]
+    );
+    if (!current) return null;
+
+    const currentStatus = normalizeDriverAssignmentStatus(current.status || 'assigned');
+    if (currentStatus === nextStatus) {
+      return {
+        assignment: current,
+        status: 'unchanged',
+      };
+    }
+
+    const allowed = DRIVER_ASSIGNMENT_TRANSITIONS[currentStatus] ?? [];
+    const taskType = normalizeDriverAssignmentStatus(current.task_type || 'pickup');
+    const taskSpecificAllowed =
+      (nextStatus === 'picked_up' && taskType !== 'pickup') ||
+      (nextStatus === 'delivered' && taskType !== 'delivery')
+        ? false
+        : allowed.includes(nextStatus);
+    if (!taskSpecificAllowed) {
+      throw new Error(`Invalid driver assignment transition: ${currentStatus} -> ${nextStatus}.`);
+    }
+
+    const failureReason = nullable(input.failure_reason ?? input.reason, 1000);
+    const metadata = jsonPayload({
+      source: 'driver_assignment_status_update',
+      previous_status: currentStatus,
+      next_status: nextStatus,
+      updated_by: clamp(input.updated_by ?? 'api', 80) || 'api',
+      note: nullable(input.note, 1000),
+    });
+
+    if (!usePostgres || !pgPool) {
+      sqlite.prepare(
+        `UPDATE driver_assignments
+         SET status = ?,
+             failure_reason = COALESCE(?, failure_reason),
+             metadata = ?,
+             accepted_at = CASE WHEN ? = 'accepted' THEN COALESCE(accepted_at, CURRENT_TIMESTAMP) ELSE accepted_at END,
+             rejected_at = CASE WHEN ? = 'failed' THEN COALESCE(rejected_at, CURRENT_TIMESTAMP) ELSE rejected_at END,
+             completed_at = CASE WHEN ? IN ('picked_up', 'delivered', 'failed', 'cancelled') THEN COALESCE(completed_at, CURRENT_TIMESTAMP) ELSE completed_at END,
+             updated_at = CURRENT_TIMESTAMP,
+             updated_by = ?
+         WHERE id = ?`
+      ).run(
+        nextStatus,
+        failureReason,
+        metadata,
+        nextStatus,
+        nextStatus,
+        nextStatus,
+        clamp(input.updated_by ?? 'api', 80) || 'api',
+        id
+      );
+    } else {
+      await pgPool.query(
+        `UPDATE driver_assignments
+         SET status = $1,
+             failure_reason = COALESCE($2, failure_reason),
+             metadata = $3,
+             accepted_at = CASE WHEN $4 = 'accepted' THEN COALESCE(accepted_at, CURRENT_TIMESTAMP) ELSE accepted_at END,
+             rejected_at = CASE WHEN $5 = 'failed' THEN COALESCE(rejected_at, CURRENT_TIMESTAMP) ELSE rejected_at END,
+             completed_at = CASE WHEN $6 IN ('picked_up', 'delivered', 'failed', 'cancelled') THEN COALESCE(completed_at, CURRENT_TIMESTAMP) ELSE completed_at END,
+             updated_at = CURRENT_TIMESTAMP,
+             updated_by = $7
+         WHERE id = $8`,
+        [
+          nextStatus,
+          failureReason,
+          metadata,
+          nextStatus,
+          nextStatus,
+          nextStatus,
+          clamp(input.updated_by ?? 'api', 80) || 'api',
+          id,
+        ]
+      );
+    }
+
+    const assignment = await get(
+      usePostgres ? 'SELECT * FROM driver_assignments WHERE id = $1' : 'SELECT * FROM driver_assignments WHERE id = ?',
+      [id]
+    );
+
+    if (assignment?.pickup_request_id) {
+      await updatePickupRequest(assignment.pickup_request_id, {
+        status: nextStatus,
+        assigned_driver_phone: assignment.driver_phone,
+      });
+    }
+
+    return {
+      assignment,
+      status: 'updated',
+    };
+  };
+
   const listComplaints = async () => {
     const result = await query(
       usePostgres
@@ -1427,6 +2644,7 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
       contactPhone: conversation.contact_phone,
       knownAreas,
       fallbackDraft,
+      correlationId: `corr_pickup_draft_${conversation.id}_${Date.now()}`,
     });
     return aiAnalysis?.pickup_draft ?? fallbackDraft;
   };
@@ -1458,8 +2676,14 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
       notes: buildActionNote(conversation, 'Pickup request created', firstNonEmpty(input.notes, draft?.notes)),
       created_by: 'admin',
     });
+    const dispatch = await assignDriverToPickupRequest(pickup.id, {
+      service_area: firstNonEmpty(input.area, draft?.area, input.address, draft?.address),
+      branch_id: input.branch_id ?? conversation.branch_id,
+      priority: conversation.priority,
+      created_by: 'ai',
+    });
     await updateAiConversation(conversation.id, { status: 'assigned', priority: conversation.priority });
-    return pickup;
+    return { ...pickup, driver_assignment: dispatch };
   };
 
   const createComplaintFromConversation = async (idRaw: unknown, input: Record<string, unknown> = {}) => {
@@ -1511,6 +2735,8 @@ export const createAiOperationsService = ({ sqlite, pgPool, usePostgres, env }: 
     listPickupRequests,
     createPickupRequest,
     updatePickupRequest,
+    assignDriverToPickupRequest,
+    updateDriverAssignmentStatus,
     listComplaints,
     createComplaint,
     updateComplaint,

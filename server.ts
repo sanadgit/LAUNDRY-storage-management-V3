@@ -19,7 +19,7 @@ import {
   updateAuthLoginStamp,
   upsertPublicUser,
 } from './src/server/supabaseAdmin';
-import { createAiOperationsService } from './src/server/ai/aiOperationsService';
+import { createAiOperationsService, normalizeAiPhone } from './src/server/ai/aiOperationsService';
 import { detectSortingItemCategory } from './src/utils/sortingItemCategory';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -13747,7 +13747,9 @@ async function startServer() {
   }
 
   const requireAiApiKeyIfConfigured = (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const configuredKey = String(process.env.AI_AGENT_API_KEY || process.env.N8N_API_KEY || '').trim();
+    const configuredKey = String(
+      process.env.SERVICE_API_TOKEN || process.env.AI_AGENT_API_KEY || process.env.N8N_API_KEY || ''
+    ).trim();
     if (!configuredKey) return next();
     const supplied =
       String(req.headers['x-api-key'] ?? '').trim() ||
@@ -13757,6 +13759,711 @@ async function startServer() {
     }
     return next();
   };
+
+  const jsonForDb = (value: unknown) => (USE_POSTGRES_LOCAL ? value ?? {} : JSON.stringify(value ?? {}));
+
+  const v1Success = (workflow: string, correlationId: unknown, data: Record<string, unknown> = {}, startedAt = Date.now()) => ({
+    success: true,
+    status: 'SUCCESS',
+    data,
+    error: null,
+    meta: {
+      correlationId: String(correlationId ?? ''),
+      workflow,
+      durationMs: Date.now() - startedAt,
+    },
+  });
+
+  const v1Failure = (
+    workflow: string,
+    correlationId: unknown,
+    code: string,
+    message: string,
+    startedAt = Date.now(),
+    data: Record<string, unknown> = {}
+  ) => ({
+    success: false,
+    status: code,
+    data,
+    error: { code, message },
+    meta: {
+      correlationId: String(correlationId ?? ''),
+      workflow,
+      durationMs: Date.now() - startedAt,
+    },
+  });
+
+  const v1Rows = async (sqliteSql: string, pgSql: string, params: unknown[] = []) => {
+    if (!USE_POSTGRES_LOCAL || !pgPool) return db.prepare(sqliteSql).all(...params);
+    const result = await pgPool.query(pgSql, params);
+    return result.rows;
+  };
+
+  const v1Get = async (sqliteSql: string, pgSql: string, params: unknown[] = []) => {
+    const rows = await v1Rows(sqliteSql, pgSql, params);
+    return rows[0] ?? null;
+  };
+
+  const v1Run = async (sqliteSql: string, pgSql: string, params: unknown[] = []) => {
+    if (!USE_POSTGRES_LOCAL || !pgPool) return db.prepare(sqliteSql).run(...params);
+    return pgPool.query(pgSql, params);
+  };
+
+  const ensureV1AiContact = async (input: { phone?: unknown; name?: unknown; language?: unknown }) => {
+    const phone = normalizeAiPhone(input.phone);
+    if (!phone) throw new Error('A valid customer phone is required.');
+    const language = clampText(input.language, 20) || 'auto';
+    const name = clampText(input.name, 150) || null;
+    const existing = await v1Get(
+      'SELECT * FROM ai_contacts WHERE phone = ? LIMIT 1',
+      'SELECT * FROM ai_contacts WHERE phone = $1 LIMIT 1',
+      [phone]
+    );
+    if (existing) {
+      await v1Run(
+        `UPDATE ai_contacts
+         SET name = COALESCE(?, name),
+             language = CASE WHEN language = 'auto' THEN ? ELSE language END,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        `UPDATE ai_contacts
+         SET name = COALESCE($1, name),
+             language = CASE WHEN language = 'auto' THEN $2 ELSE language END,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $3`,
+        [name, language, existing.id]
+      );
+      return { ...existing, name: name ?? existing.name, language: existing.language === 'auto' ? language : existing.language };
+    }
+    if (!USE_POSTGRES_LOCAL || !pgPool) {
+      const inserted = db
+        .prepare(
+          `INSERT INTO ai_contacts (phone, name, role, language, created_at, updated_at)
+           VALUES (?, ?, 'customer', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+        )
+        .run(phone, name, language);
+      return v1Get('SELECT * FROM ai_contacts WHERE id = ? LIMIT 1', 'SELECT * FROM ai_contacts WHERE id = $1 LIMIT 1', [
+        Number(inserted.lastInsertRowid),
+      ]);
+    }
+    const inserted = await pgPool.query(
+      `INSERT INTO ai_contacts (phone, name, role, language, created_at, updated_at)
+       VALUES ($1, $2, 'customer', $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       RETURNING *`,
+      [phone, name, language]
+    );
+    return inserted.rows[0] ?? null;
+  };
+
+  const findV1ActiveConversation = async (contactId: unknown, channel = 'whatsapp') =>
+    v1Get(
+      `SELECT *
+       FROM ai_conversations
+       WHERE contact_id = ? AND channel = ? AND status NOT IN ('resolved', 'closed')
+       ORDER BY datetime(updated_at) DESC, id DESC
+       LIMIT 1`,
+      `SELECT *
+       FROM ai_conversations
+       WHERE contact_id = $1 AND channel = $2 AND status NOT IN ('resolved', 'closed')
+       ORDER BY updated_at DESC, id DESC
+       LIMIT 1`,
+      [Number(contactId), channel]
+    );
+
+  const createV1Conversation = async (input: {
+    contactId: unknown;
+    channel?: unknown;
+    intent?: unknown;
+    priority?: unknown;
+    branchId?: unknown;
+  }) => {
+    const contactId = Number(input.contactId);
+    if (!Number.isFinite(contactId) || contactId <= 0) throw new Error('A valid contactId is required.');
+    const channel = clampText(input.channel, 40) || 'whatsapp';
+    const intent = clampText(input.intent, 80) || 'unknown';
+    const priority = clampText(input.priority, 40) || 'normal';
+    const branchId = Number(input.branchId);
+    const branchValue = Number.isFinite(branchId) && branchId > 0 ? branchId : null;
+    if (!USE_POSTGRES_LOCAL || !pgPool) {
+      const inserted = db
+        .prepare(
+          `INSERT INTO ai_conversations (
+            contact_id, channel, status, intent, priority, branch_id, last_message_at, created_at, updated_at
+          ) VALUES (?, ?, 'open', ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+        )
+        .run(contactId, channel, intent, priority, branchValue);
+      return v1Get('SELECT * FROM ai_conversations WHERE id = ? LIMIT 1', 'SELECT * FROM ai_conversations WHERE id = $1 LIMIT 1', [
+        Number(inserted.lastInsertRowid),
+      ]);
+    }
+    const inserted = await pgPool.query(
+      `INSERT INTO ai_conversations (
+        contact_id, channel, status, intent, priority, branch_id, last_message_at, created_at, updated_at
+      ) VALUES ($1, $2, 'open', $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      RETURNING *`,
+      [contactId, channel, intent, priority, branchValue]
+    );
+    return inserted.rows[0] ?? null;
+  };
+
+  const insertV1AiMessage = async (input: Record<string, unknown>) => {
+    const conversationId = Number(input.conversationId ?? input.conversation_id);
+    if (!Number.isFinite(conversationId) || conversationId <= 0) throw new Error('A valid conversationId is required.');
+    const direction = clampText(input.direction, 20) || 'inbound';
+    const senderPhone = normalizeAiPhone(input.senderPhone ?? input.sender_phone);
+    const receiverPhone = normalizeAiPhone(input.receiverPhone ?? input.receiver_phone);
+    const messageType = clampText(input.messageType ?? input.message_type, 40) || 'text';
+    const messageText = clampText(input.messageText ?? input.message_text ?? input.text, 4000) || null;
+    const mediaUrl = clampText(input.mediaUrl ?? input.media_url, 2000) || null;
+    const whatsappMessageId = clampText(input.whatsappMessageId ?? input.whatsapp_message_id, 255) || null;
+    const aiResponse = Boolean(input.aiResponse ?? input.ai_response);
+    if (!USE_POSTGRES_LOCAL || !pgPool) {
+      const inserted = db
+        .prepare(
+          `INSERT INTO ai_messages (
+            conversation_id, direction, sender_phone, receiver_phone, message_type, message_text,
+            media_url, whatsapp_message_id, ai_response, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+        )
+        .run(conversationId, direction, senderPhone || null, receiverPhone || null, messageType, messageText, mediaUrl, whatsappMessageId, aiResponse ? 1 : 0);
+      return v1Get('SELECT * FROM ai_messages WHERE id = ? LIMIT 1', 'SELECT * FROM ai_messages WHERE id = $1 LIMIT 1', [
+        Number(inserted.lastInsertRowid),
+      ]);
+    }
+    const inserted = await pgPool.query(
+      `INSERT INTO ai_messages (
+        conversation_id, direction, sender_phone, receiver_phone, message_type, message_text,
+        media_url, whatsapp_message_id, ai_response, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
+      RETURNING *`,
+      [conversationId, direction, senderPhone || null, receiverPhone || null, messageType, messageText, mediaUrl, whatsappMessageId, aiResponse]
+    );
+    return inserted.rows[0] ?? null;
+  };
+
+  app.get(
+    '/api/v1/webhook-events/:messageId',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const startedAt = Date.now();
+      const messageId = clampText(req.params.messageId, 255);
+      const correlationId = req.query.correlationId ?? req.query.correlation_id;
+      if (!messageId) return res.status(400).json(v1Failure('webhook-events.lookup', correlationId, 'VALIDATION_ERROR', 'messageId is required.', startedAt));
+      const event = await v1Get(
+        'SELECT * FROM webhook_events WHERE message_id = ? LIMIT 1',
+        'SELECT * FROM webhook_events WHERE message_id = $1 LIMIT 1',
+        [messageId]
+      );
+      const message = await v1Get(
+        'SELECT id, conversation_id, whatsapp_message_id FROM ai_messages WHERE whatsapp_message_id = ? LIMIT 1',
+        'SELECT id, conversation_id, whatsapp_message_id FROM ai_messages WHERE whatsapp_message_id = $1 LIMIT 1',
+        [messageId]
+      );
+      res.json(
+        v1Success(
+          'webhook-events.lookup',
+          event?.correlation_id ?? correlationId,
+          {
+            duplicate: Boolean(event || message),
+            processed: Boolean(message || event?.status === 'processed'),
+            event,
+            message,
+          },
+          startedAt
+        )
+      );
+    })
+  );
+
+  app.post(
+    '/api/v1/webhook-events/lock',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const startedAt = Date.now();
+      const messageId = clampText(req.body?.messageId ?? req.body?.message_id ?? req.body?.payload?.messageId, 255);
+      const correlationId = clampText(req.body?.correlationId ?? req.body?.correlation_id, 120) || randomUUID();
+      if (!messageId) return res.status(400).json(v1Failure('webhook-events.lock', correlationId, 'VALIDATION_ERROR', 'messageId is required.', startedAt));
+      const payload = jsonForDb(req.body?.payload ?? {});
+      if (!USE_POSTGRES_LOCAL || !pgPool) {
+        db.prepare(
+          `INSERT OR IGNORE INTO webhook_events (
+            provider, message_id, status, correlation_id, customer_phone, payload, locked_at, created_at, updated_at
+          ) VALUES ('whatsapp', ?, 'locked', ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+        ).run(messageId, correlationId, normalizeAiPhone(req.body?.customerPhone ?? req.body?.customer_phone) || null, payload);
+      } else {
+        await pgPool.query(
+          `INSERT INTO webhook_events (
+            provider, message_id, status, correlation_id, customer_phone, payload, locked_at, created_at, updated_at
+          ) VALUES ('whatsapp', $1, 'locked', $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          ON CONFLICT (message_id) DO NOTHING`,
+          [messageId, correlationId, normalizeAiPhone(req.body?.customerPhone ?? req.body?.customer_phone) || null, payload]
+        );
+      }
+      const event = await v1Get(
+        'SELECT * FROM webhook_events WHERE message_id = ? LIMIT 1',
+        'SELECT * FROM webhook_events WHERE message_id = $1 LIMIT 1',
+        [messageId]
+      );
+      const lockAcquired = String(event?.correlation_id ?? '') === correlationId && String(event?.status ?? '') === 'locked';
+      res.status(lockAcquired ? 201 : 200).json(
+        v1Success(
+          'webhook-events.lock',
+          event?.correlation_id ?? correlationId,
+          {
+            duplicate: !lockAcquired,
+            lockAcquired,
+            messageId,
+            event,
+          },
+          startedAt
+        )
+      );
+    })
+  );
+
+  app.post(
+    '/api/v1/webhook-events/processed',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const startedAt = Date.now();
+      const messageId = clampText(req.body?.messageId ?? req.body?.message_id, 255);
+      const correlationId = req.body?.correlationId ?? req.body?.correlation_id;
+      if (!messageId) return res.status(400).json(v1Failure('webhook-events.processed', correlationId, 'VALIDATION_ERROR', 'messageId is required.', startedAt));
+      await v1Run(
+        `UPDATE webhook_events
+         SET status = 'processed', conversation_id = COALESCE(?, conversation_id), processed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE message_id = ?`,
+        `UPDATE webhook_events
+         SET status = 'processed', conversation_id = COALESCE($1, conversation_id), processed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE message_id = $2`,
+        [Number(req.body?.conversationId ?? req.body?.conversation_id) || null, messageId]
+      );
+      res.json(v1Success('webhook-events.processed', correlationId, { messageId, processed: true }, startedAt));
+    })
+  );
+
+  app.get(
+    '/api/v1/customers/by-phone/:phone',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const startedAt = Date.now();
+      const correlationId = req.query.correlationId ?? req.query.correlation_id;
+      const phone = normalizeAiPhone(req.params.phone);
+      if (!phone) return res.status(400).json(v1Failure('customers.by-phone', correlationId, 'INVALID_PHONE', 'A valid UAE phone number is required.', startedAt));
+      const localPhone = phone.startsWith('971') ? `0${phone.slice(3)}` : phone;
+      const customers: any[] = [];
+      try {
+        customers.push(
+          ...(await v1Rows(
+            `SELECT id, full_name AS name, phone, phone_normalized, 'customer_users' AS source
+             FROM customer_users
+             WHERE phone_normalized IN (?, ?) OR REPLACE(REPLACE(REPLACE(phone, '+', ''), ' ', ''), '-', '') IN (?, ?)
+             LIMIT 5`,
+            `SELECT id, full_name AS name, phone, phone_normalized, 'customer_users' AS source
+             FROM customer_users
+             WHERE phone_normalized IN ($1, $2) OR REPLACE(REPLACE(REPLACE(phone, '+', ''), ' ', ''), '-', '') IN ($3, $4)
+             LIMIT 5`,
+            [localPhone, phone, localPhone, phone]
+          ))
+        );
+      } catch {
+        // Some deployments run the AI adapter before customer portal tables are available.
+      }
+      customers.push(
+        ...(await v1Rows(
+          `SELECT id, name, phone, phone AS phone_normalized, role, 'ai_contacts' AS source
+           FROM ai_contacts
+           WHERE phone IN (?, ?)
+           LIMIT 5`,
+          `SELECT id, name, phone, phone AS phone_normalized, role, 'ai_contacts' AS source
+           FROM ai_contacts
+           WHERE phone IN ($1, $2)
+           LIMIT 5`,
+          [phone, localPhone]
+        ))
+      );
+      const unique = Array.from(new Map(customers.map((item) => [`${item.source}:${item.id}`, item])).values());
+      const status = unique.length === 0 ? 'NOT_FOUND' : unique.length === 1 ? 'FOUND' : 'AMBIGUOUS';
+      res.json(
+        v1Success(
+          'customers.by-phone',
+          correlationId,
+          {
+            status,
+            normalizedPhone: phone,
+            customers: unique,
+            customer: status === 'FOUND' ? unique[0] : null,
+            sourceNote: 'Adapter checks local customer/contact records. Full POS customer-master lookup must be verified in staging.',
+          },
+          startedAt
+        )
+      );
+    })
+  );
+
+  app.get(
+    '/api/v1/ai/conversations/active',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const startedAt = Date.now();
+      const correlationId = req.query.correlationId ?? req.query.correlation_id;
+      const contactId = Number(req.query.contactId ?? req.query.contact_id);
+      const phone = normalizeAiPhone(req.query.customerPhone ?? req.query.customer_phone ?? req.query.phone);
+      const contact =
+        Number.isFinite(contactId) && contactId > 0
+          ? await v1Get('SELECT * FROM ai_contacts WHERE id = ? LIMIT 1', 'SELECT * FROM ai_contacts WHERE id = $1 LIMIT 1', [contactId])
+          : phone
+            ? await v1Get('SELECT * FROM ai_contacts WHERE phone = ? LIMIT 1', 'SELECT * FROM ai_contacts WHERE phone = $1 LIMIT 1', [phone])
+            : null;
+      const conversation = contact ? await findV1ActiveConversation(contact.id, clampText(req.query.channel, 40) || 'whatsapp') : null;
+      res.json(v1Success('ai.conversations.active', correlationId, { found: Boolean(conversation), contact, conversation }, startedAt));
+    })
+  );
+
+  app.post(
+    '/api/v1/ai/conversations',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const startedAt = Date.now();
+      const correlationId = req.body?.correlationId ?? req.body?.correlation_id;
+      const contact = await ensureV1AiContact({
+        phone: req.body?.customerPhone ?? req.body?.customer_phone ?? req.body?.phone,
+        name: req.body?.customerName ?? req.body?.customer_name ?? req.body?.name,
+        language: req.body?.detectedLanguage ?? req.body?.language,
+      });
+      const existing = await findV1ActiveConversation(contact.id, clampText(req.body?.channel, 40) || 'whatsapp');
+      const conversation =
+        existing ||
+        (await createV1Conversation({
+          contactId: contact.id,
+          channel: req.body?.channel ?? 'whatsapp',
+          intent: req.body?.intent ?? 'unknown',
+          priority: req.body?.priority ?? 'normal',
+          branchId: req.body?.branchId ?? req.body?.branch_id,
+        }));
+      res.status(existing ? 200 : 201).json(v1Success('ai.conversations.create', correlationId, { contact, conversation }, startedAt));
+    })
+  );
+
+  app.get(
+    '/api/v1/ai/conversations/:conversationId/messages/recent',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const startedAt = Date.now();
+      const correlationId = req.query.correlationId ?? req.query.correlation_id;
+      const limit = Math.max(1, Math.min(50, Number(req.query.limit ?? 20) || 20));
+      const messages = await v1Rows(
+        `SELECT * FROM ai_messages WHERE conversation_id = ? ORDER BY datetime(created_at) DESC, id DESC LIMIT ?`,
+        `SELECT * FROM ai_messages WHERE conversation_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2`,
+        [Number(req.params.conversationId), limit]
+      );
+      res.json(v1Success('ai.conversations.messages.recent', correlationId, { messages: messages.reverse() }, startedAt));
+    })
+  );
+
+  app.get(
+    '/api/v1/ai/conversations/:conversationId/summary',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const startedAt = Date.now();
+      const correlationId = req.query.correlationId ?? req.query.correlation_id;
+      const summary = await v1Get(
+        'SELECT * FROM conversation_summaries WHERE conversation_id = ? AND deleted_at IS NULL LIMIT 1',
+        'SELECT * FROM conversation_summaries WHERE conversation_id = $1 AND deleted_at IS NULL LIMIT 1',
+        [Number(req.params.conversationId)]
+      );
+      res.json(v1Success('ai.conversations.summary', correlationId, { found: Boolean(summary), summary }, startedAt));
+    })
+  );
+
+  app.get(
+    '/api/v1/ai/conversations/:conversationId/context',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const startedAt = Date.now();
+      const correlationId = req.query.correlationId ?? req.query.correlation_id;
+      const conversation = await v1Get(
+        `SELECT c.*, ac.phone AS contact_phone, ac.name AS contact_name, ac.language AS contact_language
+         FROM ai_conversations c JOIN ai_contacts ac ON ac.id = c.contact_id
+         WHERE c.id = ?
+         LIMIT 1`,
+        `SELECT c.*, ac.phone AS contact_phone, ac.name AS contact_name, ac.language AS contact_language
+         FROM ai_conversations c JOIN ai_contacts ac ON ac.id = c.contact_id
+         WHERE c.id = $1
+         LIMIT 1`,
+        [Number(req.params.conversationId)]
+      );
+      const summary = await v1Get(
+        'SELECT * FROM conversation_summaries WHERE conversation_id = ? AND deleted_at IS NULL LIMIT 1',
+        'SELECT * FROM conversation_summaries WHERE conversation_id = $1 AND deleted_at IS NULL LIMIT 1',
+        [Number(req.params.conversationId)]
+      );
+      res.json(v1Success('ai.conversations.context', correlationId, { conversation, summary }, startedAt));
+    })
+  );
+
+  app.patch(
+    '/api/v1/ai/conversations/:conversationId',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const startedAt = Date.now();
+      const conversation = await aiOperations.updateAiConversation(req.params.conversationId, req.body || {});
+      if (!conversation) {
+        return res.status(404).json(v1Failure('ai.conversations.update', req.body?.correlationId, 'NOT_FOUND', 'Conversation not found.', startedAt));
+      }
+      res.json(v1Success('ai.conversations.update', req.body?.correlationId, { conversation }, startedAt));
+    })
+  );
+
+  app.patch(
+    '/api/v1/ai/conversations/:conversationId/lock',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const startedAt = Date.now();
+      const conversation = await aiOperations.updateAiConversation(req.params.conversationId, {
+        status: 'assigned',
+        assigned_to_phone: req.body?.assignedToPhone ?? req.body?.assigned_to_phone,
+      });
+      if (!conversation) {
+        return res.status(404).json(v1Failure('ai.conversations.lock', req.body?.correlationId, 'NOT_FOUND', 'Conversation not found.', startedAt));
+      }
+      res.json(v1Success('ai.conversations.lock', req.body?.correlationId, { locked: true, conversation }, startedAt));
+    })
+  );
+
+  app.get(
+    '/api/v1/ai/customer-service-agent/prompt',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const startedAt = Date.now();
+      res.json(
+        v1Success(
+          'ai.customer-service-agent.prompt',
+          req.query.correlationId ?? req.query.correlation_id,
+          {
+            prompt:
+              'You are the In & Out Laundry WhatsApp customer-service agent. POS is the source of truth. Never invent prices, order status, compensation, liability, or customer data. Reply in the customer language and escalate high-risk complaints.',
+            version: 'mvp-v1',
+          },
+          startedAt
+        )
+      );
+    })
+  );
+
+  app.get(
+    '/api/v1/knowledge-base/search',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const startedAt = Date.now();
+      const q = clampText(req.query.q ?? req.query.query, 120).toLowerCase();
+      const params = q ? [`%${q}%`] : [];
+      const articles = await v1Rows(
+        q
+          ? `SELECT * FROM ai_knowledge_base WHERE is_active = 1 AND (LOWER(title) LIKE ? OR LOWER(content) LIKE ? OR LOWER(category) LIKE ?) ORDER BY updated_at DESC LIMIT 10`
+          : `SELECT * FROM ai_knowledge_base WHERE is_active = 1 ORDER BY updated_at DESC LIMIT 10`,
+        q
+          ? `SELECT * FROM ai_knowledge_base WHERE is_active = TRUE AND (LOWER(title) LIKE $1 OR LOWER(content) LIKE $2 OR LOWER(category) LIKE $3) ORDER BY updated_at DESC LIMIT 10`
+          : `SELECT * FROM ai_knowledge_base WHERE is_active = TRUE ORDER BY updated_at DESC LIMIT 10`,
+        q ? [params[0], params[0], params[0]] : []
+      );
+      res.json(v1Success('knowledge-base.search', req.query.correlationId ?? req.query.correlation_id, { articles }, startedAt));
+    })
+  );
+
+  app.get(
+    '/api/v1/pos/orders/:orderId/status',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const startedAt = Date.now();
+      const trackedOrder = await aiOperations.trackOrder(
+        req.params.orderId,
+        req.query.customerPhone ?? req.query.customer_phone ?? req.query.phone
+      );
+      if (!trackedOrder) {
+        return res.status(404).json(v1Failure('pos.orders.status', req.query.correlationId, 'NOT_FOUND', 'Order not found or POS unavailable.', startedAt));
+      }
+      res.json(v1Success('pos.orders.status', req.query.correlationId ?? req.query.correlation_id, { order: trackedOrder }, startedAt));
+    })
+  );
+
+  app.get(
+    '/api/v1/customers/:customerId/orders/active',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const startedAt = Date.now();
+      const customerId = clampText(req.params.customerId, 80);
+      let orders: any[] = [];
+      try {
+        orders = await v1Rows(
+          `SELECT * FROM customer_orders
+           WHERE customer_id = ? AND LOWER(COALESCE(status, '')) NOT IN ('delivered', 'cancelled', 'closed')
+           ORDER BY datetime(COALESCE(updated_at, created_at)) DESC
+           LIMIT 20`,
+          `SELECT * FROM customer_orders
+           WHERE customer_id = $1 AND LOWER(COALESCE(status, '')) NOT IN ('delivered', 'cancelled', 'closed')
+           ORDER BY COALESCE(updated_at, created_at) DESC
+           LIMIT 20`,
+          [customerId]
+        );
+      } catch {
+        orders = [];
+      }
+      res.json(
+        v1Success(
+          'customers.orders.active',
+          req.query.correlationId ?? req.query.correlation_id,
+          {
+            customerId,
+            orders,
+            status: orders.length === 0 ? 'NO_ACTIVE_ORDERS' : orders.length === 1 ? 'ONE_ACTIVE_ORDER' : 'MULTIPLE_ACTIVE_ORDERS',
+          },
+          startedAt
+        )
+      );
+    })
+  );
+
+  app.post(
+    '/api/v1/notifications/whatsapp',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const startedAt = Date.now();
+      const correlationId = req.body?.correlationId ?? req.body?.correlation_id;
+      const rawTo = req.body?.to ?? req.body?.recipientPhone ?? req.body?.recipient_phone;
+      if (Array.isArray(rawTo) || String(rawTo ?? '').includes(',') || String(rawTo ?? '').includes(';')) {
+        return res.status(400).json(v1Failure('notifications.whatsapp', correlationId, 'ONE_RECIPIENT_REQUIRED', 'Send one WhatsApp recipient per request.', startedAt));
+      }
+      const to = normalizeAiPhone(rawTo);
+      const message = clampText(req.body?.message ?? req.body?.text ?? req.body?.body, 4096);
+      if (!to || !message) {
+        return res.status(400).json(v1Failure('notifications.whatsapp', correlationId, 'VALIDATION_ERROR', 'Valid recipient and message are required.', startedAt));
+      }
+      const idempotencyKey = clampText(req.body?.idempotencyKey ?? req.body?.idempotency_key, 160);
+      if (idempotencyKey) {
+        const existing = await v1Get(
+          'SELECT * FROM notification_logs WHERE idempotency_key = ? LIMIT 1',
+          'SELECT * FROM notification_logs WHERE idempotency_key = $1 LIMIT 1',
+          [idempotencyKey]
+        );
+        if (existing) {
+          return res.json(v1Success('notifications.whatsapp', correlationId, { duplicate: true, notification: existing }, startedAt));
+        }
+      }
+      let providerResponse: any = null;
+      let status = 'sent';
+      let errorMessage: string | null = null;
+      try {
+        providerResponse = await aiOperations.sendWhatsAppText(to, message);
+      } catch (error: any) {
+        status = 'failed';
+        errorMessage = error?.message || String(error);
+      }
+      await v1Run(
+        `INSERT INTO notification_logs (
+          conversation_id, contact_id, channel, recipient_phone, message_type, provider_message_id,
+          idempotency_key, status, error_message, metadata, sent_at, failed_at, created_at, updated_at
+        ) VALUES (?, ?, 'whatsapp', ?, 'text', ?, ?, ?, ?, ?, CASE WHEN ? = 'sent' THEN CURRENT_TIMESTAMP ELSE NULL END,
+          CASE WHEN ? = 'failed' THEN CURRENT_TIMESTAMP ELSE NULL END, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        `INSERT INTO notification_logs (
+          conversation_id, contact_id, channel, recipient_phone, message_type, provider_message_id,
+          idempotency_key, status, error_message, metadata, sent_at, failed_at, created_at, updated_at
+        ) VALUES ($1, $2, 'whatsapp', $3, 'text', $4, $5, $6, $7, $8,
+          CASE WHEN $9 = 'sent' THEN CURRENT_TIMESTAMP ELSE NULL END,
+          CASE WHEN $10 = 'failed' THEN CURRENT_TIMESTAMP ELSE NULL END, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [
+          Number(req.body?.conversationId ?? req.body?.conversation_id) || null,
+          Number(req.body?.contactId ?? req.body?.contact_id) || null,
+          to,
+          providerResponse?.messages?.[0]?.id ?? providerResponse?.id ?? null,
+          idempotencyKey || null,
+          status,
+          errorMessage,
+          jsonForDb({ correlation_id: correlationId, source: 'api_v1_notifications_whatsapp' }),
+          status,
+          status,
+        ]
+      );
+      if (status === 'failed') {
+        return res.status(502).json(v1Failure('notifications.whatsapp', correlationId, 'WHATSAPP_UNAVAILABLE', errorMessage || 'WhatsApp send failed.', startedAt));
+      }
+      res.json(v1Success('notifications.whatsapp', correlationId, { duplicate: false, providerResponse }, startedAt));
+    })
+  );
+
+  app.post(
+    '/api/v1/ai/messages',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const startedAt = Date.now();
+      const input = req.body?.message && typeof req.body.message === 'object' ? req.body.message : req.body;
+      const message = await insertV1AiMessage(input || {});
+      res.status(201).json(v1Success('ai.messages.create', req.body?.correlationId ?? req.body?.correlation_id, { message }, startedAt));
+    })
+  );
+
+  app.post(
+    '/api/v1/ai/tool-calls/batch',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const startedAt = Date.now();
+      const correlationId = req.body?.correlationId ?? req.body?.correlation_id;
+      const toolCalls = Array.isArray(req.body?.toolCalls ?? req.body?.tool_calls) ? req.body?.toolCalls ?? req.body?.tool_calls : [];
+      for (const call of toolCalls) {
+        await v1Run(
+          `INSERT INTO ai_tool_calls (
+            conversation_id, message_id, correlation_id, tool_call_id, tool_name, intent, status,
+            idempotency_key, request_payload, response_payload, error_code, error_message,
+            started_at, completed_at, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          `INSERT INTO ai_tool_calls (
+            conversation_id, message_id, correlation_id, tool_call_id, tool_name, intent, status,
+            idempotency_key, request_payload, response_payload, error_code, error_message,
+            started_at, completed_at, created_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          [
+            Number(call?.conversationId ?? call?.conversation_id) || null,
+            Number(call?.messageId ?? call?.message_id) || null,
+            clampText(call?.correlationId ?? call?.correlation_id ?? correlationId, 120) || null,
+            clampText(call?.toolCallId ?? call?.tool_call_id, 120) || null,
+            clampText(call?.toolName ?? call?.tool_name, 120) || 'unknown_tool',
+            clampText(call?.intent, 80) || null,
+            clampText(call?.status, 40) || 'succeeded',
+            clampText(call?.idempotencyKey ?? call?.idempotency_key, 160) || null,
+            jsonForDb(call?.requestPayload ?? call?.request_payload ?? {}),
+            jsonForDb(call?.responsePayload ?? call?.response_payload ?? {}),
+            clampText(call?.errorCode ?? call?.error_code, 80) || null,
+            clampText(call?.errorMessage ?? call?.error_message, 1000) || null,
+          ]
+        );
+      }
+      res.status(201).json(v1Success('ai.tool-calls.batch', correlationId, { saved: toolCalls.length }, startedAt));
+    })
+  );
+
+  app.post(
+    '/api/v1/observability/errors',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const startedAt = Date.now();
+      const correlationId = req.body?.correlationId ?? req.body?.correlation_id;
+      await v1Run(
+        `INSERT INTO ai_tool_calls (
+          correlation_id, tool_name, status, error_code, error_message, request_payload, started_at, completed_at, created_at
+        ) VALUES (?, 'n8n-central-error-handler', 'failed', ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        `INSERT INTO ai_tool_calls (
+          correlation_id, tool_name, status, error_code, error_message, request_payload, started_at, completed_at, created_at
+        ) VALUES ($1, 'n8n-central-error-handler', 'failed', $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [
+          clampText(correlationId, 120) || null,
+          clampText(req.body?.category ?? req.body?.errorCode ?? req.body?.error_code, 80) || 'WORKFLOW_ERROR',
+          clampText(req.body?.message ?? req.body?.errorMessage ?? req.body?.error_message, 1000) || 'Workflow error',
+          jsonForDb({ workflow: req.body?.workflow, node: req.body?.node, safe: true }),
+        ]
+      );
+      res.status(201).json(v1Success('observability.errors', correlationId, { logged: true }, startedAt));
+    })
+  );
 
   app.get('/api/webhooks/whatsapp', (req, res) => {
     const challenge = aiOperations.verifyWebhook(req.query);
@@ -13924,6 +14631,26 @@ async function startServer() {
       const pickup = await aiOperations.updatePickupRequest(req.params.id, req.body);
       if (!pickup) return res.status(404).json({ error: 'Pickup request not found.' });
       res.json(pickup);
+    })
+  );
+
+  app.post(
+    '/api/pickups/:id/assign-driver',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const result = await aiOperations.assignDriverToPickupRequest(req.params.id, req.body || {});
+      if (!result) return res.status(404).json({ ok: false, error: 'Pickup request not found.' });
+      res.status(result.status === 'assigned' ? 201 : 200).json({ ok: true, ...result });
+    })
+  );
+
+  app.patch(
+    '/api/driver-assignments/:id/status',
+    requireAiApiKeyIfConfigured,
+    asyncHandler(async (req: any, res: any) => {
+      const result = await aiOperations.updateDriverAssignmentStatus(req.params.id, req.body || {});
+      if (!result) return res.status(404).json({ ok: false, error: 'Driver assignment not found.' });
+      res.json({ ok: true, ...result });
     })
   );
 
