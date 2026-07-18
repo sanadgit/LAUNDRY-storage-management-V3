@@ -1,0 +1,19 @@
+{
+  "correlationId": "corr_voice_60_clear_sample",
+  "messageId": "wamid.sample.voice.60.clear",
+  "conversationId": "conv_sample_voice",
+  "customerId": "cust_sample_001",
+  "customerPhone": "971500000000",
+  "detectedLanguage": "ar",
+  "intent": "voice_message",
+  "payload": {
+    "isSampleData": true,
+    "mediaId": "media_sample_audio_clear",
+    "wamid": "wamid.sample.voice.60.clear",
+    "messageType": "audio",
+    "mockMediaUrl": "https://lookaside.fbsbx.com/whatsapp_business/attachments/sample-audio.ogg",
+    "mockMimeType": "audio/ogg",
+    "mockFileSize": 24576,
+    "mockTranscription": "عايز أعرف حالة الطلب 256719"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "correlationId": "corr_complaint_handoff_41_sample",
+  "messageId": "wamid.sample.complaint.41",
+  "conversationId": "conv_sample_complaint_handoff",
+  "customerId": "cust_sample_001",
+  "customerPhone": "971500000000",
+  "detectedLanguage": "en",
+  "intent": "notify_branch_manager",
+  "payload": {
+    "isSampleData": true,
+    "complaintId": "complaint_sample_001",
+    "branchId": "branch_sample_configured",
+    "managerPhone": "971500000000",
+    "safeSummary": "Sample complaint requires manager review."
+  }
+}

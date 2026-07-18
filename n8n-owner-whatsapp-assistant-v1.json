@@ -1,0 +1,84 @@
+{
+  "name": "Owner WhatsApp Assistant - Reports V1",
+  "nodes": [
+    {
+      "id": "owner-assistant-setup-note",
+      "name": "Owner Assistant Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -360
+      ],
+      "parameters": {
+        "content": "## Owner WhatsApp Assistant - V1\n\nمساعد واتساب للمالك: يستقبل أوامر واتساب ويرد بتقارير العمليات لكل الأفرع أو فرع محدد.\n\nWebhook URL after activation:\nhttps://YOUR_N8N_DOMAIN/webhook/owner-whatsapp-assistant\n\nRequired n8n Variables:\n- TEXTCONNECT_SECRET\n- TEXTCONNECT_ACCOUNT\n- REPORT_APP_BASE_URL\n- REPORT_API_TOKEN\n- REPORT_OWNER_WHATSAPP\n\nOptional:\n- OWNER_ASSISTANT_ALLOWED_WHATSAPP comma-separated numbers\n\nSupported commands:\n- تقرير اليوم\n- تقرير أمس\n- تقرير الأسبوع\n- تقرير الشهر\n- مبيعات اليوم\n- مصروفات الأسبوع\n- الكاش اليوم\n- قارن الفروع اليوم\n- تقرير فرع MBZ اليوم\n- مساعدة\n\nSecurity:\nOnly REPORT_OWNER_WHATSAPP or OWNER_ASSISTANT_ALLOWED_WHATSAPP can receive replies."
+      }
+    },
+    {
+      "id": "owner-whatsapp-webhook",
+      "name": "Owner WhatsApp Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -700,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "owner-whatsapp-assistant",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "owner-whatsapp-assistant-brain",
+      "name": "Owner WhatsApp Assistant Brain",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -380,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const vars = (typeof $vars === 'object' && $vars) ? $vars : {};\n\nconst trim = (value, fallback = '') => String(value ?? fallback).trim();\nconst compact = (value, max = 3500) => {\n  const text = trim(value);\n  return text.length > max ? text.slice(0, max - 3) + '...' : text;\n};\nconst digits = (value) => trim(value).replace(/[^0-9]/g, '');\nconst normalizePhone = (value) => {\n  let phone = digits(value);\n  if (phone.startsWith('00')) phone = phone.slice(2);\n  if (phone.startsWith('0') && phone.length === 10) phone = '971' + phone.slice(1);\n  return phone;\n};\nconst money = (value) => Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });\nconst number = (value) => Number(value || 0).toLocaleString('en-US');\nconst arabic = (value) => trim(value).replace(/[إأآا]/g, 'ا').replace(/[ى]/g, 'ي').replace(/[ة]/g, 'ه').toLowerCase();\nconst pad = (value) => String(value).padStart(2, '0');\nconst fmt = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;\nconst dubaiNow = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Dubai' }));\n\nfunction getPayload() {\n  const body = $json.body && typeof $json.body === 'object' ? $json.body : {};\n  const query = $json.query && typeof $json.query === 'object' ? $json.query : {};\n  return { ...query, ...body, raw: $json };\n}\n\nfunction firstText(...values) {\n  for (const value of values) {\n    if (typeof value === 'string' && value.trim()) return value.trim();\n  }\n  return '';\n}\n\nfunction incomingMessage(payload) {\n  return firstText(\n    payload.message,\n    payload.text,\n    payload.body,\n    payload['data[message]'],\n    payload['data[text]'],\n    payload.caption,\n    payload.content,\n    payload.data?.message,\n    payload.data?.text,\n    payload.messages?.[0]?.text?.body,\n    payload.messages?.[0]?.body,\n    payload.raw?.message,\n    payload.raw?.text\n  );\n}\n\nfunction incomingSender(payload) {\n  return normalizePhone(firstText(\n    payload.sender,\n    payload.from,\n    payload.phone,\n    payload.msisdn,\n    payload.recipient,\n    payload['data[from]'],\n    payload['data[sender]'],\n    payload['data[phone]'],\n    payload['data[number]'],\n    payload['data[recipient]'],\n    payload.data?.sender,\n    payload.data?.from,\n    payload.messages?.[0]?.from,\n    payload.raw?.sender,\n    payload.raw?.from\n  ));\n}\n\nfunction branchFromText(normalized) {\n  if (/\\bmbz\\b|محمد بن زايد|مصفحه? بن زايد|بني ياس/.test(normalized)) return { id: '2', name: 'MBZ' };\n  if (/musaffah|mussafah|مصفح/.test(normalized)) return { id: '3', name: 'Musaffah' };\n  if (/falah|الفلاح|فلح/.test(normalized)) return { id: '1', name: 'Al Falah' };\n  if (/riyadh|رياض|الرياض/.test(normalized)) return { id: '4', name: 'Al Riyadh' };\n  return null;\n}\n\nfunction periodFromText(normalized) {\n  const now = dubaiNow();\n  if (/امس|yesterday/.test(normalized)) {\n    const date = new Date(now);\n    date.setDate(date.getDate() - 1);\n    return { type: 'daily', from_date: fmt(date), to_date: fmt(date), label: fmt(date) };\n  }\n  if (/اسبوع|الاسبوع|weekly|week/.test(normalized)) {\n    const end = new Date(now);\n    const start = new Date(now);\n    start.setDate(end.getDate() - 6);\n    return { type: 'weekly', from_date: fmt(start), to_date: fmt(end), label: `${fmt(start)} إلى ${fmt(end)}` };\n  }\n  if (/الشهر الماضي|last month/.test(normalized)) {\n    const firstThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);\n    const lastPrevMonth = new Date(firstThisMonth);\n    lastPrevMonth.setDate(0);\n    const firstPrevMonth = new Date(lastPrevMonth.getFullYear(), lastPrevMonth.getMonth(), 1);\n    return { type: 'monthly', from_date: fmt(firstPrevMonth), to_date: fmt(lastPrevMonth), label: `${fmt(firstPrevMonth)} إلى ${fmt(lastPrevMonth)}` };\n  }\n  if (/شهر|الشهري|monthly|month/.test(normalized)) {\n    const start = new Date(now.getFullYear(), now.getMonth(), 1);\n    return { type: 'monthly', from_date: fmt(start), to_date: fmt(now), label: `${fmt(start)} إلى ${fmt(now)}` };\n  }\n  return { type: 'daily', from_date: fmt(now), to_date: fmt(now), label: fmt(now) };\n}\n\nfunction parseIntent(text) {\n  const normalized = arabic(text);\n  if (!normalized || /^(help|مساعده|الاوامر|اوامر|menu|start)$/i.test(normalized)) {\n    return { action: 'help', topic: 'help', period: periodFromText(normalized), branch: null };\n  }\n  const branch = branchFromText(normalized);\n  const period = periodFromText(normalized);\n  if (/عميل|customer|زبون|رقم عميل/.test(normalized)) return { action: 'placeholder', topic: 'customer', period, branch };\n  if (/فاتوره غير مدفوعه|فواتير|invoice|unpaid/.test(normalized)) return { action: 'placeholder', topic: 'invoice', period, branch };\n  if (/مشتريات|purchase|مورد/.test(normalized)) return { action: 'placeholder', topic: 'purchase', period, branch };\n  if (/اعتماد|موافقات|pending|approval/.test(normalized)) return { action: 'placeholder', topic: 'approval', period, branch };\n  if (/مصروف|مصروفات|expense|expenses/.test(normalized)) return { action: 'report', topic: 'expenses', period, branch };\n  if (/كاش|cash|رصيد|صافي/.test(normalized)) return { action: 'report', topic: 'cash', period, branch };\n  if (/مبيعات|ايراد|ايرادات|sales|revenue/.test(normalized)) return { action: 'report', topic: 'sales', period, branch };\n  if (/قارن|مقارنه|compare|افضل فرع|اعلى فرع/.test(normalized)) return { action: 'report', topic: 'branches', period, branch };\n  if (/تقرير|report|اليوم|امس|اسبوع|شهر/.test(normalized)) return { action: 'report', topic: 'summary', period, branch };\n  return { action: 'unknown', topic: 'unknown', period, branch };\n}\n\nfunction helpText() {\n  return [\n    'مساعد المالك على واتساب',\n    '',\n    'الأوامر الجاهزة الآن:',\n    '- تقرير اليوم',\n    '- تقرير أمس',\n    '- تقرير الأسبوع',\n    '- تقرير الشهر',\n    '- مبيعات اليوم',\n    '- مصروفات الأسبوع',\n    '- الكاش اليوم',\n    '- قارن الفروع اليوم',\n    '- تقرير فرع MBZ اليوم',\n    '',\n    'أوامر سيتم ربطها في المرحلة التالية:',\n    '- ابحث عن العميل 9715xxxxxxx',\n    '- الفواتير غير المدفوعة',\n    '- المشتريات المعلقة',\n    '- الموافقات المطلوبة',\n  ].join('\\n');\n}\n\nfunction placeholderText(topic) {\n  const labels = {\n    customer: 'بحث العملاء وحساب العميل',\n    invoice: 'الفواتير غير المدفوعة',\n    purchase: 'المشتريات والموردين',\n    approval: 'الموافقات المعلقة',\n  };\n  return [\n    `تم فهم الطلب: ${labels[topic] || topic}`,\n    '',\n    'هذه الوظيفة موجودة في خطة المساعد، لكن V1 مربوط الآن بالتقارير المالية والتشغيلية فقط.',\n    'الخطوة التالية: أربط هذا الأمر بالـ POS/Subworkflow المناسب ثم أجعله يرد بنفس أسلوب واتساب.',\n    '',\n    'اكتب: مساعدة',\n  ].join('\\n');\n}\n\nfunction reportTitle(intent) {\n  const branch = intent.branch ? ` - فرع ${intent.branch.name}` : ' - كل الأفرع';\n  if (intent.topic === 'sales') return `💰 مبيعات ${intent.period.type === 'monthly' ? 'الشهر' : intent.period.type === 'weekly' ? 'الأسبوع' : 'اليوم'}${branch}`;\n  if (intent.topic === 'expenses') return `📉 مصروفات ${intent.period.type === 'monthly' ? 'الشهر' : intent.period.type === 'weekly' ? 'الأسبوع' : 'اليوم'}${branch}`;\n  if (intent.topic === 'cash') return `💵 الكاش ${intent.period.type === 'monthly' ? 'للشهر' : intent.period.type === 'weekly' ? 'للأسبوع' : 'لليوم'}${branch}`;\n  if (intent.topic === 'branches') return `🏪 مقارنة الفروع${branch}`;\n  return `${intent.period.type === 'monthly' ? '📆 التقرير الشهري' : intent.period.type === 'weekly' ? '📌 التقرير الأسبوعي' : '📊 التقرير اليومي'}${branch}`;\n}\n\nfunction branchLines(report) {\n  const rows = Array.isArray(report.branches) ? report.branches.slice() : [];\n  return rows\n    .sort((a, b) => Number(b.revenue || 0) - Number(a.revenue || 0))\n    .slice(0, 5)\n    .map((row, index) => `${index + 1}. ${row.branch || row.branch_id}: ${money(row.revenue)} AED | طلبات ${number(row.orders)} | كاش ${money(row.cash)}`);\n}\n\nfunction expenseLines(report) {\n  const expenses = Array.isArray(report.expenses) ? report.expenses : [];\n  return expenses\n    .slice(0, 5)\n    .map((item, index) => `${index + 1}. ${item.category || item.name || item.expense || 'Expense'}: ${money(item.amount || item.total || item.value)} AED`);\n}\n\nfunction buildReportMessage(intent, report) {\n  const metrics = report.metrics || {};\n  const link = trim(report.share_url || report.operations_report_link || '');\n  const rows = Array.isArray(report.branches) ? report.branches.slice() : [];\n  const best = rows.sort((a, b) => Number(b.revenue || 0) - Number(a.revenue || 0))[0];\n  const common = [\n    reportTitle(intent),\n    `📅 الفترة: ${intent.period.label || report.date_label || ''}`,\n    '',\n  ];\n\n  if (intent.topic === 'sales') {\n    return compact([\n      ...common,\n      `💰 إجمالي الإيرادات: ${money(metrics.total_revenue)} AED`,\n      `🧾 عدد الطلبات: ${number(metrics.total_orders)}`,\n      `📦 القطع/الخدمات: ${number(metrics.items_processed)}`,\n      `📊 متوسط الطلب: ${money(metrics.avg_order_value)} AED`,\n      best ? `🏆 أعلى فرع: ${best.branch} (${money(best.revenue)} AED)` : '',\n      '',\n      ...branchLines(report),\n      '',\n      link ? `📎 رابط التقرير:\\n${link}` : '',\n    ].filter(Boolean).join('\\n'));\n  }\n\n  if (intent.topic === 'expenses') {\n    const lines = expenseLines(report);\n    return compact([\n      ...common,\n      `📉 إجمالي المصروفات: ${money(metrics.total_expenses)} AED`,\n      `💸 كاش خارج: ${money(metrics.total_cash_out)} AED`,\n      `💵 صافي الكاش: ${money(metrics.closing_balance)} AED`,\n      lines.length ? '' : '',\n      ...lines,\n      '',\n      link ? `📎 رابط التقرير:\\n${link}` : '',\n    ].filter(Boolean).join('\\n'));\n  }\n\n  if (intent.topic === 'cash') {\n    return compact([\n      ...common,\n      `💵 كاش داخل: ${money(metrics.total_cash_in)} AED`,\n      `💸 كاش خارج: ${money(metrics.total_cash_out)} AED`,\n      `📉 المصروفات: ${money(metrics.total_expenses)} AED`,\n      `✅ صافي الكاش: ${money(metrics.closing_balance)} AED`,\n      '',\n      ...branchLines(report),\n      '',\n      link ? `📎 رابط التقرير:\\n${link}` : '',\n    ].filter(Boolean).join('\\n'));\n  }\n\n  if (intent.topic === 'branches') {\n    return compact([\n      ...common,\n      best ? `🏆 أعلى فرع: ${best.branch} (${money(best.revenue)} AED)` : 'لا توجد بيانات فروع.',\n      '',\n      ...branchLines(report),\n      '',\n      `💰 الإجمالي: ${money(metrics.total_revenue)} AED`,\n      `🧾 الطلبات: ${number(metrics.total_orders)}`,\n      link ? `📎 رابط التقرير:\\n${link}` : '',\n    ].filter(Boolean).join('\\n'));\n  }\n\n  return compact([\n    ...common,\n    `🏪 النطاق: ${intent.branch ? intent.branch.name : 'كل الأفرع'}`,\n    `💰 الإيرادات: ${money(metrics.total_revenue)} AED`,\n    `🧾 عدد الطلبات: ${number(metrics.total_orders)}`,\n    `📉 المصروفات: ${money(metrics.total_expenses)} AED`,\n    `💵 صافي الكاش: ${money(metrics.closing_balance)} AED`,\n    best ? `🏆 أعلى فرع: ${best.branch}` : '',\n    '',\n    link ? `📎 التقرير جاهز للفتح مباشرة:\\n${link}` : '📎 رابط التقرير غير جاهز.',\n  ].filter(Boolean).join('\\n'));\n}\n\nasync function sendWhatsApp(to, message) {\n  const secret = trim(vars.TEXTCONNECT_SECRET);\n  const account = trim(vars.TEXTCONNECT_ACCOUNT);\n  if (!secret) throw new Error('TEXTCONNECT_SECRET is missing in n8n Variables.');\n  if (!account) throw new Error('TEXTCONNECT_ACCOUNT is missing in n8n Variables.');\n  return await this.helpers.httpRequest({\n    method: 'POST',\n    url: 'https://textconnect.aipsoft.com/api/send/whatsapp',\n    qs: {\n      secret,\n      account,\n      recipient: to,\n      type: 'text',\n      message,\n    },\n    json: true,\n    timeout: 120000,\n  });\n}\n\nasync function generateReport(intent) {\n  const base = trim(vars.REPORT_APP_BASE_URL, 'https://www.inandoutuae.com').replace(/\\/+$/, '');\n  const token = trim(vars.REPORT_API_TOKEN || vars.N8N_REPORT_API_TOKEN);\n  if (!token) throw new Error('REPORT_API_TOKEN is missing in n8n Variables.');\n  const body = {\n    report_type: intent.period.type,\n    from_date: intent.period.from_date,\n    to_date: intent.period.to_date,\n    date: intent.period.to_date,\n    save_snapshot: '1',\n  };\n  if (intent.branch?.id) body.branch_ids = intent.branch.id;\n  return await this.helpers.httpRequest({\n    method: 'POST',\n    url: base + '/api/reports/daily-operations',\n    headers: { 'X-Report-Api-Key': token },\n    body,\n    json: true,\n    timeout: 300000,\n  });\n}\n\nconst payload = getPayload();\nconst text = incomingMessage(payload);\nconst owner = normalizePhone(vars.REPORT_OWNER_WHATSAPP || '971568720885');\nconst webhookSecret = trim(vars.TEXTCONNECT_INCOMING_SECRET || vars.TEXTCONNECT_SECRET);\nconst incomingSecret = trim(payload.secret || payload['data[secret]']);\nconst sender = incomingSender(payload) || (incomingSecret && webhookSecret && incomingSecret === webhookSecret ? owner : '');\nconst allowed = trim(vars.OWNER_ASSISTANT_ALLOWED_WHATSAPP || owner)\n  .split(',')\n  .map(normalizePhone)\n  .filter(Boolean);\nconst recipient = sender || owner;\n\nif (!sender) {\n  return [{ json: { ok: true, ignored: 'missing_sender', message: text, hint: 'TextConnect did not send the sender phone. Add data[from] in webhook settings or set TEXTCONNECT_INCOMING_SECRET to allow owner fallback.', payload } }];\n}\nif (allowed.length && !allowed.includes(sender)) {\n  return [{ json: { ok: true, ignored: 'unauthorized_sender', sender } }];\n}\n\nconst intent = parseIntent(text);\nlet reply = '';\nlet report = null;\n\nif (intent.action === 'help') {\n  reply = helpText();\n} else if (intent.action === 'placeholder') {\n  reply = placeholderText(intent.topic);\n} else if (intent.action === 'report') {\n  report = await generateReport.call(this, intent);\n  reply = buildReportMessage(intent, report);\n} else {\n  reply = [\n    'لم أفهم الطلب بشكل كافي.',\n    '',\n    'اكتب مثلاً:',\n    '- تقرير اليوم',\n    '- مبيعات فرع MBZ اليوم',\n    '- مصروفات الأسبوع',\n    '- قارن الفروع اليوم',\n    '',\n    'أو اكتب: مساعدة',\n  ].join('\\n');\n}\n\nconst whatsappResult = await sendWhatsApp.call(this, recipient, reply);\nreturn [{ json: { ok: true, sender, recipient, text, intent, reply, report_id: report?.report_id || '', whatsapp_result: whatsappResult } }];"
+      }
+    }
+  ],
+  "connections": {
+    "Owner WhatsApp Webhook": {
+      "main": [
+        [
+          {
+            "node": "Owner WhatsApp Assistant Brain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "versionId": "owner-whatsapp-assistant-reports-v1",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "laundry"
+    },
+    {
+      "name": "whatsapp"
+    },
+    {
+      "name": "owner"
+    },
+    {
+      "name": "reports"
+    }
+  ]
+}

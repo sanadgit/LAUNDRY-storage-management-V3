@@ -1,0 +1,560 @@
+{
+  "name": "InOut AI - 91 Retry Queue",
+  "nodes": [
+    {
+      "id": "contract-note",
+      "name": "Input Output Contract",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -300
+      ],
+      "parameters": {
+        "content": "## Retry Queue\n\nLoads retry record, enforces retry limits, calculates exponential backoff, executes the original idempotent action, marks success, increments retry count, or escalates permanent failure.\n\nInput: Retry record id or safe retry payload with component, operation, idempotency key, attempt count, and correlation id.\nOutput: { success: true, completed: boolean, retryScheduled: boolean, escalated: boolean }\n\nShared Input Contract:\n```json\n{\n  \"correlationId\": \"\",\n  \"messageId\": \"\",\n  \"conversationId\": \"\",\n  \"customerId\": \"\",\n  \"customerPhone\": \"\",\n  \"detectedLanguage\": \"\",\n  \"intent\": \"\",\n  \"payload\": {}\n}\n```\n\nShared Output Contract:\n```json\n{\n  \"success\": true,\n  \"status\": \"SUCCESS\",\n  \"data\": {},\n  \"error\": null,\n  \"meta\": {\n    \"correlationId\": \"\",\n    \"workflow\": \"\",\n    \"durationMs\": 0\n  }\n}\n```\n\nRequired fields:\n- correlationId\n- workflowExecutionId\n- idempotencyKey when writing\n\nRules:\n- Retry only idempotent actions with an idempotency key.\n- Use exponential backoff and cap maximum attempts.\n- Move exhausted or permanent failures to dead-letter queue.\n- Never retry authorization, validation, or unsafe payment/POS writes blindly."
+      }
+    },
+    {
+      "id": "workflow-input",
+      "name": "Workflow Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -680,
+        20
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "load-retry-record",
+      "name": "Load Retry Record",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1040,
+        20
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/retry-records/' + encodeURIComponent($json.retryRecordId || $json.retry_record_id || $json.job_id || 'inline')'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "retry-limit-reached",
+      "name": "Retry Limit Reached?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -780,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "limit-reached",
+              "leftValue": "={{Number($json.body?.data?.attempt || $(\"Workflow Input\").first().json.attempt || 0) >= Number($json.body?.data?.maxAttempts || $(\"Workflow Input\").first().json.maxAttempts || $vars.N8N_RETRY_MAX_ATTEMPTS || 5)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "calculate-backoff",
+      "name": "Calculate Backoff",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -520,
+        -80
+      ],
+      "parameters": {
+        "jsCode": "const input = $('Workflow Input').first().json;\nconst record = $('Load Retry Record').first().json.body?.data || input;\nconst attempt = Number(record.attempt || input.attempt || 0);\nconst baseMs = Number($vars.N8N_RETRY_BASE_MS || 60000);\nconst maxMs = Number($vars.N8N_RETRY_MAX_BACKOFF_MS || 900000);\nconst delayMs = Math.min(maxMs, baseMs * Math.pow(2, attempt));\nreturn [{ json: { ...record, retryRecordId: record.retryRecordId || record.job_id || input.retryRecordId || input.job_id || '', attempt, delayMs, nextAttempt: attempt + 1, idempotencyKey: record.idempotencyKey || record.idempotency_key || input.idempotencyKey || input.idempotency_key, correlationId: record.correlationId || record.correlation_id || input.correlationId || input.correlation_id || 'corr_' + Date.now() } }];"
+      }
+    },
+    {
+      "id": "wait",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -260,
+        -80
+      ],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{Math.max(1, Math.ceil($json.delayMs / 1000))}}",
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "execute-original-action",
+      "name": "Execute Original Action",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        -80
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/retry-records/' + encodeURIComponent($json.retryRecordId || 'inline') + '/execute'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { operation: $json.operation, component: $json.component, payloadRef: $json.payloadRef || $json.payload_ref || null, safePayload: $json.safePayload || null, idempotencyKey: $json.idempotencyKey, attempt: $json.nextAttempt, correlationId: $json.correlationId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 120000
+        }
+      }
+    },
+    {
+      "id": "retry-successful",
+      "name": "Retry Successful?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        260,
+        -80
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "retry-ok",
+              "leftValue": "={{$json.statusCode >= 200 && $json.statusCode < 300 && $json.body?.ok !== false}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "mark-completed",
+      "name": "Mark Completed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        -160
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/retry-records/' + encodeURIComponent($('Calculate Backoff').first().json.retryRecordId || 'inline') + '/completed'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { status: 'COMPLETED', attempt: $('Calculate Backoff').first().json.nextAttempt, correlationId: $('Calculate Backoff').first().json.correlationId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "increment-retry-count",
+      "name": "Increment Retry Count",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        20
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/retry-records/' + encodeURIComponent($('Calculate Backoff').first().json.retryRecordId || 'inline') + '/attempts'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { status: 'PENDING', attempt: $('Calculate Backoff').first().json.nextAttempt, nextRunDelayMs: $('Calculate Backoff').first().json.delayMs, lastErrorCode: $json.body?.error?.code || $json.errorCode || 'RETRY_FAILED', correlationId: $('Calculate Backoff').first().json.correlationId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "escalate-permanent-failure",
+      "name": "Escalate Permanent Failure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        20
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/dead-letter'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { sourceComponent: $('Calculate Backoff').first().json.component || $('Workflow Input').first().json.component || 'retry_worker', operation: $('Calculate Backoff').first().json.operation || $('Workflow Input').first().json.operation || 'unknown', errorCode: $json.body?.error?.code || $('Workflow Input').first().json.errorCode || 'RETRY_EXHAUSTED', attempts: $('Calculate Backoff').first().json.nextAttempt || $('Workflow Input').first().json.attempt || 0, payloadRef: $('Calculate Backoff').first().json.payloadRef || $('Workflow Input').first().json.payloadRef || null, needsHumanReview: true, correlationId: $('Calculate Backoff').first().json.correlationId || $('Workflow Input').first().json.correlationId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "return-result",
+      "name": "Return Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1040,
+        20
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "success",
+              "name": "success",
+              "type": "boolean",
+              "value": "={{$json.statusCode ? ($json.statusCode >= 200 && $json.statusCode < 300 && $json.body?.ok !== false) : false}}"
+            },
+            {
+              "id": "completed",
+              "name": "completed",
+              "type": "boolean",
+              "value": "={{Boolean((($items(\"Mark Completed\", 0, 0)[0] || {}).json || {}).body?.ok)}}"
+            },
+            {
+              "id": "retryScheduled",
+              "name": "retryScheduled",
+              "type": "boolean",
+              "value": "={{Boolean((($items(\"Increment Retry Count\", 0, 0)[0] || {}).json || {}).body?.ok)}}"
+            },
+            {
+              "id": "escalated",
+              "name": "escalated",
+              "type": "boolean",
+              "value": "={{Boolean((($items(\"Escalate Permanent Failure\", 0, 0)[0] || {}).json || {}).body?.ok)}}"
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$(\"Calculate Backoff\").first().json.correlationId || $(\"Workflow Input\").first().json.correlationId}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Workflow Input": {
+      "main": [
+        [
+          {
+            "node": "Load Retry Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Retry Record": {
+      "main": [
+        [
+          {
+            "node": "Retry Limit Reached?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry Limit Reached?": {
+      "main": [
+        [
+          {
+            "node": "Escalate Permanent Failure",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Calculate Backoff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Backoff": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Execute Original Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Original Action": {
+      "main": [
+        [
+          {
+            "node": "Retry Successful?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry Successful?": {
+      "main": [
+        [
+          {
+            "node": "Mark Completed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Increment Retry Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Completed": {
+      "main": [
+        [
+          {
+            "node": "Return Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Increment Retry Count": {
+      "main": [
+        [
+          {
+            "node": "Return Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Escalate Permanent Failure": {
+      "main": [
+        [
+          {
+            "node": "Return Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "versionId": "inout-ai-91-retry-queue",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "inout-ai"
+    },
+    {
+      "name": "retry"
+    },
+    {
+      "name": "dead-letter"
+    }
+  ]
+}

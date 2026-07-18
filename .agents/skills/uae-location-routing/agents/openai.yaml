@@ -1,0 +1,7 @@
+interface:
+  display_name: "UAE Location Routing"
+  short_description: "Route Abu Dhabi customer areas"
+  default_prompt: "Use $uae-location-routing to normalize Abu Dhabi area names, parse Google Maps links, extract coordinates, and route customer locations to branches and driver zones."
+
+policy:
+  allow_implicit_invocation: true

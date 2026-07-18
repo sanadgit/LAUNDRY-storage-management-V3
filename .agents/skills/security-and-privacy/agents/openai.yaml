@@ -1,0 +1,4 @@
+interface:
+  display_name: "Security And Privacy"
+  short_description: "Protect customer data and secrets"
+  default_prompt: "Use $security-and-privacy to review In & Out Laundry code or workflows for customer data safety, secrets, RBAC, and webhook protection."

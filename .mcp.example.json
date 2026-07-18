@@ -1,0 +1,39 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "url": "https://mcp.supabase.com/mcp"
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "F:/my_Progect/LAUNDRY-storage-management-V3"
+      ]
+    },
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@latest"
+      ]
+    },
+    "n8n": {
+      "command": "REPLACE_WITH_TRUSTED_N8N_MCP_SERVER_COMMAND",
+      "args": [],
+      "env": {
+        "N8N_API_URL": "${N8N_WEBHOOK_BASE_URL}",
+        "N8N_API_KEY": "${N8N_API_KEY}"
+      }
+    },
+    "sentry": {
+      "command": "REPLACE_WITH_TRUSTED_SENTRY_MCP_SERVER_COMMAND",
+      "args": [],
+      "env": {
+        "SENTRY_AUTH_TOKEN": "${SENTRY_AUTH_TOKEN}",
+        "SENTRY_ORG": "${SENTRY_ORG}",
+        "SENTRY_PROJECT": "${SENTRY_PROJECT}"
+      }
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "correlationId": "corr_mvp_save_001",
+  "messageId": "wamid.mvp.save.001",
+  "conversationId": "conv_mvp_001",
+  "customerId": "cus_mvp_001",
+  "customerPhone": "971500000001",
+  "detectedLanguage": "ar",
+  "intent": "order_status",
+  "payload": {
+    "messageText": "order 256719 جاهز؟",
+    "agentResponse": "طلبك قيد الكي حاليًا حسب النظام.",
+    "toolCalls": [
+      {
+        "toolName": "get_order_status",
+        "status": "SUCCESS"
+      }
+    ],
+    "summaryNeeded": true
+  }
+}

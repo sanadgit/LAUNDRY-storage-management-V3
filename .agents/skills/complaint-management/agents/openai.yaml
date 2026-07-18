@@ -1,0 +1,7 @@
+interface:
+  display_name: "Complaint Management"
+  short_description: "Manage complaints and escalation"
+  default_prompt: "Use $complaint-management to classify complaints, assign priority, collect required details, route to branch or operations managers, avoid unsupported liability admissions, and manage closure."
+
+policy:
+  allow_implicit_invocation: true

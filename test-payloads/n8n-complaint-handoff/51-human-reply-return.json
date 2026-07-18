@@ -1,0 +1,17 @@
+{
+  "correlationId": "corr_complaint_handoff_51_sample",
+  "messageId": "wamid.sample.complaint.51",
+  "conversationId": "conv_sample_complaint_handoff",
+  "customerId": "cust_sample_001",
+  "customerPhone": "971500000000",
+  "detectedLanguage": "ar",
+  "intent": "human_reply_return",
+  "payload": {
+    "isSampleData": true,
+    "handoffId": "handoff_sample_001",
+    "staffId": "staff_sample_001",
+    "staffRole": "manager",
+    "approvedReply": "تم استلام البلاغ وسيقوم المسؤول بمتابعته معك.",
+    "closeHandoff": false
+  }
+}

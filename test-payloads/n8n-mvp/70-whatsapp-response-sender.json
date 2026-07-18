@@ -1,0 +1,15 @@
+{
+  "correlationId": "corr_mvp_sender_001",
+  "messageId": "outbound.mvp.reply.001",
+  "conversationId": "conv_mvp_001",
+  "customerId": "cus_mvp_001",
+  "customerPhone": "971500000001",
+  "detectedLanguage": "ar",
+  "intent": "order_status",
+  "payload": {
+    "to": "971500000001",
+    "message": "طلبك 256719 قيد الكي حاليًا حسب النظام، وسنبلغك عند الجاهزية.",
+    "customerServiceWindowOpen": true,
+    "idempotencyKey": "outbound.mvp.reply.001"
+  }
+}

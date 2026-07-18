@@ -1,0 +1,7 @@
+interface:
+  display_name: "Customer Identity Resolution"
+  short_description: "Normalize and verify customers"
+  default_prompt: "Use $customer-identity-resolution to normalize UAE phone numbers, find duplicate customer records, link WhatsApp numbers to customers, and verify ownership before revealing data."
+
+policy:
+  allow_implicit_invocation: true

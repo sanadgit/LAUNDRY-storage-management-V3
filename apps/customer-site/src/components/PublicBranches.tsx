@@ -142,7 +142,7 @@ export const PublicBranches: React.FC<PublicBranchesProps> = ({ config, language
             <h2 className="text-3xl font-black md:text-4xl">{t('هل نخدم منطقتك؟', 'Do we serve your area?')}</h2>
             <p className="mt-3 max-w-2xl text-muted-foreground">
               {t(
-                'كل منطقة مرتبطة بفرع تشغيل ورسوم توصيل وحد أدنى واضح، حتى يعرف العميل القرار قبل الحجز.',
+                'كل منطقة مرتبطة بفرع تشغيل ورسوم توصيل وحد أدنى واضح',
                 'Each area is connected to an operating branch with delivery fee and minimum order clearly shown before booking.',
               )}
             </p>

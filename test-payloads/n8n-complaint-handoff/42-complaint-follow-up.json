@@ -1,0 +1,16 @@
+{
+  "correlationId": "corr_complaint_handoff_42_sample",
+  "messageId": "wamid.sample.complaint.42",
+  "conversationId": "conv_sample_complaint_handoff",
+  "customerId": "cust_sample_001",
+  "customerPhone": "971500000000",
+  "detectedLanguage": "ar",
+  "intent": "complaint_follow_up",
+  "payload": {
+    "isSampleData": true,
+    "complaintId": "complaint_sample_001",
+    "status": "WAITING_FOR_BRANCH",
+    "followUpDue": true,
+    "managerEscalationRequired": false
+  }
+}

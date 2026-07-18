@@ -1,0 +1,4 @@
+interface:
+  display_name: "API Design"
+  short_description: "Design clean n8n and POS APIs"
+  default_prompt: "Use $api-design to design clean, safe API contracts between n8n, the backend, and the POS."

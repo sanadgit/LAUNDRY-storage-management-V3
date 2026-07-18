@@ -1,0 +1,13 @@
+{
+  "correlationId": "corr_mvp_memory_001",
+  "messageId": "wamid.mvp.memory.001",
+  "conversationId": "conv_mvp_001",
+  "customerId": "cus_mvp_001",
+  "customerPhone": "971500000001",
+  "detectedLanguage": "ar",
+  "intent": "order_status",
+  "payload": {
+    "currentOrderId": "256719",
+    "summary": "Customer is asking whether order 256719 is ready. Identity must remain POS verified."
+  }
+}

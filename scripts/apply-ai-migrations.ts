@@ -10,6 +10,19 @@ const POSTGRES_URL = String(process.env.POSTGRES_URL ?? process.env.DATABASE_URL
 const migrationPath = (name: string) =>
   path.resolve(process.cwd(), 'database', 'migrations', name);
 
+const AI_MIGRATIONS = [
+  {
+    label: 'AI Phase 1',
+    sqlite: '20260628_ai_operations_agent_phase1.sqlite.sql',
+    postgres: '20260628_ai_operations_agent_phase1.postgres.sql',
+  },
+  {
+    label: 'AI Customer Service Agent foundation',
+    sqlite: '20260717_ai_customer_service_agent_foundation.sqlite.sql',
+    postgres: '20260717_ai_customer_service_agent_foundation.postgres.sql',
+  },
+];
+
 const run = async () => {
   if (DB_PROVIDER === 'postgres') {
     if (!POSTGRES_URL) {
@@ -17,9 +30,11 @@ const run = async () => {
     }
     const pool = new Pool({ connectionString: POSTGRES_URL });
     try {
-      const sql = readFileSync(migrationPath('20260628_ai_operations_agent_phase1.postgres.sql'), 'utf8');
-      await pool.query(sql);
-      console.log('AI Phase 1 PostgreSQL migration applied.');
+      for (const migration of AI_MIGRATIONS) {
+        const sql = readFileSync(migrationPath(migration.postgres), 'utf8');
+        await pool.query(sql);
+        console.log(`${migration.label} PostgreSQL migration applied.`);
+      }
     } finally {
       await pool.end();
     }
@@ -29,9 +44,11 @@ const run = async () => {
   const sqlitePath = path.resolve(process.cwd(), process.env.SQLITE_DB_PATH ?? 'blanket_storage.db');
   const db = new Database(sqlitePath);
   try {
-    const sql = readFileSync(migrationPath('20260628_ai_operations_agent_phase1.sqlite.sql'), 'utf8');
-    db.exec(sql);
-    console.log(`AI Phase 1 SQLite migration applied: ${sqlitePath}`);
+    for (const migration of AI_MIGRATIONS) {
+      const sql = readFileSync(migrationPath(migration.sqlite), 'utf8');
+      db.exec(sql);
+      console.log(`${migration.label} SQLite migration applied: ${sqlitePath}`);
+    }
   } finally {
     db.close();
   }

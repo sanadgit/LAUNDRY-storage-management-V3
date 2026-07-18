@@ -1,0 +1,422 @@
+{
+  "name": "InOut AI - 80 Save Conversation and Summary",
+  "nodes": [
+    {
+      "id": "contract-note",
+      "name": "Input Output Contract",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -300
+      ],
+      "parameters": {
+        "content": "## Save Conversation Summary\n\nRedacts sensitive data, saves the customer message, agent response, and tool calls, then updates compact conversation summary when needed.\n\nInput: Conversation id, customer message, agent response, tool calls, customer context, wamid/message id, and correlation id.\nOutput: { success: true, conversationId: \"\", summaryUpdated: boolean }\n\nShared Input Contract:\n```json\n{\n  \"correlationId\": \"\",\n  \"messageId\": \"\",\n  \"conversationId\": \"\",\n  \"customerId\": \"\",\n  \"customerPhone\": \"\",\n  \"detectedLanguage\": \"\",\n  \"intent\": \"\",\n  \"payload\": {}\n}\n```\n\nShared Output Contract:\n```json\n{\n  \"success\": true,\n  \"status\": \"SUCCESS\",\n  \"data\": {},\n  \"error\": null,\n  \"meta\": {\n    \"correlationId\": \"\",\n    \"workflow\": \"\",\n    \"durationMs\": 0\n  }\n}\n```\n\nRequired fields:\n- correlationId\n- workflowExecutionId\n- idempotencyKey when writing\n\nRules:\n- Redact API keys, tokens, payment data, and unnecessary full phone numbers before persistence.\n- Save summaries, not full transcripts forever.\n- Preserve correlationId, wamid, conversationId, customerId, orderId, and toolCallIds for observability.\n- Generate summary only when message count, token estimate, or explicit summaryNeeded flag requires it."
+      }
+    },
+    {
+      "id": "workflow-input",
+      "name": "Workflow Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -680,
+        20
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "redact-sensitive-data",
+      "name": "Redact Sensitive Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -760,
+        20
+      ],
+      "parameters": {
+        "jsCode": "const input = $json;\nconst maskPhone = (value) => String(value || '').replace(/(9715\\d{2})\\d{4}(\\d{3})/g, '$1****$2');\nconst redact = (value) => {\n  if (value == null) return value;\n  if (typeof value === 'string') return maskPhone(value).replace(/(sk-[A-Za-z0-9_-]{12,}|Bearer\\s+[A-Za-z0-9._-]+|whatsapp_access_token\\s*[:=]\\s*\\S+|api[_-]?key\\s*[:=]\\s*\\S+)/gi, '[REDACTED_SECRET]').replace(/\\b\\d{12,19}\\b/g, '[REDACTED_NUMBER]');\n  if (Array.isArray(value)) return value.map(redact);\n  if (typeof value === 'object') {\n    return Object.fromEntries(Object.entries(value).map(([key, val]) => [/token|secret|password|apiKey|authorization|cookie/i.test(key) ? [key, '[REDACTED_SECRET]'] : [key, redact(val)]]));\n  }\n  return value;\n};\nconst redacted = redact(input);\nreturn [{ json: { ...redacted, originalMessageId: input.wamid || input.messageId || input.message_id || '', conversationId: input.conversationId || input.conversation_id || input.memory?.conversationId || '', customerId: input.customerId || input.customer_id || input.identity?.customer?.id || '', correlationId: input.correlationId || input.correlation_id || 'corr_' + Date.now(), workflowExecutionId: String($execution.id || '') } }];"
+      }
+    },
+    {
+      "id": "save-customer-message",
+      "name": "Save Customer Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -500,
+        20
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/messages'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { conversationId: $json.conversationId, customerId: $json.customerId || null, direction: 'inbound', senderType: 'customer', channel: 'whatsapp', body: $json.messageText || $json.customerMessage || $json.normalizedText || '', providerMessageId: $json.originalMessageId || $json.wamid || '', messageType: $json.messageType || 'text', correlationId: $json.correlationId, workflowExecutionId: $json.workflowExecutionId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "save-agent-response",
+      "name": "Save Agent Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -240,
+        20
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/messages'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { conversationId: $('Redact Sensitive Data').first().json.conversationId, customerId: $('Redact Sensitive Data').first().json.customerId || null, direction: 'outbound', senderType: 'ai_agent', channel: 'whatsapp', body: $('Redact Sensitive Data').first().json.agent?.response || $('Redact Sensitive Data').first().json.agentResponse || $('Redact Sensitive Data').first().json.reply || '', intent: $('Redact Sensitive Data').first().json.agent?.intent || $('Redact Sensitive Data').first().json.intent || null, correlationId: $('Redact Sensitive Data').first().json.correlationId, workflowExecutionId: $('Redact Sensitive Data').first().json.workflowExecutionId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "save-tool-calls",
+      "name": "Save Tool Calls",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        20,
+        20
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/tool-calls/batch'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { conversationId: $('Redact Sensitive Data').first().json.conversationId, toolCalls: $('Redact Sensitive Data').first().json.agent?.toolCalls || $('Redact Sensitive Data').first().json.toolCalls || [], correlationId: $('Redact Sensitive Data').first().json.correlationId, workflowExecutionId: $('Redact Sensitive Data').first().json.workflowExecutionId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "summary-needed",
+      "name": "Summary Needed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        280,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "needs-summary",
+              "leftValue": "={{Boolean($(\"Redact Sensitive Data\").first().json.summaryNeeded || $(\"Redact Sensitive Data\").first().json.agent?.summaryNeeded || Number($(\"Redact Sensitive Data\").first().json.recentMessageCount || 0) >= Number($vars.CONVERSATION_SUMMARY_MESSAGE_THRESHOLD || 12))}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "generate-summary",
+      "name": "Generate Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        540,
+        -80
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent($('Redact Sensitive Data').first().json.conversationId || 'unknown') + '/summarize'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { conversationId: $('Redact Sensitive Data').first().json.conversationId, latestCustomerMessage: $('Redact Sensitive Data').first().json.messageText || $('Redact Sensitive Data').first().json.customerMessage || '', latestAgentResponse: $('Redact Sensitive Data').first().json.agent?.response || $('Redact Sensitive Data').first().json.agentResponse || '', currentSummary: $('Redact Sensitive Data').first().json.summary || $('Redact Sensitive Data').first().json.memory?.summary || '', correlationId: $('Redact Sensitive Data').first().json.correlationId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 60000
+        }
+      }
+    },
+    {
+      "id": "update-conversation",
+      "name": "Update Conversation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        800,
+        20
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent($('Redact Sensitive Data').first().json.conversationId || 'unknown')'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { summary: (($items('Generate Summary', 0, 0)[0] || {}).json || {}).body?.data?.summary || $('Redact Sensitive Data').first().json.summary || $('Redact Sensitive Data').first().json.memory?.summary || '', currentIntent: $('Redact Sensitive Data').first().json.agent?.intent || $('Redact Sensitive Data').first().json.intent || null, language: $('Redact Sensitive Data').first().json.agent?.language || $('Redact Sensitive Data').first().json.language || null, lastMessageAt: new Date().toISOString(), summaryUpdated: Boolean((($items('Generate Summary', 0, 0)[0] || {}).json || {}).body?.data?.summary), correlationId: $('Redact Sensitive Data').first().json.correlationId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Workflow Input": {
+      "main": [
+        [
+          {
+            "node": "Redact Sensitive Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redact Sensitive Data": {
+      "main": [
+        [
+          {
+            "node": "Save Customer Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Customer Message": {
+      "main": [
+        [
+          {
+            "node": "Save Agent Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Agent Response": {
+      "main": [
+        [
+          {
+            "node": "Save Tool Calls",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Tool Calls": {
+      "main": [
+        [
+          {
+            "node": "Summary Needed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summary Needed?": {
+      "main": [
+        [
+          {
+            "node": "Generate Summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Summary": {
+      "main": [
+        [
+          {
+            "node": "Update Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "versionId": "inout-ai-80-save-conversation-summary",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "inout-ai"
+    },
+    {
+      "name": "memory"
+    },
+    {
+      "name": "conversation"
+    }
+  ]
+}

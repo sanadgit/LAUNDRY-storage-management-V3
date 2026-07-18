@@ -1,0 +1,18 @@
+{
+  "correlationId": "corr_complaint_handoff_43_sample",
+  "messageId": "wamid.sample.complaint.43",
+  "conversationId": "conv_sample_complaint_handoff",
+  "customerId": "cust_sample_001",
+  "customerPhone": "971500000000",
+  "detectedLanguage": "en",
+  "intent": "close_complaint",
+  "payload": {
+    "isSampleData": true,
+    "complaintId": "complaint_sample_001",
+    "actorId": "staff_sample_001",
+    "actorRole": "manager",
+    "managerApprovalId": "approval_sample_001",
+    "resolution": "Manager-approved sample resolution note.",
+    "customerResolutionMessage": "The manager has reviewed your complaint and updated the ticket. Please confirm if this solves the issue for you."
+  }
+}

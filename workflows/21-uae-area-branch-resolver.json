@@ -1,0 +1,482 @@
+{
+  "name": "InOut AI - 21 UAE Area Branch Resolver",
+  "nodes": [
+    {
+      "id": "contract-note",
+      "name": "Input Output Contract",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -300
+      ],
+      "parameters": {
+        "content": "## Uae Area Branch Resolver\n\nNormalizes Abu Dhabi area text or coordinates and returns configured service-area and branch routing.\n\nInput: Area text, address, Google Maps link, latitude, or longitude.\nOutput: { status: \"MATCHED|AMBIGUOUS|UNSUPPORTED|UNKNOWN\", normalizedArea: \"\", branchId: \"\", confidence: \"\" }\n\nShared Input Contract:\n```json\n{\n  \"correlationId\": \"\",\n  \"messageId\": \"\",\n  \"conversationId\": \"\",\n  \"customerId\": \"\",\n  \"customerPhone\": \"\",\n  \"detectedLanguage\": \"\",\n  \"intent\": \"\",\n  \"payload\": {}\n}\n```\n\nShared Output Contract:\n```json\n{\n  \"success\": true,\n  \"status\": \"SUCCESS\",\n  \"data\": {},\n  \"error\": null,\n  \"meta\": {\n    \"correlationId\": \"\",\n    \"workflow\": \"\",\n    \"durationMs\": 0\n  }\n}\n```\n\nRequired fields:\n- correlationId\n- workflowExecutionId\n- idempotencyKey when writing\n\nRules:\n- Recognize aliases including MBZ, Mohammed Bin Zayed City, مدينة محمد بن زايد, Mussafah, Musaffah, مصفح, Khalifa City, مدينة خليفة, Shakhbout City, مدينة شخبوط, Riyadh City, مدينة الرياض, Al Falah, الفلاح.\n- Do not invent actual coverage, branch ownership, or driver zones.\n- Use configured service areas, service API coverage, and branch data as the source of truth.\n- Return UNKNOWN or AMBIGUOUS when the area cannot be safely routed."
+      }
+    },
+    {
+      "id": "workflow-input",
+      "name": "Workflow Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -680,
+        20
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "normalize-area-name",
+      "name": "Normalize Area Name",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -420,
+        20
+      ],
+      "parameters": {
+        "jsCode": "const originalArea = String($json.area || $json.serviceArea || $json.address || $json.query || '').trim();\nconst mapUrl = String($json.googleMapsLink || $json.google_maps_link || $json.locationUrl || '');\nconst normalizeArabic = (value) => String(value || '').replace(/[إأآا]/g, 'ا').replace(/[ة]/g, 'ه').replace(/[ى]/g, 'ي');\nconst normalizedAreaInput = normalizeArabic(originalArea).toLowerCase().replace(/[^a-z0-9\\u0600-\\u06FF\\s-]/g, ' ').replace(/\\s+/g, ' ').trim();\nconst aliasTemplates = ['MBZ','Mohammed Bin Zayed City','مدينة محمد بن زايد','Mussafah','Musaffah','مصفح','Khalifa City','مدينة خليفة','Shakhbout City','مدينة شخبوط','Riyadh City','مدينة الرياض','Al Falah','الفلاح'];\nconst coordinateSource = `${mapUrl} ${JSON.stringify($json.coordinates || $json.location || {})}`;\nconst match = coordinateSource.match(/(?:@|q=|ll=|query=)?(-?\\d{1,2}\\.\\d+)\\s*,\\s*(-?\\d{1,3}\\.\\d+)/i);\nconst lat = Number($json.lat ?? $json.latitude ?? $json.coordinates?.lat ?? $json.location?.lat ?? (match ? match[1] : NaN));\nconst lng = Number($json.lng ?? $json.longitude ?? $json.coordinates?.lng ?? $json.location?.lng ?? (match ? match[2] : NaN));\nconst validCoordinates = Number.isFinite(lat) && Number.isFinite(lng) && lat >= 22 && lat <= 27 && lng >= 51 && lng <= 57;\nreturn [{ json: { ...$json, originalArea, normalizedAreaInput, aliasTemplates, mapUrl, coordinates: { lat: validCoordinates ? lat : null, lng: validCoordinates ? lng : null, valid: validCoordinates }, correlationId: $json.correlationId || $json.correlation_id || 'corr_' + Date.now() } }];"
+      }
+    },
+    {
+      "id": "search-area-aliases",
+      "name": "Search Area Aliases",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -160,
+        20
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/service-areas/aliases?query=' + encodeURIComponent($json.normalizedAreaInput || '')'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "coordinates-available",
+      "name": "Coordinates Available?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        100,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-valid-coordinates",
+              "leftValue": "={{Boolean($json.coordinates?.valid || $(\"Normalize Area Name\").first().json.coordinates?.valid)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "match-coordinates-to-area",
+      "name": "Match Coordinates to Area",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        360,
+        -100
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/service-areas/resolve-coordinates?lat=' + encodeURIComponent($json.coordinates?.lat || $('Normalize Area Name').first().json.coordinates?.lat || '') + '&lng=' + encodeURIComponent($json.coordinates?.lng || $('Normalize Area Name').first().json.coordinates?.lng || '')'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "area-match-router",
+      "name": "Area Match Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        620,
+        20
+      ],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{String($json.body?.data?.status || $json.data?.status || $json.status || \"\").toUpperCase()}}",
+                    "rightValue": "MATCHED",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "MATCHED"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{String($json.body?.data?.status || $json.data?.status || $json.status || \"\").toUpperCase()}}",
+                    "rightValue": "AMBIGUOUS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "AMBIGUOUS"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{String($json.body?.data?.status || $json.data?.status || $json.status || \"\").toUpperCase()}}",
+                    "rightValue": "UNSUPPORTED",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "UNSUPPORTED"
+            }
+          ]
+        },
+        "fallbackOutput": "extra",
+        "options": {}
+      }
+    },
+    {
+      "id": "find-responsible-branch",
+      "name": "Find Responsible Branch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        -80
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/branches/resolve?area=' + encodeURIComponent($json.body?.data?.normalizedArea || $json.body?.data?.area || $('Normalize Area Name').first().json.normalizedAreaInput || '') + '&lat=' + encodeURIComponent($json.coordinates?.lat || $json.body?.data?.lat || $('Normalize Area Name').first().json.coordinates?.lat || '') + '&lng=' + encodeURIComponent($json.coordinates?.lng || $json.body?.data?.lng || $('Normalize Area Name').first().json.coordinates?.lng || '')'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "return-routing-result",
+      "name": "Return Routing Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1180,
+        20
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "status",
+              "name": "status",
+              "type": "string",
+              "value": "={{String($json.body?.data?.status || $json.data?.status || $json.status || ($json.body?.data?.branchId ? \"MATCHED\" : \"UNKNOWN\")).toUpperCase()}}"
+            },
+            {
+              "id": "normalizedArea",
+              "name": "normalizedArea",
+              "type": "string",
+              "value": "={{$json.body?.data?.normalizedArea || $json.body?.data?.area || $json.normalizedAreaInput || $(\"Normalize Area Name\").first().json.normalizedAreaInput || \"\"}}"
+            },
+            {
+              "id": "branchId",
+              "name": "branchId",
+              "type": "string",
+              "value": "={{$json.body?.data?.branchId || $json.branchId || \"\"}}"
+            },
+            {
+              "id": "branchName",
+              "name": "branchName",
+              "type": "string",
+              "value": "={{$json.body?.data?.branchName || $json.branchName || \"\"}}"
+            },
+            {
+              "id": "driverZones",
+              "name": "driverZones",
+              "type": "array",
+              "value": "={{$json.body?.data?.driverZones || $json.driverZones || []}}"
+            },
+            {
+              "id": "confidence",
+              "name": "confidence",
+              "type": "string",
+              "value": "={{$json.body?.data?.confidence || $json.confidence || \"unknown\"}}"
+            },
+            {
+              "id": "needsClarification",
+              "name": "needsClarification",
+              "type": "boolean",
+              "value": "={{[\"AMBIGUOUS\", \"UNSUPPORTED\", \"UNKNOWN\"].includes(String($json.body?.data?.status || $json.status || \"UNKNOWN\").toUpperCase())}}"
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$json.correlationId || $(\"Normalize Area Name\").first().json.correlationId}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Workflow Input": {
+      "main": [
+        [
+          {
+            "node": "Normalize Area Name",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Area Name": {
+      "main": [
+        [
+          {
+            "node": "Search Area Aliases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Area Aliases": {
+      "main": [
+        [
+          {
+            "node": "Coordinates Available?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Coordinates Available?": {
+      "main": [
+        [
+          {
+            "node": "Match Coordinates to Area",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Area Match Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match Coordinates to Area": {
+      "main": [
+        [
+          {
+            "node": "Area Match Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Area Match Router": {
+      "main": [
+        [
+          {
+            "node": "Find Responsible Branch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Routing Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Routing Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Routing Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Responsible Branch": {
+      "main": [
+        [
+          {
+            "node": "Return Routing Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "versionId": "inout-ai-21-uae-area-branch-resolver",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "inout-ai"
+    },
+    {
+      "name": "routing"
+    },
+    {
+      "name": "uae-area"
+    }
+  ]
+}

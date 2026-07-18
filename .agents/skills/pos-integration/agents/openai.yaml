@@ -1,0 +1,7 @@
+interface:
+  display_name: "POS Integration"
+  short_description: "Connect AI workflows with POS"
+  default_prompt: "Use $pos-integration to connect the AI agent or workflow to the POS system with safe login, lookups, writebacks, and branch-aware normalization."
+
+policy:
+  allow_implicit_invocation: true

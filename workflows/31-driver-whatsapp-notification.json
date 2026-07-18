@@ -1,0 +1,340 @@
+{
+  "name": "InOut AI - 31 Driver WhatsApp Notification",
+  "nodes": [
+    {
+      "id": "contract-note",
+      "name": "Input Output Contract",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -300
+      ],
+      "parameters": {
+        "content": "## Driver Whatsapp Notification\n\nSends one safe WhatsApp Cloud API notification to one driver for one assignment.\n\nInput: Driver assignment id or safe task context.\nOutput: { success: true, providerMessageId: \"\", notificationId: \"\" }\n\nShared Input Contract:\n```json\n{\n  \"correlationId\": \"\",\n  \"messageId\": \"\",\n  \"conversationId\": \"\",\n  \"customerId\": \"\",\n  \"customerPhone\": \"\",\n  \"detectedLanguage\": \"\",\n  \"intent\": \"\",\n  \"payload\": {}\n}\n```\n\nShared Output Contract:\n```json\n{\n  \"success\": true,\n  \"status\": \"SUCCESS\",\n  \"data\": {},\n  \"error\": null,\n  \"meta\": {\n    \"correlationId\": \"\",\n    \"workflow\": \"\",\n    \"durationMs\": 0\n  }\n}\n```\n\nRequired fields:\n- correlationId\n- workflowExecutionId\n- idempotencyKey when writing\n\nRules:\n- Safe driver data only: taskType, customerDisplayName, area, address, location, timeWindow, taskReference, acceptAction, rejectAction.\n- One WhatsApp Cloud API send request must contain one recipient only.\n- Do not send WhatsApp group messages or multiple recipients in one to field.\n- Use no live driver phone numbers in exports, fixtures, or documentation.\n- Persist sent, delivered, read, and failed status through notification logs."
+      }
+    },
+    {
+      "id": "workflow-input",
+      "name": "Workflow Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -680,
+        20
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "load-safe-task-data",
+      "name": "Load Safe Task Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -420,
+        20
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/driver-assignments/' + encodeURIComponent($json.assignmentId || $json.driver_assignment_id || $json.body?.data?.assignmentId || 'unknown') + '/safe-notification-data'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "prepare-driver-message",
+      "name": "Prepare Driver Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        20
+      ],
+      "parameters": {
+        "jsCode": "const data = $json.body?.data || $json;\nconst safe = {\n  taskType: data.taskType || 'Pickup',\n  customerDisplayName: data.customerDisplayName || 'Customer',\n  area: data.area || '',\n  address: data.address || '',\n  location: data.location || '',\n  timeWindow: data.timeWindow || '',\n  taskReference: data.taskReference || data.assignmentId || '',\n  acceptAction: data.acceptAction || 'ACCEPT',\n  rejectAction: data.rejectAction || 'REJECT',\n};\nconst message = [`New ${safe.taskType} task`, `Ref: ${safe.taskReference}`, `Customer: ${safe.customerDisplayName}`, `Area: ${safe.area}`, `Address: ${safe.address}`, safe.location ? `Location: ${safe.location}` : '', safe.timeWindow ? `Time: ${safe.timeWindow}` : '', `Reply ${safe.acceptAction} to accept or ${safe.rejectAction} to reject.`].filter(Boolean).join('\\n');\nreturn [{ json: { ...$json, safeDriverData: safe, driverPhone: String(data.driverPhone || data.driver_phone || '').replace(/[^0-9]/g, ''), driverMessage: message, correlationId: data.correlationId || $json.correlationId || 'corr_' + Date.now() } }];"
+      }
+    },
+    {
+      "id": "validate-driver-phone",
+      "name": "Validate Driver Phone",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        100,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "one-valid-recipient",
+              "leftValue": "={{/^9715\\d{8}$/.test($json.driverPhone) && !$json.driverPhone.includes(\",\") && !$json.driverPhone.includes(\";\")}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "send-driver-whatsapp",
+      "name": "Send Driver WhatsApp",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        360,
+        20
+      ],
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{$vars.WHATSAPP_PHONE_NUMBER_ID}}",
+        "recipientPhoneNumber": "={{$json.driverPhone}}",
+        "textBody": "={{$json.driverMessage}}",
+        "additionalFields": {}
+      },
+      "credentials": {
+        "whatsAppApi": {
+          "id": "replace_with_n8n_whatsapp_credential_id",
+          "name": "WhatsApp Cloud API account"
+        }
+      }
+    },
+    {
+      "id": "save-notification-result",
+      "name": "Save Notification Result",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        620,
+        20
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/notifications/whatsapp'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { direction: 'outbound', recipientType: 'driver', to: $('Prepare Driver Message').first().json.driverPhone, provider: 'whatsapp_cloud_api', providerMessageId: $json.messages?.[0]?.id || $json.messageId || '', status: /^9715\\d{8}$/.test($('Prepare Driver Message').first().json.driverPhone) && !$json.error ? 'sent' : 'failed', taskReference: $('Prepare Driver Message').first().json.safeDriverData.taskReference, safePayload: $('Prepare Driver Message').first().json.safeDriverData, correlationId: $('Prepare Driver Message').first().json.correlationId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "return-send-result",
+      "name": "Return Send Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        880,
+        20
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "success",
+              "name": "success",
+              "type": "boolean",
+              "value": "={{$json.statusCode >= 200 && $json.statusCode < 300 && $json.body?.ok !== false}}"
+            },
+            {
+              "id": "providerMessageId",
+              "name": "providerMessageId",
+              "type": "string",
+              "value": "={{$json.body?.data?.providerMessageId || $json.providerMessageId || \"\"}}"
+            },
+            {
+              "id": "notificationId",
+              "name": "notificationId",
+              "type": "string",
+              "value": "={{$json.body?.data?.notificationId || $json.body?.data?.id || \"\"}}"
+            },
+            {
+              "id": "status",
+              "name": "status",
+              "type": "string",
+              "value": "={{$json.body?.data?.status || \"sent\"}}"
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$(\"Prepare Driver Message\").first().json.correlationId}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Workflow Input": {
+      "main": [
+        [
+          {
+            "node": "Load Safe Task Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Safe Task Data": {
+      "main": [
+        [
+          {
+            "node": "Prepare Driver Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Driver Message": {
+      "main": [
+        [
+          {
+            "node": "Validate Driver Phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Driver Phone": {
+      "main": [
+        [
+          {
+            "node": "Send Driver WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save Notification Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Driver WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Save Notification Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Notification Result": {
+      "main": [
+        [
+          {
+            "node": "Return Send Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "versionId": "inout-ai-31-driver-whatsapp-notification",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "inout-ai"
+    },
+    {
+      "name": "driver"
+    },
+    {
+      "name": "whatsapp"
+    }
+  ]
+}

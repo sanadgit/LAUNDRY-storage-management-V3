@@ -1,0 +1,7 @@
+interface:
+  display_name: "WhatsApp Cloud API Webhooks"
+  short_description: "Handle WhatsApp webhooks safely"
+  default_prompt: "Use $whatsapp-cloud-api-webhooks to design or revise WhatsApp Cloud API webhook handling, message parsing, idempotency, templates, and 24-hour window rules."
+
+policy:
+  allow_implicit_invocation: true

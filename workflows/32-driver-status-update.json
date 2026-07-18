@@ -1,0 +1,696 @@
+{
+  "name": "InOut AI - 32 Driver Status Update",
+  "nodes": [
+    {
+      "id": "contract-note",
+      "name": "Input Output Contract",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -300
+      ],
+      "parameters": {
+        "content": "## Driver Status Update\n\nValidates driver identity, parses driver action, updates assignment/driver status, notifies allowed parties, and writes an audit event.\n\nInput: Driver assignment id, driver identity, and requested action/status.\nOutput: { success: true, assignmentStatus: \"\", driverStatus: \"\", audited: true }\n\nShared Input Contract:\n```json\n{\n  \"correlationId\": \"\",\n  \"messageId\": \"\",\n  \"conversationId\": \"\",\n  \"customerId\": \"\",\n  \"customerPhone\": \"\",\n  \"detectedLanguage\": \"\",\n  \"intent\": \"\",\n  \"payload\": {}\n}\n```\n\nShared Output Contract:\n```json\n{\n  \"success\": true,\n  \"status\": \"SUCCESS\",\n  \"data\": {},\n  \"error\": null,\n  \"meta\": {\n    \"correlationId\": \"\",\n    \"workflow\": \"\",\n    \"durationMs\": 0\n  }\n}\n```\n\nRequired fields:\n- correlationId\n- workflowExecutionId\n- idempotencyKey when writing\n\nRules:\n- Validate assignment and driver identity before any status write.\n- Allowed assignment statuses include ASSIGNED, ACCEPTED, ON_THE_WAY, ARRIVED, COMPLETED, REJECTED, TIMED_OUT, CANCELLED, FAILED.\n- Preserve complete assignment history and audit every rejection, timeout, reassignment, and status update.\n- Notify customers only for confirmed operational statuses and never expose unrelated driver or customer data.\n- Always save an audit event for sensitive dispatch updates."
+      }
+    },
+    {
+      "id": "workflow-input",
+      "name": "Workflow Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -680,
+        20
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "validate-assignment",
+      "name": "Validate Assignment",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -620,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-assignment",
+              "leftValue": "={{Boolean($json.assignmentId || $json.driver_assignment_id || $json.assignment_id)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "has-action",
+              "leftValue": "={{Boolean($json.action || $json.status || $json.messageText)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "validate-driver-identity",
+      "name": "Validate Driver Identity",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -360,
+        20
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/driver-assignments/' + encodeURIComponent($json.assignmentId || $json.driver_assignment_id || $json.assignment_id || 'unknown') + '/verify-driver?driverId=' + encodeURIComponent($json.driverId || $json.driver_id || '') + '&phone=' + encodeURIComponent($json.driverPhone || $json.driver_phone || $json.from || '')'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "parse-driver-action",
+      "name": "Parse Driver Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        20
+      ],
+      "parameters": {
+        "jsCode": "const source = $('Workflow Input').first().json;\nconst raw = String(source.action || source.status || source.messageText || '').trim().toUpperCase().replace(/\\s+/g, '_');\nconst actionMap = { ACCEPT: 'ACCEPTED', ACCEPTED: 'ACCEPTED', REJECT: 'REJECTED', REJECTED: 'REJECTED', ON_THE_WAY: 'ON_THE_WAY', ARRIVED: 'ARRIVED', PICKED_UP: 'COMPLETED', DELIVERED: 'COMPLETED', COMPLETE: 'COMPLETED', COMPLETED: 'COMPLETED', CUSTOMER_UNAVAILABLE: 'FAILED', CANCEL: 'CANCELLED', CANCELLED: 'CANCELLED', FAILED: 'FAILED' };\nconst assignmentStatus = actionMap[raw] || 'FAILED';\nconst driverStatus = ['COMPLETED','REJECTED','CANCELLED','FAILED'].includes(assignmentStatus) ? 'AVAILABLE' : 'BUSY';\nreturn [{ json: { ...source, verified: $json.body?.data?.verified !== false && $json.body?.ok !== false, rawAction: raw, assignmentStatus, driverStatus, notifyCustomerAllowed: ['ACCEPTED','ON_THE_WAY','ARRIVED','COMPLETED'].includes(assignmentStatus), notifyOperationsNeeded: ['REJECTED','CANCELLED','FAILED'].includes(assignmentStatus), correlationId: source.correlationId || source.correlation_id || 'corr_' + Date.now() } }];"
+      }
+    },
+    {
+      "id": "status-router",
+      "name": "Status Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        160,
+        20
+      ],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.assignmentStatus}}",
+                    "rightValue": "ACCEPTED",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "ACCEPTED"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.assignmentStatus}}",
+                    "rightValue": "ON_THE_WAY",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "ON_THE_WAY"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.assignmentStatus}}",
+                    "rightValue": "ARRIVED",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "ARRIVED"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.assignmentStatus}}",
+                    "rightValue": "COMPLETED",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "COMPLETED"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{[\"REJECTED\",\"CANCELLED\",\"FAILED\"].includes($json.assignmentStatus)}}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "EXCEPTION"
+            }
+          ]
+        },
+        "fallbackOutput": "extra",
+        "options": {}
+      }
+    },
+    {
+      "id": "update-assignment-status",
+      "name": "Update Assignment Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        20
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/driver-assignments/' + encodeURIComponent($json.assignmentId || $json.driver_assignment_id || $json.assignment_id || 'unknown') + '/status'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { status: $json.assignmentStatus, driverId: $json.driverId || $json.driver_id || null, reason: $json.reason || $json.rawAction, correlationId: $json.correlationId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "update-driver-status",
+      "name": "Update Driver Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        20
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/drivers/' + encodeURIComponent($('Parse Driver Action').first().json.driverId || $('Parse Driver Action').first().json.driver_id || $json.body?.data?.driverId || 'unknown') + '/status'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { status: $('Parse Driver Action').first().json.driverStatus, assignmentId: $('Parse Driver Action').first().json.assignmentId || $('Parse Driver Action').first().json.driver_assignment_id || $('Parse Driver Action').first().json.assignment_id, correlationId: $('Parse Driver Action').first().json.correlationId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "notify-operations-if-needed",
+      "name": "Notify Operations if Needed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        20
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/operations/dispatch-alerts'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { shouldNotify: Boolean($('Parse Driver Action').first().json.notifyOperationsNeeded), assignmentId: $('Parse Driver Action').first().json.assignmentId || $('Parse Driver Action').first().json.driver_assignment_id || $('Parse Driver Action').first().json.assignment_id, status: $('Parse Driver Action').first().json.assignmentStatus, reason: $('Parse Driver Action').first().json.reason || $('Parse Driver Action').first().json.rawAction || '', correlationId: $('Parse Driver Action').first().json.correlationId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "notify-customer-if-allowed",
+      "name": "Notify Customer if Allowed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1220,
+        20
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/notifications/customer-dispatch'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { shouldNotify: Boolean($('Parse Driver Action').first().json.notifyCustomerAllowed), assignmentId: $('Parse Driver Action').first().json.assignmentId || $('Parse Driver Action').first().json.driver_assignment_id || $('Parse Driver Action').first().json.assignment_id, status: $('Parse Driver Action').first().json.assignmentStatus, correlationId: $('Parse Driver Action').first().json.correlationId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "save-audit-event",
+      "name": "Save Audit Event",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1480,
+        20
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/audit/events'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { action: 'driver_assignment_status_update', targetType: 'driver_assignment', targetId: (($items('Parse Driver Action', 0, 0)[0] || {}).json || $('Workflow Input').first().json).assignmentId || (($items('Parse Driver Action', 0, 0)[0] || {}).json || $('Workflow Input').first().json).driver_assignment_id || (($items('Parse Driver Action', 0, 0)[0] || {}).json || $('Workflow Input').first().json).assignment_id, status: (($items('Parse Driver Action', 0, 0)[0] || {}).json || {}).assignmentStatus || 'INVALID', actorType: 'driver', actorId: (($items('Parse Driver Action', 0, 0)[0] || {}).json || $('Workflow Input').first().json).driverId || (($items('Parse Driver Action', 0, 0)[0] || {}).json || $('Workflow Input').first().json).driver_id || null, correlationId: (($items('Parse Driver Action', 0, 0)[0] || {}).json || $('Workflow Input').first().json).correlationId || $('Workflow Input').first().json.correlation_id } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "return-result",
+      "name": "Return Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1740,
+        20
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "success",
+              "name": "success",
+              "type": "boolean",
+              "value": "={{$json.statusCode ? ($json.statusCode >= 200 && $json.statusCode < 300 && $json.body?.ok !== false) : false}}"
+            },
+            {
+              "id": "assignmentStatus",
+              "name": "assignmentStatus",
+              "type": "string",
+              "value": "={{(($items(\"Parse Driver Action\", 0, 0)[0] || {}).json || {}).assignmentStatus || \"INVALID\"}}"
+            },
+            {
+              "id": "driverStatus",
+              "name": "driverStatus",
+              "type": "string",
+              "value": "={{(($items(\"Parse Driver Action\", 0, 0)[0] || {}).json || {}).driverStatus || \"\"}}"
+            },
+            {
+              "id": "audited",
+              "name": "audited",
+              "type": "boolean",
+              "value": true
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$json.correlationId || $(\"Workflow Input\").first().json.correlationId}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Workflow Input": {
+      "main": [
+        [
+          {
+            "node": "Validate Assignment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Assignment": {
+      "main": [
+        [
+          {
+            "node": "Validate Driver Identity",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save Audit Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Driver Identity": {
+      "main": [
+        [
+          {
+            "node": "Parse Driver Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Driver Action": {
+      "main": [
+        [
+          {
+            "node": "Status Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status Router": {
+      "main": [
+        [
+          {
+            "node": "Update Assignment Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Assignment Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Assignment Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Assignment Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Assignment Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Assignment Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Assignment Status": {
+      "main": [
+        [
+          {
+            "node": "Update Driver Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Driver Status": {
+      "main": [
+        [
+          {
+            "node": "Notify Operations if Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Operations if Needed": {
+      "main": [
+        [
+          {
+            "node": "Notify Customer if Allowed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Customer if Allowed": {
+      "main": [
+        [
+          {
+            "node": "Save Audit Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Audit Event": {
+      "main": [
+        [
+          {
+            "node": "Return Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "versionId": "inout-ai-32-driver-status-update",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "inout-ai"
+    },
+    {
+      "name": "driver"
+    },
+    {
+      "name": "status"
+    }
+  ]
+}

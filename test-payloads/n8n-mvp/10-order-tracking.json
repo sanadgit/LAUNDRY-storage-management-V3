@@ -1,0 +1,14 @@
+{
+  "correlationId": "corr_mvp_order_tracking_001",
+  "messageId": "wamid.mvp.order-tracking.001",
+  "conversationId": "conv_mvp_001",
+  "customerId": "cus_mvp_001",
+  "customerPhone": "971500000001",
+  "detectedLanguage": "ar",
+  "intent": "order_status",
+  "payload": {
+    "orderId": "256719",
+    "verifiedPhone": "971500000001",
+    "expectedOwnership": "verified"
+  }
+}

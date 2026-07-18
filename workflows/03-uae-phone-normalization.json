@@ -1,0 +1,212 @@
+{
+  "name": "InOut AI - 03 UAE Phone Normalization",
+  "nodes": [
+    {
+      "id": "contract-note",
+      "name": "Input Output Contract",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -300
+      ],
+      "parameters": {
+        "content": "## Uae Phone Normalization\n\nNormalizes UAE phone inputs into canonical 9715XXXXXXXX format.\n\nInput: Phone-like value from phone, from, senderPhone, normalizedMessage.from, or customer_phone.\nOutput: { status: \"VALID|INVALID|UNSUPPORTED_COUNTRY|INCOMPLETE\", normalizedPhone: \"971500000000\" }\n\nShared Input Contract:\n```json\n{\n  \"correlationId\": \"\",\n  \"messageId\": \"\",\n  \"conversationId\": \"\",\n  \"customerId\": \"\",\n  \"customerPhone\": \"\",\n  \"detectedLanguage\": \"\",\n  \"intent\": \"\",\n  \"payload\": {}\n}\n```\n\nShared Output Contract:\n```json\n{\n  \"success\": true,\n  \"status\": \"SUCCESS\",\n  \"data\": {},\n  \"error\": null,\n  \"meta\": {\n    \"correlationId\": \"\",\n    \"workflow\": \"\",\n    \"durationMs\": 0\n  }\n}\n```\n\nRequired fields:\n- correlationId\n- workflowExecutionId\n- idempotencyKey when writing\n\nRules:\n- Remove spaces, punctuation, plus signs, and separators.\n- Support safe sample formats such as 0500000000, +971500000000, 00971500000000, 971500000000, 050 000 0000, and 050-000-0000.\n- Return INVALID, UNSUPPORTED_COUNTRY, or INCOMPLETE without revealing customer records."
+      }
+    },
+    {
+      "id": "workflow-input",
+      "name": "Workflow Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -680,
+        20
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "clean-phone-characters",
+      "name": "Clean Phone Characters",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -380,
+        20
+      ],
+      "parameters": {
+        "jsCode": "const originalPhone = String($json.phone || $json.from || $json.senderPhone || $json.customer_phone || $json.normalizedMessage?.from || '').trim();\nconst digits = originalPhone.replace(/[^0-9]/g, '');\nconst correlationId = $json.correlationId || $json.normalizedMessage?.correlationId || 'corr_' + Date.now() + '_' + ($execution.id || 'n8n');\nreturn [{ json: { ...$json, originalPhone, phoneDigits: digits, correlationId, workflowExecutionId: String($execution.id || '') } }];"
+      }
+    },
+    {
+      "id": "convert-uae-format",
+      "name": "Convert UAE Format",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -120,
+        20
+      ],
+      "parameters": {
+        "jsCode": "let digits = String($json.phoneDigits || '');\nif (digits.startsWith('00')) digits = digits.slice(2);\nlet normalizedPhone = '';\nlet status = 'INVALID';\nif (!digits) status = 'INVALID';\nelse if (digits.startsWith('9715') && digits.length === 12) { normalizedPhone = digits; status = 'VALID'; }\nelse if (digits.startsWith('05') && digits.length === 10) { normalizedPhone = '971' + digits.slice(1); status = 'VALID'; }\nelse if (digits.startsWith('5') && digits.length === 9) { normalizedPhone = '971' + digits; status = 'VALID'; }\nelse if (digits.startsWith('971') && !digits.startsWith('9715')) status = 'UNSUPPORTED_COUNTRY';\nelse if (digits.length > 0 && digits.length < 9) status = 'INCOMPLETE';\nelse if (!digits.startsWith('971') && !digits.startsWith('0') && !digits.startsWith('5')) status = 'UNSUPPORTED_COUNTRY';\nreturn [{ json: { ...$json, normalizedPhone, phoneStatus: status } }];"
+      }
+    },
+    {
+      "id": "validate-phone-number",
+      "name": "Validate Phone Number",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        140,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "valid-phone",
+              "leftValue": "={{$json.phoneStatus}}",
+              "rightValue": "VALID",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "return-normalized-phone",
+      "name": "Return Normalized Phone",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        400,
+        20
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "originalPhone",
+              "name": "originalPhone",
+              "type": "string",
+              "value": "={{$json.originalPhone}}"
+            },
+            {
+              "id": "normalizedPhone",
+              "name": "normalizedPhone",
+              "type": "string",
+              "value": "={{$json.normalizedPhone}}"
+            },
+            {
+              "id": "status",
+              "name": "status",
+              "type": "string",
+              "value": "={{$json.phoneStatus}}"
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$json.correlationId}}"
+            },
+            {
+              "id": "workflowExecutionId",
+              "name": "workflowExecutionId",
+              "type": "string",
+              "value": "={{$json.workflowExecutionId}}"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Workflow Input": {
+      "main": [
+        [
+          {
+            "node": "Clean Phone Characters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean Phone Characters": {
+      "main": [
+        [
+          {
+            "node": "Convert UAE Format",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert UAE Format": {
+      "main": [
+        [
+          {
+            "node": "Validate Phone Number",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Phone Number": {
+      "main": [
+        [
+          {
+            "node": "Return Normalized Phone",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Normalized Phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "versionId": "inout-ai-03-uae-phone-normalization",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "inout-ai"
+    },
+    {
+      "name": "identity"
+    },
+    {
+      "name": "phone-normalization"
+    }
+  ]
+}

@@ -1,0 +1,429 @@
+{
+  "name": "InOut AI - 04 POS Customer Identity",
+  "nodes": [
+    {
+      "id": "contract-note",
+      "name": "Input Output Contract",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -300
+      ],
+      "parameters": {
+        "content": "## Pos Customer Identity\n\nResolves customer identity through the service API/POS adapter using normalized UAE phone variants.\n\nInput: Normalized phone, WhatsApp sender phone, and optional verification hints.\nOutput: { status: \"FOUND|NOT_FOUND|AMBIGUOUS|POS_UNAVAILABLE\", customer: {}, verificationRequired: boolean }\n\nShared Input Contract:\n```json\n{\n  \"correlationId\": \"\",\n  \"messageId\": \"\",\n  \"conversationId\": \"\",\n  \"customerId\": \"\",\n  \"customerPhone\": \"\",\n  \"detectedLanguage\": \"\",\n  \"intent\": \"\",\n  \"payload\": {}\n}\n```\n\nShared Output Contract:\n```json\n{\n  \"success\": true,\n  \"status\": \"SUCCESS\",\n  \"data\": {},\n  \"error\": null,\n  \"meta\": {\n    \"correlationId\": \"\",\n    \"workflow\": \"\",\n    \"durationMs\": 0\n  }\n}\n```\n\nRequired fields:\n- correlationId\n- workflowExecutionId\n- idempotencyKey when writing\n\nRules:\n- Use GET /api/v1/customers/by-phone/:phone through the service API, never raw POS endpoints.\n- Search canonical, local, international, original, and WhatsApp phone variants.\n- Return AMBIGUOUS when multiple customers match and do not reveal order data until verified.\n- Return POS_UNAVAILABLE when the service/POS adapter is unavailable."
+      }
+    },
+    {
+      "id": "workflow-input",
+      "name": "Workflow Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -680,
+        20
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "prepare-phone-variants",
+      "name": "Prepare Phone Variants",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -380,
+        20
+      ],
+      "parameters": {
+        "jsCode": "const originalPhone = String($json.originalPhone || $json.phone || $json.from || $json.senderPhone || $json.normalizedMessage?.from || '').trim();\nconst normalizedPhone = String($json.normalizedPhone || $json.normalized_phone || $json.customer_phone || '').replace(/[^0-9]/g, '');\nconst whatsappPhone = String($json.wamidPhone || $json.whatsappPhone || $json.normalizedMessage?.from || $json.from || '').replace(/[^0-9]/g, '');\nconst digits = (normalizedPhone || originalPhone).replace(/[^0-9]/g, '').replace(/^00/, '');\nconst canonical = digits.startsWith('9715') ? digits : digits.startsWith('05') ? '971' + digits.slice(1) : digits.startsWith('5') && digits.length === 9 ? '971' + digits : normalizedPhone;\nconst local = canonical && canonical.startsWith('971') ? '0' + canonical.slice(3) : '';\nconst variants = [...new Set([originalPhone, digits, canonical, local, whatsappPhone].filter(Boolean))];\nconst primaryPhone = canonical || digits || whatsappPhone;\nconst correlationId = $json.correlationId || $json.normalizedMessage?.correlationId || 'corr_' + Date.now() + '_' + ($execution.id || 'n8n');\nreturn [{ json: { ...$json, originalPhone, normalizedPhone: canonical, primaryPhone, phoneVariants: variants, correlationId, workflowExecutionId: String($execution.id || '') } }];"
+      }
+    },
+    {
+      "id": "find-customer-in-pos",
+      "name": "Find Customer in POS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -120,
+        20
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/customers/by-phone/' + encodeURIComponent($json.primaryPhone || 'missing') + '?variants=' + encodeURIComponent(($json.phoneVariants || []).join(','))'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 45000
+        }
+      }
+    },
+    {
+      "id": "pos-request-successful",
+      "name": "POS Request Successful?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        140,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "pos-ok",
+              "leftValue": "={{$json.statusCode >= 200 && $json.statusCode < 300 && $json.body?.ok !== false}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "check-customer-results",
+      "name": "Check Customer Results",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        400,
+        20
+      ],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{(($json.body?.data?.customers || $json.body?.data || []).length || 0)}}",
+                    "rightValue": 1,
+                    "operator": {
+                      "type": "number",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "FOUND"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{(($json.body?.data?.customers || $json.body?.data || []).length || 0)}}",
+                    "rightValue": 1,
+                    "operator": {
+                      "type": "number",
+                      "operation": "larger"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "AMBIGUOUS"
+            }
+          ]
+        },
+        "fallbackOutput": "extra",
+        "options": {}
+      }
+    },
+    {
+      "id": "single-customer-found",
+      "name": "Single Customer Found",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        680,
+        -120
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "status",
+              "name": "status",
+              "type": "string",
+              "value": "FOUND"
+            },
+            {
+              "id": "customer",
+              "name": "customer",
+              "type": "object",
+              "value": "={{($json.body?.data?.customers || $json.body?.data || [])[0] || {}}}"
+            },
+            {
+              "id": "identity",
+              "name": "identity",
+              "type": "object",
+              "value": "={{ { status: \"FOUND\", verified: true, customer: ($json.body?.data?.customers || $json.body?.data || [])[0] || {}, normalizedPhone: $(\"Prepare Phone Variants\").first().json.normalizedPhone, phoneVariants: $(\"Prepare Phone Variants\").first().json.phoneVariants } }}"
+            },
+            {
+              "id": "verificationRequired",
+              "name": "verificationRequired",
+              "type": "boolean",
+              "value": false
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$(\"Prepare Phone Variants\").first().json.correlationId}}"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    },
+    {
+      "id": "ambiguous-customer-result",
+      "name": "Ambiguous Customer Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        680,
+        40
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "status",
+              "name": "status",
+              "type": "string",
+              "value": "AMBIGUOUS"
+            },
+            {
+              "id": "customerMatches",
+              "name": "customerMatches",
+              "type": "array",
+              "value": "={{($json.body?.data?.customers || $json.body?.data || []).map(customer => ({ customerId: customer.customerId || customer.id, displayName: customer.displayName || customer.name || null, branchId: customer.branchId || customer.branch_id || null }))}}"
+            },
+            {
+              "id": "identity",
+              "name": "identity",
+              "type": "object",
+              "value": "={{ { status: \"AMBIGUOUS\", verified: false, normalizedPhone: $(\"Prepare Phone Variants\").first().json.normalizedPhone, requires: [\"order_number_or_registered_name\"], matchCount: (($json.body?.data?.customers || $json.body?.data || []).length || 0) } }}"
+            },
+            {
+              "id": "verificationRequired",
+              "name": "verificationRequired",
+              "type": "boolean",
+              "value": true
+            },
+            {
+              "id": "safePrompt",
+              "name": "safePrompt",
+              "type": "string",
+              "value": "Please verify with an order number or registered name before showing account or order details."
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$(\"Prepare Phone Variants\").first().json.correlationId}}"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    },
+    {
+      "id": "customer-not-found",
+      "name": "Customer Not Found",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        680,
+        220
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "status",
+              "name": "status",
+              "type": "string",
+              "value": "={{$json.statusCode >= 500 || $json.statusCode === 0 || [\"POS_TIMEOUT\", \"POS_SESSION_EXPIRED\", \"POS_UNEXPECTED_RESPONSE\"].includes($json.body?.error?.code) ? \"POS_UNAVAILABLE\" : \"NOT_FOUND\"}}"
+            },
+            {
+              "id": "identity",
+              "name": "identity",
+              "type": "object",
+              "value": "={{ { status: ($json.statusCode >= 500 || $json.statusCode === 0 || [\"POS_TIMEOUT\", \"POS_SESSION_EXPIRED\", \"POS_UNEXPECTED_RESPONSE\"].includes($json.body?.error?.code) ? \"POS_UNAVAILABLE\" : \"NOT_FOUND\"), verified: false, normalizedPhone: $(\"Prepare Phone Variants\").first().json.normalizedPhone, phoneVariants: $(\"Prepare Phone Variants\").first().json.phoneVariants } }}"
+            },
+            {
+              "id": "verificationRequired",
+              "name": "verificationRequired",
+              "type": "boolean",
+              "value": false
+            },
+            {
+              "id": "error",
+              "name": "error",
+              "type": "object",
+              "value": "={{$json.body?.error || null}}"
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$(\"Prepare Phone Variants\").first().json.correlationId}}"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Workflow Input": {
+      "main": [
+        [
+          {
+            "node": "Prepare Phone Variants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Phone Variants": {
+      "main": [
+        [
+          {
+            "node": "Find Customer in POS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Customer in POS": {
+      "main": [
+        [
+          {
+            "node": "POS Request Successful?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POS Request Successful?": {
+      "main": [
+        [
+          {
+            "node": "Check Customer Results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Customer Not Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Customer Results": {
+      "main": [
+        [
+          {
+            "node": "Single Customer Found",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ambiguous Customer Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Customer Not Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "versionId": "inout-ai-04-pos-customer-identity",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "inout-ai"
+    },
+    {
+      "name": "identity"
+    },
+    {
+      "name": "pos"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "correlationId": "corr_mvp_idempotency_001",
+  "messageId": "wamid.mvp.text.order-status.001",
+  "conversationId": "conv_mvp_001",
+  "customerId": "",
+  "customerPhone": "971500000001",
+  "detectedLanguage": "ar",
+  "intent": "order_status",
+  "payload": {
+    "provider": "whatsapp",
+    "wamid": "wamid.mvp.text.order-status.001",
+    "idempotencyKey": "wamid.mvp.text.order-status.001"
+  }
+}

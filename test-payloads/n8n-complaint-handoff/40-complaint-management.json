@@ -1,0 +1,23 @@
+{
+  "correlationId": "corr_complaint_handoff_40_sample",
+  "messageId": "wamid.sample.complaint.40",
+  "conversationId": "conv_sample_complaint_handoff",
+  "customerId": "cust_sample_001",
+  "customerPhone": "971500000000",
+  "detectedLanguage": "ar",
+  "intent": "create_complaint",
+  "payload": {
+    "isSampleData": true,
+    "phone": "971500000000",
+    "orderId": "order_sample_001",
+    "description": "العباية sample item رجعت وفيها تلف واضح",
+    "originalComplaintWording": "العباية sample item رجعت وفيها تلف واضح",
+    "attachments": [
+      {
+        "type": "image",
+        "mediaId": "media_sample_001"
+      }
+    ],
+    "expectedBehavior": "verify customer and order ownership, preserve wording, classify safely, escalate if critical"
+  }
+}

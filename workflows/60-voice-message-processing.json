@@ -1,0 +1,542 @@
+{
+  "name": "InOut AI - 60 Voice Message Processing",
+  "nodes": [
+    {
+      "id": "contract-note",
+      "name": "Input Output Contract",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -300
+      ],
+      "parameters": {
+        "content": "## Voice Message Processing\n\nFetches WhatsApp voice/audio media, downloads temporary audio, validates MIME and size, transcribes with OpenAI, and returns normalized text without fabricating unclear speech.\n\nInput: WhatsApp audio media id, wamid/message id, sender phone, optional language, and correlation id.\nOutput: { success: true, normalizedText: \"\", language: \"\", wamid: \"\" }\n\nShared Input Contract:\n```json\n{\n  \"correlationId\": \"\",\n  \"messageId\": \"\",\n  \"conversationId\": \"\",\n  \"customerId\": \"\",\n  \"customerPhone\": \"\",\n  \"detectedLanguage\": \"\",\n  \"intent\": \"\",\n  \"payload\": {}\n}\n```\n\nShared Output Contract:\n```json\n{\n  \"success\": true,\n  \"status\": \"SUCCESS\",\n  \"data\": {},\n  \"error\": null,\n  \"meta\": {\n    \"correlationId\": \"\",\n    \"workflow\": \"\",\n    \"durationMs\": 0\n  }\n}\n```\n\nRequired fields:\n- correlationId\n- workflowExecutionId\n- idempotencyKey when writing\n\nRules:\n- Validate MIME type before transcription.\n- Validate maximum file size before sending audio to OpenAI.\n- Download WhatsApp audio securely from trusted Meta media URLs only.\n- Use temporary storage only and delete temporary audio after processing by dropping binary data before return.\n- Transcribe supported languages: Arabic, English, Urdu, Hindi, Tagalog, and auto-detected mixed language.\n- Return normalized text to Workflow 01 as a text-equivalent normalizedMessage payload.\n- Do not fabricate unclear speech; return an audio error response when transcription is unclear.\n- Preserve language and wamid/message id for conversation continuity."
+      }
+    },
+    {
+      "id": "workflow-input",
+      "name": "Workflow Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -680,
+        20
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "get-whatsapp-media-url",
+      "name": "Get WhatsApp Media URL",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        20
+      ],
+      "parameters": {
+        "operation": "getMediaUrl",
+        "mediaId": "={{$json.mediaId || $json.media_id || $json.audio?.id || $json.voice?.id}}"
+      },
+      "credentials": {
+        "whatsAppApi": {
+          "id": "replace_with_n8n_whatsapp_credential_id",
+          "name": "WhatsApp Cloud API account"
+        }
+      }
+    },
+    {
+      "id": "validate-media-download-url",
+      "name": "Validate Media Download URL",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -630,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "https-url",
+              "leftValue": "={{String($json.url || $json.mediaUrl || $json.body?.url || \"\")}}",
+              "rightValue": "https://",
+              "operator": {
+                "type": "string",
+                "operation": "startsWith"
+              }
+            },
+            {
+              "id": "trusted-meta-media-host",
+              "leftValue": "={{/^(https:\\/\\/)(lookaside\\.fbsbx\\.com|graph\\.facebook\\.com|.*\\.facebook\\.com)\\//i.test(String($json.url || $json.mediaUrl || $json.body?.url || \"\"))}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "download-audio",
+      "name": "Download Audio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -380,
+        20
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{$json.url || $json.mediaUrl || $json.body?.url}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.WHATSAPP_ACCESS_TOKEN || '')}}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "file",
+              "outputPropertyName": "audio"
+            }
+          },
+          "timeout": 60000
+        }
+      }
+    },
+    {
+      "id": "validate-audio-type",
+      "name": "Validate Audio Type",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -120,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "valid-mime",
+              "leftValue": "={{/^(audio\\/(ogg|mpeg|mp4|aac|wav|webm|amr|x-m4a)|video\\/mp4)/i.test(String($binary.audio?.mimeType || $json.headers?.[\"content-type\"] || \"\").toLowerCase())}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "valid-size",
+              "leftValue": "={{Number($binary.audio?.fileSize || $json.headers?.[\"content-length\"] || 0) <= Number($vars.WHATSAPP_AUDIO_MAX_BYTES || 16777216)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "prepare-binary-audio",
+      "name": "Prepare Binary Audio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        140,
+        -80
+      ],
+      "parameters": {
+        "jsCode": "const input = $('Workflow Input').first().json;\nconst binary = $binary.audio || $binary.data;\nif (!binary) throw new Error('audio binary is required');\nconst requestedLanguage = String(input.language || input.detectedLanguage || 'auto').toLowerCase();\nconst supported = ['auto','ar','arabic','en','english','ur','urdu','hi','hindi','tl','tagalog','fil'];\nconst language = supported.includes(requestedLanguage) ? requestedLanguage : 'auto';\nreturn [{ json: { mediaId: input.mediaId || input.media_id || input.audio?.id || input.voice?.id || '', wamid: input.wamid || input.messageId || input.message_id || '', senderPhone: input.senderPhone || input.customerPhone || input.from || '', receiverPhone: input.receiverPhone || input.to || '', customerName: input.customerName || input.profile?.name || '', language, mimeType: binary.mimeType || '', fileSize: binary.fileSize || 0, temporaryStorageOnly: true, deleteTemporaryAudio: true, routeToWorkflow01: true, correlationId: input.correlationId || input.correlation_id || 'corr_' + Date.now() }, binary: { audio: binary } }];"
+      }
+    },
+    {
+      "id": "transcribe-audio",
+      "name": "Transcribe Audio",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        400,
+        -80
+      ],
+      "parameters": {
+        "resource": "audio",
+        "operation": "transcribe",
+        "binaryPropertyName": "audio",
+        "model": "={{$vars.OPENAI_TRANSCRIPTION_MODEL || \"gpt-4o-mini-transcribe\"}}",
+        "options": {
+          "language": "={{$(\"Prepare Binary Audio\").first().json.language === \"auto\" ? undefined : $(\"Prepare Binary Audio\").first().json.language}}",
+          "temperature": 0
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "replace_with_n8n_openai_credential_id",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "id": "transcription-valid",
+      "name": "Transcription Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        -80
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-text",
+              "leftValue": "={{String($json.text || $json.transcription || \"\").trim().length >= 2}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "delete-temporary-audio",
+      "name": "Delete Temporary Audio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        920,
+        -80
+      ],
+      "parameters": {
+        "jsCode": "const prepared = $('Prepare Binary Audio').first().json;\nconst text = String($json.text || $json.transcription || '').trim();\nreturn [{ json: { ...prepared, transcriptionText: text, normalizedText: text, temporaryAudioDeleted: true, deleteTemporaryAudio: true, routeToWorkflow01: true } }];"
+      }
+    },
+    {
+      "id": "return-normalized-text",
+      "name": "Return Normalized Text",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1180,
+        -140
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "success",
+              "name": "success",
+              "type": "boolean",
+              "value": true
+            },
+            {
+              "id": "normalizedText",
+              "name": "normalizedText",
+              "type": "string",
+              "value": "={{String($json.normalizedText || $json.transcriptionText || \"\").trim()}}"
+            },
+            {
+              "id": "messageText",
+              "name": "messageText",
+              "type": "string",
+              "value": "={{String($json.normalizedText || $json.transcriptionText || \"\").trim()}}"
+            },
+            {
+              "id": "language",
+              "name": "language",
+              "type": "string",
+              "value": "={{$json.language}}"
+            },
+            {
+              "id": "wamid",
+              "name": "wamid",
+              "type": "string",
+              "value": "={{$json.wamid}}"
+            },
+            {
+              "id": "routeToWorkflow01",
+              "name": "routeToWorkflow01",
+              "type": "boolean",
+              "value": true
+            },
+            {
+              "id": "normalizedMessage",
+              "name": "normalizedMessage",
+              "type": "object",
+              "value": "={{ { provider: 'whatsapp', channel: 'whatsapp', from: $json.senderPhone, to: $json.receiverPhone, name: $json.customerName, messageId: $json.wamid, wamid: $json.wamid, messageType: 'text', originalMessageType: 'audio', messageText: String($json.normalizedText || $json.transcriptionText || '').trim(), transcriptionSource: 'whatsapp_audio', language: $json.language, correlationId: $json.correlationId } }}"
+            },
+            {
+              "id": "deleteTemporaryAudio",
+              "name": "deleteTemporaryAudio",
+              "type": "boolean",
+              "value": true
+            },
+            {
+              "id": "temporaryAudioDeleted",
+              "name": "temporaryAudioDeleted",
+              "type": "boolean",
+              "value": true
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$json.correlationId}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    },
+    {
+      "id": "audio-error-response",
+      "name": "Audio Error Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1180,
+        100
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "success",
+              "name": "success",
+              "type": "boolean",
+              "value": false
+            },
+            {
+              "id": "errorCode",
+              "name": "errorCode",
+              "type": "string",
+              "value": "AUDIO_TRANSCRIPTION_UNCLEAR_OR_INVALID"
+            },
+            {
+              "id": "normalizedText",
+              "name": "normalizedText",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "id": "message",
+              "name": "message",
+              "type": "string",
+              "value": "Audio could not be transcribed clearly. Ask the customer to send text or a clearer voice note."
+            },
+            {
+              "id": "deleteTemporaryAudio",
+              "name": "deleteTemporaryAudio",
+              "type": "boolean",
+              "value": true
+            },
+            {
+              "id": "temporaryAudioDeleted",
+              "name": "temporaryAudioDeleted",
+              "type": "boolean",
+              "value": true
+            },
+            {
+              "id": "routeToWorkflow01",
+              "name": "routeToWorkflow01",
+              "type": "boolean",
+              "value": false
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$(\"Workflow Input\").first().json.correlationId || $(\"Workflow Input\").first().json.correlation_id}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Workflow Input": {
+      "main": [
+        [
+          {
+            "node": "Get WhatsApp Media URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get WhatsApp Media URL": {
+      "main": [
+        [
+          {
+            "node": "Validate Media Download URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Media Download URL": {
+      "main": [
+        [
+          {
+            "node": "Download Audio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Audio Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Audio": {
+      "main": [
+        [
+          {
+            "node": "Validate Audio Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Audio Type": {
+      "main": [
+        [
+          {
+            "node": "Prepare Binary Audio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Audio Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Binary Audio": {
+      "main": [
+        [
+          {
+            "node": "Transcribe Audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcribe Audio": {
+      "main": [
+        [
+          {
+            "node": "Transcription Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcription Valid?": {
+      "main": [
+        [
+          {
+            "node": "Delete Temporary Audio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Audio Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete Temporary Audio": {
+      "main": [
+        [
+          {
+            "node": "Return Normalized Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "versionId": "inout-ai-60-voice-message-processing",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "inout-ai"
+    },
+    {
+      "name": "whatsapp"
+    },
+    {
+      "name": "voice"
+    }
+  ]
+}

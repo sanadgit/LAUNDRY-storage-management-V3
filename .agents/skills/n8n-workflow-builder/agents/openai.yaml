@@ -1,0 +1,7 @@
+interface:
+  display_name: "n8n Workflow Builder"
+  short_description: "Build and edit n8n workflows"
+  default_prompt: "Use $n8n-workflow-builder to create, revise, or debug an n8n workflow for the In & Out Laundry project."
+
+policy:
+  allow_implicit_invocation: true

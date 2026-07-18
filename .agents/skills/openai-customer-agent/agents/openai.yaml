@@ -1,0 +1,7 @@
+interface:
+  display_name: "OpenAI Customer Agent"
+  short_description: "OpenAI customer-service logic"
+  default_prompt: "Use $openai-customer-agent to design or revise a customer-facing AI that uses intent detection, structured outputs, tool calling, conversation state, and escalation instead of keyword rules."
+
+policy:
+  allow_implicit_invocation: true

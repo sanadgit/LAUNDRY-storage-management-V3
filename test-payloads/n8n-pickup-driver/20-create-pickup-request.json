@@ -1,0 +1,24 @@
+{
+  "correlationId": "corr_pickup_driver_20_sample",
+  "messageId": "wamid.sample.pickup.20",
+  "conversationId": "conv_sample_pickup_driver",
+  "customerId": "cust_sample_001",
+  "customerPhone": "971500000000",
+  "detectedLanguage": "ar",
+  "intent": "create_pickup_request",
+  "payload": {
+    "isSampleData": true,
+    "phone": "971500000000",
+    "address": "Sample Villa 1, Sample Street",
+    "area": "MBZ",
+    "googleMapsLink": "https://maps.google.com/?q=24.333000,54.555000",
+    "coordinates": {
+      "lat": 24.333,
+      "lng": 54.555
+    },
+    "preferredDate": "2026-07-20",
+    "preferredTimeWindow": "10:00-12:00",
+    "garmentCategory": "mixed_laundry",
+    "specialInstructions": "Sample payload only, no live customer data."
+  }
+}

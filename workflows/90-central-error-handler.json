@@ -1,0 +1,675 @@
+{
+  "name": "InOut AI - 90 Central Error Handler",
+  "nodes": [
+    {
+      "id": "contract-note",
+      "name": "Input Output Contract",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -300
+      ],
+      "parameters": {
+        "content": "## Central Error Handler\n\nCentral n8n error trigger that redacts secrets, classifies errors, logs structured failure details, queues safe retries, alerts operations, and returns a safe failure result.\n\nInput: n8n workflow error payload with execution, failed node, workflow name, correlation id, and original safe context when available.\nOutput: { success: false, category: \"\", retryQueued: boolean, safeMessage: \"\" }\n\nShared Input Contract:\n```json\n{\n  \"correlationId\": \"\",\n  \"messageId\": \"\",\n  \"conversationId\": \"\",\n  \"customerId\": \"\",\n  \"customerPhone\": \"\",\n  \"detectedLanguage\": \"\",\n  \"intent\": \"\",\n  \"payload\": {}\n}\n```\n\nShared Output Contract:\n```json\n{\n  \"success\": true,\n  \"status\": \"SUCCESS\",\n  \"data\": {},\n  \"error\": null,\n  \"meta\": {\n    \"correlationId\": \"\",\n    \"workflow\": \"\",\n    \"durationMs\": 0\n  }\n}\n```\n\nRequired fields:\n- correlationId\n- workflowExecutionId\n- idempotencyKey when writing\n\nRules:\n- Error Categories: TEMPORARY_API_FAILURE, PERMANENT_VALIDATION_FAILURE, AUTHENTICATION_FAILURE, RATE_LIMIT, POS_UNAVAILABLE, OPENAI_UNAVAILABLE, WHATSAPP_UNAVAILABLE, DATABASE_UNAVAILABLE, WORKFLOW_LOGIC_FAILURE, CUSTOMER_INPUT_ERROR.\n- Redact secrets, tokens, cookies, full phone numbers, payment data, and raw webhook payloads before logging or alerting.\n- Retry only temporary/idempotent failures and never retry permanent validation or authorization failures.\n- Notify operations with safe summary only and preserve correlationId and workflowExecutionId."
+      }
+    },
+    {
+      "id": "workflow-error-trigger",
+      "name": "Workflow Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1040,
+        20
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "extract-error-data",
+      "name": "Extract Error Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -780,
+        20
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "workflowName",
+              "name": "workflowName",
+              "type": "string",
+              "value": "={{$json.workflow?.name || $json.workflowName || $json.execution?.workflowName || \"unknown\"}}"
+            },
+            {
+              "id": "failedNode",
+              "name": "failedNode",
+              "type": "string",
+              "value": "={{$json.node?.name || $json.failedNode || $json.execution?.lastNodeExecuted || \"unknown\"}}"
+            },
+            {
+              "id": "errorMessage",
+              "name": "errorMessage",
+              "type": "string",
+              "value": "={{String($json.error?.message || $json.message || \"Unknown workflow error\")}}"
+            },
+            {
+              "id": "errorCode",
+              "name": "errorCode",
+              "type": "string",
+              "value": "={{String($json.error?.code || $json.errorCode || $json.statusCode || \"N8N_WORKFLOW_FAILED\")}}"
+            },
+            {
+              "id": "statusCode",
+              "name": "statusCode",
+              "type": "number",
+              "value": "={{Number($json.statusCode || $json.error?.statusCode || 0)}}"
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$json.correlationId || $json.correlation_id || $json.execution?.data?.resultData?.runData?.correlationId || \"corr_\" + Date.now()}}"
+            },
+            {
+              "id": "workflowExecutionId",
+              "name": "workflowExecutionId",
+              "type": "string",
+              "value": "={{String($execution.id || $json.execution?.id || \"\")}}"
+            },
+            {
+              "id": "retryCount",
+              "name": "retryCount",
+              "type": "number",
+              "value": "={{Number($json.retryCount || $json.retry_count || 0)}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    },
+    {
+      "id": "redact-secrets",
+      "name": "Redact Secrets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -520,
+        20
+      ],
+      "parameters": {
+        "jsCode": "const redactString = (value) => String(value || '').replace(/(Bearer\\s+[A-Za-z0-9._-]+|sk-[A-Za-z0-9_-]{12,}|xox[baprs]-[A-Za-z0-9-]+|whatsapp_access_token\\s*[:=]\\s*\\S+|api[_-]?key\\s*[:=]\\s*\\S+|password\\s*[:=]\\s*\\S+|cookie\\s*[:=]\\s*\\S+)/gi, '[REDACTED_SECRET]').replace(/(9715\\d{2})\\d{4}(\\d{3})/g, '$1****$2').replace(/\\b\\d{12,19}\\b/g, '[REDACTED_NUMBER]');\nconst redact = (value) => {\n  if (value == null) return value;\n  if (typeof value === 'string') return redactString(value);\n  if (Array.isArray(value)) return value.map(redact);\n  if (typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, val]) => [/token|secret|password|authorization|cookie|key/i.test(key) ? [key, '[REDACTED_SECRET]'] : [key, redact(val)]]));\n  return value;\n};\nreturn [{ json: { ...redact($json), redacted: true, component: 'n8n_workflow', event: 'workflow_failed' } }];"
+      }
+    },
+    {
+      "id": "classify-error",
+      "name": "Classify Error",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -260,
+        20
+      ],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{/rate.?limit|429/i.test($json.errorCode + \" \" + $json.errorMessage) || $json.statusCode === 429}}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "RATE_LIMIT"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{/auth|unauth|forbidden|401|403/i.test($json.errorCode + \" \" + $json.errorMessage) || [401,403].includes($json.statusCode)}}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "AUTHENTICATION_FAILURE"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{/pos/i.test($json.errorCode + \" \" + $json.errorMessage)}}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "POS_UNAVAILABLE"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{/openai|model|tool/i.test($json.errorCode + \" \" + $json.errorMessage)}}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "OPENAI_UNAVAILABLE"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{/whatsapp|meta|notification/i.test($json.errorCode + \" \" + $json.errorMessage)}}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "WHATSAPP_UNAVAILABLE"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{/database|postgres|supabase|sql/i.test($json.errorCode + \" \" + $json.errorMessage)}}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "DATABASE_UNAVAILABLE"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{/validation|invalid|bad request|customer input|400|422/i.test($json.errorCode + \" \" + $json.errorMessage) || [400,422].includes($json.statusCode)}}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "CUSTOMER_INPUT_ERROR"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{[408,500,502,503,504].includes($json.statusCode) || /timeout|temporary|unavailable|ECONNRESET/i.test($json.errorCode + \" \" + $json.errorMessage)}}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "TEMPORARY_API_FAILURE"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{/logic|expression|node|undefined/i.test($json.errorCode + \" \" + $json.errorMessage)}}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "WORKFLOW_LOGIC_FAILURE"
+            }
+          ]
+        },
+        "fallbackOutput": "extra",
+        "options": {}
+      }
+    },
+    {
+      "id": "is-temporary-error",
+      "name": "Is Temporary Error?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        20,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "temporary",
+              "leftValue": "={{[\"TEMPORARY_API_FAILURE\",\"RATE_LIMIT\",\"POS_UNAVAILABLE\",\"OPENAI_UNAVAILABLE\",\"WHATSAPP_UNAVAILABLE\",\"DATABASE_UNAVAILABLE\"].includes($json.outputKey || $json.category || \"TEMPORARY_API_FAILURE\")}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "save-error-log",
+      "name": "Save Error Log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        280,
+        20
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/observability/errors'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { component: 'n8n_workflow', event: 'workflow_failed', workflowName: $json.workflowName, failedNode: $json.failedNode, category: $json.outputKey || $json.category || 'WORKFLOW_LOGIC_FAILURE', errorCode: $json.errorCode, errorMessageRedacted: $json.errorMessage, temporary: Boolean($json.isTemporary || ['TEMPORARY_API_FAILURE','RATE_LIMIT','POS_UNAVAILABLE','OPENAI_UNAVAILABLE','WHATSAPP_UNAVAILABLE','DATABASE_UNAVAILABLE'].includes($json.outputKey || $json.category)), retryCount: $json.retryCount || 0, workflowExecutionId: $json.workflowExecutionId, correlationId: $json.correlationId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "retry-allowed",
+      "name": "Retry Allowed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        540,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "temporary-and-under-limit",
+              "leftValue": "={{Boolean($json.body?.data?.temporary !== false && Number($(\"Redact Secrets\").first().json.retryCount || 0) < Number($vars.N8N_RETRY_MAX_ATTEMPTS || 5))}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "add-to-retry-queue",
+      "name": "Add to Retry Queue",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        800,
+        -80
+      ],
+      "parameters": {
+        "workflowId": "={{$vars.N8N_WF_RETRY_QUEUE_ID}}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "notify-operations",
+      "name": "Notify Operations",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        1060,
+        20
+      ],
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{$vars.WHATSAPP_PHONE_NUMBER_ID}}",
+        "recipientPhoneNumber": "={{$vars.OPERATIONS_ALERT_PHONE}}",
+        "textBody": "={{\"[In & Out Laundry] n8n error\\nWorkflow: \" + $(\"Redact Secrets\").first().json.workflowName + \"\\nNode: \" + $(\"Redact Secrets\").first().json.failedNode + \"\\nCategory: \" + ($(\"Save Error Log\").first().json.body?.data?.category || \"WORKFLOW_LOGIC_FAILURE\") + \"\\nCorrelation: \" + $(\"Redact Secrets\").first().json.correlationId}}",
+        "additionalFields": {}
+      },
+      "credentials": {
+        "whatsAppApi": {
+          "id": "replace_with_n8n_whatsapp_credential_id",
+          "name": "WhatsApp Cloud API account"
+        }
+      }
+    },
+    {
+      "id": "return-safe-failure-result",
+      "name": "Return Safe Failure Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1320,
+        20
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "success",
+              "name": "success",
+              "type": "boolean",
+              "value": false
+            },
+            {
+              "id": "category",
+              "name": "category",
+              "type": "string",
+              "value": "={{$(\"Save Error Log\").first().json.body?.data?.category || \"WORKFLOW_LOGIC_FAILURE\"}}"
+            },
+            {
+              "id": "retryQueued",
+              "name": "retryQueued",
+              "type": "boolean",
+              "value": "={{Boolean((($items(\"Add to Retry Queue\", 0, 0)[0] || {}).json || {}).success)}}"
+            },
+            {
+              "id": "safeMessage",
+              "name": "safeMessage",
+              "type": "string",
+              "value": "A safe failure was recorded and the operations team has been notified when required."
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$(\"Redact Secrets\").first().json.correlationId}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Workflow Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Error Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Error Data": {
+      "main": [
+        [
+          {
+            "node": "Redact Secrets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redact Secrets": {
+      "main": [
+        [
+          {
+            "node": "Classify Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Error": {
+      "main": [
+        [
+          {
+            "node": "Is Temporary Error?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Temporary Error?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Temporary Error?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Temporary Error?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Temporary Error?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Temporary Error?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Temporary Error?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Temporary Error?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Temporary Error?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Temporary Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Temporary Error?": {
+      "main": [
+        [
+          {
+            "node": "Save Error Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save Error Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Error Log": {
+      "main": [
+        [
+          {
+            "node": "Retry Allowed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry Allowed?": {
+      "main": [
+        [
+          {
+            "node": "Add to Retry Queue",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify Operations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Retry Queue": {
+      "main": [
+        [
+          {
+            "node": "Notify Operations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Operations": {
+      "main": [
+        [
+          {
+            "node": "Return Safe Failure Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "versionId": "inout-ai-90-central-error-handler",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "inout-ai"
+    },
+    {
+      "name": "errors"
+    },
+    {
+      "name": "observability"
+    }
+  ]
+}

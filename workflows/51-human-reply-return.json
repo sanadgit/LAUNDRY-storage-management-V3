@@ -1,0 +1,517 @@
+{
+  "name": "InOut AI - 51 Human Reply Return",
+  "nodes": [
+    {
+      "id": "contract-note",
+      "name": "Input Output Contract",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -300
+      ],
+      "parameters": {
+        "content": "## Human Reply Return\n\nValidates staff identity, loads the active handoff, sends a staff-approved WhatsApp reply, saves the staff message, updates conversation state, and closes or continues the handoff.\n\nInput: Conversation id, handoff id, staff id/role, approved reply, customer phone, and close/continue instruction.\nOutput: { success: true, providerMessageId: \"\", handoffStatus: \"\", conversationId: \"\" }\n\nShared Input Contract:\n```json\n{\n  \"correlationId\": \"\",\n  \"messageId\": \"\",\n  \"conversationId\": \"\",\n  \"customerId\": \"\",\n  \"customerPhone\": \"\",\n  \"detectedLanguage\": \"\",\n  \"intent\": \"\",\n  \"payload\": {}\n}\n```\n\nShared Output Contract:\n```json\n{\n  \"success\": true,\n  \"status\": \"SUCCESS\",\n  \"data\": {},\n  \"error\": null,\n  \"meta\": {\n    \"correlationId\": \"\",\n    \"workflow\": \"\",\n    \"durationMs\": 0\n  }\n}\n```\n\nRequired fields:\n- correlationId\n- workflowExecutionId\n- idempotencyKey when writing\n\nRules:\n- Only verified staff may return a human reply.\n- Send one WhatsApp reply to one customer recipient only.\n- Never send internal notes, prompts, or unapproved draft text to the customer.\n- Keep AI locked until the handoff is explicitly closed by authorized staff."
+      }
+    },
+    {
+      "id": "workflow-input",
+      "name": "Workflow Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -680,
+        20
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "validate-staff-identity",
+      "name": "Validate Staff Identity",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -760,
+        20
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/staff/validate'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { staffId: $json.staffId || $json.staff_id, staffRole: $json.staffRole || $json.role, handoffId: $json.handoffId || $json.handoff_id, conversationId: $json.conversationId || $json.conversation_id, action: 'human_reply_return', correlationId: $json.correlationId || $json.correlation_id } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "load-active-handoff",
+      "name": "Load Active Handoff",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -500,
+        20
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/human-handoffs/' + encodeURIComponent($('Workflow Input').first().json.handoffId || $('Workflow Input').first().json.handoff_id || 'active') + '?conversationId=' + encodeURIComponent($('Workflow Input').first().json.conversationId || $('Workflow Input').first().json.conversation_id || '')'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "prepare-human-reply",
+      "name": "Prepare Human Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        20
+      ],
+      "parameters": {
+        "jsCode": "const input = $('Workflow Input').first().json;\nconst handoff = $('Load Active Handoff').first().json.body?.data || {};\nconst text = String(input.approvedReply || input.approved_reply || input.message || '').trim();\nif (!text) throw new Error('approved human reply is required');\nconst customerPhone = String(input.customerPhone || input.customer_phone || handoff.customerPhone || handoff.phone || '').replace(/[^0-9]/g, '');\nreturn [{ json: { conversationId: input.conversationId || input.conversation_id || handoff.conversationId || '', handoffId: input.handoffId || input.handoff_id || handoff.handoffId || handoff.id || '', customerPhone, approvedReply: text, closeHandoff: Boolean(input.closeHandoff || input.close_handoff), staffId: input.staffId || input.staff_id, staffRole: input.staffRole || input.role, correlationId: input.correlationId || input.correlation_id || 'corr_' + Date.now(), oneRecipientOnly: true } }];"
+      }
+    },
+    {
+      "id": "send-whatsapp-reply",
+      "name": "Send WhatsApp Reply",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        20,
+        20
+      ],
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{$vars.WHATSAPP_PHONE_NUMBER_ID}}",
+        "recipientPhoneNumber": "={{$json.customerPhone}}",
+        "textBody": "={{$json.approvedReply}}",
+        "additionalFields": {}
+      },
+      "credentials": {
+        "whatsAppApi": {
+          "id": "replace_with_n8n_whatsapp_credential_id",
+          "name": "WhatsApp Cloud API account"
+        }
+      }
+    },
+    {
+      "id": "save-staff-message",
+      "name": "Save Staff Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        280,
+        20
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/messages'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { conversationId: $('Prepare Human Reply').first().json.conversationId, handoffId: $('Prepare Human Reply').first().json.handoffId, direction: 'outbound', senderType: 'staff', staffId: $('Prepare Human Reply').first().json.staffId, channel: 'whatsapp', to: $('Prepare Human Reply').first().json.customerPhone, body: $('Prepare Human Reply').first().json.approvedReply, providerMessageId: $json.messages?.[0]?.id || $json.messageId || '', correlationId: $('Prepare Human Reply').first().json.correlationId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "update-conversation",
+      "name": "Update Conversation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        540,
+        20
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent($('Prepare Human Reply').first().json.conversationId || 'unknown')'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { lastHumanReplyAt: new Date().toISOString(), humanHandoffStatus: $('Prepare Human Reply').first().json.closeHandoff ? 'resolved' : 'active', aiLocked: !$('Prepare Human Reply').first().json.closeHandoff, correlationId: $('Prepare Human Reply').first().json.correlationId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "close-or-continue-handoff",
+      "name": "Close or Continue Handoff?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        800,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "close-handoff",
+              "leftValue": "={{$(\"Prepare Human Reply\").first().json.closeHandoff}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "update-handoff-status",
+      "name": "Update Handoff Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1060,
+        20
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/human-handoffs/' + encodeURIComponent($('Prepare Human Reply').first().json.handoffId || 'unknown') + '/status'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { status: $('Prepare Human Reply').first().json.closeHandoff ? 'CLOSED' : 'WAITING_FOR_CUSTOMER', staffId: $('Prepare Human Reply').first().json.staffId, reason: 'human_reply_return', aiLocked: !$('Prepare Human Reply').first().json.closeHandoff, correlationId: $('Prepare Human Reply').first().json.correlationId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "return-result",
+      "name": "Return Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1320,
+        20
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "success",
+              "name": "success",
+              "type": "boolean",
+              "value": "={{$json.statusCode >= 200 && $json.statusCode < 300 && $json.body?.ok !== false}}"
+            },
+            {
+              "id": "providerMessageId",
+              "name": "providerMessageId",
+              "type": "string",
+              "value": "={{$(\"Save Staff Message\").first().json.body?.data?.providerMessageId || \"\"}}"
+            },
+            {
+              "id": "handoffStatus",
+              "name": "handoffStatus",
+              "type": "string",
+              "value": "={{$(\"Prepare Human Reply\").first().json.closeHandoff ? \"CLOSED\" : \"WAITING_FOR_CUSTOMER\"}}"
+            },
+            {
+              "id": "conversationId",
+              "name": "conversationId",
+              "type": "string",
+              "value": "={{$(\"Prepare Human Reply\").first().json.conversationId}}"
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$(\"Prepare Human Reply\").first().json.correlationId}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Workflow Input": {
+      "main": [
+        [
+          {
+            "node": "Validate Staff Identity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Staff Identity": {
+      "main": [
+        [
+          {
+            "node": "Load Active Handoff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Active Handoff": {
+      "main": [
+        [
+          {
+            "node": "Prepare Human Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Human Reply": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp Reply": {
+      "main": [
+        [
+          {
+            "node": "Save Staff Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Staff Message": {
+      "main": [
+        [
+          {
+            "node": "Update Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Conversation": {
+      "main": [
+        [
+          {
+            "node": "Close or Continue Handoff?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Close or Continue Handoff?": {
+      "main": [
+        [
+          {
+            "node": "Update Handoff Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Handoff Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Handoff Status": {
+      "main": [
+        [
+          {
+            "node": "Return Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "versionId": "inout-ai-51-human-reply-return",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "inout-ai"
+    },
+    {
+      "name": "handoff"
+    },
+    {
+      "name": "human-reply"
+    }
+  ]
+}

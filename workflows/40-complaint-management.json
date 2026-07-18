@@ -1,0 +1,831 @@
+{
+  "name": "InOut AI - 40 Complaint Management",
+  "nodes": [
+    {
+      "id": "contract-note",
+      "name": "Input Output Contract",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -300
+      ],
+      "parameters": {
+        "content": "## Complaint Management\n\nCreates and routes complaint tickets with customer verification, order ownership checks, classification, branch assignment, manager notification, and human escalation.\n\nInput: Verified customer context, complaint description, optional order number, photos/media references, and language.\nOutput: { success: true, complaintId: \"\", category: \"\", priority: \"\", status: \"NEW|ESCALATED\" }\n\nShared Input Contract:\n```json\n{\n  \"correlationId\": \"\",\n  \"messageId\": \"\",\n  \"conversationId\": \"\",\n  \"customerId\": \"\",\n  \"customerPhone\": \"\",\n  \"detectedLanguage\": \"\",\n  \"intent\": \"\",\n  \"payload\": {}\n}\n```\n\nShared Output Contract:\n```json\n{\n  \"success\": true,\n  \"status\": \"SUCCESS\",\n  \"data\": {},\n  \"error\": null,\n  \"meta\": {\n    \"correlationId\": \"\",\n    \"workflow\": \"\",\n    \"durationMs\": 0\n  }\n}\n```\n\nRequired fields:\n- correlationId\n- workflowExecutionId\n- idempotencyKey when writing\n\nRules:\n- Categories: DELAY, CLEANING_QUALITY, DAMAGE, LOST_ITEM, MISSING_ITEM, WRONG_ITEM, BILLING, STAFF_BEHAVIOR, DRIVER, DELIVERY, OTHER.\n- Priorities: P1_CRITICAL, P2_HIGH, P3_NORMAL, P4_LOW.\n- Statuses: NEW, ACKNOWLEDGED, INVESTIGATING, WAITING_FOR_CUSTOMER, WAITING_FOR_BRANCH, RESOLUTION_PROPOSED, RESOLVED, CLOSED, ESCALATED, REOPENED.\n- Preserve original complaint wording exactly in originalComplaintWording for audit and manager review.\n- Never admit liability or promise compensation before manager-approved investigation.\n- Escalate legal threats, lost valuable garments, serious damage, and privacy concerns to human handoff."
+      }
+    },
+    {
+      "id": "workflow-input",
+      "name": "Workflow Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -680,
+        20
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "extract-complaint-details",
+      "name": "Extract Complaint Details",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -900,
+        20
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "customerId",
+              "name": "customerId",
+              "type": "string",
+              "value": "={{String($json.customerId || $json.customer_id || $json.identity?.customer?.id || \"\")}}"
+            },
+            {
+              "id": "phone",
+              "name": "phone",
+              "type": "string",
+              "value": "={{String($json.phone || $json.customerPhone || $json.normalizedPhone || $json.from || \"\")}}"
+            },
+            {
+              "id": "orderId",
+              "name": "orderId",
+              "type": "string",
+              "value": "={{String($json.orderId || $json.order_id || $json.memory?.currentOrderId || \"\")}}"
+            },
+            {
+              "id": "description",
+              "name": "description",
+              "type": "string",
+              "value": "={{String($json.description || $json.messageText || $json.complaintText || \"\")}}"
+            },
+            {
+              "id": "originalComplaintWording",
+              "name": "originalComplaintWording",
+              "type": "string",
+              "value": "={{String($json.originalComplaintWording || $json.description || $json.messageText || $json.complaintText || \"\")}}"
+            },
+            {
+              "id": "attachments",
+              "name": "attachments",
+              "type": "array",
+              "value": "={{$json.attachments || $json.media || []}}"
+            },
+            {
+              "id": "language",
+              "name": "language",
+              "type": "string",
+              "value": "={{String($json.language || $json.memory?.language || \"ar\")}}"
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$json.correlationId || $json.correlation_id || 'corr_' + Date.now()}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    },
+    {
+      "id": "verify-customer",
+      "name": "Verify Customer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -640,
+        20
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/customers/' + encodeURIComponent($json.customerId || 'unknown') + '/verify?phone=' + encodeURIComponent($json.phone || '')'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "order-number-provided",
+      "name": "Order Number Provided?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -380,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-order",
+              "leftValue": "={{Boolean($json.orderId || $(\"Extract Complaint Details\").first().json.orderId)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "verify-order-ownership",
+      "name": "Verify Order Ownership",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -120,
+        -100
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/pos/orders/' + encodeURIComponent($json.orderId || $('Extract Complaint Details').first().json.orderId || 'unknown') + '/status?customerId=' + encodeURIComponent($json.customerId || $('Extract Complaint Details').first().json.customerId || '') + '&phone=' + encodeURIComponent($json.phone || $('Extract Complaint Details').first().json.phone || '')'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 45000
+        }
+      }
+    },
+    {
+      "id": "classify-complaint",
+      "name": "Classify Complaint",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        140,
+        20
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/complaints/classify'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { description: $('Extract Complaint Details').first().json.description, originalComplaintWording: $('Extract Complaint Details').first().json.originalComplaintWording, orderId: $('Extract Complaint Details').first().json.orderId, customerId: $('Extract Complaint Details').first().json.customerId, attachments: $('Extract Complaint Details').first().json.attachments, language: $('Extract Complaint Details').first().json.language, allowedCategories: ['DELAY','CLEANING_QUALITY','DAMAGE','LOST_ITEM','MISSING_ITEM','WRONG_ITEM','BILLING','STAFF_BEHAVIOR','DRIVER','DELIVERY','OTHER'], allowedPriorities: ['P1_CRITICAL','P2_HIGH','P3_NORMAL','P4_LOW'], escalationTriggers: ['legal_threat','lost_valuable_garment','serious_damage','privacy_concern'], correlationId: $('Extract Complaint Details').first().json.correlationId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 60000
+        }
+      }
+    },
+    {
+      "id": "validate-classification",
+      "name": "Validate Classification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        20
+      ],
+      "parameters": {
+        "jsCode": "const source = $('Extract Complaint Details').first().json;\nconst categories = ['DELAY','CLEANING_QUALITY','DAMAGE','LOST_ITEM','MISSING_ITEM','WRONG_ITEM','BILLING','STAFF_BEHAVIOR','DRIVER','DELIVERY','OTHER'];\nconst priorities = ['P1_CRITICAL','P2_HIGH','P3_NORMAL','P4_LOW'];\nconst statuses = ['NEW','ACKNOWLEDGED','INVESTIGATING','WAITING_FOR_CUSTOMER','WAITING_FOR_BRANCH','RESOLUTION_PROPOSED','RESOLVED','CLOSED','ESCALATED','REOPENED'];\nlet category = String($json.body?.data?.category || $json.category || 'OTHER').toUpperCase();\nif (!categories.includes(category)) category = 'OTHER';\nlet priority = String($json.body?.data?.priority || $json.priority || (['DAMAGE','LOST_ITEM'].includes(category) ? 'P1_CRITICAL' : 'P3_NORMAL')).toUpperCase();\nif (!priorities.includes(priority)) priority = 'P3_NORMAL';\nconst text = String(source.originalComplaintWording || source.description || '').toLowerCase();\nconst hasCriticalTrigger = /legal|lawyer|court|privacy|lost valuable|expensive|damage|تالف|محكمة|محامي|خصوصية|ضاعت|غالية/i.test(text);\nif (hasCriticalTrigger && priority !== 'P1_CRITICAL') priority = 'P1_CRITICAL';\nconst needsPhoto = ['DAMAGE','CLEANING_QUALITY','WRONG_ITEM','MISSING_ITEM','BILLING'].includes(category) && !(source.attachments || []).length;\nreturn [{ json: { ...source, category, priority, statuses, needsPhoto, status: priority === 'P1_CRITICAL' ? 'ESCALATED' : 'NEW', liabilitySafe: true, hasCriticalTrigger } }];"
+      }
+    },
+    {
+      "id": "priority-router",
+      "name": "Priority Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        660,
+        20
+      ],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.priority}}",
+                    "rightValue": "P1_CRITICAL",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "P1_CRITICAL"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.priority}}",
+                    "rightValue": "P2_HIGH",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "P2_HIGH"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.priority}}",
+                    "rightValue": "P3_NORMAL",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "P3_NORMAL"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.priority}}",
+                    "rightValue": "P4_LOW",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "P4_LOW"
+            }
+          ]
+        },
+        "fallbackOutput": "extra",
+        "options": {}
+      }
+    },
+    {
+      "id": "create-complaint-ticket",
+      "name": "Create Complaint Ticket",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        940,
+        20
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/complaints'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { customerId: $json.customerId, phone: $json.phone, orderId: $json.orderId || null, category: $json.category, priority: $json.priority, status: $json.status || 'NEW', description: $json.description, originalComplaintWording: $json.originalComplaintWording, attachments: $json.attachments || [], needsPhoto: $json.needsPhoto, source: 'whatsapp_ai', liabilitySafe: true, preserveAuditHistory: true, correlationId: $json.correlationId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 45000
+        }
+      }
+    },
+    {
+      "id": "find-responsible-branch",
+      "name": "Find Responsible Branch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        20
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/complaints/' + encodeURIComponent($json.body?.data?.complaintId || $json.body?.data?.id || 'unknown') + '/responsible-branch''}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "notify-branch-manager",
+      "name": "Notify Branch Manager",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        1460,
+        20
+      ],
+      "parameters": {
+        "workflowId": "={{$vars.N8N_WF_NOTIFY_BRANCH_MANAGER_ID}}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "critical-complaint",
+      "name": "Critical Complaint?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1720,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "critical-priority",
+              "leftValue": "={{[\"P1_CRITICAL\",\"P2_HIGH\"].includes($json.priority || $(\"Validate Classification\").first().json.priority) || Boolean($(\"Validate Classification\").first().json.hasCriticalTrigger)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "human-escalation",
+      "name": "Human Escalation",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        1980,
+        -100
+      ],
+      "parameters": {
+        "workflowId": "={{$vars.N8N_WF_HUMAN_HANDOFF_ID}}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "prepare-customer-acknowledgment",
+      "name": "Prepare Customer Acknowledgment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        20
+      ],
+      "parameters": {
+        "jsCode": "const details = $('Validate Classification').first().json;\nconst complaint = $('Create Complaint Ticket').first().json.body?.data || {};\nconst ar = String(details.language || 'ar').startsWith('ar');\nconst photoLine = details.needsPhoto ? (ar ? ' يرجى إرسال صورة واضحة إذا كانت المشكلة ظاهرة.' : ' Please send a clear photo if the issue is visible.') : '';\nconst response = ar ? `نعتذر عن الإزعاج. تم فتح بلاغ رقم ${complaint.complaintId || complaint.id || ''} وسيتم إرساله للمسؤول للمراجعة.${photoLine}` : `Sorry for the inconvenience. Complaint ${complaint.complaintId || complaint.id || ''} has been created and sent to the responsible manager for review.${photoLine}`;\nreturn [{ json: { ...details, complaintId: complaint.complaintId || complaint.id || '', acknowledgment: response, status: details.priority === 'P1_CRITICAL' ? 'ESCALATED' : 'ACKNOWLEDGED' } }];"
+      }
+    },
+    {
+      "id": "return-complaint-result",
+      "name": "Return Complaint Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2500,
+        20
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "success",
+              "name": "success",
+              "type": "boolean",
+              "value": true
+            },
+            {
+              "id": "complaintId",
+              "name": "complaintId",
+              "type": "string",
+              "value": "={{$json.complaintId}}"
+            },
+            {
+              "id": "category",
+              "name": "category",
+              "type": "string",
+              "value": "={{$json.category}}"
+            },
+            {
+              "id": "priority",
+              "name": "priority",
+              "type": "string",
+              "value": "={{$json.priority}}"
+            },
+            {
+              "id": "status",
+              "name": "status",
+              "type": "string",
+              "value": "={{$json.status}}"
+            },
+            {
+              "id": "acknowledgment",
+              "name": "acknowledgment",
+              "type": "string",
+              "value": "={{$json.acknowledgment}}"
+            },
+            {
+              "id": "needsPhoto",
+              "name": "needsPhoto",
+              "type": "boolean",
+              "value": "={{Boolean($json.needsPhoto)}}"
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$json.correlationId}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Workflow Input": {
+      "main": [
+        [
+          {
+            "node": "Extract Complaint Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Complaint Details": {
+      "main": [
+        [
+          {
+            "node": "Verify Customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Customer": {
+      "main": [
+        [
+          {
+            "node": "Order Number Provided?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Order Number Provided?": {
+      "main": [
+        [
+          {
+            "node": "Verify Order Ownership",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Classify Complaint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Order Ownership": {
+      "main": [
+        [
+          {
+            "node": "Classify Complaint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Complaint": {
+      "main": [
+        [
+          {
+            "node": "Validate Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Classification": {
+      "main": [
+        [
+          {
+            "node": "Priority Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Priority Router": {
+      "main": [
+        [
+          {
+            "node": "Create Complaint Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Complaint Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Complaint Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Complaint Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Complaint Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Complaint Ticket": {
+      "main": [
+        [
+          {
+            "node": "Find Responsible Branch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Responsible Branch": {
+      "main": [
+        [
+          {
+            "node": "Notify Branch Manager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Branch Manager": {
+      "main": [
+        [
+          {
+            "node": "Critical Complaint?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Critical Complaint?": {
+      "main": [
+        [
+          {
+            "node": "Human Escalation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Customer Acknowledgment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Human Escalation": {
+      "main": [
+        [
+          {
+            "node": "Prepare Customer Acknowledgment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Customer Acknowledgment": {
+      "main": [
+        [
+          {
+            "node": "Return Complaint Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "versionId": "inout-ai-40-complaint-management",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "inout-ai"
+    },
+    {
+      "name": "complaints"
+    },
+    {
+      "name": "escalation"
+    }
+  ]
+}

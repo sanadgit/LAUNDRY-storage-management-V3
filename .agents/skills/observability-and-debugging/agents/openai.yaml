@@ -1,0 +1,4 @@
+interface:
+  display_name: "Observability And Debugging"
+  short_description: "Trace failures across workflows"
+  default_prompt: "Use $observability-and-debugging to add tracing, structured logs, health checks, retry queues, and debugging visibility for In & Out Laundry workflows."

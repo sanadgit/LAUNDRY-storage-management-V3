@@ -1,0 +1,25 @@
+{
+  "correlationId": "corr_pickup_driver_31_sample",
+  "messageId": "wamid.sample.pickup.31",
+  "conversationId": "conv_sample_pickup_driver",
+  "customerId": "cust_sample_001",
+  "customerPhone": "971500000000",
+  "detectedLanguage": "en",
+  "intent": "notify_driver",
+  "payload": {
+    "isSampleData": true,
+    "assignmentId": "assign_sample_001",
+    "driverPhone": "971500000000",
+    "safeTaskData": {
+      "taskType": "Pickup",
+      "customerDisplayName": "Sample Customer",
+      "area": "MBZ",
+      "address": "Sample address only",
+      "location": "https://maps.google.com/?q=24.333000,54.555000",
+      "timeWindow": "10:00-12:00",
+      "taskReference": "pickup_sample_001",
+      "acceptAction": "ACCEPT",
+      "rejectAction": "REJECT"
+    }
+  }
+}

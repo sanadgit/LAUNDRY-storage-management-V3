@@ -1,0 +1,272 @@
+{
+  "name": "In & Out Laundry - WhatsApp Cloud API Customer Agent V2",
+  "nodes": [
+    {
+      "id": "workflow-operator-note",
+      "name": "Operator Setup Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -980,
+        -420
+      ],
+      "parameters": {
+        "content": "## In & Out Laundry WhatsApp Customer Agent V2\n\nPurpose:\n- Receive Meta WhatsApp Cloud API webhooks in n8n.\n- Forward verification and inbound/status events to the project backend.\n- Keep OpenAI, POS truth, conversation memory, idempotency, wamid storage, and WhatsApp sending inside the backend.\n\nWebhook paths after activation:\n- GET  https://YOUR_N8N_DOMAIN/webhook/inout-whatsapp-cloud-agent\n- POST https://YOUR_N8N_DOMAIN/webhook/inout-whatsapp-cloud-agent\n\nRequired n8n variables:\n- LAUNDRY_API_BASE_URL=https://YOUR_APP_DOMAIN\n\nOptional n8n variables:\n- AI_AGENT_API_KEY=shared backend API key, if the backend enables it later for webhook forwarding\n\nBackend endpoints expected:\n- GET  /api/webhooks/whatsapp\n- POST /api/webhooks/whatsapp\n\nSafety rules:\n- Do not put WhatsApp access tokens, OpenAI keys, POS passwords, or database credentials in this workflow JSON.\n- Do not send WhatsApp messages directly from this workflow.\n- Do not send one WhatsApp request to multiple recipients.\n- Let the backend dedupe by wamid and handle delivered/read/failed statuses."
+      }
+    },
+    {
+      "id": "whatsapp-verify-webhook",
+      "name": "WhatsApp Verify Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -760,
+        -120
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "inout-whatsapp-cloud-agent",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "forward-verification-to-backend",
+      "name": "Forward Verification To Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -460,
+        -120
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.LAUNDRY_API_BASE_URL || '').replace(/\\/$/, '') + '/api/webhooks/whatsapp'}}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "hub.mode",
+              "value": "={{$json.query['hub.mode']}}"
+            },
+            {
+              "name": "hub.verify_token",
+              "value": "={{$json.query['hub.verify_token']}}"
+            },
+            {
+              "name": "hub.challenge",
+              "value": "={{$json.query['hub.challenge']}}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{$vars.AI_AGENT_API_KEY || ''}}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "respond-verification",
+      "name": "Respond Verification Challenge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -160,
+        -120
+      ],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{$json.body || 'Forbidden'}}",
+        "options": {
+          "responseCode": "={{$json.statusCode || 403}}"
+        }
+      }
+    },
+    {
+      "id": "whatsapp-events-webhook",
+      "name": "WhatsApp Events Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -760,
+        220
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "inout-whatsapp-cloud-agent",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "normalize-whatsapp-event",
+      "name": "Normalize WhatsApp Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        220
+      ],
+      "parameters": {
+        "jsCode": "const body = $json.body && typeof $json.body === 'object' ? $json.body : $json;\nconst entry = Array.isArray(body.entry) ? body.entry : [];\nlet messageCount = 0;\nlet statusCount = 0;\nlet firstWamid = '';\nlet firstSender = '';\n\nfor (const item of entry) {\n  for (const change of Array.isArray(item.changes) ? item.changes : []) {\n    const value = change.value || {};\n    const messages = Array.isArray(value.messages) ? value.messages : [];\n    const statuses = Array.isArray(value.statuses) ? value.statuses : [];\n    messageCount += messages.length;\n    statusCount += statuses.length;\n    if (!firstWamid && messages[0]?.id) firstWamid = String(messages[0].id);\n    if (!firstSender && messages[0]?.from) firstSender = String(messages[0].from);\n  }\n}\n\nreturn [{\n  json: {\n    ok: true,\n    source: 'n8n_whatsapp_cloud_agent_v2',\n    received_at: new Date().toISOString(),\n    message_count: messageCount,\n    status_count: statusCount,\n    first_wamid: firstWamid,\n    first_sender: firstSender,\n    body,\n  },\n}];"
+      }
+    },
+    {
+      "id": "forward-event-to-backend",
+      "name": "Forward Event To Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -160,
+        220
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{($vars.LAUNDRY_API_BASE_URL || '').replace(/\\/$/, '') + '/api/webhooks/whatsapp'}}",
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{$json.body}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-api-key",
+              "value": "={{$vars.AI_AGENT_API_KEY || ''}}"
+            },
+            {
+              "name": "x-correlation-id",
+              "value": "={{'n8n-wa-' + ($json.first_wamid || $execution.id || Date.now())}}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 120000
+        }
+      }
+    },
+    {
+      "id": "respond-event",
+      "name": "Respond Event Accepted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        140,
+        220
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: ($json.statusCode >= 200 && $json.statusCode < 300), statusCode: $json.statusCode, backend: $json.body } }}",
+        "options": {
+          "responseCode": "={{$json.statusCode || 500}}"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "WhatsApp Verify Webhook": {
+      "main": [
+        [
+          {
+            "node": "Forward Verification To Backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Forward Verification To Backend": {
+      "main": [
+        [
+          {
+            "node": "Respond Verification Challenge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp Events Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize WhatsApp Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize WhatsApp Event": {
+      "main": [
+        [
+          {
+            "node": "Forward Event To Backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Forward Event To Backend": {
+      "main": [
+        [
+          {
+            "node": "Respond Event Accepted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "versionId": "inout-whatsapp-cloud-api-customer-agent-v2",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "in-out-laundry"
+    },
+    {
+      "name": "whatsapp-cloud-api"
+    },
+    {
+      "name": "customer-agent"
+    },
+    {
+      "name": "backend-router"
+    }
+  ]
+}

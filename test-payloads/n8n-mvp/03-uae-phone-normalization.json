@@ -1,0 +1,13 @@
+{
+  "correlationId": "corr_mvp_phone_001",
+  "messageId": "wamid.mvp.phone.001",
+  "conversationId": "conv_mvp_001",
+  "customerId": "",
+  "customerPhone": "+971 50 000 0001",
+  "detectedLanguage": "ar",
+  "intent": "identity_resolution",
+  "payload": {
+    "phone": "+971 50 000 0001",
+    "expectedCanonical": "971500000001"
+  }
+}

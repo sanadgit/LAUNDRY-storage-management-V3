@@ -1,0 +1,22 @@
+{
+  "correlationId": "corr_pickup_driver_30_sample",
+  "messageId": "wamid.sample.pickup.30",
+  "conversationId": "conv_sample_pickup_driver",
+  "customerId": "cust_sample_001",
+  "customerPhone": "971500000000",
+  "detectedLanguage": "en",
+  "intent": "dispatch_driver",
+  "payload": {
+    "isSampleData": true,
+    "pickupId": "pickup_sample_001",
+    "taskType": "Pickup",
+    "branchId": "branch_sample_configured",
+    "area": "MBZ",
+    "priority": "NORMAL",
+    "guardrails": [
+      "assign only active available on-shift drivers",
+      "prevent duplicate driver assignments",
+      "preserve complete assignment history"
+    ]
+  }
+}

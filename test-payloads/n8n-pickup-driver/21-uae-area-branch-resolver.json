@@ -1,0 +1,19 @@
+{
+  "correlationId": "corr_pickup_driver_21_sample",
+  "messageId": "wamid.sample.pickup.21",
+  "conversationId": "conv_sample_pickup_driver",
+  "customerId": "cust_sample_001",
+  "customerPhone": "971500000000",
+  "detectedLanguage": "ar",
+  "intent": "resolve_service_area",
+  "payload": {
+    "isSampleData": true,
+    "area": "مدينة محمد بن زايد",
+    "address": "Sample address near MBZ",
+    "coordinates": {
+      "lat": 24.333,
+      "lng": 54.555
+    },
+    "expectedBehavior": "Use configured service areas only; do not infer real coverage from alias."
+  }
+}

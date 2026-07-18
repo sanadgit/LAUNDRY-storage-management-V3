@@ -1,0 +1,20 @@
+{
+  "correlationId": "corr_voice_60_unclear_sample",
+  "messageId": "wamid.sample.voice.60.unclear",
+  "conversationId": "conv_sample_voice",
+  "customerId": "cust_sample_001",
+  "customerPhone": "971500000000",
+  "detectedLanguage": "auto",
+  "intent": "voice_message",
+  "payload": {
+    "isSampleData": true,
+    "mediaId": "media_sample_audio_unclear",
+    "wamid": "wamid.sample.voice.60.unclear",
+    "messageType": "audio",
+    "mockMediaUrl": "https://lookaside.fbsbx.com/whatsapp_business/attachments/sample-audio.ogg",
+    "mockMimeType": "audio/ogg",
+    "mockFileSize": 24576,
+    "mockTranscription": "",
+    "expectedBehavior": "do not fabricate unclear audio content"
+  }
+}

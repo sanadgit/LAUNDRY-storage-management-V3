@@ -1,0 +1,600 @@
+{
+  "name": "InOut AI - 50 Human Handoff",
+  "nodes": [
+    {
+      "id": "contract-note",
+      "name": "Input Output Contract",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -300
+      ],
+      "parameters": {
+        "content": "## Human Handoff\n\nCreates a human handoff record for risky, ambiguous, or customer-requested escalation and locks the AI conversation until staff responds.\n\nInput: Conversation id, customer context, related order/complaint ids, trigger reason, priority, and safe transcript summary.\nOutput: { success: true, handoffId: \"\", queue: \"\", aiLocked: true }\n\nShared Input Contract:\n```json\n{\n  \"correlationId\": \"\",\n  \"messageId\": \"\",\n  \"conversationId\": \"\",\n  \"customerId\": \"\",\n  \"customerPhone\": \"\",\n  \"detectedLanguage\": \"\",\n  \"intent\": \"\",\n  \"payload\": {}\n}\n```\n\nShared Output Contract:\n```json\n{\n  \"success\": true,\n  \"status\": \"SUCCESS\",\n  \"data\": {},\n  \"error\": null,\n  \"meta\": {\n    \"correlationId\": \"\",\n    \"workflow\": \"\",\n    \"durationMs\": 0\n  }\n}\n```\n\nRequired fields:\n- correlationId\n- workflowExecutionId\n- idempotencyKey when writing\n\nRules:\n- Handoff triggers: customer requests human, legal threat, serious garment damage, lost valuable garment, privacy issue, payment dispute, repeated AI failure, aggressive or threatening conversation, system uncertainty.\n- Generate a concise safe handoff summary; do not send full transcripts or internal prompts to staff notifications.\n- Route legal/privacy/payment/P1 complaints to the correct queue and notify one responsible staff recipient only.\n- Lock AI conversation after creating handoff so the AI does not continue autonomous final decisions."
+      }
+    },
+    {
+      "id": "workflow-input",
+      "name": "Workflow Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -680,
+        20
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "load-conversation",
+      "name": "Load Conversation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1040,
+        20
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent($json.conversationId || $json.conversation_id || 'unknown')'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "load-related-order",
+      "name": "Load Related Order",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -780,
+        20
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/pos/orders/' + encodeURIComponent($('Workflow Input').first().json.orderId || $('Workflow Input').first().json.currentOrderId || 'none') + '/status?customerId=' + encodeURIComponent($('Workflow Input').first().json.customerId || '')'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 45000
+        }
+      }
+    },
+    {
+      "id": "load-related-complaint",
+      "name": "Load Related Complaint",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -520,
+        20
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/complaints/' + encodeURIComponent($('Workflow Input').first().json.complaintId || $('Workflow Input').first().json.currentComplaintId || 'none')'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "generate-handoff-summary",
+      "name": "Generate Handoff Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -260,
+        20
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/handoffs/summary'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { conversation: $('Load Conversation').first().json.body?.data || {}, order: $('Load Related Order').first().json.body?.data || null, complaint: $('Load Related Complaint').first().json.body?.data || null, reason: $('Workflow Input').first().json.reason || $('Workflow Input').first().json.handoffReason || 'system_uncertainty', trigger: $('Workflow Input').first().json.trigger || 'System uncertainty', maxSummaryChars: 1200, correlationId: $('Workflow Input').first().json.correlationId || $('Workflow Input').first().json.correlation_id } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 60000
+        }
+      }
+    },
+    {
+      "id": "create-handoff-record",
+      "name": "Create Handoff Record",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        20
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/human-handoffs'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { conversationId: $('Workflow Input').first().json.conversationId || $('Workflow Input').first().json.conversation_id, customerId: $('Workflow Input').first().json.customerId, orderId: $('Workflow Input').first().json.orderId || $('Workflow Input').first().json.currentOrderId || null, complaintId: $('Workflow Input').first().json.complaintId || $('Workflow Input').first().json.currentComplaintId || null, reason: $('Workflow Input').first().json.reason || $('Workflow Input').first().json.handoffReason || 'system_uncertainty', priority: $('Workflow Input').first().json.priority || $('Generate Handoff Summary').first().json.body?.data?.priority || 'P2_HIGH', summary: $('Generate Handoff Summary').first().json.body?.data?.summary || '', triggers: ['customer_requests_human','legal_threat','serious_garment_damage','lost_valuable_garment','privacy_issue','payment_dispute','repeated_ai_failure','aggressive_or_threatening_conversation','system_uncertainty'], correlationId: $('Workflow Input').first().json.correlationId || $('Workflow Input').first().json.correlation_id } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "determine-human-queue",
+      "name": "Determine Human Queue",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        260,
+        20
+      ],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{/legal|privacy|payment/i.test($(\"Workflow Input\").first().json.reason || $(\"Workflow Input\").first().json.handoffReason || \"\")}}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "OPERATIONS"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{/damage|lost|complaint/i.test($(\"Workflow Input\").first().json.reason || $(\"Workflow Input\").first().json.handoffReason || \"\")}}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "BRANCH_MANAGER"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{/driver|delivery|pickup/i.test($(\"Workflow Input\").first().json.reason || $(\"Workflow Input\").first().json.handoffReason || \"\")}}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "DISPATCH"
+            }
+          ]
+        },
+        "fallbackOutput": "extra",
+        "options": {}
+      }
+    },
+    {
+      "id": "notify-responsible-staff",
+      "name": "Notify Responsible Staff",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        540,
+        20
+      ],
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{$vars.WHATSAPP_PHONE_NUMBER_ID}}",
+        "recipientPhoneNumber": "={{$(\"Create Handoff Record\").first().json.body?.data?.staffPhone || $(\"Workflow Input\").first().json.staffPhone || $(\"Workflow Input\").first().json.managerPhone || \"\"}}",
+        "textBody": "={{\"[In & Out Laundry] Human handoff required\\nQueue: \" + ($json.outputKey || $(\"Create Handoff Record\").first().json.body?.data?.queue || \"SUPPORT\") + \"\\nReason: \" + ($(\"Workflow Input\").first().json.reason || $(\"Workflow Input\").first().json.handoffReason || \"system_uncertainty\") + \"\\nSummary: \" + ($(\"Generate Handoff Summary\").first().json.body?.data?.summary || \"Please review the conversation.\")}}",
+        "additionalFields": {}
+      },
+      "credentials": {
+        "whatsAppApi": {
+          "id": "replace_with_n8n_whatsapp_credential_id",
+          "name": "WhatsApp Cloud API account"
+        }
+      }
+    },
+    {
+      "id": "lock-ai-conversation",
+      "name": "Lock AI Conversation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        800,
+        20
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent($('Workflow Input').first().json.conversationId || $('Workflow Input').first().json.conversation_id || 'unknown') + '/lock''}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { locked: true, reason: 'human_handoff', handoffId: $('Create Handoff Record').first().json.body?.data?.handoffId || $('Create Handoff Record').first().json.body?.data?.id || '', correlationId: $('Workflow Input').first().json.correlationId || $('Workflow Input').first().json.correlation_id } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "return-handoff-confirmation",
+      "name": "Return Handoff Confirmation",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1060,
+        20
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "success",
+              "name": "success",
+              "type": "boolean",
+              "value": "={{$json.statusCode >= 200 && $json.statusCode < 300 && $json.body?.ok !== false}}"
+            },
+            {
+              "id": "handoffId",
+              "name": "handoffId",
+              "type": "string",
+              "value": "={{$(\"Create Handoff Record\").first().json.body?.data?.handoffId || $(\"Create Handoff Record\").first().json.body?.data?.id || \"\"}}"
+            },
+            {
+              "id": "queue",
+              "name": "queue",
+              "type": "string",
+              "value": "={{$(\"Create Handoff Record\").first().json.body?.data?.queue || \"SUPPORT\"}}"
+            },
+            {
+              "id": "aiLocked",
+              "name": "aiLocked",
+              "type": "boolean",
+              "value": true
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$(\"Workflow Input\").first().json.correlationId || $(\"Workflow Input\").first().json.correlation_id}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Workflow Input": {
+      "main": [
+        [
+          {
+            "node": "Load Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Conversation": {
+      "main": [
+        [
+          {
+            "node": "Load Related Order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Related Order": {
+      "main": [
+        [
+          {
+            "node": "Load Related Complaint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Related Complaint": {
+      "main": [
+        [
+          {
+            "node": "Generate Handoff Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Handoff Summary": {
+      "main": [
+        [
+          {
+            "node": "Create Handoff Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Handoff Record": {
+      "main": [
+        [
+          {
+            "node": "Determine Human Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Determine Human Queue": {
+      "main": [
+        [
+          {
+            "node": "Notify Responsible Staff",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify Responsible Staff",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify Responsible Staff",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify Responsible Staff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Responsible Staff": {
+      "main": [
+        [
+          {
+            "node": "Lock AI Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lock AI Conversation": {
+      "main": [
+        [
+          {
+            "node": "Return Handoff Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "versionId": "inout-ai-50-human-handoff",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "inout-ai"
+    },
+    {
+      "name": "handoff"
+    },
+    {
+      "name": "human-support"
+    }
+  ]
+}

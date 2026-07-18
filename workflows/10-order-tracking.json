@@ -1,0 +1,590 @@
+{
+  "name": "InOut AI - 10 Order Tracking",
+  "nodes": [
+    {
+      "id": "contract-note",
+      "name": "Input Output Contract",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -300
+      ],
+      "parameters": {
+        "content": "## Order Tracking\n\nReturns POS-backed order tracking only after customer identity and order ownership are verified.\n\nInput: Verified customerId/phone plus optional orderId.\nOutput: { resultBranch: \"NO_ACTIVE_ORDERS|ONE_ACTIVE_ORDER|MULTIPLE_ACTIVE_ORDERS|ORDER_NOT_OWNED|POS_UNAVAILABLE|UNKNOWN_STATUS\", order: {}, orders: [] }\n\nShared Input Contract:\n```json\n{\n  \"correlationId\": \"\",\n  \"messageId\": \"\",\n  \"conversationId\": \"\",\n  \"customerId\": \"\",\n  \"customerPhone\": \"\",\n  \"detectedLanguage\": \"\",\n  \"intent\": \"\",\n  \"payload\": {}\n}\n```\n\nShared Output Contract:\n```json\n{\n  \"success\": true,\n  \"status\": \"SUCCESS\",\n  \"data\": {},\n  \"error\": null,\n  \"meta\": {\n    \"correlationId\": \"\",\n    \"workflow\": \"\",\n    \"durationMs\": 0\n  }\n}\n```\n\nRequired fields:\n- correlationId\n- workflowExecutionId\n- idempotencyKey when writing\n\nRules:\n- POS or the approved service API is the source of truth for order status.\n- Never reveal an order when the requester phone/customer does not own it.\n- Never say READY unless POS or approved packing/branch data confirms readiness.\n- Use UNKNOWN_STATUS when the POS status cannot be safely mapped."
+      }
+    },
+    {
+      "id": "workflow-input",
+      "name": "Workflow Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -680,
+        20
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "validate-customer-id",
+      "name": "Validate Customer ID",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -460,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-customer-id",
+              "leftValue": "={{Boolean($json.customerId || $json.customer_id || $json.identity?.customer?.id)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "has-phone",
+              "leftValue": "={{Boolean($json.phone || $json.customerPhone || $json.normalizedPhone || $json.normalized_phone)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "order-id-provided",
+      "name": "Order ID Provided?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -200,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-order-id",
+              "leftValue": "={{Boolean($json.orderId || $json.order_id || $json.memory?.currentOrderId)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "get-specific-order",
+      "name": "Get Specific Order",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        60,
+        -120
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/pos/orders/' + encodeURIComponent($json.orderId || $json.order_id || $json.memory?.currentOrderId || 'unknown') + '/status?customerId=' + encodeURIComponent($json.customerId || $json.customer_id || $json.identity?.customer?.id || '') + '&phone=' + encodeURIComponent($json.phone || $json.customerPhone || $json.normalizedPhone || $json.normalized_phone || '')'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 45000
+        }
+      }
+    },
+    {
+      "id": "get-active-orders",
+      "name": "Get Active Orders",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        60,
+        160
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/customers/' + encodeURIComponent($json.customerId || $json.customer_id || $json.identity?.customer?.id || 'unknown') + '/orders/active?phone=' + encodeURIComponent($json.phone || $json.customerPhone || $json.normalizedPhone || $json.normalized_phone || '')'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 45000
+        }
+      }
+    },
+    {
+      "id": "verify-order-ownership",
+      "name": "Verify Order Ownership",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        320,
+        -120
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "order-ok",
+              "leftValue": "={{$json.statusCode >= 200 && $json.statusCode < 300 && $json.body?.ok !== false}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "order-owned",
+              "leftValue": "={{Boolean($json.body?.data?.owned !== false && $json.body?.error?.code !== \"ORDER_NOT_AUTHORIZED\" && $json.body?.error?.code !== \"CUSTOMER_NOT_VERIFIED\")}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "count-active-orders",
+      "name": "Count Active Orders",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        160
+      ],
+      "parameters": {
+        "jsCode": "const source = $('Workflow Input').first().json;\nconst ok = $json.statusCode >= 200 && $json.statusCode < 300 && $json.body?.ok !== false;\nconst orders = Array.isArray($json.body?.data?.orders) ? $json.body.data.orders : Array.isArray($json.body?.data) ? $json.body.data : [];\nlet resultBranch = 'NO_ACTIVE_ORDERS';\nif (!ok || ['POS_TIMEOUT', 'POS_SESSION_EXPIRED', 'POS_UNEXPECTED_RESPONSE'].includes($json.body?.error?.code)) resultBranch = 'POS_UNAVAILABLE';\nelse if (orders.length === 1) resultBranch = 'ONE_ACTIVE_ORDER';\nelse if (orders.length > 1) resultBranch = 'MULTIPLE_ACTIVE_ORDERS';\nreturn [{ json: { ...source, resultBranch, orderCount: orders.length, orders, order: orders[0] || null, correlationId: source.correlationId || source.correlation_id || 'corr_' + Date.now() } }];"
+      }
+    },
+    {
+      "id": "order-result-router",
+      "name": "Order Result Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        600,
+        160
+      ],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.resultBranch}}",
+                    "rightValue": "NO_ACTIVE_ORDERS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "NO_ACTIVE_ORDERS"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.resultBranch}}",
+                    "rightValue": "ONE_ACTIVE_ORDER",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "ONE_ACTIVE_ORDER"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.resultBranch}}",
+                    "rightValue": "MULTIPLE_ACTIVE_ORDERS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "MULTIPLE_ACTIVE_ORDERS"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.resultBranch}}",
+                    "rightValue": "POS_UNAVAILABLE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "POS_UNAVAILABLE"
+            }
+          ]
+        },
+        "fallbackOutput": "extra",
+        "options": {}
+      }
+    },
+    {
+      "id": "map-pos-status",
+      "name": "Map POS Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        -20
+      ],
+      "parameters": {
+        "jsCode": "const source = $('Workflow Input').first().json;\nconst rawOrder = $json.body?.data || $json.order || null;\nconst rawStatus = String(rawOrder?.status || rawOrder?.posStatus || rawOrder?.order_status || '').trim();\nconst normalized = rawStatus.toLowerCase().replace(/[_-]+/g, ' ');\nconst map = new Map([\n  ['active order', 'RECEIVED'], ['active invoice', 'RECEIVED'], ['processing', 'WASHING'], ['order processing', 'WASHING'],\n  ['sorting', 'SORTING'], ['washing', 'WASHING'], ['dry cleaning', 'DRY_CLEANING'], ['ironing', 'IRONING'],\n  ['quality control', 'QUALITY_CONTROL'], ['packing', 'PACKING'], ['ready', 'READY'], ['out for delivery', 'OUT_FOR_DELIVERY'],\n  ['delivered', 'DELIVERED'], ['cancelled', 'CANCELLED'], ['order cancelled', 'CANCELLED'], ['on hold', 'ON_HOLD'],\n]);\nlet canonicalStatus = map.get(normalized) || '';\nif (normalized === 'completed') canonicalStatus = rawOrder?.readyConfirmed === true || rawOrder?.packingComplete === true ? 'READY' : 'PACKING';\nconst resultBranch = canonicalStatus ? ($json.resultBranch || 'ONE_ACTIVE_ORDER') : 'UNKNOWN_STATUS';\nreturn [{ json: { ...source, resultBranch, order: rawOrder, rawStatus, canonicalStatus, ready: canonicalStatus === 'READY', etaMode: rawOrder?.eta ? 'exact' : 'unavailable', correlationId: source.correlationId || source.correlation_id || $json.correlationId } }];"
+      }
+    },
+    {
+      "id": "return-order-result",
+      "name": "Return Order Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1160,
+        80
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "success",
+              "name": "success",
+              "type": "boolean",
+              "value": "={{[\"NO_ACTIVE_ORDERS\", \"ONE_ACTIVE_ORDER\", \"MULTIPLE_ACTIVE_ORDERS\"].includes($json.resultBranch)}}"
+            },
+            {
+              "id": "resultBranch",
+              "name": "resultBranch",
+              "type": "string",
+              "value": "={{$json.resultBranch || ($json.body?.error?.code === \"ORDER_NOT_AUTHORIZED\" || $json.body?.error?.code === \"CUSTOMER_NOT_VERIFIED\" ? \"ORDER_NOT_OWNED\" : \"POS_UNAVAILABLE\")}}"
+            },
+            {
+              "id": "order",
+              "name": "order",
+              "type": "object",
+              "value": "={{$json.order || $json.body?.data || null}}"
+            },
+            {
+              "id": "orders",
+              "name": "orders",
+              "type": "array",
+              "value": "={{$json.orders || []}}"
+            },
+            {
+              "id": "canonicalStatus",
+              "name": "canonicalStatus",
+              "type": "string",
+              "value": "={{$json.canonicalStatus || \"\"}}"
+            },
+            {
+              "id": "rawStatus",
+              "name": "rawStatus",
+              "type": "string",
+              "value": "={{$json.rawStatus || \"\"}}"
+            },
+            {
+              "id": "message",
+              "name": "message",
+              "type": "string",
+              "value": "={{$json.resultBranch === \"ORDER_NOT_OWNED\" ? \"Order cannot be shown for this customer.\" : $json.resultBranch === \"NO_ACTIVE_ORDERS\" ? \"No active orders found for this verified customer.\" : $json.resultBranch === \"MULTIPLE_ACTIVE_ORDERS\" ? \"Multiple active orders found. Ask the customer for the order number.\" : $json.resultBranch === \"POS_UNAVAILABLE\" ? \"POS is unavailable. Escalate for branch confirmation.\" : $json.resultBranch === \"UNKNOWN_STATUS\" ? \"Order status needs branch review.\" : \"Order status returned from POS.\"}}"
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$json.correlationId || $(\"Workflow Input\").first().json.correlationId}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Workflow Input": {
+      "main": [
+        [
+          {
+            "node": "Validate Customer ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Customer ID": {
+      "main": [
+        [
+          {
+            "node": "Order ID Provided?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Order Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Order ID Provided?": {
+      "main": [
+        [
+          {
+            "node": "Get Specific Order",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Active Orders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Specific Order": {
+      "main": [
+        [
+          {
+            "node": "Verify Order Ownership",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Order Ownership": {
+      "main": [
+        [
+          {
+            "node": "Map POS Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Order Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Active Orders": {
+      "main": [
+        [
+          {
+            "node": "Count Active Orders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Count Active Orders": {
+      "main": [
+        [
+          {
+            "node": "Order Result Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Order Result Router": {
+      "main": [
+        [
+          {
+            "node": "Return Order Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Map POS Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Order Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Order Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Order Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map POS Status": {
+      "main": [
+        [
+          {
+            "node": "Return Order Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "versionId": "inout-ai-10-order-tracking",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "inout-ai"
+    },
+    {
+      "name": "orders"
+    },
+    {
+      "name": "pos"
+    }
+  ]
+}

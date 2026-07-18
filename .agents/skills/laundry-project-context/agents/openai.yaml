@@ -1,0 +1,7 @@
+interface:
+  display_name: "Laundry Project Context"
+  short_description: "In & Out Laundry business rules"
+  default_prompt: "Use $laundry-project-context to keep the In & Out Laundry flow, POS mapping, statuses, complaints, branches, and bilingual terminology aligned before editing code or workflows."
+
+policy:
+  allow_implicit_invocation: true

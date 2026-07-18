@@ -1,0 +1,18 @@
+{
+  "correlationId": "corr_pickup_driver_33_sample",
+  "messageId": "wamid.sample.pickup.33",
+  "conversationId": "conv_sample_pickup_driver",
+  "customerId": "cust_sample_001",
+  "customerPhone": "971500000000",
+  "detectedLanguage": "en",
+  "intent": "driver_timeout_reassignment",
+  "payload": {
+    "isSampleData": true,
+    "assignmentId": "assign_sample_timeout_001",
+    "pickupId": "pickup_sample_001",
+    "taskType": "Pickup",
+    "reason": "Driver acceptance timeout",
+    "retryCount": 1,
+    "expectedBehavior": "mark timed out, try next eligible candidate, otherwise escalate no-driver case"
+  }
+}

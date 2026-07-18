@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deployment DevOps"
+  short_description: "Deploy Hostinger VPS stack safely"
+  default_prompt: "Use $deployment-devops to plan or review a safe Hostinger VPS deployment with Docker Compose, n8n, PostgreSQL, Redis, Nginx, SSL, backups, and health checks."

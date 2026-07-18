@@ -1,0 +1,4 @@
+interface:
+  display_name: "Database Migration Management"
+  short_description: "Design safe database migrations"
+  default_prompt: "Use $database-migration-management to design or review safe In & Out Laundry schema migrations, indexes, foreign keys, rollback, and seed data."

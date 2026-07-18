@@ -1,0 +1,502 @@
+{
+  "name": "InOut AI - 42 Complaint Follow-up",
+  "nodes": [
+    {
+      "id": "contract-note",
+      "name": "Input Output Contract",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -300
+      ],
+      "parameters": {
+        "content": "## Complaint Follow Up\n\nFinds complaints requiring follow-up, checks current status, sends customer follow-up when allowed, escalates overdue manager actions, and saves complaint events.\n\nInput: Optional complaint id, branch id, due date filter, or scheduled follow-up batch parameters.\nOutput: { success: true, processed: number, customerFollowUpSent: boolean, managerEscalated: boolean }\n\nShared Input Contract:\n```json\n{\n  \"correlationId\": \"\",\n  \"messageId\": \"\",\n  \"conversationId\": \"\",\n  \"customerId\": \"\",\n  \"customerPhone\": \"\",\n  \"detectedLanguage\": \"\",\n  \"intent\": \"\",\n  \"payload\": {}\n}\n```\n\nShared Output Contract:\n```json\n{\n  \"success\": true,\n  \"status\": \"SUCCESS\",\n  \"data\": {},\n  \"error\": null,\n  \"meta\": {\n    \"correlationId\": \"\",\n    \"workflow\": \"\",\n    \"durationMs\": 0\n  }\n}\n```\n\nRequired fields:\n- correlationId\n- workflowExecutionId\n- idempotencyKey when writing\n\nRules:\n- Use liability-safe follow-up wording and do not close complaints automatically.\n- Send one WhatsApp message per recipient only.\n- Use templates outside the 24-hour customer care window when backend policy requires it.\n- Escalate P1/P2 or SLA-missed complaints to the responsible manager."
+      }
+    },
+    {
+      "id": "workflow-input",
+      "name": "Workflow Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -680,
+        20
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "find-complaints-requiring-follow-up",
+      "name": "Find Complaints Requiring Follow-up",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -760,
+        20
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/complaints/follow-up-due?limit=' + encodeURIComponent($json.limit || 25) + '&branchId=' + encodeURIComponent($json.branchId || '')'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "loop-over-complaints",
+      "name": "Loop Over Complaints",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -500,
+        20
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "check-current-status",
+      "name": "Check Current Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -240,
+        20
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/complaints/' + encodeURIComponent($json.complaintId || $json.id || $json.body?.data?.complaintId || 'unknown') + '/status'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "customer-follow-up-required",
+      "name": "Customer Follow-up Required?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        20,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "needs-customer-follow-up",
+              "leftValue": "={{Boolean($json.body?.data?.customerFollowUpRequired || $json.customerFollowUpRequired)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "prepare-customer-message",
+      "name": "Prepare Customer Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        -80
+      ],
+      "parameters": {
+        "jsCode": "const status = $('Check Current Status').first().json.body?.data || {};\nconst complaint = status.complaint || status;\nconst ar = String(complaint.language || 'ar').startsWith('ar');\nconst message = ar ? `نعتذر عن الإزعاج. بلاغك رقم ${complaint.complaintId || complaint.id || ''} ما زال قيد المتابعة، وسنرسل لك تحديثًا بعد مراجعة المسؤول.` : `Sorry for the inconvenience. Your complaint ${complaint.complaintId || complaint.id || ''} is still being followed up, and we will update you after manager review.`;\nreturn [{ json: { ...complaint, customerPhone: String(complaint.customerPhone || complaint.phone || '').replace(/[^0-9]/g, ''), customerMessage: message, correlationId: $('Workflow Input').first().json.correlationId || $('Workflow Input').first().json.correlation_id || 'corr_' + Date.now() } }];"
+      }
+    },
+    {
+      "id": "send-whatsapp-message",
+      "name": "Send WhatsApp Message",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        540,
+        -80
+      ],
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{$vars.WHATSAPP_PHONE_NUMBER_ID}}",
+        "recipientPhoneNumber": "={{$json.customerPhone}}",
+        "textBody": "={{$json.customerMessage}}",
+        "additionalFields": {}
+      },
+      "credentials": {
+        "whatsAppApi": {
+          "id": "replace_with_n8n_whatsapp_credential_id",
+          "name": "WhatsApp Cloud API account"
+        }
+      }
+    },
+    {
+      "id": "manager-escalation-required",
+      "name": "Manager Escalation Required?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        800,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "manager-escalation",
+              "leftValue": "={{Boolean($json.body?.data?.managerEscalationRequired || $json.managerEscalationRequired || [\"P1_CRITICAL\",\"P2_HIGH\"].includes($(\"Check Current Status\").first().json.body?.data?.priority))}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "notify-manager",
+      "name": "Notify Manager",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        1060,
+        -80
+      ],
+      "parameters": {
+        "workflowId": "={{$vars.N8N_WF_NOTIFY_BRANCH_MANAGER_ID}}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "save-complaint-event",
+      "name": "Save Complaint Event",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        20
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/complaints/' + encodeURIComponent($('Check Current Status').first().json.body?.data?.complaintId || $('Check Current Status').first().json.body?.data?.id || 'unknown') + '/events'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { eventType: 'FOLLOW_UP', customerFollowUpSent: Boolean((($items('Send WhatsApp Message', 0, 0)[0] || {}).json || {}).messages?.[0]?.id), managerEscalated: Boolean((($items('Notify Manager', 0, 0)[0] || {}).json || {}).success), status: $('Check Current Status').first().json.body?.data?.status || 'FOLLOW_UP', correlationId: $('Workflow Input').first().json.correlationId || $('Workflow Input').first().json.correlation_id } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "return-summary",
+      "name": "Return Summary",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1580,
+        20
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "success",
+              "name": "success",
+              "type": "boolean",
+              "value": "={{$json.statusCode >= 200 && $json.statusCode < 300 && $json.body?.ok !== false}}"
+            },
+            {
+              "id": "processed",
+              "name": "processed",
+              "type": "number",
+              "value": 1
+            },
+            {
+              "id": "customerFollowUpSent",
+              "name": "customerFollowUpSent",
+              "type": "boolean",
+              "value": "={{Boolean((($items(\"Send WhatsApp Message\", 0, 0)[0] || {}).json || {}).messages?.[0]?.id)}}"
+            },
+            {
+              "id": "managerEscalated",
+              "name": "managerEscalated",
+              "type": "boolean",
+              "value": "={{Boolean((($items(\"Notify Manager\", 0, 0)[0] || {}).json || {}).success)}}"
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$(\"Workflow Input\").first().json.correlationId || $(\"Workflow Input\").first().json.correlation_id}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Workflow Input": {
+      "main": [
+        [
+          {
+            "node": "Find Complaints Requiring Follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Complaints Requiring Follow-up": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Complaints",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Complaints": {
+      "main": [
+        [
+          {
+            "node": "Check Current Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Current Status": {
+      "main": [
+        [
+          {
+            "node": "Customer Follow-up Required?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Customer Follow-up Required?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Customer Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Manager Escalation Required?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Customer Message": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp Message": {
+      "main": [
+        [
+          {
+            "node": "Manager Escalation Required?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manager Escalation Required?": {
+      "main": [
+        [
+          {
+            "node": "Notify Manager",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save Complaint Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Manager": {
+      "main": [
+        [
+          {
+            "node": "Save Complaint Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Complaint Event": {
+      "main": [
+        [
+          {
+            "node": "Return Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "versionId": "inout-ai-42-complaint-follow-up",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "inout-ai"
+    },
+    {
+      "name": "complaints"
+    },
+    {
+      "name": "follow-up"
+    }
+  ]
+}

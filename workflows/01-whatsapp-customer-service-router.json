@@ -1,0 +1,972 @@
+{
+  "name": "InOut AI - 01 WhatsApp Customer Service Router",
+  "nodes": [
+    {
+      "id": "contract-note",
+      "name": "Input Output Contract",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -300
+      ],
+      "parameters": {
+        "content": "## Whatsapp Customer Service Router\n\nMain entry point for inbound WhatsApp customer messages.\n\nInput: { provider: \"whatsapp\", rawEvent: {}, receivedAt: \"ISO-8601\" }\nOutput: { success: true, correlationId: \"\", messageId: \"\", replySent: true, conversationId: \"\" }\n\nShared Input Contract:\n```json\n{\n  \"correlationId\": \"\",\n  \"messageId\": \"\",\n  \"conversationId\": \"\",\n  \"customerId\": \"\",\n  \"customerPhone\": \"\",\n  \"detectedLanguage\": \"\",\n  \"intent\": \"\",\n  \"payload\": {}\n}\n```\n\nShared Output Contract:\n```json\n{\n  \"success\": true,\n  \"status\": \"SUCCESS\",\n  \"data\": {},\n  \"error\": null,\n  \"meta\": {\n    \"correlationId\": \"\",\n    \"workflow\": \"\",\n    \"durationMs\": 0\n  }\n}\n```\n\nRequired fields:\n- correlationId\n- workflowExecutionId\n- idempotencyKey when writing\n\nRules:\n- Required branches: Text, Audio, Image, Document, Location, Interactive, Unsupported, Duplicate, Invalid, Error.\n- Preserve correlationId, messageId/wamid, and workflowExecutionId.\n- Call sub-workflows 02, 03, 04, 05, 06, 60, 70, 80, and 90.\n- Route audio through Workflow 60, then pass the transcribed normalized text back into the normal text agent path.\n- Do not embed real credentials, customer data, POS cookies, or WhatsApp tokens."
+      }
+    },
+    {
+      "id": "whatsapp-incoming-message",
+      "name": "WhatsApp Incoming Message",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1200,
+        120
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "inout-ai-whatsapp",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "generate-correlation-id",
+      "name": "Generate Correlation ID",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -960,
+        120
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "provider",
+              "name": "provider",
+              "type": "string",
+              "value": "whatsapp"
+            },
+            {
+              "id": "receivedAt",
+              "name": "receivedAt",
+              "type": "string",
+              "value": "={{new Date().toISOString()}}"
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$json.correlationId || 'corr_' + Date.now() + '_' + ($execution.id || 'n8n')}}"
+            },
+            {
+              "id": "workflowExecutionId",
+              "name": "workflowExecutionId",
+              "type": "string",
+              "value": "={{String($execution.id || \"\")}}"
+            },
+            {
+              "id": "rawEvent",
+              "name": "rawEvent",
+              "type": "object",
+              "value": "={{$json.body || $json}}"
+            }
+          ]
+        },
+        "options": {
+          "dotNotation": false
+        }
+      }
+    },
+    {
+      "id": "extract-webhook-data",
+      "name": "Extract Webhook Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -720,
+        120
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "entry",
+              "name": "entry",
+              "type": "object",
+              "value": "={{($json.rawEvent.entry || [])[0] || {}}}"
+            },
+            {
+              "id": "change",
+              "name": "change",
+              "type": "object",
+              "value": "={{((($json.rawEvent.entry || [])[0] || {}).changes || [])[0] || {}}}"
+            },
+            {
+              "id": "value",
+              "name": "value",
+              "type": "object",
+              "value": "={{$json.change.value || {}}}"
+            },
+            {
+              "id": "message",
+              "name": "message",
+              "type": "object",
+              "value": "={{($json.value.messages || [])[0] || {}}}"
+            },
+            {
+              "id": "contact",
+              "name": "contact",
+              "type": "object",
+              "value": "={{($json.value.contacts || [])[0] || {}}}"
+            },
+            {
+              "id": "senderPhone",
+              "name": "senderPhone",
+              "type": "string",
+              "value": "={{String($json.message.from || $json.contact.wa_id || \"\")}}"
+            },
+            {
+              "id": "messageId",
+              "name": "messageId",
+              "type": "string",
+              "value": "={{String($json.message.id || \"\")}}"
+            },
+            {
+              "id": "messageType",
+              "name": "messageType",
+              "type": "string",
+              "value": "={{String($json.message.type || \"unsupported\")}}"
+            },
+            {
+              "id": "timestamp",
+              "name": "timestamp",
+              "type": "string",
+              "value": "={{String($json.message.timestamp || \"\")}}"
+            },
+            {
+              "id": "receiverPhone",
+              "name": "receiverPhone",
+              "type": "string",
+              "value": "={{String($json.value.metadata?.display_phone_number || $json.value.metadata?.phone_number_id || \"\")}}"
+            },
+            {
+              "id": "customerName",
+              "name": "customerName",
+              "type": "string",
+              "value": "={{String($json.contact.profile?.name || \"\")}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    },
+    {
+      "id": "validate-payload",
+      "name": "Validate Payload",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -480,
+        120
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-sender",
+              "leftValue": "={{Boolean($json.senderPhone)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "has-message-id",
+              "leftValue": "={{Boolean($json.messageId)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "has-message-type",
+              "leftValue": "={{Boolean($json.messageType)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "invalid-payload-response",
+      "name": "Invalid Payload Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        -160
+      ],
+      "parameters": {
+        "jsCode": "return [{ json: { success: false, stopped: true, branch: $json.branch || 'invalid', correlationId: $json.correlationId, messageId: $json.messageId || '', replySent: false, conversationId: $json.conversationId || '' } }];"
+      }
+    },
+    {
+      "id": "check-message-type",
+      "name": "Check Message Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -240,
+        120
+      ],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.messageType}}",
+                    "rightValue": "text",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "Text"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.messageType}}",
+                    "rightValue": "audio",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "Audio"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.messageType}}",
+                    "rightValue": "image",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "Image"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.messageType}}",
+                    "rightValue": "document",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "Document"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.messageType}}",
+                    "rightValue": "location",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "Location"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.messageType}}",
+                    "rightValue": "interactive",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "Interactive"
+            }
+          ]
+        },
+        "fallbackOutput": "extra",
+        "options": {}
+      }
+    },
+    {
+      "id": "process-voice-message",
+      "name": "Process Voice Message",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        40,
+        -40
+      ],
+      "parameters": {
+        "workflowId": "={{$vars.N8N_WF_VOICE_PROCESSING_ID}}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "normalize-whatsapp-message",
+      "name": "Normalize WhatsApp Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        120
+      ],
+      "parameters": {
+        "jsCode": "if ($json.routeToWorkflow01 && $json.normalizedMessage?.messageText) {\n  return [{ json: { ...$json, messageType: 'text', normalizedMessage: { ...$json.normalizedMessage, messageType: 'text', originalMessageType: $json.normalizedMessage.originalMessageType || 'audio' } } }];\n}\nconst message = $json.message || {};\nconst type = String($json.messageType || 'unsupported');\nconst text = type === 'text'\n  ? String(message.text?.body || '')\n  : type === 'location'\n    ? `Location: https://www.google.com/maps?q=${message.location?.latitude},${message.location?.longitude}`\n    : type === 'interactive'\n      ? String(message.interactive?.button_reply?.title || message.interactive?.list_reply?.title || '[interactive message]')\n      : `[${type} message]`;\nreturn [{ json: { ...$json, normalizedMessage: { provider: 'whatsapp', channel: 'whatsapp', from: $json.senderPhone, to: $json.receiverPhone, name: $json.customerName, messageId: $json.messageId, wamid: $json.messageId, messageType: type, messageText: text, timestamp: $json.timestamp, rawEvent: $json.rawEvent, receivedAt: $json.receivedAt, correlationId: $json.correlationId, workflowExecutionId: $json.workflowExecutionId } } }];"
+      }
+    },
+    {
+      "id": "check-duplicate-message",
+      "name": "Check Duplicate Message",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        560,
+        120
+      ],
+      "parameters": {
+        "workflowId": "={{$vars.N8N_WF_IDEMPOTENCY_CHECK_ID}}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "is-duplicate",
+      "name": "Is Duplicate?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        820,
+        120
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "duplicate-flag",
+              "leftValue": "={{Boolean($json.duplicate_message || $json.data?.duplicate_message || $json.data?.duplicate || $json.agent?.duplicate_message)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "normalize-customer-phone",
+      "name": "Normalize Customer Phone",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        1080,
+        120
+      ],
+      "parameters": {
+        "workflowId": "={{$vars.N8N_WF_PHONE_NORMALIZATION_ID}}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "identify-customer",
+      "name": "Identify Customer",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        1340,
+        120
+      ],
+      "parameters": {
+        "workflowId": "={{$vars.N8N_WF_CUSTOMER_IDENTITY_ID}}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "load-conversation-context",
+      "name": "Load Conversation Context",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        1600,
+        120
+      ],
+      "parameters": {
+        "workflowId": "={{$vars.N8N_WF_MEMORY_MANAGER_ID}}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "prepare-agent-input",
+      "name": "Prepare Agent Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1860,
+        120
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "agentInput",
+              "name": "agentInput",
+              "type": "object",
+              "value": "={{ { provider: \"whatsapp\", message: $json.normalizedMessage || $json, identity: $json.identity || $json.customer || null, memory: $json.memory || null, correlationId: $json.correlationId || $json.normalizedMessage?.correlationId } }}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    },
+    {
+      "id": "customer-service-ai-agent",
+      "name": "Customer Service AI Agent",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        2120,
+        120
+      ],
+      "parameters": {
+        "workflowId": "={{$vars.N8N_WF_AI_AGENT_ID}}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "validate-agent-response",
+      "name": "Validate Agent Response",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2380,
+        120
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-safe-reply",
+              "leftValue": "={{Boolean($json.agent?.response || $json.data?.response || $json.response || $json.customer_reply_override)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "safe-fallback-message",
+      "name": "Safe Fallback Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2640,
+        300
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "customer_reply_override",
+              "name": "customer_reply_override",
+              "type": "string",
+              "value": "={{$json.language === \"ar\" ? \"وصلت رسالتك، وسيقوم فريق خدمة العملاء بمراجعتها والرد عليك قريباً.\" : \"We received your message. Our customer service team will review it and reply shortly.\"}}"
+            },
+            {
+              "id": "fallbackUsed",
+              "name": "fallbackUsed",
+              "type": "boolean",
+              "value": true
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    },
+    {
+      "id": "send-whatsapp-reply",
+      "name": "Send WhatsApp Reply",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        2900,
+        120
+      ],
+      "parameters": {
+        "workflowId": "={{$vars.N8N_WF_RESPONSE_SENDER_ID}}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "save-conversation",
+      "name": "Save Conversation",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        3160,
+        120
+      ],
+      "parameters": {
+        "workflowId": "={{$vars.N8N_WF_SAVE_SUMMARY_ID}}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "mark-event-processed",
+      "name": "Mark Event Processed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3420,
+        120
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/ai/router'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { channel: 'whatsapp', from: $json.normalizedMessage?.from || $json.from, to: $json.normalizedMessage?.to || $json.to, message: 'mark event processed', message_type: 'processed', whatsapp_message_id: $json.normalizedMessage?.wamid || $json.messageId, correlationId: $json.correlationId || $json.normalizedMessage?.correlationId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 60000
+        }
+      }
+    },
+    {
+      "id": "error-handler",
+      "name": "Error Handler",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        40,
+        -160
+      ],
+      "parameters": {
+        "workflowId": "={{$vars.N8N_WF_ERROR_HANDLER_ID}}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    }
+  ],
+  "connections": {
+    "WhatsApp Incoming Message": {
+      "main": [
+        [
+          {
+            "node": "Generate Correlation ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Correlation ID": {
+      "main": [
+        [
+          {
+            "node": "Extract Webhook Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Webhook Data": {
+      "main": [
+        [
+          {
+            "node": "Validate Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Payload": {
+      "main": [
+        [
+          {
+            "node": "Check Message Type",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Handler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Handler": {
+      "main": [
+        [
+          {
+            "node": "Invalid Payload Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Message Type": {
+      "main": [
+        [
+          {
+            "node": "Normalize WhatsApp Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Process Voice Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize WhatsApp Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize WhatsApp Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize WhatsApp Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize WhatsApp Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Handler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Voice Message": {
+      "main": [
+        [
+          {
+            "node": "Normalize WhatsApp Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize WhatsApp Message": {
+      "main": [
+        [
+          {
+            "node": "Check Duplicate Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Duplicate Message": {
+      "main": [
+        [
+          {
+            "node": "Is Duplicate?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Duplicate?": {
+      "main": [
+        [
+          {
+            "node": "Invalid Payload Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize Customer Phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Customer Phone": {
+      "main": [
+        [
+          {
+            "node": "Identify Customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Identify Customer": {
+      "main": [
+        [
+          {
+            "node": "Load Conversation Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Conversation Context": {
+      "main": [
+        [
+          {
+            "node": "Prepare Agent Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Agent Input": {
+      "main": [
+        [
+          {
+            "node": "Customer Service AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Customer Service AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Validate Agent Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Agent Response": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Safe Fallback Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Safe Fallback Message": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp Reply": {
+      "main": [
+        [
+          {
+            "node": "Save Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Conversation": {
+      "main": [
+        [
+          {
+            "node": "Mark Event Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "versionId": "inout-ai-01-whatsapp-customer-service-router",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "inout-ai"
+    },
+    {
+      "name": "whatsapp"
+    },
+    {
+      "name": "router"
+    }
+  ]
+}

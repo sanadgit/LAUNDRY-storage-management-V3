@@ -1,0 +1,231 @@
+{
+  "name": "Network Card Payment Reconciliation - Email PDF POS Compare TextConnect",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Network Card Payment Reconciliation\nReads Network daily PDF from email, extracts terminal totals, compares each branch with POS card revenue by direct POS auto-login, sends branch reports and owner summary via TextConnect WhatsApp.\n\nRequired variables:\n- POS_USERNAME and POS_PASSWORD, or branch-specific credentials below\n- TEXTCONNECT_SECRET\n- TEXTCONNECT_ACCOUNT\n- CARD_RECON_AL_FALAH_WHATSAPP\n- CARD_RECON_MBZ_WHATSAPP\n- CARD_RECON_MUSSAFAH_WHATSAPP\n- CARD_RECON_OWNER_WHATSAPP\n\nOptional POS variables:\n- POS_AL_FALAH_USERNAME / POS_AL_FALAH_PASSWORD / POS_AL_FALAH_BRANCH_ID\n- POS_MBZ_USERNAME / POS_MBZ_PASSWORD / POS_MBZ_BRANCH_ID\n- POS_MUSSAFAH_USERNAME / POS_MUSSAFAH_PASSWORD / POS_MUSSAFAH_BRANCH_ID\n- POS_CLIENT_IDENTIFIER, POS_LOGIN_ENDPOINT, POS_LOGIN_REFERER, POS_ORIGIN, POS_REPORT_URL\n- CARD_RECON_TOLERANCE defaults to 1 AED\n\nIf your n8n cannot use Extract From File PDF, add an extraction node that outputs text to `$json.text` before Analyze Network PDF."
+      },
+      "id": "note",
+      "name": "Setup Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -840,
+        -360
+      ]
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "sender": "nifax@network.ae"
+        },
+        "options": {
+          "downloadAttachments": true
+        }
+      },
+      "id": "gmail-trigger",
+      "name": "Gmail Trigger - Network PDF",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -820,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "messageId": "={{ $json.id }}",
+        "simple": false,
+        "options": {
+          "downloadAttachments": true
+        }
+      },
+      "id": "gmail-get",
+      "name": "Get Gmail Message With Attachments",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        -600,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = [];\nfor (const item of items) {\n  const binary = item.binary || {};\n  for (const [key, value] of Object.entries(binary)) {\n    const fileName = String(value.fileName || key);\n    if (!/\\.pdf$/i.test(fileName)) continue;\n    output.push({ json: { sourceMessageId: item.json.id, subject: item.json.subject || '', fileName }, binary: { data: value } });\n  }\n}\nif (!output.length) throw new Error('No PDF attachment found in Network email.');\nreturn output;"
+      },
+      "id": "extract-attachments",
+      "name": "Extract PDF Attachments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -380,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "data",
+        "options": {}
+      },
+      "id": "extract-pdf-text",
+      "name": "Extract PDF Text",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst text = String(\n  $json.text ||\n  $json.data ||\n  $json.content ||\n  $json.extractedText ||\n  $json.output ||\n  $json.documentText ||\n  ''\n);\nif (!text.trim()) {\n  throw new Error('No PDF text found. Add an \"Extract From File\" PDF node before this Code node and map its text output.');\n}\n\nconst machineMap = {\n  '13179634': { branch: 'Al Falah', branch_key: 'AL_FALAH' },\n  '13179635': { branch: 'Al Falah', branch_key: 'AL_FALAH' },\n  '13179631': { branch: 'Al Falah', branch_key: 'AL_FALAH' },\n  '13179632': { branch: 'Al Falah', branch_key: 'AL_FALAH' },\n  '13179636': { branch: 'MBZ', branch_key: 'MBZ' },\n  '13179633': { branch: 'Musaffah', branch_key: 'MUSSAFAH' },\n};\nconst toNum = (value) => {\n  const n = Number(String(value ?? '').replace(/,/g, '').replace(/[^0-9.-]/g, ''));\n  return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;\n};\nconst add = (target, row) => {\n  target.count += 1;\n  target.gross = Math.round((target.gross + row.gross) * 100) / 100;\n  target.msf = Math.round((target.msf + row.msf) * 100) / 100;\n  target.txn_fee = Math.round((target.txn_fee + row.txn_fee) * 100) / 100;\n  target.vat = Math.round((target.vat + row.vat) * 100) / 100;\n  target.net = Math.round((target.net + row.net) * 100) / 100;\n};\nconst newTotal = (extra = {}) => ({ count: 0, gross: 0, msf: 0, txn_fee: 0, vat: 0, net: 0, ...extra });\nconst parseReportDate = () => {\n  const fromMatch = text.match(/FROM\\s+(\\d{2})\\/(\\d{2})\\/(\\d{4})\\s+TO\\s+(\\d{2})\\/(\\d{2})\\/(\\d{4})/i);\n  if (fromMatch) {\n    return {\n      from_date: fromMatch[3] + '-' + fromMatch[2] + '-' + fromMatch[1],\n      to_date: fromMatch[6] + '-' + fromMatch[5] + '-' + fromMatch[4],\n      period_label: fromMatch[1] + '/' + fromMatch[2] + '/' + fromMatch[3],\n    };\n  }\n  const d = new Date().toISOString().slice(0, 10);\n  return { from_date: d, to_date: d, period_label: d };\n};\n\nconst rowPattern = /(\\d{2}\\/\\d{2})\\s+(1317963[1-6])\\s+(\\S+)\\s+(SALES|REFUND|VOID|REVERSAL)\\s+(\\S+)\\s+(\\S+)\\s+(-?[\\d,]+\\.\\d{2})\\s+(-?[\\d,]+\\.\\d{2})\\s+(-?[\\d,]+\\.\\d{2})\\s+(-?[\\d,]+\\.\\d{2})\\s+(-?[\\d,]+\\.\\d{2})\\s+([^\\n\\r]+)/g;\nconst rows = [];\nfor (const match of text.matchAll(rowPattern)) {\n  const terminal = match[2];\n  const machine = machineMap[terminal];\n  if (!machine) continue;\n  rows.push({\n    date: match[1], terminal, branch: machine.branch, branch_key: machine.branch_key, card: match[3], type: match[4], auth: match[6],\n    gross: toNum(match[7]), msf: toNum(match[8]), txn_fee: toNum(match[9]), vat: toNum(match[10]), net: toNum(match[11]),\n    description: String(match[12] || '').trim(),\n  });\n}\nif (!rows.length) throw new Error('No Network terminal transactions were parsed from the PDF text.');\n\nconst machines = {};\nconst branches = {};\nconst grand = newTotal();\nfor (const row of rows) {\n  machines[row.terminal] ||= newTotal({ terminal: row.terminal, branch: row.branch, branch_key: row.branch_key });\n  branches[row.branch_key] ||= newTotal({ branch: row.branch, branch_key: row.branch_key, machines: [] });\n  add(machines[row.terminal], row);\n  add(branches[row.branch_key], row);\n  add(grand, row);\n}\nfor (const machine of Object.values(machines)) branches[machine.branch_key].machines.push(machine);\nconst reportDates = parseReportDate();\nconst pdfGrandMatch = text.match(/GRAND TOTAL VALUE OF POS TRANSACTIONS\\s*:\\s*([\\d,]+\\.\\d{2})/i);\nconst pdfGrand = pdfGrandMatch ? toNum(pdfGrandMatch[1]) : grand.gross;\nconst commissionMatch = text.match(/GRAND TOTAL VALUE OF COMMISSION\\s*:\\s*(-?[\\d,]+\\.\\d{2})/i);\nconst vatMatch = text.match(/GRAND TOTAL VALUE OF VAT\\s*:\\s*(-?[\\d,]+\\.\\d{2})/i);\nconst pdfCommission = commissionMatch ? toNum(commissionMatch[1]) : Math.round((grand.msf + grand.txn_fee) * 100) / 100;\nconst pdfVat = vatMatch ? toNum(vatMatch[1]) : grand.vat;\nconst calculatedDeposit = Math.round((pdfGrand - Math.abs(pdfCommission) - Math.abs(pdfVat)) * 100) / 100;\nconst netPayableMatch = text.match(/NET PAYABLE\\s*\\/\\s*RECEIVABLE\\s+([\\d,]+\\.\\d{2})/i);\nconst netPayable = netPayableMatch ? toNum(netPayableMatch[1]) : calculatedDeposit;\nreturn [{ json: { ok: true, source: 'network_pdf', file_name: $json.fileName || $json.filename || '', ...reportDates, rows_count: rows.length, rows, machines: Object.values(machines), branches: Object.values(branches), grand_total: grand, pdf_grand_total: pdfGrand, pdf_commission: pdfCommission, pdf_vat: pdfVat, calculated_bank_deposit: calculatedDeposit, bank_deposit_amount: netPayable, net_payable: netPayable, totals_match_pdf: Math.abs(grand.gross - pdfGrand) <= 0.01, deposit_matches_pdf: Math.abs(calculatedDeposit - netPayable) <= 0.01 } }];"
+      },
+      "id": "analyze-pdf",
+      "name": "Analyze Network PDF",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst analysis = $json;\nconst range = {\n  from_date: String(analysis.from_date || '').trim(),\n  to_date: String(analysis.to_date || '').trim(),\n  period_label: String(analysis.period_label || '').trim(),\n};\nif (!range.from_date || !range.to_date) throw new Error('Missing from_date/to_date from Network PDF analysis.');\n\nconst POS_CLIENT_IDENTIFIER = String(vars.POS_CLIENT_IDENTIFIER || 'inout').trim() || 'inout';\nconst POS_LOGIN_ENDPOINT = String(vars.POS_LOGIN_ENDPOINT || 'https://beta.aipsoft.com/inout/login/check').trim();\nconst POS_LOGIN_REFERER = String(vars.POS_LOGIN_REFERER || 'https://beta.aipsoft.com/inout/sales').trim();\nconst POS_ORIGIN = String(vars.POS_ORIGIN || 'https://beta.aipsoft.com').trim();\nconst POS_REPORT_URL = String(vars.POS_REPORT_URL || 'https://beta.aipsoft.com/inout/sales/generate_report').trim();\nconst POS_SALES_URL = String(vars.POS_SALES_URL || POS_REPORT_URL.replace(/\\/generate_report.*$/i, '')).trim();\nconst POS_BASE_APP_URL = String(vars.POS_BASE_APP_URL || POS_REPORT_URL.replace(/\\/sales\\/generate_report.*$/i, '')).replace(/\\/+$/, '');\n\nconst pick = (...values) => {\n  for (const value of values) {\n    const text = String(value || '').trim();\n    if (text && !/^REPLACE_/i.test(text)) return text;\n  }\n  return '';\n};\nconst branchConfigs = [\n  {\n    key: 'AL_FALAH',\n    branch: 'Al Falah',\n    username: pick(vars.POS_AL_FALAH_USERNAME, vars.AL_FALAH_POS_USERNAME, vars.POS_USERNAME_AL_FALAH, vars.POS_USERNAME),\n    password: pick(vars.POS_AL_FALAH_PASSWORD, vars.AL_FALAH_POS_PASSWORD, vars.POS_PASSWORD_AL_FALAH, vars.POS_PASSWORD),\n    branch_id: pick(vars.POS_AL_FALAH_BRANCH_ID, vars.AL_FALAH_BRANCH_ID),\n  },\n  {\n    key: 'MBZ',\n    branch: 'MBZ',\n    username: pick(vars.POS_MBZ_USERNAME, vars.MBZ_POS_USERNAME, vars.POS_USERNAME_MBZ, vars.POS_USERNAME),\n    password: pick(vars.POS_MBZ_PASSWORD, vars.MBZ_POS_PASSWORD, vars.POS_PASSWORD_MBZ, vars.POS_PASSWORD),\n    branch_id: pick(vars.POS_MBZ_BRANCH_ID, vars.MBZ_BRANCH_ID),\n  },\n  {\n    key: 'MUSSAFAH',\n    branch: 'Musaffah',\n    username: pick(vars.POS_MUSSAFAH_USERNAME, vars.MUSSAFAH_POS_USERNAME, vars.POS_USERNAME_MUSSAFAH, vars.POS_USERNAME),\n    password: pick(vars.POS_MUSSAFAH_PASSWORD, vars.MUSSAFAH_POS_PASSWORD, vars.POS_PASSWORD_MUSSAFAH, vars.POS_PASSWORD),\n    branch_id: pick(vars.POS_MUSSAFAH_BRANCH_ID, vars.MUSSAFAH_BRANCH_ID),\n  },\n];\nconst missing = branchConfigs.filter((branch) => !branch.username || !branch.password).map((branch) => branch.branch);\nif (missing.length) throw new Error('Missing POS credentials for: ' + missing.join(', ') + '. Set POS_USERNAME/POS_PASSWORD or branch-specific POS_* variables.');\n\nconst normalizeHeaders = (headers = {}) => {\n  const out = {};\n  if (headers && typeof headers.forEach === 'function') {\n    headers.forEach((value, key) => { out[String(key).toLowerCase()] = value; });\n    if (typeof headers.getSetCookie === 'function') out['set-cookie'] = headers.getSetCookie();\n    return out;\n  }\n  for (const [key, value] of Object.entries(headers || {})) out[String(key).toLowerCase()] = value;\n  return out;\n};\nconst getSetCookies = (headers = {}) => {\n  const normalized = normalizeHeaders(headers);\n  const raw = normalized['set-cookie'];\n  if (!raw) return [];\n  if (Array.isArray(raw)) return raw;\n  return String(raw).split(/,(?=\\s*[^;,\\s]+=)/g).map((v) => v.trim()).filter(Boolean);\n};\nconst parseCookieHeader = (cookieHeader) => {\n  const map = new Map();\n  for (const part of String(cookieHeader || '').split(';')) {\n    const segment = part.trim();\n    if (!segment) continue;\n    const eqIndex = segment.indexOf('=');\n    if (eqIndex <= 0) continue;\n    const key = segment.slice(0, eqIndex).trim();\n    const value = segment.slice(eqIndex + 1).trim();\n    if (key) map.set(key, value);\n  }\n  return map;\n};\nconst mergeCookieHeaders = (baseCookieHeader, setCookies) => {\n  const merged = parseCookieHeader(baseCookieHeader);\n  for (const setCookie of setCookies || []) {\n    const cookiePart = String(setCookie || '').split(';')[0]?.trim();\n    if (!cookiePart) continue;\n    const eqIndex = cookiePart.indexOf('=');\n    if (eqIndex <= 0) continue;\n    const key = cookiePart.slice(0, eqIndex).trim();\n    const value = cookiePart.slice(eqIndex + 1).trim();\n    if (key) merged.set(key, value);\n  }\n  return Array.from(merged.entries()).map(([key, value]) => key + '=' + value).join('; ');\n};\nconst formEncode = (params) => Object.entries(params).map(([key, value]) => encodeURIComponent(key) + '=' + encodeURIComponent(String(value ?? ''))).join('&');\nconst hasMinimalPosCookie = (cookieHeader) => /ci_session_/i.test(String(cookieHeader || ''));\nconst isLikelyPosLoginHtml = (text) => {\n  const lower = String(text || '').toLowerCase();\n  return lower.includes(':: login') || lower.includes('login/check') || lower.includes('assets/dashboard/css/login.css') || lower.includes('name=\"password\"') || lower.includes(\"name='password'\");\n};\nasync function requestFull(options) {\n  const requestOptions = {\n    method: options.method || 'GET',\n    url: options.url,\n    headers: options.headers || {},\n    body: options.body,\n    json: false,\n    returnFullResponse: true,\n    resolveWithFullResponse: true,\n    simple: false,\n    timeout: options.timeout || 30000,\n  };\n  if (this?.helpers?.httpRequest) {\n    const response = await this.helpers.httpRequest(requestOptions);\n    if (response && typeof response === 'object' && (response.headers || Object.prototype.hasOwnProperty.call(response, 'body'))) {\n      const body = typeof response.body === 'string' ? response.body : JSON.stringify(response.body ?? '');\n      return { statusCode: response.statusCode || response.status || 0, headers: response.headers || {}, body };\n    }\n    return { statusCode: 0, headers: {}, body: typeof response === 'string' ? response : JSON.stringify(response ?? '') };\n  }\n  if (typeof fetch !== 'function') throw new Error('No HTTP helper available inside n8n Code node.');\n  const response = await fetch(options.url, { method: options.method || 'GET', headers: options.headers || {}, body: options.body, redirect: 'manual' });\n  const body = await response.text();\n  return { statusCode: response.status, headers: response.headers, body };\n}\nconst stripHtml = (value) => String(value ?? '').replace(/<[^>]*>/g, ' ').replace(/\\s+/g, ' ').trim();\nconst parseMoney = (value) => {\n  const parsed = Number(String(value ?? '').replace(/,/g, '').replace(/[^0-9.-]/g, ''));\n  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : 0;\n};\nconst escapeRegex = (value) => String(value).replace(/[.*+?^\\${}()|[\\]\\\\]/g, '\\\\$&');\nconst extractAmount = (html, label) => {\n  const pattern = new RegExp('<td[^>]*>\\\\s*' + escapeRegex(label) + '\\\\s*<\\\\/td>\\\\s*<td[^>]*>\\\\s*([\\\\d,.-]+)\\\\s*<\\\\/td>', 'i');\n  const match = String(html || '').match(pattern);\n  return match ? parseMoney(match[1]) : 0;\n};\nconst extractText = (html, pattern) => {\n  const match = String(html || '').match(pattern);\n  return match ? stripHtml(match[1]) : '';\n};\nconst round = (value) => Math.round((Number(value) || 0) * 100) / 100;\n\nasync function fetchBranchSummary(config) {\n  let cookieHeader = 'language=english; direction=ltr; dont_show_today=true';\n  try {\n    const preflight = await requestFull.call(this, {\n      method: 'GET',\n      url: POS_LOGIN_REFERER,\n      headers: { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Cache-Control': 'no-cache', Pragma: 'no-cache', Cookie: cookieHeader },\n    });\n    cookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(preflight.headers));\n  } catch (error) {}\n\n  const usernameBeforeAt = config.username.includes('@') ? config.username.split('@')[0].trim() : config.username;\n  const usernameVariants = Array.from(new Set([\n    config.username,\n    config.username.toLowerCase(),\n    usernameBeforeAt,\n    usernameBeforeAt.toLowerCase(),\n    usernameBeforeAt ? usernameBeforeAt + '@' + POS_CLIENT_IDENTIFIER : '',\n    usernameBeforeAt ? usernameBeforeAt.toLowerCase() + '@' + POS_CLIENT_IDENTIFIER : '',\n  ].filter(Boolean)));\n\n  let authed = false;\n  let usedUsername = '';\n  let lastLoginBody = '';\n  let loginPayload = null;\n  let loginStatusCode = 0;\n  for (const username of usernameVariants) {\n    const loginResponse = await requestFull.call(this, {\n      method: 'POST',\n      url: POS_LOGIN_ENDPOINT,\n      headers: {\n        Accept: 'application/json, text/javascript, */*; q=0.01',\n        'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8,ar;q=0.7',\n        'Cache-Control': 'no-cache',\n        Pragma: 'no-cache',\n        Origin: POS_ORIGIN,\n        Referer: POS_LOGIN_REFERER,\n        'X-Requested-With': 'XMLHttpRequest',\n        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',\n        Cookie: cookieHeader,\n      },\n      body: formEncode({ username, password: config.password, client_identifier: POS_CLIENT_IDENTIFIER, auto_login: 'null', connection_path: 'null' }),\n    });\n    cookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(loginResponse.headers));\n    loginStatusCode = loginResponse.statusCode || 0;\n    lastLoginBody = String(loginResponse.body || '');\n    try { loginPayload = JSON.parse(lastLoginBody); } catch (error) { loginPayload = null; }\n    const lower = lastLoginBody.toLowerCase();\n    const loginMessage = String(loginPayload?.message || '').toLowerCase();\n    const looksSuccess = loginMessage === 'login_success' || loginMessage === 'password_ok' || lower.includes('login_success') || lower.includes('password_ok');\n    const looksFailure = loginMessage === 'login_failed' || loginMessage === 'not_a_valid_client' || loginMessage === 'invalid_client' || loginMessage === 'account_blocked' || loginMessage === 'client_disabled';\n    if (looksSuccess && !looksFailure && (hasMinimalPosCookie(cookieHeader) || lower.includes('login_success'))) {\n      authed = true;\n      usedUsername = username;\n      break;\n    }\n  }\n  if (!authed) throw new Error('POS login failed for ' + config.branch + '. Last response: ' + lastLoginBody.slice(0, 250));\n\n  const availableBranches = Array.isArray(loginPayload?.branches) ? loginPayload.branches : [];\n  const selectedBranch = config.branch_id\n    ? (availableBranches.find((branch) => String(branch.id) === String(config.branch_id)) || { id: config.branch_id })\n    : (availableBranches[0] || null);\n  const usedUsernameWithoutClient = usedUsername.includes('@') ? usedUsername.split('@')[0].trim() : usedUsername;\n  if (selectedBranch?.id && POS_BASE_APP_URL) {\n    try {\n      const branchSessionResponse = await requestFull.call(this, {\n        method: 'POST',\n        url: POS_BASE_APP_URL + '/login/loadBranchData',\n        headers: {\n          Accept: 'application/json, text/javascript, */*; q=0.01',\n          'Cache-Control': 'no-cache',\n          Pragma: 'no-cache',\n          Origin: POS_ORIGIN,\n          Referer: POS_LOGIN_REFERER,\n          'X-Requested-With': 'XMLHttpRequest',\n          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',\n          Cookie: cookieHeader,\n        },\n        body: formEncode({ branch_id: selectedBranch.id, client_identifier: POS_CLIENT_IDENTIFIER, user_name: usedUsernameWithoutClient, ccu_id: loginPayload?.ccu_id || loginPayload?.data?.ccu_id || '' }),\n      });\n      cookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(branchSessionResponse.headers));\n    } catch (error) {}\n  }\n\n  const salesWarmupResponse = await requestFull.call(this, {\n    method: 'GET',\n    url: POS_SALES_URL,\n    headers: { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Cache-Control': 'no-cache', Pragma: 'no-cache', Cookie: cookieHeader },\n  });\n  cookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(salesWarmupResponse.headers));\n\n  const reportResponse = await requestFull.call(this, {\n    method: 'POST',\n    url: POS_REPORT_URL,\n    headers: {\n      Accept: '*/*',\n      'Cache-Control': 'no-cache',\n      Pragma: 'no-cache',\n      Origin: POS_ORIGIN,\n      Referer: POS_SALES_URL,\n      'X-Requested-With': 'XMLHttpRequest',\n      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',\n      Cookie: cookieHeader,\n    },\n    body: formEncode({\n      report_type: 'counter_cash',\n      from_date: range.from_date,\n      from_time: '12:00 AM',\n      to_date: range.to_date,\n      to_time: '11:59 PM',\n      no_of_decimal_places: '2',\n      save: '1',\n      predefined_date: 'Custom Range',\n      prod_details: '0',\n      void_details: '0',\n      ord_prod_details: '0',\n      ord_void_details: '0',\n      cust_details: '0',\n      expns_details: '1',\n      print: '0',\n      inv_cat_wise: '0',\n      ord_cat_wise: '0',\n      inv_cat_wise_tax: '0',\n      ord_cat_wise_tax: '0',\n      salesman_wise: '0',\n      credit_invoice: '0',\n      return_invoice: '0',\n      return_invoice_prod_details: '0',\n      expence_entry_details: '0',\n      purchase_etnry_details: '0',\n      order_billwise_details: '0',\n      vehicle_details: '0',\n      salesman_wise_detail: '0',\n      received_payment_details: '0',\n      order_product_unit_wise: '0',\n    }),\n  });\n  cookieHeader = mergeCookieHeaders(cookieHeader, getSetCookies(reportResponse.headers));\n  const html = String(reportResponse.body || '');\n  if (!html.trim()) throw new Error('POS report returned empty response for ' + config.branch + '.');\n  if (isLikelyPosLoginHtml(html)) {\n    const debug = { branch: config.branch, login_message: loginPayload?.message || '', login_status: loginStatusCode, selected_branch_id: selectedBranch?.id || '', sales_status: salesWarmupResponse.statusCode || 0, report_status: reportResponse.statusCode || 0, cookie_names: Array.from(parseCookieHeader(cookieHeader).keys()), report_url: POS_REPORT_URL };\n    throw new Error('POS returned login page after auto login. Debug: ' + JSON.stringify(debug));\n  }\n\n  const cashReceipt = extractAmount(html, 'Cash Account(Reciept)');\n  const cardReceipt = extractAmount(html, 'Credit Card(Reciept)');\n  const grandTotalReceipt = extractAmount(html, 'Grand Total Receipt');\n  const totalIncome = extractAmount(html, 'Total Income');\n  const totalInvoice = extractAmount(html, 'Total Invoice');\n  const branchNameFromReport = extractText(html, /<h4[^>]*>\\s*Branch\\s*:\\s*([\\s\\S]*?)<\\/h4>/i) || config.branch;\n  const reportName = extractText(html, /<h4[^>]*>\\s*Reports\\s*:\\s*([\\s\\S]*?)<\\/h4>/i);\n  if (!reportName) throw new Error('Could not parse POS Counter Cash report for ' + config.branch + '. HTML length: ' + html.length);\n  return {\n    branch_id: selectedBranch?.id || config.branch_id || '',\n    branch: config.branch,\n    branch_report_name: branchNameFromReport,\n    card: cardReceipt,\n    card_receipt: cardReceipt,\n    cash: cashReceipt,\n    cash_receipt: cashReceipt,\n    revenue: totalIncome || grandTotalReceipt,\n    total_income: totalIncome,\n    grand_total_receipt: grandTotalReceipt,\n    orders: totalInvoice,\n    total_invoice: totalInvoice,\n    used_username: usedUsername,\n    html_length: html.length,\n  };\n}\n\nconst branches = [];\nfor (const config of branchConfigs) {\n  branches.push(await fetchBranchSummary.call(this, config));\n}\nconst totals = branches.reduce((acc, branch) => {\n  acc.card += Number(branch.card || 0);\n  acc.cash += Number(branch.cash || 0);\n  acc.revenue += Number(branch.revenue || 0);\n  acc.orders += Number(branch.orders || 0);\n  return acc;\n}, { card: 0, cash: 0, revenue: 0, orders: 0 });\nfor (const key of Object.keys(totals)) totals[key] = round(totals[key]);\nreturn [{ json: { analysis, pos_report: { ok: true, source: 'direct_pos_auto_login', from_date: range.from_date, to_date: range.to_date, period_label: range.period_label, branches, totals } } }];"
+      },
+      "id": "fetch-pos",
+      "name": "Fetch POS Card Totals",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const vars = (typeof $vars === 'object' && $vars) ? $vars : {};\nconst analysis = $json.analysis || {};\nconst pos = $json.pos_report || {};\nconst tolerance = Number(vars.CARD_RECON_TOLERANCE || 1);\nconst m = (v) => Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });\nconst round2 = (v) => Math.round(Number(v || 0) * 100) / 100;\nconst abs = (v) => Math.abs(Number(v || 0));\nconst keyOf = (name) => {\n  const text = String(name || '').toUpperCase().replace(/[^A-Z0-9]/g, '');\n  if (text.includes('ALFALAH')) return 'AL_FALAH';\n  if (text.includes('MBZ') || text.includes('MOHAMMEDBINZAYED')) return 'MBZ';\n  if (text.includes('MUSAFFAH') || text.includes('MUSSAFAH')) return 'MUSSAFAH';\n  return text || 'UNKNOWN';\n};\nconst recipients = {\n  AL_FALAH: vars.CARD_RECON_AL_FALAH_WHATSAPP || vars.REPORT_AL_FALAH_WHATSAPP || 'REPLACE_AL_FALAH_GROUP_OR_PHONE',\n  MBZ: vars.CARD_RECON_MBZ_WHATSAPP || vars.REPORT_MBZ_WHATSAPP || 'REPLACE_MBZ_GROUP_OR_PHONE',\n  MUSSAFAH: vars.CARD_RECON_MUSSAFAH_WHATSAPP || vars.REPORT_MUSSAFAH_WHATSAPP || 'REPLACE_MUSSAFAH_GROUP_OR_PHONE',\n  OWNER: vars.CARD_RECON_OWNER_WHATSAPP || vars.REPORT_OWNER_WHATSAPP || 'REPLACE_OWNER_GROUP_OR_PHONE',\n};\nconst posByBranch = {};\nfor (const branch of pos.branches || []) posByBranch[keyOf(branch.branch || branch.name)] = branch;\nconst outputs = [];\nconst ownerLines = [];\nconst problems = [];\nconst recommendations = [];\nfor (const branch of analysis.branches || []) {\n  const key = branch.branch_key;\n  const posBranch = posByBranch[key] || {};\n  const bankGross = Number(branch.gross || 0);\n  const branchCommission = round2(Number(branch.msf || 0) + Number(branch.txn_fee || 0));\n  const branchVat = round2(branch.vat || 0);\n  const bankNet = Number(branch.net || 0);\n  const branchDeposit = round2(bankGross - abs(branchCommission) - abs(branchVat));\n  const posCard = Number(posBranch.card ?? posBranch.card_receipt ?? 0);\n  const diff = Math.round((bankGross - posCard) * 100) / 100;\n  const ok = Math.abs(diff) <= tolerance;\n  const machineLines = (branch.machines || []).map((machine) => '- ' + machine.terminal + ': AED ' + m(machine.gross) + ' (' + machine.count + ' trx)').join('\\n');\n  if (!ok) problems.push(branch.branch + ': difference AED ' + m(diff) + ' (Bank AED ' + m(bankGross) + ' vs POS Card AED ' + m(posCard) + ')');\n  ownerLines.push((ok ? '✅' : '⚠️') + ' ' + branch.branch + ': Bank AED ' + m(bankGross) + ' | POS Card AED ' + m(posCard) + ' | Diff AED ' + m(diff));\n  const branchMessage = '💳 Card Payment Reconciliation | تسوية مدفوعات البطاقة\\n' +\n    '📅 Date | التاريخ: ' + (analysis.period_label || analysis.from_date) + '\\n' +\n    '🏪 Branch | الفرع: ' + branch.branch + '\\n\\n' +\n    '🏦 Bank/Card Machines Gross | إجمالي مكائن البطاقة:\\nAED ' + m(bankGross) + '\\n\\n' +\n    '🧾 POS Card Revenue | إيراد البطاقة في POS:\\nAED ' + m(posCard) + '\\n\\n' +\n    (ok ? '✅ Status | الحالة: Matched / مطابق' : '⚠️ Status | الحالة: Difference found / يوجد فرق') + '\\n' +\n    'Difference | الفرق: AED ' + m(diff) + '\\n\\n' +\n    '💸 Commission | العمولة: AED ' + m(branchCommission) + '\\n' +\n    '🧾 VAT | الضريبة: AED ' + m(branchVat) + '\\n' +\n    '🏦 Bank deposit | المبلغ المودع في البنك:\\nAED ' + m(branchDeposit || bankNet) + '\\n' +\n    'Formula | المعادلة: AED ' + m(bankGross) + ' - AED ' + m(abs(branchCommission)) + ' - AED ' + m(abs(branchVat)) + ' = AED ' + m(branchDeposit || bankNet) + '\\n\\n' +\n    '🧮 Transactions | عدد العمليات: ' + branch.count + '\\n\\n' +\n    'Machines | المكائن:\\n' + machineLines + '\\n\\n' +\n    (ok ? 'No action required. / لا يوجد إجراء مطلوب.' : 'Action required: review POS card payments, cancelled invoices, and terminal settlement. / يلزم مراجعة مدفوعات البطاقة في POS والفواتير الملغاة وتسوية المكائن.');\n  outputs.push({ json: { type: 'branch', branch: branch.branch, recipient: recipients[key], message: branchMessage, analysis, pos_report: pos } });\n}\nif (problems.length) {\n  recommendations.push('Review unpaid/cancelled card invoices for branches with differences.');\n  recommendations.push('Check whether any card payments were posted to cash or another payment method in POS.');\n  recommendations.push('Compare terminal settlement time with POS report time range 12:00 AM - 11:59 PM.');\n} else {\n  recommendations.push('All branch card totals match within tolerance. Keep daily reconciliation active.');\n}\nconst totalGross = Number(analysis.pdf_grand_total ?? analysis.grand_total?.gross ?? 0);\nconst totalCommission = Number(analysis.pdf_commission ?? ((analysis.grand_total?.msf || 0) + (analysis.grand_total?.txn_fee || 0)));\nconst totalVat = Number(analysis.pdf_vat ?? analysis.grand_total?.vat ?? 0);\nconst totalDeposit = Number(analysis.bank_deposit_amount ?? analysis.net_payable ?? analysis.calculated_bank_deposit ?? analysis.grand_total?.net ?? 0);\nconst ownerMessage = '📊 Owner Card Payment Summary | ملخص تسوية البطاقة للمالك\\n' +\n  '📅 Date | التاريخ: ' + (analysis.period_label || analysis.from_date) + '\\n\\n' + ownerLines.join('\\n') + '\\n\\n' +\n  '🏦 Gross card total | إجمالي عمليات البطاقة: AED ' + m(totalGross) + '\\n' +\n  '💸 GRAND TOTAL VALUE OF COMMISSION | إجمالي العمولة: AED ' + m(totalCommission) + '\\n' +\n  '🧾 GRAND TOTAL VALUE OF VAT | إجمالي الضريبة: AED ' + m(totalVat) + '\\n' +\n  '🏦 Bank deposit | ما تم إيداعه في البنك: AED ' + m(totalDeposit) + '\\n' +\n  'Formula | المعادلة: AED ' + m(totalGross) + ' - AED ' + m(abs(totalCommission)) + ' - AED ' + m(abs(totalVat)) + ' = AED ' + m(totalDeposit) + '\\n' +\n  '🧮 Transactions | العمليات: ' + analysis.rows_count + '\\n\\n' +\n  (problems.length ? '⚠️ Problems | المشاكل:\\n- ' + problems.join('\\n- ') : '✅ No material differences found. / لا توجد فروقات مهمة.') + '\\n\\n' +\n  '💡 Recommendations | التوصيات:\\n- ' + recommendations.join('\\n- ');\noutputs.push({ json: { type: 'owner', branch: 'Owner', recipient: recipients.OWNER, message: ownerMessage, analysis, pos_report: pos } });\nreturn outputs;"
+      },
+      "id": "build-messages",
+      "name": "Build Branch And Owner Messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://textconnect.aipsoft.com/api/send/whatsapp",
+        "sendQuery": true,
+        "specifyQuery": "json",
+        "jsonQuery": "={{ JSON.stringify({ secret: ($vars.TEXTCONNECT_SECRET || 'REPLACE_TEXTCONNECT_SECRET'), account: ($vars.TEXTCONNECT_ACCOUNT || 'REPLACE_TEXTCONNECT_ACCOUNT'), type: 'text', recipient: $json.recipient, message: $json.message }) }}",
+        "options": {}
+      },
+      "id": "send-textconnect",
+      "name": "Send WhatsApp TextConnect",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ],
+      "alwaysOutputData": true
+    }
+  ],
+  "connections": {
+    "Gmail Trigger - Network PDF": {
+      "main": [
+        [
+          {
+            "node": "Get Gmail Message With Attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Gmail Message With Attachments": {
+      "main": [
+        [
+          {
+            "node": "Extract PDF Attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract PDF Attachments": {
+      "main": [
+        [
+          {
+            "node": "Extract PDF Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract PDF Text": {
+      "main": [
+        [
+          {
+            "node": "Analyze Network PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Network PDF": {
+      "main": [
+        [
+          {
+            "node": "Fetch POS Card Totals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch POS Card Totals": {
+      "main": [
+        [
+          {
+            "node": "Build Branch And Owner Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Branch And Owner Messages": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp TextConnect",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

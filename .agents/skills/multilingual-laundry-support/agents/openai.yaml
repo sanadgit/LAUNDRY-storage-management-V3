@@ -1,0 +1,7 @@
+interface:
+  display_name: "Multilingual Laundry Support"
+  short_description: "Natural multilingual support"
+  default_prompt: "Use $multilingual-laundry-support to reply in the customer's language, understand mixed Arabic/English laundry messages, and preserve order numbers, names, addresses, and service terms."
+
+policy:
+  allow_implicit_invocation: true

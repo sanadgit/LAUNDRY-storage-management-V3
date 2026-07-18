@@ -1,0 +1,4 @@
+interface:
+  display_name: "Automated Testing"
+  short_description: "Require tests for AI workflows"
+  default_prompt: "Use $automated-testing to add or review tests for In & Out Laundry AI, POS, n8n, webhook, and dispatch workflows."

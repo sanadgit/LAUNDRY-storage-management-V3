@@ -1,0 +1,524 @@
+{
+  "name": "InOut AI - 30 Driver Dispatch",
+  "nodes": [
+    {
+      "id": "contract-note",
+      "name": "Input Output Contract",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -300
+      ],
+      "parameters": {
+        "content": "## Driver Dispatch\n\nRanks available drivers and creates an auditable pickup/delivery assignment before requesting driver acceptance.\n\nInput: Pickup or delivery task id, branch, service area, priority, and task type.\nOutput: { assignmentStatus: \"PENDING|ASSIGNED|ACCEPTED|TIMED_OUT|FAILED\", assignment: {}, selectedDriver: {} }\n\nShared Input Contract:\n```json\n{\n  \"correlationId\": \"\",\n  \"messageId\": \"\",\n  \"conversationId\": \"\",\n  \"customerId\": \"\",\n  \"customerPhone\": \"\",\n  \"detectedLanguage\": \"\",\n  \"intent\": \"\",\n  \"payload\": {}\n}\n```\n\nShared Output Contract:\n```json\n{\n  \"success\": true,\n  \"status\": \"SUCCESS\",\n  \"data\": {},\n  \"error\": null,\n  \"meta\": {\n    \"correlationId\": \"\",\n    \"workflow\": \"\",\n    \"durationMs\": 0\n  }\n}\n```\n\nRequired fields:\n- correlationId\n- workflowExecutionId\n- idempotencyKey when writing\n\nRules:\n- Driver statuses: AVAILABLE, BUSY, OFF_SHIFT, UNAVAILABLE.\n- Assignment statuses: PENDING, ASSIGNED, ACCEPTED, ON_THE_WAY, ARRIVED, COMPLETED, REJECTED, TIMED_OUT, CANCELLED, FAILED.\n- Filter by branch, configurable service area, active available on-shift status, workload, and distance before assignment.\n- Prevent duplicate driver assignments and preserve complete assignment history before reassignment.\n- Escalate instead of random assignment when no eligible driver is available."
+      }
+    },
+    {
+      "id": "workflow-input",
+      "name": "Workflow Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -680,
+        20
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "load-pickup-details",
+      "name": "Load Pickup Details",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -620,
+        20
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/pickups/' + encodeURIComponent($json.pickupId || $json.pickup_request_id || $json.taskId || 'unknown') + '/dispatch-details'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "get-available-drivers",
+      "name": "Get Available Drivers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -360,
+        20
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/drivers/available?branchId=' + encodeURIComponent($json.body?.data?.branchId || $json.branchId || '') + '&taskType=' + encodeURIComponent($json.body?.data?.taskType || $json.taskType || 'Pickup')'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "drivers-available",
+      "name": "Drivers Available?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -100,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-drivers",
+              "leftValue": "={{(($json.body?.data?.drivers || $json.body?.data || []).length || 0) > 0}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "filter-branch-drivers",
+      "name": "Filter Branch Drivers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        20
+      ],
+      "parameters": {
+        "jsCode": "const pickup = $('Load Pickup Details').first().json.body?.data || $('Load Pickup Details').first().json;\nconst drivers = $json.body?.data?.drivers || $json.body?.data || [];\nconst branchId = pickup.branchId || pickup.branch_id || $json.branchId;\nconst candidates = drivers.filter(driver => !branchId || String(driver.branchId || driver.branch_id) === String(branchId) || (driver.allowedBranchIds || []).map(String).includes(String(branchId)));\nreturn [{ json: { ...$json, pickup, branchId, candidates, driverStatuses: ['AVAILABLE','BUSY','OFF_SHIFT','UNAVAILABLE'], assignmentStatuses: ['PENDING','ASSIGNED','ACCEPTED','ON_THE_WAY','ARRIVED','COMPLETED','REJECTED','TIMED_OUT','CANCELLED','FAILED'] } }];"
+      }
+    },
+    {
+      "id": "filter-service-area",
+      "name": "Filter Service Area",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        20
+      ],
+      "parameters": {
+        "jsCode": "const area = String($json.pickup?.area || $json.pickup?.serviceArea || $json.serviceArea || '').toLowerCase();\nconst candidates = ($json.candidates || []).filter(driver => !area || (driver.serviceAreas || driver.zones || []).map(value => String(value).toLowerCase()).includes(area));\nreturn [{ json: { ...$json, candidates } }];"
+      }
+    },
+    {
+      "id": "filter-active-shift",
+      "name": "Filter Active Shift",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        20
+      ],
+      "parameters": {
+        "jsCode": "const candidates = ($json.candidates || []).filter(driver => String(driver.status || '').toUpperCase() === 'AVAILABLE' && driver.activeShift !== false && String(driver.shiftStatus || 'ACTIVE').toUpperCase() !== 'OFF_SHIFT');\nreturn [{ json: { ...$json, candidates } }];"
+      }
+    },
+    {
+      "id": "calculate-driver-score",
+      "name": "Calculate Driver Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        940,
+        20
+      ],
+      "parameters": {
+        "jsCode": "const area = String($json.pickup?.area || $json.pickup?.serviceArea || '').toLowerCase();\nconst branchId = String($json.branchId || '');\nconst candidates = ($json.candidates || []).map(driver => {\n  let score = 0;\n  if ((driver.serviceAreas || driver.zones || []).map(v => String(v).toLowerCase()).includes(area)) score += 40;\n  if (String(driver.branchId || driver.branch_id) === branchId) score += 25;\n  if (String(driver.status || '').toUpperCase() === 'AVAILABLE') score += 20;\n  score -= Number(driver.currentTaskCount || driver.activeTasks || 0) * 5;\n  score -= Math.min(Number(driver.distanceKm || driver.distance || 0), 20);\n  if (driver.recentTimeout || driver.recentRejection) score -= 15;\n  return { ...driver, dispatchScore: score };\n});\nreturn [{ json: { ...$json, candidates } }];"
+      }
+    },
+    {
+      "id": "sort-driver-candidates",
+      "name": "Sort Driver Candidates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        20
+      ],
+      "parameters": {
+        "jsCode": "const candidates = ($json.candidates || []).sort((a, b) => Number(b.dispatchScore || 0) - Number(a.dispatchScore || 0) || Number(a.currentTaskCount || 0) - Number(b.currentTaskCount || 0));\nreturn [{ json: { ...$json, candidates, selectedDriver: candidates[0] || null } }];"
+      }
+    },
+    {
+      "id": "create-assignment",
+      "name": "Create Assignment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1460,
+        20
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/dispatch/assignments'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { taskType: $json.pickup?.taskType || 'Pickup', pickupId: $json.pickup?.pickupId || $json.pickup?.id || $json.pickup_request_id, branchId: $json.branchId, area: $json.pickup?.area || $json.pickup?.serviceArea, driverId: $json.selectedDriver?.driverId || $json.selectedDriver?.id || null, status: $json.selectedDriver ? 'PENDING' : 'FAILED', score: $json.selectedDriver?.dispatchScore || null, idempotencyKey: [$json.pickup?.pickupId || $json.pickup?.id || $json.pickup_request_id, $json.selectedDriver?.driverId || $json.selectedDriver?.id || 'no_driver'].filter(Boolean).join(':'), preserveAssignmentHistory: true, preventDuplicateAssignment: true, escalateIfNoDriver: !$json.selectedDriver, correlationId: $json.correlationId || $('Workflow Input').first().json.correlationId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "notify-driver",
+      "name": "Notify Driver",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        1720,
+        20
+      ],
+      "parameters": {
+        "workflowId": "={{$vars.N8N_WF_DRIVER_NOTIFICATION_ID}}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "wait-for-acceptance",
+      "name": "Wait for Acceptance",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1980,
+        20
+      ],
+      "parameters": {
+        "amount": 15,
+        "unit": "minutes"
+      }
+    },
+    {
+      "id": "driver-accepted",
+      "name": "Driver Accepted?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2240,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "accepted",
+              "leftValue": "={{String($json.assignmentStatus || $json.body?.data?.status || \"\").toUpperCase()}}",
+              "rightValue": "ACCEPTED",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "reassign-or-escalate",
+      "name": "Reassign or Escalate",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        2500,
+        120
+      ],
+      "parameters": {
+        "workflowId": "={{$vars.N8N_WF_DRIVER_REASSIGNMENT_ID}}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Workflow Input": {
+      "main": [
+        [
+          {
+            "node": "Load Pickup Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Pickup Details": {
+      "main": [
+        [
+          {
+            "node": "Get Available Drivers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Available Drivers": {
+      "main": [
+        [
+          {
+            "node": "Drivers Available?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Drivers Available?": {
+      "main": [
+        [
+          {
+            "node": "Filter Branch Drivers",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reassign or Escalate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Branch Drivers": {
+      "main": [
+        [
+          {
+            "node": "Filter Service Area",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Service Area": {
+      "main": [
+        [
+          {
+            "node": "Filter Active Shift",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Active Shift": {
+      "main": [
+        [
+          {
+            "node": "Calculate Driver Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Driver Score": {
+      "main": [
+        [
+          {
+            "node": "Sort Driver Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sort Driver Candidates": {
+      "main": [
+        [
+          {
+            "node": "Create Assignment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Assignment": {
+      "main": [
+        [
+          {
+            "node": "Notify Driver",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Driver": {
+      "main": [
+        [
+          {
+            "node": "Wait for Acceptance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Acceptance": {
+      "main": [
+        [
+          {
+            "node": "Driver Accepted?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Driver Accepted?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Reassign or Escalate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "versionId": "inout-ai-30-driver-dispatch",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "inout-ai"
+    },
+    {
+      "name": "dispatch"
+    },
+    {
+      "name": "drivers"
+    }
+  ]
+}

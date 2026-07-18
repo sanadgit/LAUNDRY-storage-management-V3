@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI Conversation Memory"
+  short_description: "Manage compact customer memory"
+  default_prompt: "Use $ai-conversation-memory to design compact, safe memory for the In & Out Laundry customer agent."

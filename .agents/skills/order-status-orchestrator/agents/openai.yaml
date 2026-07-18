@@ -1,0 +1,7 @@
+interface:
+  display_name: "Order Status Orchestrator"
+  short_description: "Manage order lifecycle states"
+  default_prompt: "Use $order-status-orchestrator to manage order status transitions, customer messages, ETA rules, branch escalation, and POS-confirmed readiness."
+
+policy:
+  allow_implicit_invocation: true

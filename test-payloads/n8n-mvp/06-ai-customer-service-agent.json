@@ -1,0 +1,21 @@
+{
+  "correlationId": "corr_mvp_agent_001",
+  "messageId": "wamid.mvp.agent.001",
+  "conversationId": "conv_mvp_001",
+  "customerId": "cus_mvp_001",
+  "customerPhone": "971500000001",
+  "detectedLanguage": "ar",
+  "intent": "order_status",
+  "payload": {
+    "messageText": "order 256719 جاهز؟",
+    "memory": {
+      "summary": "Customer is asking about order 256719.",
+      "currentOrderId": "256719",
+      "humanHandoffStatus": null
+    },
+    "identity": {
+      "status": "FOUND",
+      "verified": true
+    }
+  }
+}

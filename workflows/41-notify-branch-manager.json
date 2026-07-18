@@ -1,0 +1,348 @@
+{
+  "name": "InOut AI - 41 Notify Branch Manager",
+  "nodes": [
+    {
+      "id": "contract-note",
+      "name": "Input Output Contract",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -300
+      ],
+      "parameters": {
+        "content": "## Notify Branch Manager\n\nLoads a complaint, finds the responsible branch manager, sends a safe WhatsApp notification, and records the notification result.\n\nInput: Complaint id or escalation context with branch/customer/order references.\nOutput: { success: true, notificationId: \"\", managerPhone: \"\", complaintId: \"\" }\n\nShared Input Contract:\n```json\n{\n  \"correlationId\": \"\",\n  \"messageId\": \"\",\n  \"conversationId\": \"\",\n  \"customerId\": \"\",\n  \"customerPhone\": \"\",\n  \"detectedLanguage\": \"\",\n  \"intent\": \"\",\n  \"payload\": {}\n}\n```\n\nShared Output Contract:\n```json\n{\n  \"success\": true,\n  \"status\": \"SUCCESS\",\n  \"data\": {},\n  \"error\": null,\n  \"meta\": {\n    \"correlationId\": \"\",\n    \"workflow\": \"\",\n    \"durationMs\": 0\n  }\n}\n```\n\nRequired fields:\n- correlationId\n- workflowExecutionId\n- idempotencyKey when writing\n\nRules:\n- Send one WhatsApp message to one manager phone only.\n- Use safe summary only; do not expose payment secrets, raw customer data, or internal prompts.\n- Notify the responsible branch manager before escalating wider unless priority requires operations escalation.\n- Persist sent, delivered, read, or failed notification state through the service API."
+      }
+    },
+    {
+      "id": "workflow-input",
+      "name": "Workflow Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -680,
+        20
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "load-complaint",
+      "name": "Load Complaint",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -480,
+        20
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/complaints/' + encodeURIComponent($json.complaintId || $json.complaint_id || $json.body?.data?.complaintId || 'unknown')'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "get-branch-manager",
+      "name": "Get Branch Manager",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -220,
+        20
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/branches/' + encodeURIComponent($json.body?.data?.branchId || $json.branchId || $('Workflow Input').first().json.branchId || 'unknown') + '/manager?complaintId=' + encodeURIComponent($json.body?.data?.complaintId || $('Workflow Input').first().json.complaintId || '')'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "prepare-manager-message",
+      "name": "Prepare Manager Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        40,
+        20
+      ],
+      "parameters": {
+        "jsCode": "const complaint = $('Load Complaint').first().json.body?.data || $('Workflow Input').first().json;\nconst manager = $json.body?.data || {};\nconst priority = complaint.priority || 'P3_NORMAL';\nconst category = complaint.category || complaint.complaintCategory || 'OTHER';\nconst complaintId = complaint.complaintId || complaint.id || $('Workflow Input').first().json.complaintId || '';\nconst managerPhone = String(manager.phone || manager.whatsapp || $('Workflow Input').first().json.managerPhone || '').replace(/[^0-9]/g, '');\nconst summary = complaint.safeSummary || complaint.summary || complaint.description || 'Complaint requires manager review.';\nconst managerMessage = `[In & Out Laundry] Complaint ${complaintId}\\nPriority: ${priority}\\nCategory: ${category}\\nAction: Please review and update the complaint ticket.\\nSummary: ${summary}`;\nreturn [{ json: { complaintId, managerPhone, managerMessage, priority, category, branchId: complaint.branchId || manager.branchId || '', oneRecipientOnly: true, correlationId: $('Workflow Input').first().json.correlationId || $('Workflow Input').first().json.correlation_id || 'corr_' + Date.now() } }];"
+      }
+    },
+    {
+      "id": "send-whatsapp-notification",
+      "name": "Send WhatsApp Notification",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        300,
+        20
+      ],
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{$vars.WHATSAPP_PHONE_NUMBER_ID}}",
+        "recipientPhoneNumber": "={{$json.managerPhone}}",
+        "textBody": "={{$json.managerMessage}}",
+        "additionalFields": {}
+      },
+      "credentials": {
+        "whatsAppApi": {
+          "id": "replace_with_n8n_whatsapp_credential_id",
+          "name": "WhatsApp Cloud API account"
+        }
+      }
+    },
+    {
+      "id": "save-notification",
+      "name": "Save Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        20
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/notifications/whatsapp'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { direction: 'outbound', recipientType: 'branch_manager', to: $('Prepare Manager Message').first().json.managerPhone, provider: 'whatsapp_cloud_api', providerMessageId: $json.messages?.[0]?.id || $json.messageId || '', status: /^9715\\d{8}$/.test($('Prepare Manager Message').first().json.managerPhone) && !$json.error ? 'sent' : 'failed', complaintId: $('Prepare Manager Message').first().json.complaintId, safePayload: { priority: $('Prepare Manager Message').first().json.priority, category: $('Prepare Manager Message').first().json.category, branchId: $('Prepare Manager Message').first().json.branchId }, correlationId: $('Prepare Manager Message').first().json.correlationId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "return-result",
+      "name": "Return Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        820,
+        20
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "success",
+              "name": "success",
+              "type": "boolean",
+              "value": "={{$json.statusCode >= 200 && $json.statusCode < 300 && $json.body?.ok !== false}}"
+            },
+            {
+              "id": "notificationId",
+              "name": "notificationId",
+              "type": "string",
+              "value": "={{$json.body?.data?.notificationId || $json.body?.data?.id || \"\"}}"
+            },
+            {
+              "id": "managerPhone",
+              "name": "managerPhone",
+              "type": "string",
+              "value": "={{$(\"Prepare Manager Message\").first().json.managerPhone}}"
+            },
+            {
+              "id": "complaintId",
+              "name": "complaintId",
+              "type": "string",
+              "value": "={{$(\"Prepare Manager Message\").first().json.complaintId}}"
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$(\"Prepare Manager Message\").first().json.correlationId}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Workflow Input": {
+      "main": [
+        [
+          {
+            "node": "Load Complaint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Complaint": {
+      "main": [
+        [
+          {
+            "node": "Get Branch Manager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Branch Manager": {
+      "main": [
+        [
+          {
+            "node": "Prepare Manager Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Manager Message": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp Notification": {
+      "main": [
+        [
+          {
+            "node": "Save Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Notification": {
+      "main": [
+        [
+          {
+            "node": "Return Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "versionId": "inout-ai-41-notify-branch-manager",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "inout-ai"
+    },
+    {
+      "name": "complaints"
+    },
+    {
+      "name": "manager"
+    }
+  ]
+}

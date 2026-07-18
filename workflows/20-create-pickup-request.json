@@ -1,0 +1,770 @@
+{
+  "name": "InOut AI - 20 Create Pickup Request",
+  "nodes": [
+    {
+      "id": "contract-note",
+      "name": "Input Output Contract",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -300
+      ],
+      "parameters": {
+        "content": "## Create Pickup Request\n\nCreates an idempotent pickup request after required customer, address, area, location, date/time, and garment details are present.\n\nInput: Pickup draft from AI agent or customer form.\nOutput: { success: true, pickupId: \"\", dispatch: {}, missingFields: [] }\n\nShared Input Contract:\n```json\n{\n  \"correlationId\": \"\",\n  \"messageId\": \"\",\n  \"conversationId\": \"\",\n  \"customerId\": \"\",\n  \"customerPhone\": \"\",\n  \"detectedLanguage\": \"\",\n  \"intent\": \"\",\n  \"payload\": {}\n}\n```\n\nShared Output Contract:\n```json\n{\n  \"success\": true,\n  \"status\": \"SUCCESS\",\n  \"data\": {},\n  \"error\": null,\n  \"meta\": {\n    \"correlationId\": \"\",\n    \"workflow\": \"\",\n    \"durationMs\": 0\n  }\n}\n```\n\nRequired fields:\n- correlationId\n- workflowExecutionId\n- idempotencyKey when writing\n\nRules:\n- Required fields: customerId, phone, address, area, coordinates or Google Maps link, preferredDate, preferredTimeWindow, garmentCategory, specialInstructions.\n- Resolve configurable service area and branch before creating a pickup; do not invent branch coverage.\n- Check duplicate pickup before creating side effects.\n- Dispatch driver through the dedicated dispatch sub-workflow only after pickup creation.\n- Send customer confirmation only after a valid pickup create or duplicate detection business action."
+      }
+    },
+    {
+      "id": "workflow-input",
+      "name": "Workflow Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -680,
+        20
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "extract-pickup-details",
+      "name": "Extract Pickup Details",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -620,
+        20
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "customerId",
+              "name": "customerId",
+              "type": "string",
+              "value": "={{String($json.customerId || $json.customer_id || $json.identity?.customer?.id || $json.toolInput?.customerId || \"\")}}"
+            },
+            {
+              "id": "phone",
+              "name": "phone",
+              "type": "string",
+              "value": "={{String($json.phone || $json.customerPhone || $json.normalizedPhone || $json.toolInput?.phone || \"\")}}"
+            },
+            {
+              "id": "address",
+              "name": "address",
+              "type": "string",
+              "value": "={{String($json.address || $json.address_text || $json.toolInput?.address || \"\")}}"
+            },
+            {
+              "id": "area",
+              "name": "area",
+              "type": "string",
+              "value": "={{String($json.area || $json.service_area || $json.toolInput?.area || \"\")}}"
+            },
+            {
+              "id": "googleMapsLink",
+              "name": "googleMapsLink",
+              "type": "string",
+              "value": "={{String($json.googleMapsLink || $json.google_maps_link || $json.locationUrl || $json.toolInput?.googleMapsLink || \"\")}}"
+            },
+            {
+              "id": "coordinates",
+              "name": "coordinates",
+              "type": "object",
+              "value": "={{$json.coordinates || $json.location || $json.toolInput?.coordinates || null}}"
+            },
+            {
+              "id": "preferredDate",
+              "name": "preferredDate",
+              "type": "string",
+              "value": "={{String($json.preferredDate || $json.preferred_date || $json.toolInput?.preferredDate || \"\")}}"
+            },
+            {
+              "id": "preferredTimeWindow",
+              "name": "preferredTimeWindow",
+              "type": "string",
+              "value": "={{String($json.preferredTimeWindow || $json.preferred_time_window || $json.toolInput?.preferredTimeWindow || \"\")}}"
+            },
+            {
+              "id": "garmentCategory",
+              "name": "garmentCategory",
+              "type": "string",
+              "value": "={{String($json.garmentCategory || $json.garment_category || $json.toolInput?.garmentCategory || \"\")}}"
+            },
+            {
+              "id": "specialInstructions",
+              "name": "specialInstructions",
+              "type": "string",
+              "value": "={{String($json.specialInstructions || $json.special_instructions || $json.toolInput?.specialInstructions || \"\")}}"
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$json.correlationId || $json.correlation_id || 'corr_' + Date.now() + '_' + ($execution.id || 'n8n')}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    },
+    {
+      "id": "required-data-complete",
+      "name": "Required Data Complete?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -360,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-customer",
+              "leftValue": "={{Boolean($json.customerId)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "has-phone",
+              "leftValue": "={{Boolean($json.phone)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "has-address",
+              "leftValue": "={{Boolean($json.address)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "has-area",
+              "leftValue": "={{Boolean($json.area)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "has-location",
+              "leftValue": "={{Boolean($json.googleMapsLink || $json.coordinates?.lat || $json.coordinates?.latitude)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "has-date",
+              "leftValue": "={{Boolean($json.preferredDate)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "has-time",
+              "leftValue": "={{Boolean($json.preferredTimeWindow)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "has-garment",
+              "leftValue": "={{Boolean($json.garmentCategory)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "has-special-instructions",
+              "leftValue": "={{Boolean($json.specialInstructions)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "return-missing-fields",
+      "name": "Return Missing Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -100,
+        -180
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "success",
+              "name": "success",
+              "type": "boolean",
+              "value": false
+            },
+            {
+              "id": "status",
+              "name": "status",
+              "type": "string",
+              "value": "={{$json.areaSupported === false ? \"AREA_UNSUPPORTED\" : \"MISSING_REQUIRED_FIELDS\"}}"
+            },
+            {
+              "id": "missingFields",
+              "name": "missingFields",
+              "type": "array",
+              "value": "={{[\"customerId\",\"phone\",\"address\",\"area\",\"location\",\"preferredDate\",\"preferredTimeWindow\",\"garmentCategory\",\"specialInstructions\"].filter(field => field === \"location\" ? !($json.googleMapsLink || $json.coordinates?.lat || $json.coordinates?.latitude) : !$json[field])}}"
+            },
+            {
+              "id": "message",
+              "name": "message",
+              "type": "string",
+              "value": "={{$json.areaSupported === false ? \"Area is not supported or needs clarification.\" : \"Pickup request is missing required fields.\"}}"
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$json.correlationId}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    },
+    {
+      "id": "normalize-address",
+      "name": "Normalize Address",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -100,
+        80
+      ],
+      "parameters": {
+        "jsCode": "const normalize = (value) => String(value || '').trim().replace(/\\s+/g, ' ');\nconst addressOriginal = normalize($json.address);\nconst areaOriginal = normalize($json.area);\nconst areaKey = areaOriginal.toLowerCase().replace(/[إأآا]/g, 'ا').replace(/[ة]/g, 'ه');\nreturn [{ json: { ...$json, addressOriginal, normalizedAddress: addressOriginal, areaOriginal, normalizedAreaText: areaKey } }];"
+      }
+    },
+    {
+      "id": "parse-google-maps-location",
+      "name": "Parse Google Maps Location",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        80
+      ],
+      "parameters": {
+        "jsCode": "const link = String($json.googleMapsLink || '');\nconst existing = $json.coordinates || {};\nconst match = link.match(/(?:@|q=|ll=|query=)(-?\\d{1,2}\\.\\d+),\\s*(-?\\d{1,3}\\.\\d+)/i);\nconst latitude = Number(existing.lat ?? existing.latitude ?? (match ? match[1] : NaN));\nconst longitude = Number(existing.lng ?? existing.longitude ?? (match ? match[2] : NaN));\nconst validCoordinates = Number.isFinite(latitude) && Number.isFinite(longitude) && latitude >= 22 && latitude <= 27 && longitude >= 51 && longitude <= 57;\nreturn [{ json: { ...$json, location: { lat: validCoordinates ? latitude : null, lng: validCoordinates ? longitude : null, googleMapsLink: link || null, validCoordinates } } }];"
+      }
+    },
+    {
+      "id": "resolve-service-area",
+      "name": "Resolve Service Area",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        420,
+        80
+      ],
+      "parameters": {
+        "workflowId": "={{$vars.N8N_WF_AREA_BRANCH_RESOLVER_ID}}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "area-supported",
+      "name": "Area Supported?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        680,
+        80
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "supported-area",
+              "leftValue": "={{Boolean($json.areaSupported !== false && ($json.serviceArea || $json.normalizedArea || $json.area || $json.data?.serviceArea))}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "resolve-branch",
+      "name": "Resolve Branch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        940,
+        80
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/branches/resolve?area=' + encodeURIComponent($json.normalizedArea || $json.serviceArea || $json.area || $json.data?.serviceArea || '') + '&lat=' + encodeURIComponent($json.location?.lat || '') + '&lng=' + encodeURIComponent($json.location?.lng || '')'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "check-duplicate-pickup",
+      "name": "Check Duplicate Pickup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        80
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/pickups/duplicate?customerId=' + encodeURIComponent($json.customerId || '') + '&phone=' + encodeURIComponent($json.phone || '') + '&preferredDate=' + encodeURIComponent($json.preferredDate || '') + '&timeWindow=' + encodeURIComponent($json.preferredTimeWindow || '')'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": false,
+        "contentType": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "duplicate-exists",
+      "name": "Duplicate Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1460,
+        80
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "duplicate-pickup",
+              "leftValue": "={{Boolean($json.body?.data?.duplicate || $json.body?.data?.pickupId || $json.body?.error?.code === \"DUPLICATE_PICKUP\")}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "create-pickup",
+      "name": "Create Pickup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1720,
+        160
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/pickups'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { customerId: $('Extract Pickup Details').first().json.customerId, phone: $('Extract Pickup Details').first().json.phone, address: $('Normalize Address').first().json.normalizedAddress, area: $('Normalize Address').first().json.areaOriginal, location: $('Parse Google Maps Location').first().json.location, preferredDate: $('Extract Pickup Details').first().json.preferredDate, preferredTimeWindow: $('Extract Pickup Details').first().json.preferredTimeWindow, garmentCategory: $('Extract Pickup Details').first().json.garmentCategory, specialInstructions: $('Extract Pickup Details').first().json.specialInstructions, branchId: $json.body?.data?.branchId || $json.branchId || $json.data?.branchId || null, source: 'whatsapp_ai', correlationId: $('Extract Pickup Details').first().json.correlationId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 45000
+        }
+      }
+    },
+    {
+      "id": "dispatch-driver",
+      "name": "Dispatch Driver",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        1980,
+        160
+      ],
+      "parameters": {
+        "workflowId": "={{$vars.N8N_WF_DRIVER_DISPATCH_ID}}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "return-pickup-confirmation",
+      "name": "Return Pickup Confirmation",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2240,
+        80
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "success",
+              "name": "success",
+              "type": "boolean",
+              "value": "={{$json.statusCode ? ($json.statusCode >= 200 && $json.statusCode < 300 && $json.body?.ok !== false) : true}}"
+            },
+            {
+              "id": "status",
+              "name": "status",
+              "type": "string",
+              "value": "={{$json.body?.data?.duplicate || $json.body?.error?.code === \"DUPLICATE_PICKUP\" ? \"DUPLICATE_PICKUP\" : \"PICKUP_CREATED\"}}"
+            },
+            {
+              "id": "pickupId",
+              "name": "pickupId",
+              "type": "string",
+              "value": "={{$json.body?.data?.pickupId || $json.body?.data?.id || $json.pickupId || $json.pickup_request_id || \"\"}}"
+            },
+            {
+              "id": "dispatch",
+              "name": "dispatch",
+              "type": "object",
+              "value": "={{$json.dispatch || $json.assignment || $json.body?.data?.dispatch || {}}}"
+            },
+            {
+              "id": "message",
+              "name": "message",
+              "type": "string",
+              "value": "={{$json.body?.data?.duplicate || $json.body?.error?.code === \"DUPLICATE_PICKUP\" ? \"A pickup request already exists for this customer and time window.\" : \"Pickup request created and dispatch requested.\"}}"
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$json.correlationId || $(\"Extract Pickup Details\").first().json.correlationId}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Workflow Input": {
+      "main": [
+        [
+          {
+            "node": "Extract Pickup Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Pickup Details": {
+      "main": [
+        [
+          {
+            "node": "Required Data Complete?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Required Data Complete?": {
+      "main": [
+        [
+          {
+            "node": "Normalize Address",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Missing Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Address": {
+      "main": [
+        [
+          {
+            "node": "Parse Google Maps Location",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Google Maps Location": {
+      "main": [
+        [
+          {
+            "node": "Resolve Service Area",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Service Area": {
+      "main": [
+        [
+          {
+            "node": "Area Supported?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Area Supported?": {
+      "main": [
+        [
+          {
+            "node": "Resolve Branch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Missing Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Branch": {
+      "main": [
+        [
+          {
+            "node": "Check Duplicate Pickup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Duplicate Pickup": {
+      "main": [
+        [
+          {
+            "node": "Duplicate Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Duplicate Exists?": {
+      "main": [
+        [
+          {
+            "node": "Return Pickup Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Pickup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Pickup": {
+      "main": [
+        [
+          {
+            "node": "Dispatch Driver",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dispatch Driver": {
+      "main": [
+        [
+          {
+            "node": "Return Pickup Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "versionId": "inout-ai-20-create-pickup-request",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "inout-ai"
+    },
+    {
+      "name": "pickup"
+    },
+    {
+      "name": "dispatch"
+    }
+  ]
+}

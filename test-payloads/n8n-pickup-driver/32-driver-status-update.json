@@ -1,0 +1,18 @@
+{
+  "correlationId": "corr_pickup_driver_32_sample",
+  "messageId": "wamid.sample.pickup.32",
+  "conversationId": "conv_sample_pickup_driver",
+  "customerId": "cust_sample_001",
+  "customerPhone": "971500000000",
+  "detectedLanguage": "en",
+  "intent": "driver_status_update",
+  "payload": {
+    "isSampleData": true,
+    "assignmentId": "assign_sample_001",
+    "driverId": "driver_sample_001",
+    "driverPhone": "971500000000",
+    "action": "ACCEPT",
+    "expectedAssignmentStatus": "ACCEPTED",
+    "auditRequired": true
+  }
+}

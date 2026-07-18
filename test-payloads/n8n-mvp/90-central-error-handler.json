@@ -1,0 +1,16 @@
+{
+  "correlationId": "corr_mvp_error_001",
+  "messageId": "wamid.mvp.error.001",
+  "conversationId": "conv_mvp_001",
+  "customerId": "cus_mvp_001",
+  "customerPhone": "971500000001",
+  "detectedLanguage": "ar",
+  "intent": "order_status",
+  "payload": {
+    "workflowName": "InOut AI - 10 Order Tracking",
+    "failedNode": "Get Specific Order",
+    "errorCode": "POS_TIMEOUT",
+    "errorMessage": "POS adapter timed out while checking safe sample order.",
+    "retryCount": 0
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "correlationId": "corr_mvp_identity_001",
+  "messageId": "wamid.mvp.identity.001",
+  "conversationId": "conv_mvp_001",
+  "customerId": "",
+  "customerPhone": "971500000001",
+  "detectedLanguage": "ar",
+  "intent": "identity_resolution",
+  "payload": {
+    "phone": "971500000001",
+    "phoneVariants": [
+      "971500000001",
+      "0500000001",
+      "+971500000001"
+    ]
+  }
+}

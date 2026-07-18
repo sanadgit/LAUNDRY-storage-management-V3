@@ -1,0 +1,7 @@
+interface:
+  display_name: "Driver Dispatch"
+  short_description: "Assign pickup and delivery drivers"
+  default_prompt: "Use $driver-dispatch to assign pickup or delivery tasks by area, branch, driver availability, shift, workload, distance, priority, acceptance, timeout, and reassignment rules."
+
+policy:
+  allow_implicit_invocation: true

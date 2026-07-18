@@ -1,0 +1,19 @@
+{
+  "correlationId": "corr_complaint_handoff_50_sample",
+  "messageId": "wamid.sample.complaint.50",
+  "conversationId": "conv_sample_complaint_handoff",
+  "customerId": "cust_sample_001",
+  "customerPhone": "971500000000",
+  "detectedLanguage": "en",
+  "intent": "human_handoff",
+  "payload": {
+    "isSampleData": true,
+    "orderId": "order_sample_001",
+    "complaintId": "complaint_sample_001",
+    "reason": "serious_garment_damage",
+    "trigger": "Serious garment damage sample case",
+    "priority": "P1_CRITICAL",
+    "staffPhone": "971500000000",
+    "expectedBehavior": "create handoff and lock AI conversation"
+  }
+}

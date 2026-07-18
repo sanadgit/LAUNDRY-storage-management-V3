@@ -1,0 +1,524 @@
+{
+  "name": "InOut AI - 70 WhatsApp Response Sender",
+  "nodes": [
+    {
+      "id": "contract-note",
+      "name": "Input Output Contract",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -300
+      ],
+      "parameters": {
+        "content": "## Whatsapp Response Sender\n\nValidates a single WhatsApp recipient, chooses text or approved template, sends through WhatsApp Cloud API, stores provider message id, and returns the provider result.\n\nInput: Recipient phone, customer-service window flag, message text or template payload, idempotency key, and conversation context.\nOutput: { success: true, providerMessageId: \"\", notificationStatus: \"\", to: \"\" }\n\nShared Input Contract:\n```json\n{\n  \"correlationId\": \"\",\n  \"messageId\": \"\",\n  \"conversationId\": \"\",\n  \"customerId\": \"\",\n  \"customerPhone\": \"\",\n  \"detectedLanguage\": \"\",\n  \"intent\": \"\",\n  \"payload\": {}\n}\n```\n\nShared Output Contract:\n```json\n{\n  \"success\": true,\n  \"status\": \"SUCCESS\",\n  \"data\": {},\n  \"error\": null,\n  \"meta\": {\n    \"correlationId\": \"\",\n    \"workflow\": \"\",\n    \"durationMs\": 0\n  }\n}\n```\n\nRequired fields:\n- correlationId\n- workflowExecutionId\n- idempotencyKey when writing\n\nRules:\n- One recipient per API request; never place multiple numbers in to.\n- Use approved template outside customer-service window.\n- Prevent duplicate sends using idempotency key and notification log.\n- Store provider message ID and handle rate limits and timeouts."
+      }
+    },
+    {
+      "id": "workflow-input",
+      "name": "Workflow Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -680,
+        20
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "validate-recipient",
+      "name": "Validate Recipient",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -760,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "single-uae-recipient",
+              "leftValue": "={{/^9715\\d{8}$/.test(String($json.to || $json.from || $json.customerPhone || $json.customer_phone || \"\").replace(/[^0-9]/g, \"\")) && !String($json.to || \"\").includes(\",\") && !String($json.to || \"\").includes(\";\")}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "determine-message-type",
+      "name": "Determine Message Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -500,
+        20
+      ],
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{Boolean($json.templateName || $json.template?.name || $json.customerServiceWindowOpen === false || $json.requiresTemplate)}}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "TEMPLATE"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{Boolean($json.message || $json.text || $json.customer_reply_override || $json.agent?.response)}}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "TEXT"
+            }
+          ]
+        },
+        "fallbackOutput": "extra",
+        "options": {}
+      }
+    },
+    {
+      "id": "prepare-text-message",
+      "name": "Prepare Text Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -220,
+        120
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "to",
+              "name": "to",
+              "type": "string",
+              "value": "={{String($json.to || $json.from || $json.customerPhone || $json.customer_phone || \"\").replace(/[^0-9]/g, \"\")}}"
+            },
+            {
+              "id": "messageType",
+              "name": "messageType",
+              "type": "string",
+              "value": "text"
+            },
+            {
+              "id": "messageBody",
+              "name": "messageBody",
+              "type": "string",
+              "value": "={{String($json.customer_reply_override || $json.agent?.response || $json.message || $json.text || \"\").trim()}}"
+            },
+            {
+              "id": "idempotencyKey",
+              "name": "idempotencyKey",
+              "type": "string",
+              "value": "={{$json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $execution.id}}"
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$json.correlationId || $json.correlation_id || \"corr_\" + Date.now()}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    },
+    {
+      "id": "prepare-template-message",
+      "name": "Prepare Template Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -220,
+        -100
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "to",
+              "name": "to",
+              "type": "string",
+              "value": "={{String($json.to || $json.from || $json.customerPhone || $json.customer_phone || \"\").replace(/[^0-9]/g, \"\")}}"
+            },
+            {
+              "id": "messageType",
+              "name": "messageType",
+              "type": "string",
+              "value": "template"
+            },
+            {
+              "id": "templateName",
+              "name": "templateName",
+              "type": "string",
+              "value": "={{$json.templateName || $json.template?.name || \"customer_service_followup\"}}"
+            },
+            {
+              "id": "templateLanguage",
+              "name": "templateLanguage",
+              "type": "string",
+              "value": "={{$json.templateLanguage || $json.language || \"ar\"}}"
+            },
+            {
+              "id": "templateParameters",
+              "name": "templateParameters",
+              "type": "array",
+              "value": "={{$json.templateParameters || $json.template?.parameters || []}}"
+            },
+            {
+              "id": "idempotencyKey",
+              "name": "idempotencyKey",
+              "type": "string",
+              "value": "={{$json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $execution.id}}"
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$json.correlationId || $json.correlation_id || \"corr_\" + Date.now()}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    },
+    {
+      "id": "send-whatsapp-message",
+      "name": "Send WhatsApp Message",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        60,
+        20
+      ],
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{$vars.WHATSAPP_PHONE_NUMBER_ID}}",
+        "recipientPhoneNumber": "={{$json.to}}",
+        "messageType": "={{$json.messageType}}",
+        "textBody": "={{$json.messageBody || \"\"}}",
+        "template": {
+          "name": "={{$json.templateName || \"\"}}",
+          "language": "={{$json.templateLanguage || \"ar\"}}",
+          "components": "={{$json.templateParameters || []}}"
+        },
+        "additionalFields": {}
+      },
+      "credentials": {
+        "whatsAppApi": {
+          "id": "replace_with_n8n_whatsapp_credential_id",
+          "name": "WhatsApp Cloud API account"
+        }
+      }
+    },
+    {
+      "id": "send-successful",
+      "name": "Send Successful?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        320,
+        20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-provider-message-id",
+              "leftValue": "={{Boolean($json.messages?.[0]?.id || $json.messageId || $json.id)}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "save-notification-status",
+      "name": "Save Notification Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        580,
+        20
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/notifications/whatsapp'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Correlation-Id",
+              "value": "={{$json.correlationId || $json.correlation_id}}"
+            },
+            {
+              "name": "Idempotency-Key",
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { direction: 'outbound', recipientType: 'customer', to: (($items('Prepare Text Message', 0, 0)[0] || $items('Prepare Template Message', 0, 0)[0] || {}).json || {}).to, provider: 'whatsapp_cloud_api', messageType: (($items('Prepare Text Message', 0, 0)[0] || $items('Prepare Template Message', 0, 0)[0] || {}).json || {}).messageType, providerMessageId: $json.messages?.[0]?.id || $json.messageId || '', status: ($json.messages?.[0]?.id || $json.messageId) ? 'sent' : 'failed', rateLimited: $json.statusCode === 429 || $json.error?.code === 429, idempotencyKey: (($items('Prepare Text Message', 0, 0)[0] || $items('Prepare Template Message', 0, 0)[0] || {}).json || {}).idempotencyKey, conversationId: $('Workflow Input').first().json.conversationId || $('Workflow Input').first().json.conversation_id || null, correlationId: (($items('Prepare Text Message', 0, 0)[0] || $items('Prepare Template Message', 0, 0)[0] || {}).json || {}).correlationId } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "return-provider-result",
+      "name": "Return Provider Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        840,
+        20
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "success",
+              "name": "success",
+              "type": "boolean",
+              "value": "={{$json.statusCode >= 200 && $json.statusCode < 300 && $json.body?.ok !== false}}"
+            },
+            {
+              "id": "providerMessageId",
+              "name": "providerMessageId",
+              "type": "string",
+              "value": "={{$json.body?.data?.providerMessageId || \"\"}}"
+            },
+            {
+              "id": "notificationStatus",
+              "name": "notificationStatus",
+              "type": "string",
+              "value": "={{$json.body?.data?.status || \"sent\"}}"
+            },
+            {
+              "id": "to",
+              "name": "to",
+              "type": "string",
+              "value": "={{$json.body?.data?.to || \"\"}}"
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$json.body?.data?.correlationId || $(\"Workflow Input\").first().json.correlationId || $(\"Workflow Input\").first().json.correlation_id}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Workflow Input": {
+      "main": [
+        [
+          {
+            "node": "Validate Recipient",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Recipient": {
+      "main": [
+        [
+          {
+            "node": "Determine Message Type",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save Notification Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Determine Message Type": {
+      "main": [
+        [
+          {
+            "node": "Prepare Template Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Text Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save Notification Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Text Message": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Template Message": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp Message": {
+      "main": [
+        [
+          {
+            "node": "Send Successful?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Successful?": {
+      "main": [
+        [
+          {
+            "node": "Save Notification Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save Notification Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Notification Status": {
+      "main": [
+        [
+          {
+            "node": "Return Provider Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "timezone": "Asia/Dubai",
+    "executionOrder": "v1"
+  },
+  "versionId": "inout-ai-70-whatsapp-response-sender",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "inout-ai"
+    },
+    {
+      "name": "whatsapp"
+    },
+    {
+      "name": "sender"
+    }
+  ]
+}
