@@ -173,157 +173,40 @@
     {
       "id": "single-customer-found",
       "name": "Single Customer Found",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         680,
         -120
       ],
       "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "status",
-              "name": "status",
-              "type": "string",
-              "value": "FOUND"
-            },
-            {
-              "id": "customer",
-              "name": "customer",
-              "type": "object",
-              "value": "={{($json.body?.data?.customers || $json.body?.data || [])[0] || {}}}"
-            },
-            {
-              "id": "identity",
-              "name": "identity",
-              "type": "object",
-              "value": "={{ { status: \"FOUND\", verified: true, customer: ($json.body?.data?.customers || $json.body?.data || [])[0] || {}, normalizedPhone: $(\"Prepare Phone Variants\").first().json.normalizedPhone, phoneVariants: $(\"Prepare Phone Variants\").first().json.phoneVariants } }}"
-            },
-            {
-              "id": "verificationRequired",
-              "name": "verificationRequired",
-              "type": "boolean",
-              "value": false
-            },
-            {
-              "id": "correlationId",
-              "name": "correlationId",
-              "type": "string",
-              "value": "={{$(\"Prepare Phone Variants\").first().json.correlationId}}"
-            }
-          ]
-        },
-        "includeOtherFields": false,
-        "options": {
-          "dotNotation": false
-        }
+        "jsCode": "const source = $json;\nconst phoneNode = $('Prepare Phone Variants').first().json;\nconst customers = Array.isArray(source.body?.data?.customers)\n  ? source.body.data.customers\n  : Array.isArray(source.body?.data)\n    ? source.body.data\n    : [];\nconst customer = customers[0] || {};\nreturn [{\n  json: {\n    status: 'FOUND',\n    customer,\n    identity: {\n      status: 'FOUND',\n      verified: true,\n      customer,\n      normalizedPhone: phoneNode.normalizedPhone || '',\n      phoneVariants: phoneNode.phoneVariants || [],\n    },\n    verificationRequired: false,\n    correlationId: phoneNode.correlationId || source.correlationId || '',\n  },\n}];"
       }
     },
     {
       "id": "ambiguous-customer-result",
       "name": "Ambiguous Customer Result",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         680,
         40
       ],
       "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "status",
-              "name": "status",
-              "type": "string",
-              "value": "AMBIGUOUS"
-            },
-            {
-              "id": "customerMatches",
-              "name": "customerMatches",
-              "type": "array",
-              "value": "={{($json.body?.data?.customers || $json.body?.data || []).map(customer => ({ customerId: customer.customerId || customer.id, displayName: customer.displayName || customer.name || null, branchId: customer.branchId || customer.branch_id || null }))}}"
-            },
-            {
-              "id": "identity",
-              "name": "identity",
-              "type": "object",
-              "value": "={{ { status: \"AMBIGUOUS\", verified: false, normalizedPhone: $(\"Prepare Phone Variants\").first().json.normalizedPhone, requires: [\"order_number_or_registered_name\"], matchCount: (($json.body?.data?.customers || $json.body?.data || []).length || 0) } }}"
-            },
-            {
-              "id": "verificationRequired",
-              "name": "verificationRequired",
-              "type": "boolean",
-              "value": true
-            },
-            {
-              "id": "safePrompt",
-              "name": "safePrompt",
-              "type": "string",
-              "value": "Please verify with an order number or registered name before showing account or order details."
-            },
-            {
-              "id": "correlationId",
-              "name": "correlationId",
-              "type": "string",
-              "value": "={{$(\"Prepare Phone Variants\").first().json.correlationId}}"
-            }
-          ]
-        },
-        "includeOtherFields": false,
-        "options": {
-          "dotNotation": false
-        }
+        "jsCode": "const source = $json;\nconst phoneNode = $('Prepare Phone Variants').first().json;\nconst customers = Array.isArray(source.body?.data?.customers)\n  ? source.body.data.customers\n  : Array.isArray(source.body?.data)\n    ? source.body.data\n    : [];\nconst customerMatches = customers.map((customer) => ({\n  customerId: customer.customerId || customer.id || null,\n  displayName: customer.displayName || customer.name || null,\n  branchId: customer.branchId || customer.branch_id || null,\n}));\nreturn [{\n  json: {\n    status: 'AMBIGUOUS',\n    customerMatches,\n    identity: {\n      status: 'AMBIGUOUS',\n      verified: false,\n      normalizedPhone: phoneNode.normalizedPhone || '',\n      requires: ['order_number_or_registered_name'],\n      matchCount: customers.length,\n    },\n    verificationRequired: true,\n    safePrompt: 'Please verify with an order number or registered name before showing account or order details.',\n    correlationId: phoneNode.correlationId || source.correlationId || '',\n  },\n}];"
       }
     },
     {
       "id": "customer-not-found",
       "name": "Customer Not Found",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         680,
         220
       ],
       "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "status",
-              "name": "status",
-              "type": "string",
-              "value": "={{$json.statusCode >= 500 || $json.statusCode === 0 || [\"POS_TIMEOUT\", \"POS_SESSION_EXPIRED\", \"POS_UNEXPECTED_RESPONSE\"].includes($json.body?.error?.code) ? \"POS_UNAVAILABLE\" : \"NOT_FOUND\"}}"
-            },
-            {
-              "id": "identity",
-              "name": "identity",
-              "type": "object",
-              "value": "={{ { status: ($json.statusCode >= 500 || $json.statusCode === 0 || [\"POS_TIMEOUT\", \"POS_SESSION_EXPIRED\", \"POS_UNEXPECTED_RESPONSE\"].includes($json.body?.error?.code) ? \"POS_UNAVAILABLE\" : \"NOT_FOUND\"), verified: false, normalizedPhone: $(\"Prepare Phone Variants\").first().json.normalizedPhone, phoneVariants: $(\"Prepare Phone Variants\").first().json.phoneVariants } }}"
-            },
-            {
-              "id": "verificationRequired",
-              "name": "verificationRequired",
-              "type": "boolean",
-              "value": false
-            },
-            {
-              "id": "error",
-              "name": "error",
-              "type": "object",
-              "value": "={{$json.body?.error || null}}"
-            },
-            {
-              "id": "correlationId",
-              "name": "correlationId",
-              "type": "string",
-              "value": "={{$(\"Prepare Phone Variants\").first().json.correlationId}}"
-            }
-          ]
-        },
-        "includeOtherFields": false,
-        "options": {
-          "dotNotation": false
-        }
+        "jsCode": "const source = $json;\nconst phoneNode = $('Prepare Phone Variants').first().json;\nconst temporaryCodes = ['POS_TIMEOUT', 'POS_SESSION_EXPIRED', 'POS_UNEXPECTED_RESPONSE'];\nconst errorCode = source.body?.error?.code || '';\nconst status = source.statusCode >= 500 || source.statusCode === 0 || temporaryCodes.includes(errorCode)\n  ? 'POS_UNAVAILABLE'\n  : 'NOT_FOUND';\nreturn [{\n  json: {\n    status,\n    identity: {\n      status,\n      verified: false,\n      normalizedPhone: phoneNode.normalizedPhone || '',\n      phoneVariants: phoneNode.phoneVariants || [],\n    },\n    verificationRequired: false,\n    error: source.body?.error || null,\n    correlationId: phoneNode.correlationId || source.correlationId || '',\n  },\n}];"
       }
     },
     {
