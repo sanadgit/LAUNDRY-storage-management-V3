@@ -26,7 +26,8 @@
     "validate:n8n-pickup-driver": "node scripts/validate-n8n-pickup-driver-package.cjs",
     "validate:n8n-complaint-handoff": "node scripts/validate-n8n-complaint-handoff-package.cjs",
     "audit:n8n-live": "node scripts/audit-n8n-live-integration-readiness.cjs",
-    "generate:n8n-workflows": "node scripts/generate-required-n8n-workflows.cjs"
+    "generate:n8n-workflows": "node scripts/generate-required-n8n-workflows.cjs",
+    "n8n:apply-local-config": "node scripts/apply-n8n-local-config-node.cjs"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

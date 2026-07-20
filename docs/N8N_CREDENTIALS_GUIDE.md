@@ -1,14 +1,14 @@
 # n8n Credentials Guide
 
-Store secrets in n8n credentials, environment variables, or the deployment secret manager. Never place real values inside exported workflow JSON.
+Prefer n8n credentials, environment variables, or the deployment secret manager. If the n8n plan does not support Variables, use the generated `Workflow Config` node placeholders and do not export/share workflows after entering real values.
 
 ## Required Credentials
 
 - WhatsApp Cloud API credential for WhatsApp nodes.
 - OpenAI credential for audio transcription and AI-assisted summary/classification nodes.
-- Internal service API token exposed to workflows as `N8N_API_KEY` or `SERVICE_API_TOKEN`.
+- Internal service API token exposed to workflows as `N8N_API_KEY`, either through n8n Variables or the local `Workflow Config` node.
 
-## Required Environment Variables
+## Required Values
 
 - `SERVICE_API_BASE_URL`
 - `SERVICE_API_TOKEN`
@@ -30,6 +30,10 @@ Store secrets in n8n credentials, environment variables, or the deployment secre
 - `N8N_RETRY_MAX_ATTEMPTS`
 - `N8N_RETRY_BASE_MS`
 - `N8N_RETRY_MAX_BACKOFF_MS`
+
+When Variables are unavailable, put workflow-facing values in the `Workflow Config` node instead of `Settings -> Variables`.
+
+Do not put POS credentials in n8n. POS credentials stay only in the backend `.env`.
 
 ## Workflow ID Variables
 
@@ -59,4 +63,4 @@ Rotate WhatsApp, OpenAI, service API, and n8n API keys after suspected exposure.
 
 ## Missing Values
 
-Workflow exports intentionally do not fall back to production URLs when `SERVICE_API_BASE_URL` is missing. Configure this variable explicitly in every n8n environment.
+Workflow exports intentionally do not fall back to production URLs when `SERVICE_API_BASE_URL` is missing. Configure this value explicitly in every n8n environment or in the local `Workflow Config` node.

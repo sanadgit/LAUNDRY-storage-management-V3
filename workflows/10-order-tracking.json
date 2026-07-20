@@ -111,13 +111,13 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/pos/orders/' + encodeURIComponent($json.orderId || $json.order_id || $json.memory?.currentOrderId || 'unknown') + '/status?customerId=' + encodeURIComponent($json.customerId || $json.customer_id || $json.identity?.customer?.id || '') + '&phone=' + encodeURIComponent($json.phone || $json.customerPhone || $json.normalizedPhone || $json.normalized_phone || '')'}}",
+        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/pos/orders/' + encodeURIComponent($json.orderId || $json.order_id || $json.memory?.currentOrderId || 'unknown') + '/status?customerId=' + encodeURIComponent($json.customerId || $json.customer_id || $json.identity?.customer?.id || '') + '&phone=' + encodeURIComponent($json.phone || $json.customerPhone || $json.normalizedPhone || $json.normalized_phone || '')'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
             },
             {
               "name": "Content-Type",
@@ -159,13 +159,13 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{($vars.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/customers/' + encodeURIComponent($json.customerId || $json.customer_id || $json.identity?.customer?.id || 'unknown') + '/orders/active?phone=' + encodeURIComponent($json.phone || $json.customerPhone || $json.normalizedPhone || $json.normalized_phone || '')'}}",
+        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/customers/' + encodeURIComponent($json.customerId || $json.customer_id || $json.identity?.customer?.id || 'unknown') + '/orders/active?phone=' + encodeURIComponent($json.phone || $json.customerPhone || $json.normalizedPhone || $json.normalized_phone || '')'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($vars.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
             },
             {
               "name": "Content-Type",
@@ -414,6 +414,225 @@
           "dotNotation": false
         }
       }
+    },
+    {
+      "id": "workflow-config",
+      "name": "Workflow Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -440,
+        20
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "service_api_base_url",
+              "name": "SERVICE_API_BASE_URL",
+              "type": "string",
+              "value": "PASTE_SERVICE_API_BASE_URL_HERE"
+            },
+            {
+              "id": "n8n_api_key",
+              "name": "N8N_API_KEY",
+              "type": "string",
+              "value": "PASTE_SERVICE_API_TOKEN_HERE"
+            },
+            {
+              "id": "whatsapp_phone_number_id",
+              "name": "WHATSAPP_PHONE_NUMBER_ID",
+              "type": "string",
+              "value": "PASTE_WHATSAPP_PHONE_NUMBER_ID_HERE"
+            },
+            {
+              "id": "whatsapp_access_token",
+              "name": "WHATSAPP_ACCESS_TOKEN",
+              "type": "string",
+              "value": "PASTE_WHATSAPP_ACCESS_TOKEN_HERE"
+            },
+            {
+              "id": "whatsapp_audio_max_bytes",
+              "name": "WHATSAPP_AUDIO_MAX_BYTES",
+              "type": "string",
+              "value": "16777216"
+            },
+            {
+              "id": "openai_chat_model",
+              "name": "OPENAI_CHAT_MODEL",
+              "type": "string",
+              "value": "gpt-4.1-mini"
+            },
+            {
+              "id": "openai_transcription_model",
+              "name": "OPENAI_TRANSCRIPTION_MODEL",
+              "type": "string",
+              "value": "gpt-4o-mini-transcribe"
+            },
+            {
+              "id": "operations_alert_phone",
+              "name": "OPERATIONS_ALERT_PHONE",
+              "type": "string",
+              "value": "PASTE_ONE_OPERATIONS_ALERT_PHONE_HERE"
+            },
+            {
+              "id": "conversation_summary_message_threshold",
+              "name": "CONVERSATION_SUMMARY_MESSAGE_THRESHOLD",
+              "type": "string",
+              "value": "20"
+            },
+            {
+              "id": "n8n_retry_max_attempts",
+              "name": "N8N_RETRY_MAX_ATTEMPTS",
+              "type": "string",
+              "value": "5"
+            },
+            {
+              "id": "n8n_retry_base_ms",
+              "name": "N8N_RETRY_BASE_MS",
+              "type": "string",
+              "value": "60000"
+            },
+            {
+              "id": "n8n_retry_max_backoff_ms",
+              "name": "N8N_RETRY_MAX_BACKOFF_MS",
+              "type": "string",
+              "value": "900000"
+            },
+            {
+              "id": "n8n_wf_idempotency_check_id",
+              "name": "N8N_WF_IDEMPOTENCY_CHECK_ID",
+              "type": "string",
+              "value": "PASTE_WORKFLOW_ID_02_HERE"
+            },
+            {
+              "id": "n8n_wf_phone_normalization_id",
+              "name": "N8N_WF_PHONE_NORMALIZATION_ID",
+              "type": "string",
+              "value": "PASTE_WORKFLOW_ID_03_HERE"
+            },
+            {
+              "id": "n8n_wf_customer_identity_id",
+              "name": "N8N_WF_CUSTOMER_IDENTITY_ID",
+              "type": "string",
+              "value": "PASTE_WORKFLOW_ID_04_HERE"
+            },
+            {
+              "id": "n8n_wf_memory_manager_id",
+              "name": "N8N_WF_MEMORY_MANAGER_ID",
+              "type": "string",
+              "value": "PASTE_WORKFLOW_ID_05_HERE"
+            },
+            {
+              "id": "n8n_wf_ai_agent_id",
+              "name": "N8N_WF_AI_AGENT_ID",
+              "type": "string",
+              "value": "PASTE_WORKFLOW_ID_06_HERE"
+            },
+            {
+              "id": "n8n_wf_order_tracking_id",
+              "name": "N8N_WF_ORDER_TRACKING_ID",
+              "type": "string",
+              "value": "PASTE_WORKFLOW_ID_10_HERE"
+            },
+            {
+              "id": "n8n_wf_pickup_request_id",
+              "name": "N8N_WF_PICKUP_REQUEST_ID",
+              "type": "string",
+              "value": "PASTE_WORKFLOW_ID_20_HERE"
+            },
+            {
+              "id": "n8n_wf_area_branch_resolver_id",
+              "name": "N8N_WF_AREA_BRANCH_RESOLVER_ID",
+              "type": "string",
+              "value": "PASTE_WORKFLOW_ID_21_HERE"
+            },
+            {
+              "id": "n8n_wf_driver_dispatch_id",
+              "name": "N8N_WF_DRIVER_DISPATCH_ID",
+              "type": "string",
+              "value": "PASTE_WORKFLOW_ID_30_HERE"
+            },
+            {
+              "id": "n8n_wf_driver_notification_id",
+              "name": "N8N_WF_DRIVER_NOTIFICATION_ID",
+              "type": "string",
+              "value": "PASTE_WORKFLOW_ID_31_HERE"
+            },
+            {
+              "id": "n8n_wf_driver_reassignment_id",
+              "name": "N8N_WF_DRIVER_REASSIGNMENT_ID",
+              "type": "string",
+              "value": "PASTE_WORKFLOW_ID_33_HERE"
+            },
+            {
+              "id": "n8n_wf_complaint_id",
+              "name": "N8N_WF_COMPLAINT_ID",
+              "type": "string",
+              "value": "PASTE_WORKFLOW_ID_40_HERE"
+            },
+            {
+              "id": "n8n_wf_notify_branch_manager_id",
+              "name": "N8N_WF_NOTIFY_BRANCH_MANAGER_ID",
+              "type": "string",
+              "value": "PASTE_WORKFLOW_ID_41_HERE"
+            },
+            {
+              "id": "n8n_wf_human_handoff_id",
+              "name": "N8N_WF_HUMAN_HANDOFF_ID",
+              "type": "string",
+              "value": "PASTE_WORKFLOW_ID_50_HERE"
+            },
+            {
+              "id": "n8n_wf_voice_processing_id",
+              "name": "N8N_WF_VOICE_PROCESSING_ID",
+              "type": "string",
+              "value": "PASTE_WORKFLOW_ID_60_HERE"
+            },
+            {
+              "id": "n8n_wf_response_sender_id",
+              "name": "N8N_WF_RESPONSE_SENDER_ID",
+              "type": "string",
+              "value": "PASTE_WORKFLOW_ID_70_HERE"
+            },
+            {
+              "id": "n8n_wf_save_summary_id",
+              "name": "N8N_WF_SAVE_SUMMARY_ID",
+              "type": "string",
+              "value": "PASTE_WORKFLOW_ID_80_HERE"
+            },
+            {
+              "id": "n8n_wf_error_handler_id",
+              "name": "N8N_WF_ERROR_HANDLER_ID",
+              "type": "string",
+              "value": "PASTE_WORKFLOW_ID_90_HERE"
+            },
+            {
+              "id": "n8n_wf_retry_queue_id",
+              "name": "N8N_WF_RETRY_QUEUE_ID",
+              "type": "string",
+              "value": "PASTE_WORKFLOW_ID_91_HERE"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    },
+    {
+      "id": "remove-config-from-item",
+      "name": "Remove Config From Item",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -200,
+        20
+      ],
+      "parameters": {
+        "jsCode": "const configKeys = [\"SERVICE_API_BASE_URL\",\"N8N_API_KEY\",\"WHATSAPP_PHONE_NUMBER_ID\",\"WHATSAPP_ACCESS_TOKEN\",\"WHATSAPP_AUDIO_MAX_BYTES\",\"OPENAI_CHAT_MODEL\",\"OPENAI_TRANSCRIPTION_MODEL\",\"OPERATIONS_ALERT_PHONE\",\"CONVERSATION_SUMMARY_MESSAGE_THRESHOLD\",\"N8N_RETRY_MAX_ATTEMPTS\",\"N8N_RETRY_BASE_MS\",\"N8N_RETRY_MAX_BACKOFF_MS\",\"N8N_WF_IDEMPOTENCY_CHECK_ID\",\"N8N_WF_PHONE_NORMALIZATION_ID\",\"N8N_WF_CUSTOMER_IDENTITY_ID\",\"N8N_WF_MEMORY_MANAGER_ID\",\"N8N_WF_AI_AGENT_ID\",\"N8N_WF_ORDER_TRACKING_ID\",\"N8N_WF_PICKUP_REQUEST_ID\",\"N8N_WF_AREA_BRANCH_RESOLVER_ID\",\"N8N_WF_DRIVER_DISPATCH_ID\",\"N8N_WF_DRIVER_NOTIFICATION_ID\",\"N8N_WF_DRIVER_REASSIGNMENT_ID\",\"N8N_WF_COMPLAINT_ID\",\"N8N_WF_NOTIFY_BRANCH_MANAGER_ID\",\"N8N_WF_HUMAN_HANDOFF_ID\",\"N8N_WF_VOICE_PROCESSING_ID\",\"N8N_WF_RESPONSE_SENDER_ID\",\"N8N_WF_SAVE_SUMMARY_ID\",\"N8N_WF_ERROR_HANDLER_ID\",\"N8N_WF_RETRY_QUEUE_ID\"];\nreturn $input.all().map((item) => {\n  const json = { ...(item.json || {}) };\n  for (const key of configKeys) delete json[key];\n  return { ...item, json };\n});"
+      }
     }
   ],
   "connections": {
@@ -421,7 +640,7 @@
       "main": [
         [
           {
-            "node": "Validate Customer ID",
+            "node": "Workflow Config",
             "type": "main",
             "index": 0
           }
@@ -559,6 +778,28 @@
         [
           {
             "node": "Return Order Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow Config": {
+      "main": [
+        [
+          {
+            "node": "Remove Config From Item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Config From Item": {
+      "main": [
+        [
+          {
+            "node": "Validate Customer ID",
             "type": "main",
             "index": 0
           }

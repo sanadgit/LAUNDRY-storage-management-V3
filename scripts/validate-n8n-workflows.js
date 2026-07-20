@@ -153,6 +153,9 @@ for (const file of workflowFiles) {
     for (const match of value.matchAll(/\$vars\.([A-Z0-9_]+)/g)) {
       allWorkflowEnvVars.add(match[1]);
     }
+    for (const match of value.matchAll(/\$\(['"]Workflow Config['"]\)\.first\(\)\.json\.([A-Z0-9_]+)/g)) {
+      allWorkflowEnvVars.add(match[1]);
+    }
 
     if (/9715\d{8}/.test(value) && !value.includes('971500000000')) {
       errors.push(`${file}: possible production UAE mobile number found in workflow string.`);
@@ -180,10 +183,11 @@ for (const file of workflowFiles) {
     if (node.type === 'n8n-nodes-base.executeWorkflow') {
       const workflowId = String(node.parameters?.workflowId || '');
       const envMatch = workflowId.match(/\$vars\.([A-Z0-9_]+)/);
-      if (!envMatch) {
-        errors.push(`${file}: Execute Workflow node "${node.name}" does not reference an environment variable.`);
+      const configMatch = workflowId.match(/\$\(['"]Workflow Config['"]\)\.first\(\)\.json\.([A-Z0-9_]+)/);
+      if (!envMatch && !configMatch) {
+        errors.push(`${file}: Execute Workflow node "${node.name}" does not reference an environment variable or Workflow Config field.`);
       } else {
-        allExecuteRefs.add(envMatch[1]);
+        allExecuteRefs.add((envMatch || configMatch)[1]);
       }
     }
   }
