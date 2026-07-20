@@ -104,13 +104,13 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/customer-service-agent/prompt'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/customer-service-agent/prompt'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -174,7 +174,7 @@
         "model": {
           "__rl": true,
           "mode": "list",
-          "value": "={{$('Workflow Config').first().json.OPENAI_CHAT_MODEL || \"gpt-4.1-mini\"}}"
+          "value": "={{$node[\"Workflow Config\"].json[\"OPENAI_CHAT_MODEL\"] || \"gpt-4.1-mini\"}}"
         },
         "options": {
           "temperature": 0.2,
@@ -217,13 +217,13 @@
         "description": "Search approved In & Out Laundry knowledge base articles. Use for service policy, branch, area, and general laundry FAQs. Do not use for order truth.",
         "toolDescription": "Search approved In & Out Laundry knowledge base articles. Use for service policy, branch, area, and general laundry FAQs. Do not use for order truth.",
         "method": "GET",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/knowledge-base/search?q=' + encodeURIComponent($fromAI('query', 'Search query for approved laundry knowledge base', 'string')) + '&language=' + encodeURIComponent($json.language || 'auto')'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/knowledge-base/search?q=' + encodeURIComponent($fromAI('query', 'Search query for approved laundry knowledge base', 'string')) + '&language=' + encodeURIComponent($json.language || 'auto')}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -261,13 +261,13 @@
         "description": "Resolve a customer by normalized UAE phone through the service API. Return ambiguous when multiple customers match.",
         "toolDescription": "Resolve a customer by normalized UAE phone through the service API. Return ambiguous when multiple customers match.",
         "method": "GET",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/customers/by-phone/' + encodeURIComponent($fromAI('phone', 'Normalized UAE customer phone', 'string'))'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/customers/by-phone/' + encodeURIComponent($fromAI('phone', 'Normalized UAE customer phone', 'string'))}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -305,13 +305,13 @@
         "description": "Fetch active customer orders after identity is verified. Never reveal orders if the API says not authorized or not verified.",
         "toolDescription": "Fetch active customer orders after identity is verified. Never reveal orders if the API says not authorized or not verified.",
         "method": "GET",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/customers/' + encodeURIComponent($fromAI('customerId', 'Verified customer id', 'string')) + '/orders/active?phone=' + encodeURIComponent($fromAI('phone', 'Verified normalized phone', 'string'))'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/customers/' + encodeURIComponent($fromAI('customerId', 'Verified customer id', 'string')) + '/orders/active?phone=' + encodeURIComponent($fromAI('phone', 'Verified normalized phone', 'string'))}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -349,13 +349,13 @@
         "description": "Fetch POS-backed order status for a verified customer phone. This is the only source of order readiness truth.",
         "toolDescription": "Fetch POS-backed order status for a verified customer phone. This is the only source of order readiness truth.",
         "method": "GET",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/pos/orders/' + encodeURIComponent($fromAI('orderId', 'Order id to verify against the customer phone', 'string')) + '/status?phone=' + encodeURIComponent($fromAI('phone', 'Verified normalized customer phone', 'string'))'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/pos/orders/' + encodeURIComponent($fromAI('orderId', 'Order id to verify against the customer phone', 'string')) + '/status?phone=' + encodeURIComponent($fromAI('phone', 'Verified normalized customer phone', 'string'))}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -393,7 +393,7 @@
         "description": "Create pickup request only when required customer, area, address/location, service, and pickup time fields are complete.",
         "workflowId": {
           "__rl": true,
-          "value": "={{$('Workflow Config').first().json.N8N_WF_PICKUP_REQUEST_ID}}",
+          "value": "={{$node[\"Workflow Config\"].json[\"N8N_WF_PICKUP_REQUEST_ID\"]}}",
           "mode": "id"
         },
         "workflowInputs": {
@@ -477,7 +477,7 @@
         "description": "Create a complaint ticket for delay, quality, damage, lost item, billing, staff, driver, or delivery issues. Never admit liability.",
         "workflowId": {
           "__rl": true,
-          "value": "={{$('Workflow Config').first().json.N8N_WF_COMPLAINT_ID}}",
+          "value": "={{$node[\"Workflow Config\"].json[\"N8N_WF_COMPLAINT_ID\"]}}",
           "mode": "id"
         },
         "workflowInputs": {
@@ -561,7 +561,7 @@
         "description": "Escalate to a human for risky, angry, ambiguous, privacy-sensitive, repeated, or manager-required cases.",
         "workflowId": {
           "__rl": true,
-          "value": "={{$('Workflow Config').first().json.N8N_WF_HUMAN_HANDOFF_ID}}",
+          "value": "={{$node[\"Workflow Config\"].json[\"N8N_WF_HUMAN_HANDOFF_ID\"]}}",
           "mode": "id"
         },
         "workflowInputs": {

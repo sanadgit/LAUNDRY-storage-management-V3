@@ -36,13 +36,13 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/retry-records/' + encodeURIComponent($json.retryRecordId || $json.retry_record_id || $json.job_id || 'inline')'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/retry-records/' + encodeURIComponent($json.retryRecordId || $json.retry_record_id || $json.job_id || 'inline')}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -93,7 +93,7 @@
           "conditions": [
             {
               "id": "limit-reached",
-              "leftValue": "={{Number($json.body?.data?.attempt || $(\"Workflow Input\").first().json.attempt || 0) >= Number($json.body?.data?.maxAttempts || $(\"Workflow Input\").first().json.maxAttempts || $('Workflow Config').first().json.N8N_RETRY_MAX_ATTEMPTS || 5)}}",
+              "leftValue": "={{Number($json.body?.data?.attempt || $(\"Workflow Input\").first().json.attempt || 0) >= Number($json.body?.data?.maxAttempts || $(\"Workflow Input\").first().json.maxAttempts || $node[\"Workflow Config\"].json[\"N8N_RETRY_MAX_ATTEMPTS\"] || 5)}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -116,7 +116,7 @@
         -80
       ],
       "parameters": {
-        "jsCode": "const input = $('Workflow Input').first().json;\nconst record = $('Load Retry Record').first().json.body?.data || input;\nconst attempt = Number(record.attempt || input.attempt || 0);\nconst baseMs = Number($('Workflow Config').first().json.N8N_RETRY_BASE_MS || 60000);\nconst maxMs = Number($('Workflow Config').first().json.N8N_RETRY_MAX_BACKOFF_MS || 900000);\nconst delayMs = Math.min(maxMs, baseMs * Math.pow(2, attempt));\nreturn [{ json: { ...record, retryRecordId: record.retryRecordId || record.job_id || input.retryRecordId || input.job_id || '', attempt, delayMs, nextAttempt: attempt + 1, idempotencyKey: record.idempotencyKey || record.idempotency_key || input.idempotencyKey || input.idempotency_key, correlationId: record.correlationId || record.correlation_id || input.correlationId || input.correlation_id || 'corr_' + Date.now() } }];"
+        "jsCode": "const input = $('Workflow Input').first().json;\nconst record = $('Load Retry Record').first().json.body?.data || input;\nconst attempt = Number(record.attempt || input.attempt || 0);\nconst baseMs = Number($node[\"Workflow Config\"].json[\"N8N_RETRY_BASE_MS\"] || 60000);\nconst maxMs = Number($node[\"Workflow Config\"].json[\"N8N_RETRY_MAX_BACKOFF_MS\"] || 900000);\nconst delayMs = Math.min(maxMs, baseMs * Math.pow(2, attempt));\nreturn [{ json: { ...record, retryRecordId: record.retryRecordId || record.job_id || input.retryRecordId || input.job_id || '', attempt, delayMs, nextAttempt: attempt + 1, idempotencyKey: record.idempotencyKey || record.idempotency_key || input.idempotencyKey || input.idempotency_key, correlationId: record.correlationId || record.correlation_id || input.correlationId || input.correlation_id || 'corr_' + Date.now() } }];"
       }
     },
     {
@@ -145,13 +145,13 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/retry-records/' + encodeURIComponent($json.retryRecordId || 'inline') + '/execute'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/retry-records/' + encodeURIComponent($json.retryRecordId || 'inline') + '/execute'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -226,13 +226,13 @@
       ],
       "parameters": {
         "method": "PATCH",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/retry-records/' + encodeURIComponent($('Calculate Backoff').first().json.retryRecordId || 'inline') + '/completed'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/retry-records/' + encodeURIComponent($('Calculate Backoff').first().json.retryRecordId || 'inline') + '/completed'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -274,13 +274,13 @@
       ],
       "parameters": {
         "method": "PATCH",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/retry-records/' + encodeURIComponent($('Calculate Backoff').first().json.retryRecordId || 'inline') + '/attempts'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/retry-records/' + encodeURIComponent($('Calculate Backoff').first().json.retryRecordId || 'inline') + '/attempts'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -322,13 +322,13 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/dead-letter'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/dead-letter'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",

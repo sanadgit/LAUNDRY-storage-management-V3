@@ -49,13 +49,13 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/messages'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/messages'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -97,13 +97,13 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/messages'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/messages'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -145,13 +145,13 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/tool-calls/batch'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/tool-calls/batch'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -202,7 +202,7 @@
           "conditions": [
             {
               "id": "needs-summary",
-              "leftValue": "={{Boolean($(\"Redact Sensitive Data\").first().json.summaryNeeded || $(\"Redact Sensitive Data\").first().json.agent?.summaryNeeded || Number($(\"Redact Sensitive Data\").first().json.recentMessageCount || 0) >= Number($('Workflow Config').first().json.CONVERSATION_SUMMARY_MESSAGE_THRESHOLD || 12))}}",
+              "leftValue": "={{Boolean($(\"Redact Sensitive Data\").first().json.summaryNeeded || $(\"Redact Sensitive Data\").first().json.agent?.summaryNeeded || Number($(\"Redact Sensitive Data\").first().json.recentMessageCount || 0) >= Number($node[\"Workflow Config\"].json[\"CONVERSATION_SUMMARY_MESSAGE_THRESHOLD\"] || 12))}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -226,13 +226,13 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent($('Redact Sensitive Data').first().json.conversationId || 'unknown') + '/summarize'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent($('Redact Sensitive Data').first().json.conversationId || 'unknown') + '/summarize'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -274,13 +274,13 @@
       ],
       "parameters": {
         "method": "PATCH",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent($('Redact Sensitive Data').first().json.conversationId || 'unknown')'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent($('Redact Sensitive Data').first().json.conversationId || 'unknown')}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",

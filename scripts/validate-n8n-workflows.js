@@ -56,6 +56,31 @@ if (!envExample) {
 const allWorkflowEnvVars = new Set();
 const allExecuteRefs = new Set();
 
+const configFieldPatterns = [
+  /\$\(['"]Workflow Config['"]\)\.first\(\)\.json\.([A-Z0-9_]+)/g,
+  /\$node\[['"]Workflow Config['"]\]\.json(?:\.([A-Z0-9_]+)|\[['"]([A-Z0-9_]+)['"]\])/g,
+];
+
+const collectConfigFieldNames = (value) => {
+  const names = [];
+  for (const pattern of configFieldPatterns) {
+    for (const match of value.matchAll(pattern)) {
+      names.push(match[1] || match[2]);
+    }
+  }
+  return names.filter(Boolean);
+};
+
+const validateExpressionSyntax = (value) => {
+  if (!value.startsWith('={{') || !value.endsWith('}}')) return null;
+  try {
+    new Function(`return (${value.slice(3, -2)});`);
+    return null;
+  } catch (error) {
+    return error.message;
+  }
+};
+
 const collectStrings = (value, output = []) => {
   if (typeof value === 'string') {
     output.push(value);
@@ -150,12 +175,15 @@ for (const file of workflowFiles) {
 
   const strings = collectStrings(workflow);
   for (const value of strings) {
+    const expressionSyntaxError = validateExpressionSyntax(value);
+    if (expressionSyntaxError) {
+      errors.push(`${file}: invalid n8n expression syntax: ${expressionSyntaxError}; expression starts with "${value.slice(0, 120)}".`);
+    }
+
     for (const match of value.matchAll(/\$vars\.([A-Z0-9_]+)/g)) {
       allWorkflowEnvVars.add(match[1]);
     }
-    for (const match of value.matchAll(/\$\(['"]Workflow Config['"]\)\.first\(\)\.json\.([A-Z0-9_]+)/g)) {
-      allWorkflowEnvVars.add(match[1]);
-    }
+    for (const name of collectConfigFieldNames(value)) allWorkflowEnvVars.add(name);
 
     if (/9715\d{8}/.test(value) && !value.includes('971500000000')) {
       errors.push(`${file}: possible production UAE mobile number found in workflow string.`);
@@ -183,11 +211,11 @@ for (const file of workflowFiles) {
     if (node.type === 'n8n-nodes-base.executeWorkflow') {
       const workflowId = String(node.parameters?.workflowId || '');
       const envMatch = workflowId.match(/\$vars\.([A-Z0-9_]+)/);
-      const configMatch = workflowId.match(/\$\(['"]Workflow Config['"]\)\.first\(\)\.json\.([A-Z0-9_]+)/);
-      if (!envMatch && !configMatch) {
+      const [configName] = collectConfigFieldNames(workflowId);
+      if (!envMatch && !configName) {
         errors.push(`${file}: Execute Workflow node "${node.name}" does not reference an environment variable or Workflow Config field.`);
       } else {
-        allExecuteRefs.add((envMatch || configMatch)[1]);
+        allExecuteRefs.add(envMatch?.[1] || configName);
       }
     }
   }

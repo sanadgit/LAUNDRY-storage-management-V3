@@ -36,13 +36,13 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/driver-assignments/' + encodeURIComponent($json.assignmentId || $json.driver_assignment_id || $json.body?.data?.assignmentId || 'unknown') + '/safe-notification-data'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/driver-assignments/' + encodeURIComponent($json.assignmentId || $json.driver_assignment_id || $json.body?.data?.assignmentId || 'unknown') + '/safe-notification-data'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -130,7 +130,7 @@
       ],
       "parameters": {
         "operation": "send",
-        "phoneNumberId": "={{$('Workflow Config').first().json.WHATSAPP_PHONE_NUMBER_ID}}",
+        "phoneNumberId": "={{$node[\"Workflow Config\"].json[\"WHATSAPP_PHONE_NUMBER_ID\"]}}",
         "recipientPhoneNumber": "={{$json.driverPhone}}",
         "textBody": "={{$json.driverMessage}}",
         "additionalFields": {}
@@ -153,13 +153,13 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/notifications/whatsapp'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/notifications/whatsapp'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",

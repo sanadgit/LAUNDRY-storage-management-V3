@@ -104,7 +104,7 @@
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.WHATSAPP_ACCESS_TOKEN || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"WHATSAPP_ACCESS_TOKEN\"] || '')}}"
             }
           ]
         },
@@ -149,7 +149,7 @@
             },
             {
               "id": "valid-size",
-              "leftValue": "={{Number($binary.audio?.fileSize || $json.headers?.[\"content-length\"] || 0) <= Number($('Workflow Config').first().json.WHATSAPP_AUDIO_MAX_BYTES || 16777216)}}",
+              "leftValue": "={{Number($binary.audio?.fileSize || $json.headers?.[\"content-length\"] || 0) <= Number($node[\"Workflow Config\"].json[\"WHATSAPP_AUDIO_MAX_BYTES\"] || 16777216)}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -188,7 +188,7 @@
         "resource": "audio",
         "operation": "transcribe",
         "binaryPropertyName": "audio",
-        "model": "={{$('Workflow Config').first().json.OPENAI_TRANSCRIPTION_MODEL || \"gpt-4o-mini-transcribe\"}}",
+        "model": "={{$node[\"Workflow Config\"].json[\"OPENAI_TRANSCRIPTION_MODEL\"] || \"gpt-4o-mini-transcribe\"}}",
         "options": {
           "language": "={{$(\"Prepare Binary Audio\").first().json.language === \"auto\" ? undefined : $(\"Prepare Binary Audio\").first().json.language}}",
           "temperature": 0

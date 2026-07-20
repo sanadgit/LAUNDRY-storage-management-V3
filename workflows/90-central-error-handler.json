@@ -313,13 +313,13 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/observability/errors'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/observability/errors'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -370,7 +370,7 @@
           "conditions": [
             {
               "id": "temporary-and-under-limit",
-              "leftValue": "={{Boolean($json.body?.data?.temporary !== false && Number($(\"Redact Secrets\").first().json.retryCount || 0) < Number($('Workflow Config').first().json.N8N_RETRY_MAX_ATTEMPTS || 5))}}",
+              "leftValue": "={{Boolean($json.body?.data?.temporary !== false && Number($(\"Redact Secrets\").first().json.retryCount || 0) < Number($node[\"Workflow Config\"].json[\"N8N_RETRY_MAX_ATTEMPTS\"] || 5))}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -393,7 +393,7 @@
         -80
       ],
       "parameters": {
-        "workflowId": "={{$('Workflow Config').first().json.N8N_WF_RETRY_QUEUE_ID}}",
+        "workflowId": "={{$node[\"Workflow Config\"].json[\"N8N_WF_RETRY_QUEUE_ID\"]}}",
         "options": {
           "waitForSubWorkflow": true
         }
@@ -410,8 +410,8 @@
       ],
       "parameters": {
         "operation": "send",
-        "phoneNumberId": "={{$('Workflow Config').first().json.WHATSAPP_PHONE_NUMBER_ID}}",
-        "recipientPhoneNumber": "={{$('Workflow Config').first().json.OPERATIONS_ALERT_PHONE}}",
+        "phoneNumberId": "={{$node[\"Workflow Config\"].json[\"WHATSAPP_PHONE_NUMBER_ID\"]}}",
+        "recipientPhoneNumber": "={{$node[\"Workflow Config\"].json[\"OPERATIONS_ALERT_PHONE\"]}}",
         "textBody": "={{\"[In & Out Laundry] n8n error\\nWorkflow: \" + $(\"Redact Secrets\").first().json.workflowName + \"\\nNode: \" + $(\"Redact Secrets\").first().json.failedNode + \"\\nCategory: \" + ($(\"Save Error Log\").first().json.body?.data?.category || \"WORKFLOW_LOGIC_FAILURE\") + \"\\nCorrelation: \" + $(\"Redact Secrets\").first().json.correlationId}}",
         "additionalFields": {}
       },

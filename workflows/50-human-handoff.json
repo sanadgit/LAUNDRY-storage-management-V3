@@ -36,13 +36,13 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent($json.conversationId || $json.conversation_id || 'unknown')'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent($json.conversationId || $json.conversation_id || 'unknown')}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -84,13 +84,13 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/pos/orders/' + encodeURIComponent($('Workflow Input').first().json.orderId || $('Workflow Input').first().json.currentOrderId || 'none') + '/status?customerId=' + encodeURIComponent($('Workflow Input').first().json.customerId || '')'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/pos/orders/' + encodeURIComponent($('Workflow Input').first().json.orderId || $('Workflow Input').first().json.currentOrderId || 'none') + '/status?customerId=' + encodeURIComponent($('Workflow Input').first().json.customerId || '')}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -132,13 +132,13 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/complaints/' + encodeURIComponent($('Workflow Input').first().json.complaintId || $('Workflow Input').first().json.currentComplaintId || 'none')'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/complaints/' + encodeURIComponent($('Workflow Input').first().json.complaintId || $('Workflow Input').first().json.currentComplaintId || 'none')}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -180,13 +180,13 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/handoffs/summary'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/handoffs/summary'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -228,13 +228,13 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/human-handoffs'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/human-handoffs'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -343,7 +343,7 @@
       ],
       "parameters": {
         "operation": "send",
-        "phoneNumberId": "={{$('Workflow Config').first().json.WHATSAPP_PHONE_NUMBER_ID}}",
+        "phoneNumberId": "={{$node[\"Workflow Config\"].json[\"WHATSAPP_PHONE_NUMBER_ID\"]}}",
         "recipientPhoneNumber": "={{$(\"Create Handoff Record\").first().json.body?.data?.staffPhone || $(\"Workflow Input\").first().json.staffPhone || $(\"Workflow Input\").first().json.managerPhone || \"\"}}",
         "textBody": "={{\"[In & Out Laundry] Human handoff required\\nQueue: \" + ($json.outputKey || $(\"Create Handoff Record\").first().json.body?.data?.queue || \"SUPPORT\") + \"\\nReason: \" + ($(\"Workflow Input\").first().json.reason || $(\"Workflow Input\").first().json.handoffReason || \"system_uncertainty\") + \"\\nSummary: \" + ($(\"Generate Handoff Summary\").first().json.body?.data?.summary || \"Please review the conversation.\")}}",
         "additionalFields": {}
@@ -366,13 +366,13 @@
       ],
       "parameters": {
         "method": "PATCH",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent($('Workflow Input').first().json.conversationId || $('Workflow Input').first().json.conversation_id || 'unknown') + '/lock''}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent($('Workflow Input').first().json.conversationId || $('Workflow Input').first().json.conversation_id || 'unknown') + '/lock'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",

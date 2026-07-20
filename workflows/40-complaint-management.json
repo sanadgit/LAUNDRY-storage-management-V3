@@ -104,13 +104,13 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/customers/' + encodeURIComponent($json.customerId || 'unknown') + '/verify?phone=' + encodeURIComponent($json.phone || '')'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/customers/' + encodeURIComponent($json.customerId || 'unknown') + '/verify?phone=' + encodeURIComponent($json.phone || '')}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -185,13 +185,13 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/pos/orders/' + encodeURIComponent($json.orderId || $('Extract Complaint Details').first().json.orderId || 'unknown') + '/status?customerId=' + encodeURIComponent($json.customerId || $('Extract Complaint Details').first().json.customerId || '') + '&phone=' + encodeURIComponent($json.phone || $('Extract Complaint Details').first().json.phone || '')'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/pos/orders/' + encodeURIComponent($json.orderId || $('Extract Complaint Details').first().json.orderId || 'unknown') + '/status?customerId=' + encodeURIComponent($json.customerId || $('Extract Complaint Details').first().json.customerId || '') + '&phone=' + encodeURIComponent($json.phone || $('Extract Complaint Details').first().json.phone || '')}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -233,13 +233,13 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/complaints/classify'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/complaints/classify'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -377,13 +377,13 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/complaints'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/complaints'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -425,13 +425,13 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/complaints/' + encodeURIComponent($json.body?.data?.complaintId || $json.body?.data?.id || 'unknown') + '/responsible-branch''}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/complaints/' + encodeURIComponent($json.body?.data?.complaintId || $json.body?.data?.id || 'unknown') + '/responsible-branch'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -472,7 +472,7 @@
         20
       ],
       "parameters": {
-        "workflowId": "={{$('Workflow Config').first().json.N8N_WF_NOTIFY_BRANCH_MANAGER_ID}}",
+        "workflowId": "={{$node[\"Workflow Config\"].json[\"N8N_WF_NOTIFY_BRANCH_MANAGER_ID\"]}}",
         "options": {
           "waitForSubWorkflow": true
         }
@@ -521,7 +521,7 @@
         -100
       ],
       "parameters": {
-        "workflowId": "={{$('Workflow Config').first().json.N8N_WF_HUMAN_HANDOFF_ID}}",
+        "workflowId": "={{$node[\"Workflow Config\"].json[\"N8N_WF_HUMAN_HANDOFF_ID\"]}}",
         "options": {
           "waitForSubWorkflow": true
         }

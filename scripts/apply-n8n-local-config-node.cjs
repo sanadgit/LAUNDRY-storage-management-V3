@@ -53,10 +53,32 @@ const isTriggerNode = (node) => {
   );
 };
 
-const expressionForVar = (name) => `$('${CONFIG_NODE_NAME}').first().json.${name}`;
+const expressionForVar = (name) => `$node["${CONFIG_NODE_NAME}"].json["${name}"]`;
+
+const hasValidExpressionSyntax = (value) => {
+  if (!value.startsWith('={{') || !value.endsWith('}}')) return true;
+  try {
+    new Function(`return (${value.slice(3, -2)});`);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const repairTrailingQuoteExpression = (value) => {
+  if (!value.startsWith('={{') || !value.endsWith("'}}")) return value;
+  if (hasValidExpressionSyntax(value)) return value;
+
+  const repaired = `${value.slice(0, -3)}}}`;
+  return hasValidExpressionSyntax(repaired) ? repaired : value;
+};
 
 const replaceVarsInString = (value) =>
-  value.replace(/\$vars\.([A-Z0-9_]+)/g, (_match, name) => expressionForVar(name));
+  repairTrailingQuoteExpression(value
+    .replace(/\$vars\.([A-Z0-9_]+)/g, (_match, name) => expressionForVar(name))
+    .replace(/\$\(['"]Workflow Config['"]\)\.first\(\)\.json\.([A-Z0-9_]+)/g, (_match, name) =>
+      expressionForVar(name)
+    ));
 
 const replaceVars = (value) => {
   if (typeof value === 'string') return replaceVarsInString(value);

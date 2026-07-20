@@ -36,13 +36,13 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/pickups/' + encodeURIComponent($json.pickupId || $json.pickup_request_id || $json.taskId || 'unknown') + '/dispatch-details'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/pickups/' + encodeURIComponent($json.pickupId || $json.pickup_request_id || $json.taskId || 'unknown') + '/dispatch-details'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -84,13 +84,13 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/drivers/available?branchId=' + encodeURIComponent($json.body?.data?.branchId || $json.branchId || '') + '&taskType=' + encodeURIComponent($json.body?.data?.taskType || $json.taskType || 'Pickup')'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/drivers/available?branchId=' + encodeURIComponent($json.body?.data?.branchId || $json.branchId || '') + '&taskType=' + encodeURIComponent($json.body?.data?.taskType || $json.taskType || 'Pickup')}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -230,13 +230,13 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{($('Workflow Config').first().json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/dispatch/assignments'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/dispatch/assignments'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-              "value": "={{'Bearer ' + ($('Workflow Config').first().json.N8N_API_KEY || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -277,7 +277,7 @@
         20
       ],
       "parameters": {
-        "workflowId": "={{$('Workflow Config').first().json.N8N_WF_DRIVER_NOTIFICATION_ID}}",
+        "workflowId": "={{$node[\"Workflow Config\"].json[\"N8N_WF_DRIVER_NOTIFICATION_ID\"]}}",
         "options": {
           "waitForSubWorkflow": true
         }
@@ -340,7 +340,7 @@
         120
       ],
       "parameters": {
-        "workflowId": "={{$('Workflow Config').first().json.N8N_WF_DRIVER_REASSIGNMENT_ID}}",
+        "workflowId": "={{$node[\"Workflow Config\"].json[\"N8N_WF_DRIVER_REASSIGNMENT_ID\"]}}",
         "options": {
           "waitForSubWorkflow": true
         }
