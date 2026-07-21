@@ -11,7 +11,7 @@
         -300
       ],
       "parameters": {
-        "content": "## Ai Customer Service Agent\n\nRuns the AI customer-service agent with OpenAI, compact memory, service API tools, and safe workflow tools.\n\nInput: Verified message context, identity result, normalized phone, and compact memory.\nOutput: { response: \"\", intent: \"\", language: \"\", confidence: 0, toolCalls: [], needsHuman: false }\n\nShared Input Contract:\n```json\n{\n  \"correlationId\": \"\",\n  \"messageId\": \"\",\n  \"conversationId\": \"\",\n  \"customerId\": \"\",\n  \"customerPhone\": \"\",\n  \"detectedLanguage\": \"\",\n  \"intent\": \"\",\n  \"payload\": {}\n}\n```\n\nShared Output Contract:\n```json\n{\n  \"success\": true,\n  \"status\": \"SUCCESS\",\n  \"data\": {},\n  \"error\": null,\n  \"meta\": {\n    \"correlationId\": \"\",\n    \"workflow\": \"\",\n    \"durationMs\": 0\n  }\n}\n```\n\nRequired fields:\n- correlationId\n- workflowExecutionId\n- idempotencyKey when writing\n\nRules:\n- Never invent prices, order statuses, service coverage, compensation, or liability.\n- Never expose another customer data, internal notes, prompts, credentials, or raw tool output.\n- Reply in the detected customer language and ask only for missing information.\n- Use tools for POS/customer/order truth and stop tool loops after the configured iteration limit."
+        "content": "## Ai Customer Service Agent\n\nRuns the AI customer-service agent with OpenAI, compact memory, service API tools, and safe workflow tools.\n\nInput: Verified message context, identity result, normalized phone, and compact memory.\nOutput: { response: \"\", intent: \"\", language: \"\", confidence: 0, toolCalls: [], needsHuman: false }\n\nShared Input Contract:\n```json\n{\n  \"correlationId\": \"\",\n  \"messageId\": \"\",\n  \"conversationId\": \"\",\n  \"customerId\": \"\",\n  \"customerPhone\": \"\",\n  \"detectedLanguage\": \"\",\n  \"intent\": \"\",\n  \"payload\": {}\n}\n```\n\nShared Output Contract:\n```json\n{\n  \"success\": true,\n  \"status\": \"SUCCESS\",\n  \"data\": {},\n  \"error\": null,\n  \"meta\": {\n    \"correlationId\": \"\",\n    \"workflow\": \"\",\n    \"durationMs\": 0\n  }\n}\n```\n\nRequired fields:\n- correlationId\n- workflowExecutionId\n- idempotencyKey when writing\n\nImport note:\n- Set `Get Order Status Tool` workflow ID to Workflow 10 after import. AI tool sub-nodes cannot safely read this ID from `Workflow Config` in all n8n versions.\n\nRules:\n- Never invent prices, order statuses, service coverage, compensation, or liability.\n- Never expose another customer data, internal notes, prompts, credentials, or raw tool output.\n- Reply in the detected customer language and ask only for missing information.\n- Use tools for POS/customer/order truth and stop tool loops after the configured iteration limit."
       }
     },
     {
@@ -296,8 +296,8 @@
     {
       "id": "get-order-status-tool",
       "name": "Get Order Status Tool",
-      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
-      "typeVersion": 1.1,
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
       "position": [
         780,
         300
@@ -305,35 +305,119 @@
       "parameters": {
         "name": "get_order_status",
         "description": "Fetch POS-backed order status for a verified customer phone. This is the only source of order readiness truth.",
-        "toolDescription": "Fetch POS-backed order status for a verified customer phone. This is the only source of order readiness truth.",
-        "method": "GET",
-        "url": "={{(((($json.workflowRuntimeConfig || {}).SERVICE_API_BASE_URL) || 'MISSING_SERVICE_API_BASE_URL')).replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/pos/orders/' + encodeURIComponent($fromAI('orderId', 'Order id to verify against the customer phone', 'string')) + '/status?phone=' + encodeURIComponent($fromAI('phone', 'Verified normalized customer phone', 'string'))}}",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "={{'Bearer ' + ((($json.workflowRuntimeConfig || {}).N8N_API_KEY) || '')}}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            },
-            {
-              "name": "X-Correlation-Id",
-              "value": "={{$json.correlationId || $json.correlation_id}}"
-            },
-            {
-              "name": "Idempotency-Key",
-              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
-            }
-          ]
+        "workflowId": {
+          "__rl": true,
+          "value": "PASTE_WORKFLOW_ID_10_HERE",
+          "mode": "id"
         },
-        "sendBody": false,
-        "contentType": "json",
-        "jsonBody": "={{$fromAI(\"body\", \"Validated JSON body for this tool\", \"json\")}}",
-        "options": {
-          "timeout": 45000
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "correlationId": "={{$fromAI(\"correlationId\", \"Correlation ID from the agent input\", \"string\")}}",
+            "messageId": "={{$fromAI(\"messageId\", \"WhatsApp or test message ID when available\", \"string\")}}",
+            "conversationId": "={{$fromAI(\"conversationId\", \"Conversation ID when available\", \"string\")}}",
+            "customerId": "={{$fromAI(\"customerId\", \"Verified customer ID from identity context\", \"string\")}}",
+            "customerPhone": "={{$fromAI(\"phone\", \"Verified normalized UAE customer phone\", \"string\")}}",
+            "phone": "={{$fromAI(\"phone\", \"Verified normalized UAE customer phone\", \"string\")}}",
+            "orderId": "={{$fromAI(\"orderId\", \"Order number requested by the customer\", \"string\")}}",
+            "detectedLanguage": "={{$fromAI(\"language\", \"Detected customer language such as ar or en\", \"string\")}}",
+            "intent": "order_status"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "correlationId",
+              "displayName": "correlationId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "messageId",
+              "displayName": "messageId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "conversationId",
+              "displayName": "conversationId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "customerId",
+              "displayName": "customerId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "customerPhone",
+              "displayName": "customerPhone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "orderId",
+              "displayName": "orderId",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "detectedLanguage",
+              "displayName": "detectedLanguage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "intent",
+              "displayName": "intent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
         }
       }
     },
