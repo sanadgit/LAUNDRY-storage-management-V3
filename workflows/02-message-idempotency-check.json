@@ -131,7 +131,7 @@
           "conditions": [
             {
               "id": "existing-event",
-              "leftValue": "={{$json.statusCode === 200 && Boolean($json.body?.ok !== false && ($json.body?.data || $json.body?.event || $json.body?.messageId))}}",
+              "leftValue": "={{$json.statusCode === 200 && Boolean(($json.body?.data || {}).duplicate || ($json.body?.data || {}).processed || ($json.body?.data || {}).event || ($json.body?.data || {}).message || $json.body?.event || $json.body?.messageId)}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -234,6 +234,19 @@
           },
           "timeout": 30000
         }
+      }
+    },
+    {
+      "id": "return-lock-result",
+      "name": "Return Lock Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        120
+      ],
+      "parameters": {
+        "jsCode": "const response = $json || {};\nconst data = ((response.body || {}).data) || {};\nlet extracted = {};\ntry {\n  extracted = $node['Extract WhatsApp Message ID'].json || {};\n} catch (error) {\n  extracted = {};\n}\nconst duplicate = Boolean(data.duplicate);\nconst lockAcquired = Boolean(data.lockAcquired);\nreturn [{\n  json: {\n    duplicate,\n    lockAcquired,\n    messageId: data.messageId || extracted.messageId || '',\n    correlationId: response.body?.meta?.correlationId || extracted.correlationId || '',\n    status: lockAcquired ? 'LOCKED' : duplicate ? 'DUPLICATE' : 'UNKNOWN',\n  },\n}];"
       }
     },
     {
@@ -502,6 +515,17 @@
         [
           {
             "node": "Register Processing Lock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Register Processing Lock": {
+      "main": [
+        [
+          {
+            "node": "Return Lock Result",
             "type": "main",
             "index": 0
           }
