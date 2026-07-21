@@ -548,17 +548,17 @@
             },
             {
               "name": "X-Correlation-Id",
-              "value": "={{$json.correlationId || $json.correlation_id}}"
+              "value": "={{($('Normalize WhatsApp Message').first().json.normalizedMessage || {}).correlationId || $('Extract Webhook Data').first().json.correlationId || $json.correlationId || $json.correlation_id}}"
             },
             {
               "name": "Idempotency-Key",
-              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+              "value": "={{(($('Normalize WhatsApp Message').first().json.normalizedMessage || {}).wamid) || $('Extract Webhook Data').first().json.messageId || $json.idempotencyKey || $json.idempotency_key || $execution.id}}"
             }
           ]
         },
         "sendBody": true,
         "contentType": "json",
-    "jsonBody": "={{ { messageId: (($json.normalizedMessage || {}).wamid) || (($json.normalizedMessage || {}).messageId) || $json.messageId, conversationId: $json.conversationId || (($json.memory || {}).conversationId) || null, correlationId: $json.correlationId || (($json.normalizedMessage || {}).correlationId) } }}",
+    "jsonBody": "={{ { messageId: (($('Normalize WhatsApp Message').first().json.normalizedMessage || {}).wamid) || (($('Normalize WhatsApp Message').first().json.normalizedMessage || {}).messageId) || $('Extract Webhook Data').first().json.messageId, conversationId: $json.conversationId || (($json.memory || {}).conversationId) || null, correlationId: (($('Normalize WhatsApp Message').first().json.normalizedMessage || {}).correlationId) || $('Extract Webhook Data').first().json.correlationId || $json.correlationId } }}",
         "options": {
           "response": {
             "response": {
