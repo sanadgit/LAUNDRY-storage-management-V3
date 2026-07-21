@@ -534,7 +534,7 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/ai/router'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/webhook-events/processed'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -558,7 +558,7 @@
         },
         "sendBody": true,
         "contentType": "json",
-    "jsonBody": "={{ { channel: 'whatsapp', from: (($json.normalizedMessage || {}).from) || $json.from, to: (($json.normalizedMessage || {}).to) || $json.to, message: 'mark event processed', message_type: 'processed', whatsapp_message_id: (($json.normalizedMessage || {}).wamid) || $json.messageId, correlationId: $json.correlationId || (($json.normalizedMessage || {}).correlationId) } }}",
+    "jsonBody": "={{ { messageId: (($json.normalizedMessage || {}).wamid) || (($json.normalizedMessage || {}).messageId) || $json.messageId, conversationId: $json.conversationId || (($json.memory || {}).conversationId) || null, correlationId: $json.correlationId || (($json.normalizedMessage || {}).correlationId) } }}",
         "options": {
           "response": {
             "response": {
