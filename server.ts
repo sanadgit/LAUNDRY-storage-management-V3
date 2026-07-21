@@ -14341,8 +14341,14 @@ async function startServer() {
     asyncHandler(async (req: any, res: any) => {
       const startedAt = Date.now();
       const correlationId = req.body?.correlationId ?? req.body?.correlation_id;
+      const phone = normalizeAiPhone(req.body?.customerPhone ?? req.body?.customer_phone ?? req.body?.phone);
+      if (!phone) {
+        return res
+          .status(400)
+          .json(v1Failure('ai.conversations.create', correlationId, 'VALIDATION_ERROR', 'A valid customer phone is required.', startedAt));
+      }
       const contact = await ensureV1AiContact({
-        phone: req.body?.customerPhone ?? req.body?.customer_phone ?? req.body?.phone,
+        phone,
         name: req.body?.customerName ?? req.body?.customer_name ?? req.body?.name,
         language: req.body?.detectedLanguage ?? req.body?.language,
       });
@@ -14422,11 +14428,18 @@ async function startServer() {
     requireAiApiKeyIfConfigured,
     asyncHandler(async (req: any, res: any) => {
       const startedAt = Date.now();
+      const conversationId = Number(req.params.conversationId);
+      const correlationId = req.body?.correlationId ?? req.body?.correlation_id;
+      if (!Number.isFinite(conversationId) || conversationId <= 0) {
+        return res
+          .status(400)
+          .json(v1Failure('ai.conversations.update', correlationId, 'VALIDATION_ERROR', 'Valid conversation id is required.', startedAt));
+      }
       const conversation = await aiOperations.updateAiConversation(req.params.conversationId, req.body || {});
       if (!conversation) {
-        return res.status(404).json(v1Failure('ai.conversations.update', req.body?.correlationId, 'NOT_FOUND', 'Conversation not found.', startedAt));
+        return res.status(404).json(v1Failure('ai.conversations.update', correlationId, 'NOT_FOUND', 'Conversation not found.', startedAt));
       }
-      res.json(v1Success('ai.conversations.update', req.body?.correlationId, { conversation }, startedAt));
+      res.json(v1Success('ai.conversations.update', correlationId, { conversation }, startedAt));
     })
   );
 
@@ -14703,8 +14716,15 @@ async function startServer() {
     asyncHandler(async (req: any, res: any) => {
       const startedAt = Date.now();
       const input = req.body?.message && typeof req.body.message === 'object' ? req.body.message : req.body;
+      const correlationId = req.body?.correlationId ?? req.body?.correlation_id ?? input?.correlationId ?? input?.correlation_id;
+      const conversationId = Number(input?.conversationId ?? input?.conversation_id);
+      if (!Number.isFinite(conversationId) || conversationId <= 0) {
+        return res
+          .status(400)
+          .json(v1Failure('ai.messages.create', correlationId, 'VALIDATION_ERROR', 'A valid conversationId is required.', startedAt));
+      }
       const message = await insertV1AiMessage(input || {});
-      res.status(201).json(v1Success('ai.messages.create', req.body?.correlationId ?? req.body?.correlation_id, { message }, startedAt));
+      res.status(201).json(v1Success('ai.messages.create', correlationId, { message }, startedAt));
     })
   );
 
