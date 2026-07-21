@@ -45,7 +45,7 @@
           "conditions": [
             {
               "id": "has-customer-id",
-              "leftValue": "={{Boolean($json.customerId || $json.customer_id || $json.identity?.customer?.id)}}",
+              "leftValue": "={{Boolean($json.customerId || $json.customer_id || ($json.identity && $json.identity.customer && $json.identity.customer.id))}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -87,7 +87,7 @@
           "conditions": [
             {
               "id": "has-order-id",
-              "leftValue": "={{Boolean($json.orderId || $json.order_id || $json.memory?.currentOrderId)}}",
+              "leftValue": "={{Boolean($json.orderId || $json.order_id || ($json.memory && $json.memory.currentOrderId))}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -111,7 +111,7 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/pos/orders/' + encodeURIComponent($json.orderId || $json.order_id || $json.memory?.currentOrderId || 'unknown') + '/status?customerId=' + encodeURIComponent($json.customerId || $json.customer_id || $json.identity?.customer?.id || '') + '&phone=' + encodeURIComponent($json.phone || $json.customerPhone || $json.normalizedPhone || $json.normalized_phone || '')}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/pos/orders/' + encodeURIComponent($json.orderId || $json.order_id || (($json.memory && $json.memory.currentOrderId) || 'unknown')) + '/status?customerId=' + encodeURIComponent($json.customerId || $json.customer_id || (($json.identity && $json.identity.customer && $json.identity.customer.id) || '')) + '&phone=' + encodeURIComponent($json.phone || $json.customerPhone || $json.normalizedPhone || $json.normalized_phone || '')}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -159,7 +159,7 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/customers/' + encodeURIComponent($json.customerId || $json.customer_id || $json.identity?.customer?.id || 'unknown') + '/orders/active?phone=' + encodeURIComponent($json.phone || $json.customerPhone || $json.normalizedPhone || $json.normalized_phone || '')}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/customers/' + encodeURIComponent($json.customerId || $json.customer_id || (($json.identity && $json.identity.customer && $json.identity.customer.id) || 'unknown')) + '/orders/active?phone=' + encodeURIComponent($json.phone || $json.customerPhone || $json.normalizedPhone || $json.normalized_phone || '')}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -216,7 +216,7 @@
           "conditions": [
             {
               "id": "order-ok",
-              "leftValue": "={{$json.statusCode >= 200 && $json.statusCode < 300 && $json.body?.ok !== false}}",
+              "leftValue": "={{$json.statusCode >= 200 && $json.statusCode < 300 && (!$json.body || $json.body.ok !== false)}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -225,7 +225,7 @@
             },
             {
               "id": "order-owned",
-              "leftValue": "={{Boolean($json.body?.data?.owned !== false && $json.body?.error?.code !== \"ORDER_NOT_AUTHORIZED\" && $json.body?.error?.code !== \"CUSTOMER_NOT_VERIFIED\")}}",
+              "leftValue": "={{Boolean((!$json.body || !$json.body.data || $json.body.data.owned !== false) && (!$json.body || !$json.body.error || ($json.body.error.code !== \"ORDER_NOT_AUTHORIZED\" && $json.body.error.code !== \"CUSTOMER_NOT_VERIFIED\")))}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -350,69 +350,14 @@
     {
       "id": "return-order-result",
       "name": "Return Order Result",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1160,
         80
       ],
       "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "success",
-              "name": "success",
-              "type": "boolean",
-              "value": "={{[\"NO_ACTIVE_ORDERS\", \"ONE_ACTIVE_ORDER\", \"MULTIPLE_ACTIVE_ORDERS\"].includes($json.resultBranch)}}"
-            },
-            {
-              "id": "resultBranch",
-              "name": "resultBranch",
-              "type": "string",
-              "value": "={{$json.resultBranch || ($json.body?.error?.code === \"ORDER_NOT_AUTHORIZED\" || $json.body?.error?.code === \"CUSTOMER_NOT_VERIFIED\" ? \"ORDER_NOT_OWNED\" : \"POS_UNAVAILABLE\")}}"
-            },
-            {
-              "id": "order",
-              "name": "order",
-              "type": "object",
-              "value": "={{$json.order || $json.body?.data || null}}"
-            },
-            {
-              "id": "orders",
-              "name": "orders",
-              "type": "array",
-              "value": "={{$json.orders || []}}"
-            },
-            {
-              "id": "canonicalStatus",
-              "name": "canonicalStatus",
-              "type": "string",
-              "value": "={{$json.canonicalStatus || \"\"}}"
-            },
-            {
-              "id": "rawStatus",
-              "name": "rawStatus",
-              "type": "string",
-              "value": "={{$json.rawStatus || \"\"}}"
-            },
-            {
-              "id": "message",
-              "name": "message",
-              "type": "string",
-              "value": "={{$json.resultBranch === \"ORDER_NOT_OWNED\" ? \"Order cannot be shown for this customer.\" : $json.resultBranch === \"NO_ACTIVE_ORDERS\" ? \"No active orders found for this verified customer.\" : $json.resultBranch === \"MULTIPLE_ACTIVE_ORDERS\" ? \"Multiple active orders found. Ask the customer for the order number.\" : $json.resultBranch === \"POS_UNAVAILABLE\" ? \"POS is unavailable. Escalate for branch confirmation.\" : $json.resultBranch === \"UNKNOWN_STATUS\" ? \"Order status needs branch review.\" : \"Order status returned from POS.\"}}"
-            },
-            {
-              "id": "correlationId",
-              "name": "correlationId",
-              "type": "string",
-              "value": "={{$json.correlationId || $(\"Workflow Input\").first().json.correlationId}}"
-            }
-          ]
-        },
-        "includeOtherFields": true,
-        "options": {
-          "dotNotation": false
-        }
+        "jsCode": "const input = $('Workflow Input').first().json;\nconst body = $json.body || {};\nconst errorCode = body.error && body.error.code ? body.error.code : '';\nlet resultBranch = $json.resultBranch || '';\nif (!resultBranch) {\n  resultBranch = ['ORDER_NOT_AUTHORIZED', 'CUSTOMER_NOT_VERIFIED'].includes(errorCode) ? 'ORDER_NOT_OWNED' : 'POS_UNAVAILABLE';\n}\nconst messages = {\n  ORDER_NOT_OWNED: 'Order cannot be shown for this customer.',\n  NO_ACTIVE_ORDERS: 'No active orders found for this verified customer.',\n  MULTIPLE_ACTIVE_ORDERS: 'Multiple active orders found. Ask the customer for the order number.',\n  POS_UNAVAILABLE: 'POS is unavailable. Escalate for branch confirmation.',\n  UNKNOWN_STATUS: 'Order status needs branch review.',\n};\nconst successBranches = ['NO_ACTIVE_ORDERS', 'ONE_ACTIVE_ORDER', 'MULTIPLE_ACTIVE_ORDERS'];\nreturn [{\n  json: {\n    ...$json,\n    success: successBranches.includes(resultBranch),\n    resultBranch,\n    order: $json.order || body.data || null,\n    orders: $json.orders || [],\n    canonicalStatus: $json.canonicalStatus || '',\n    rawStatus: $json.rawStatus || '',\n    message: messages[resultBranch] || 'Order status returned from POS.',\n    correlationId: $json.correlationId || input.correlationId || '',\n  },\n}];"
       }
     },
     {
