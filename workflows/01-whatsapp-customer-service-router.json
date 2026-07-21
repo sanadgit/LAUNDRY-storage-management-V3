@@ -70,7 +70,7 @@
               "id": "rawEvent",
               "name": "rawEvent",
               "type": "object",
-              "value": "={{$json.body || $json}}"
+              "value": "={{$json.rawEvent || $json.body || $json}}"
             }
           ]
         },
@@ -89,7 +89,7 @@
         120
       ],
       "parameters": {
-        "jsCode": "const input = $json;\nconst rawEvent = input.rawEvent || input.body || input;\nconst entry = Array.isArray(rawEvent.entry) ? (rawEvent.entry[0] || {}) : {};\nconst change = Array.isArray(entry.changes) ? (entry.changes[0] || {}) : {};\nconst value = change.value || {};\nconst message = Array.isArray(value.messages) ? (value.messages[0] || {}) : {};\nconst contact = Array.isArray(value.contacts) ? (value.contacts[0] || {}) : {};\nconst metadata = value.metadata || {};\nconst profile = contact.profile || {};\nreturn [{\n  json: {\n    ...input,\n    rawEvent,\n    entry,\n    change,\n    value,\n    message,\n    contact,\n    senderPhone: String(message.from || contact.wa_id || ''),\n    messageId: String(message.id || ''),\n    messageType: String(message.type || 'unsupported'),\n    timestamp: String(message.timestamp || ''),\n    receiverPhone: String(metadata.display_phone_number || metadata.phone_number_id || ''),\n    customerName: String(profile.name || ''),\n  },\n}];"
+        "jsCode": "const input = $json;\nlet rawEvent = input.rawEvent || input.body || input;\nif (rawEvent && rawEvent.rawEvent && Array.isArray(rawEvent.rawEvent.entry)) rawEvent = rawEvent.rawEvent;\nif (rawEvent && rawEvent.body && Array.isArray(rawEvent.body.entry)) rawEvent = rawEvent.body;\nconst entry = Array.isArray(rawEvent.entry) ? (rawEvent.entry[0] || {}) : {};\nconst change = Array.isArray(entry.changes) ? (entry.changes[0] || {}) : {};\nconst value = change.value || {};\nconst message = Array.isArray(value.messages) ? (value.messages[0] || {}) : {};\nconst contact = Array.isArray(value.contacts) ? (value.contacts[0] || {}) : {};\nconst metadata = value.metadata || {};\nconst profile = contact.profile || {};\nreturn [{\n  json: {\n    ...input,\n    rawEvent,\n    entry,\n    change,\n    value,\n    message,\n    contact,\n    senderPhone: String(message.from || contact.wa_id || ''),\n    messageId: String(message.id || ''),\n    messageType: String(message.type || 'unsupported'),\n    timestamp: String(message.timestamp || ''),\n    receiverPhone: String(metadata.display_phone_number || metadata.phone_number_id || ''),\n    customerName: String(profile.name || ''),\n  },\n}];"
       }
     },
     {
