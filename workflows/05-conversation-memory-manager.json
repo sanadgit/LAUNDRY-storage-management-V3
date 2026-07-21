@@ -36,7 +36,7 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/active?customerId=' + encodeURIComponent($json.customerId || $json.customer?.id || $json.identity?.customer?.id || '') + '&phone=' + encodeURIComponent($json.normalizedPhone || $json.normalized_phone || $json.customer_phone || $json.identity?.normalizedPhone || '')}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/active?customerId=' + encodeURIComponent($json.customerId || (($json.customer && $json.customer.id) || '') || (($json.identity && $json.identity.customer && $json.identity.customer.id) || '') || '') + '&phone=' + encodeURIComponent($json.normalizedPhone || $json.normalized_phone || $json.customer_phone || (($json.identity && $json.identity.normalizedPhone) || '') || '')}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -93,7 +93,7 @@
           "conditions": [
             {
               "id": "has-conversation",
-              "leftValue": "={{$json.statusCode >= 200 && $json.statusCode < 300 && Boolean($json.body?.data?.conversationId || $json.body?.data?.conversation_id)}}",
+              "leftValue": "={{$json.statusCode >= 200 && $json.statusCode < 300 && Boolean(($json.body && $json.body.data && ($json.body.data.conversationId || $json.body.data.conversation_id)))}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -141,7 +141,7 @@
         },
         "sendBody": true,
         "contentType": "json",
-        "jsonBody": "={{ { provider: 'whatsapp', customerId: $json.customerId || $json.customer?.id || $json.identity?.customer?.id || null, normalizedPhone: $json.normalizedPhone || $json.normalized_phone || $json.customer_phone || $json.identity?.normalizedPhone || null, language: $json.language || $json.detectedLanguage || null, correlationId: $json.correlationId || $json.correlation_id, sourceMessageId: $json.wamid || $json.messageId || $json.normalizedMessage?.wamid || null } }}",
+        "jsonBody": "={{ { provider: 'whatsapp', customerId: $json.customerId || (($json.customer && $json.customer.id) || null) || (($json.identity && $json.identity.customer && $json.identity.customer.id) || null), normalizedPhone: $json.normalizedPhone || $json.normalized_phone || $json.customer_phone || (($json.identity && $json.identity.normalizedPhone) || null), language: $json.language || $json.detectedLanguage || null, correlationId: $json.correlationId || $json.correlation_id, sourceMessageId: $json.wamid || $json.messageId || (($json.normalizedMessage && $json.normalizedMessage.wamid) || null) } }}",
         "options": {
           "response": {
             "response": {
@@ -165,7 +165,7 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent($json.body?.data?.conversationId || $json.body?.data?.conversation_id || 'unknown') + '/messages/recent?limit=8'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent(($json.body && $json.body.data && ($json.body.data.conversationId || $json.body.data.conversation_id)) || 'unknown') + '/messages/recent?limit=8'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -213,7 +213,7 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent($json.body?.data?.conversationId || $json.body?.data?.conversation_id || 'unknown') + '/summary'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent(($json.body && $json.body.data && ($json.body.data.conversationId || $json.body.data.conversation_id)) || 'unknown') + '/summary'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -261,7 +261,7 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent($json.body?.data?.conversationId || $json.body?.data?.conversation_id || 'unknown') + '/context'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent(($json.body && $json.body.data && ($json.body.data.conversationId || $json.body.data.conversation_id)) || 'unknown') + '/context'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -318,7 +318,7 @@
           "conditions": [
             {
               "id": "context-size",
-              "leftValue": "={{Number($json.body?.data?.estimatedTokens || $json.body?.data?.contextSize || 0)}}",
+              "leftValue": "={{Number(($json.body && $json.body.data && ($json.body.data.estimatedTokens || $json.body.data.contextSize)) || 0)}}",
               "rightValue": 6000,
               "operator": {
                 "type": "number",
@@ -342,7 +342,7 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent($json.body?.data?.conversationId || $json.body?.data?.conversation_id || 'unknown') + '/summarize'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent(($json.body && $json.body.data && ($json.body.data.conversationId || $json.body.data.conversation_id)) || 'unknown') + '/summarize'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -382,39 +382,14 @@
     {
       "id": "return-memory-context",
       "name": "Return Memory Context",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1680,
         20
       ],
       "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "memory",
-              "name": "memory",
-              "type": "object",
-              "value": "={{ { customerId: $json.body?.data?.customerId || null, conversationId: $json.body?.data?.conversationId || $json.body?.data?.conversation_id || null, currentOrderId: $json.body?.data?.currentOrderId || null, currentPickupId: $json.body?.data?.currentPickupId || null, currentDeliveryId: $json.body?.data?.currentDeliveryId || null, currentComplaintId: $json.body?.data?.currentComplaintId || null, branchId: $json.body?.data?.branchId || null, language: $json.body?.data?.language || null, currentIntent: $json.body?.data?.currentIntent || null, humanHandoffStatus: $json.body?.data?.humanHandoffStatus || null, summary: $json.body?.data?.summary || \"\", recentMessages: $json.body?.data?.recentMessages || [] } }}"
-            },
-            {
-              "id": "conversationId",
-              "name": "conversationId",
-              "type": "string",
-              "value": "={{$json.body?.data?.conversationId || $json.body?.data?.conversation_id || \"\"}}"
-            },
-            {
-              "id": "correlationId",
-              "name": "correlationId",
-              "type": "string",
-              "value": "={{$json.correlationId || $json.correlation_id || $(\"Workflow Input\").first().json.correlationId}}"
-            }
-          ]
-        },
-        "includeOtherFields": true,
-        "options": {
-          "dotNotation": false
-        }
+        "jsCode": "return $input.all().map((item) => {\n  const json = { ...(item.json || {}) };\n  const data = ((json.body || {}).data) || {};\n  const input = $('Workflow Input').first().json || {};\n  const conversationId = data.conversationId || data.conversation_id || json.conversationId || input.conversationId || '';\n  const correlationId = json.correlationId || json.correlation_id || input.correlationId || input.correlation_id || '';\n  const memory = {\n    customerId: data.customerId || data.customer_id || input.customerId || null,\n    conversationId: conversationId || null,\n    currentOrderId: data.currentOrderId || data.current_order_id || input.currentOrderId || null,\n    currentPickupId: data.currentPickupId || data.current_pickup_id || input.currentPickupId || null,\n    currentDeliveryId: data.currentDeliveryId || data.current_delivery_id || input.currentDeliveryId || null,\n    currentComplaintId: data.currentComplaintId || data.current_complaint_id || input.currentComplaintId || null,\n    branchId: data.branchId || data.branch_id || input.branchId || null,\n    language: data.language || input.detectedLanguage || input.language || null,\n    currentIntent: data.currentIntent || data.current_intent || input.intent || null,\n    humanHandoffStatus: data.humanHandoffStatus || data.human_handoff_status || null,\n    summary: data.summary || '',\n    recentMessages: Array.isArray(data.recentMessages) ? data.recentMessages : [],\n  };\n\n  return {\n    ...item,\n    json: {\n      ...json,\n      memory,\n      conversationId,\n      correlationId,\n      success: true,\n      status: 'SUCCESS',\n    },\n  };\n});"
       }
     },
     {
