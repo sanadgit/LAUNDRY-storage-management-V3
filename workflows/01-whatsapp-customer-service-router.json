@@ -82,87 +82,14 @@
     {
       "id": "extract-webhook-data",
       "name": "Extract Webhook Data",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         -720,
         120
       ],
       "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "entry",
-              "name": "entry",
-              "type": "object",
-              "value": "={{($json.rawEvent.entry || [])[0] || {}}}"
-            },
-            {
-              "id": "change",
-              "name": "change",
-              "type": "object",
-              "value": "={{((($json.rawEvent.entry || [])[0] || {}).changes || [])[0] || {}}}"
-            },
-            {
-              "id": "value",
-              "name": "value",
-              "type": "object",
-              "value": "={{$json.change.value || {}}}"
-            },
-            {
-              "id": "message",
-              "name": "message",
-              "type": "object",
-              "value": "={{($json.value.messages || [])[0] || {}}}"
-            },
-            {
-              "id": "contact",
-              "name": "contact",
-              "type": "object",
-              "value": "={{($json.value.contacts || [])[0] || {}}}"
-            },
-            {
-              "id": "senderPhone",
-              "name": "senderPhone",
-              "type": "string",
-              "value": "={{String($json.message.from || $json.contact.wa_id || \"\")}}"
-            },
-            {
-              "id": "messageId",
-              "name": "messageId",
-              "type": "string",
-              "value": "={{String($json.message.id || \"\")}}"
-            },
-            {
-              "id": "messageType",
-              "name": "messageType",
-              "type": "string",
-              "value": "={{String($json.message.type || \"unsupported\")}}"
-            },
-            {
-              "id": "timestamp",
-              "name": "timestamp",
-              "type": "string",
-              "value": "={{String($json.message.timestamp || \"\")}}"
-            },
-            {
-              "id": "receiverPhone",
-              "name": "receiverPhone",
-              "type": "string",
-              "value": "={{String($json.value.metadata?.display_phone_number || $json.value.metadata?.phone_number_id || \"\")}}"
-            },
-            {
-              "id": "customerName",
-              "name": "customerName",
-              "type": "string",
-              "value": "={{String($json.contact.profile?.name || \"\")}}"
-            }
-          ]
-        },
-        "includeOtherFields": true,
-        "options": {
-          "dotNotation": false
-        }
+        "jsCode": "const input = $json;\nconst rawEvent = input.rawEvent || input.body || input;\nconst entry = Array.isArray(rawEvent.entry) ? (rawEvent.entry[0] || {}) : {};\nconst change = Array.isArray(entry.changes) ? (entry.changes[0] || {}) : {};\nconst value = change.value || {};\nconst message = Array.isArray(value.messages) ? (value.messages[0] || {}) : {};\nconst contact = Array.isArray(value.contacts) ? (value.contacts[0] || {}) : {};\nconst metadata = value.metadata || {};\nconst profile = contact.profile || {};\nreturn [{\n  json: {\n    ...input,\n    rawEvent,\n    entry,\n    change,\n    value,\n    message,\n    contact,\n    senderPhone: String(message.from || contact.wa_id || ''),\n    messageId: String(message.id || ''),\n    messageType: String(message.type || 'unsupported'),\n    timestamp: String(message.timestamp || ''),\n    receiverPhone: String(metadata.display_phone_number || metadata.phone_number_id || ''),\n    customerName: String(profile.name || ''),\n  },\n}];"
       }
     },
     {
@@ -409,7 +336,7 @@
           "conditions": [
             {
               "id": "duplicate-flag",
-              "leftValue": "={{Boolean($json.duplicate_message || $json.data?.duplicate_message || $json.data?.duplicate || $json.agent?.duplicate_message)}}",
+          "leftValue": "={{Boolean($json.duplicate_message || (($json.data || {}).duplicate_message) || (($json.data || {}).duplicate) || (($json.agent || {}).duplicate_message))}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -473,27 +400,14 @@
     {
       "id": "prepare-agent-input",
       "name": "Prepare Agent Input",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         1860,
         120
       ],
       "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "agentInput",
-              "name": "agentInput",
-              "type": "object",
-              "value": "={{ { provider: \"whatsapp\", message: $json.normalizedMessage || $json, identity: $json.identity || $json.customer || null, memory: $json.memory || null, correlationId: $json.correlationId || $json.normalizedMessage?.correlationId } }}"
-            }
-          ]
-        },
-        "includeOtherFields": true,
-        "options": {
-          "dotNotation": false
-        }
+        "jsCode": "const input = $json;\nconst normalizedMessage = input.normalizedMessage || {};\nreturn [{\n  json: {\n    ...input,\n    agentInput: {\n      provider: 'whatsapp',\n      message: normalizedMessage.messageText || input.messageText || input.message || '',\n      messageText: normalizedMessage.messageText || input.messageText || input.message || '',\n      normalizedMessage: Object.keys(normalizedMessage).length ? normalizedMessage : input,\n      identity: input.identity || input.customer || null,\n      memory: input.memory || null,\n      correlationId: input.correlationId || normalizedMessage.correlationId || '',\n    },\n  },\n}];"
       }
     },
     {
@@ -532,7 +446,7 @@
           "conditions": [
             {
               "id": "has-safe-reply",
-              "leftValue": "={{Boolean($json.agent?.response || $json.data?.response || $json.response || $json.customer_reply_override)}}",
+          "leftValue": "={{Boolean((($json.agent || {}).response) || (($json.data || {}).response) || $json.response || $json.customer_reply_override)}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -644,7 +558,7 @@
         },
         "sendBody": true,
         "contentType": "json",
-        "jsonBody": "={{ { channel: 'whatsapp', from: $json.normalizedMessage?.from || $json.from, to: $json.normalizedMessage?.to || $json.to, message: 'mark event processed', message_type: 'processed', whatsapp_message_id: $json.normalizedMessage?.wamid || $json.messageId, correlationId: $json.correlationId || $json.normalizedMessage?.correlationId } }}",
+    "jsonBody": "={{ { channel: 'whatsapp', from: (($json.normalizedMessage || {}).from) || $json.from, to: (($json.normalizedMessage || {}).to) || $json.to, message: 'mark event processed', message_type: 'processed', whatsapp_message_id: (($json.normalizedMessage || {}).wamid) || $json.messageId, correlationId: $json.correlationId || (($json.normalizedMessage || {}).correlationId) } }}",
         "options": {
           "response": {
             "response": {
