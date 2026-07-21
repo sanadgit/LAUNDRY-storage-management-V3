@@ -350,6 +350,19 @@
       }
     },
     {
+      "id": "prepare-phone-normalization-input",
+      "name": "Prepare Phone Normalization Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        950,
+        120
+      ],
+      "parameters": {
+        "jsCode": "const duplicateResult = $json || {};\nlet normalizedSource = {};\nlet extractedSource = {};\ntry {\n  normalizedSource = $node['Normalize WhatsApp Message'].json || {};\n} catch (error) {\n  normalizedSource = {};\n}\ntry {\n  extractedSource = $node['Extract Webhook Data'].json || {};\n} catch (error) {\n  extractedSource = {};\n}\nconst normalizedMessage = normalizedSource.normalizedMessage || {};\nconst phone = String(normalizedMessage.from || extractedSource.senderPhone || normalizedSource.senderPhone || '').trim();\nconst messageId = String(normalizedMessage.wamid || normalizedMessage.messageId || extractedSource.messageId || '').trim();\nconst correlationId = String(normalizedMessage.correlationId || extractedSource.correlationId || normalizedSource.correlationId || '').trim();\nreturn [{\n  json: {\n    ...normalizedSource,\n    ...duplicateResult,\n    normalizedMessage,\n    phone,\n    from: phone,\n    senderPhone: phone,\n    customerPhone: phone,\n    messageId,\n    wamid: messageId,\n    correlationId,\n    workflowExecutionId: normalizedMessage.workflowExecutionId || extractedSource.workflowExecutionId || String($execution.id || ''),\n  },\n}];"
+      }
+    },
+    {
       "id": "normalize-customer-phone",
       "name": "Normalize Customer Phone",
       "type": "n8n-nodes-base.executeWorkflow",
@@ -379,6 +392,19 @@
         "options": {
           "waitForSubWorkflow": true
         }
+      }
+    },
+    {
+      "id": "prepare-memory-context-input",
+      "name": "Prepare Memory Context Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1470,
+        120
+      ],
+      "parameters": {
+        "jsCode": "const identityResult = $json || {};\nconst readNode = (name) => {\n  try {\n    return $node[name].json || {};\n  } catch (error) {\n    return {};\n  }\n};\nconst normalizedSource = readNode('Normalize WhatsApp Message');\nconst phoneInput = readNode('Prepare Phone Normalization Input');\nconst phoneResult = readNode('Normalize Customer Phone');\nconst normalizedMessage = normalizedSource.normalizedMessage || phoneInput.normalizedMessage || {};\nconst identity = identityResult.identity || {};\nconst customer = identity.customer || identityResult.customer || null;\nconst normalizedPhone = String(identity.normalizedPhone || phoneResult.normalizedPhone || phoneInput.customerPhone || normalizedMessage.from || '').replace(/[^0-9]/g, '');\nconst messageId = String(normalizedMessage.wamid || normalizedMessage.messageId || phoneInput.messageId || identityResult.messageId || '').trim();\nconst correlationId = String(identityResult.correlationId || phoneResult.correlationId || phoneInput.correlationId || normalizedMessage.correlationId || '').trim();\nreturn [{\n  json: {\n    ...normalizedSource,\n    ...phoneInput,\n    ...phoneResult,\n    ...identityResult,\n    identity,\n    customer,\n    customerId: customer?.id || customer?.customerId || identityResult.customerId || null,\n    normalizedPhone,\n    customerPhone: normalizedPhone,\n    phone: normalizedPhone,\n    from: normalizedMessage.from || phoneInput.from || normalizedPhone,\n    senderPhone: normalizedMessage.from || phoneInput.senderPhone || normalizedPhone,\n    messageId,\n    wamid: messageId,\n    correlationId,\n    detectedLanguage: identityResult.detectedLanguage || phoneInput.detectedLanguage || 'ar',\n    language: identityResult.language || phoneInput.language || 'ar',\n    workflowExecutionId: normalizedMessage.workflowExecutionId || phoneInput.workflowExecutionId || String($execution.id || ''),\n  },\n}];"
       }
     },
     {
@@ -990,6 +1016,17 @@
         ],
         [
           {
+            "node": "Prepare Phone Normalization Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Phone Normalization Input": {
+      "main": [
+        [
+          {
             "node": "Normalize Customer Phone",
             "type": "main",
             "index": 0
@@ -1009,6 +1046,17 @@
       ]
     },
     "Identify Customer": {
+      "main": [
+        [
+          {
+            "node": "Prepare Memory Context Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Memory Context Input": {
       "main": [
         [
           {
