@@ -597,7 +597,8 @@
         },
         "sendBody": true,
         "contentType": "json",
-    "jsonBody": "={{$json.processedEventBody}}",
+        "specifyBody": "json",
+        "jsonBody": "={{$json.processedEventBody}}",
         "options": {
           "response": {
             "response": {
