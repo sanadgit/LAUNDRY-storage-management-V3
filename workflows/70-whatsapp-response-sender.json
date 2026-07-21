@@ -250,7 +250,7 @@
         20
       ],
       "parameters": {
-        "jsCode": "const input = $('Workflow Input').first().json;\nconst body = $json.body || {};\nconst data = body.data || {};\nreturn [{\n  json: {\n    ...$json,\n    success: $json.statusCode >= 200 && $json.statusCode < 300 && body.ok !== false,\n    providerMessageId: data.providerMessageId || '',\n    notificationStatus: data.status || 'sent',\n    to: data.to || '',\n    correlationId: data.correlationId || input.correlationId || input.correlation_id || '',\n  },\n}];"
+        "jsCode": "const input = $('Workflow Input').first().json;\nconst preparedText = (() => { try { return $('Prepare Text Message').first().json; } catch { return null; } })();\nconst preparedTemplate = (() => { try { return $('Prepare Template Message').first().json; } catch { return null; } })();\nconst prepared = preparedText || preparedTemplate || input;\nconst body = $json.body || {};\nconst data = body.data || {};\nconst providerMessageId =\n  ($json.messages && $json.messages[0] && $json.messages[0].id) ||\n  $json.messageId ||\n  $json.id ||\n  data.providerMessageId ||\n  (data.providerResponse && data.providerResponse.messages && data.providerResponse.messages[0] && data.providerResponse.messages[0].id) ||\n  '';\nconst statusCode = Number($json.statusCode || 200);\nconst success = Boolean(providerMessageId) || (statusCode >= 200 && statusCode < 300 && body.ok !== false && !$json.error);\nreturn [{\n  json: {\n    success,\n    providerMessageId,\n    notificationStatus: success ? 'sent' : 'failed',\n    to: prepared.to || '',\n    messageType: prepared.messageType || input.messageType || 'text',\n    correlationId: prepared.correlationId || input.correlationId || input.correlation_id || '',\n    meta: {\n      workflow: 'whatsapp.response-sender',\n      logged: false,\n      logSkippedReason: 'Avoid duplicate send: /api/v1/notifications/whatsapp currently sends WhatsApp instead of log-only.',\n    },\n    providerResponse: $json,\n  },\n}];"
       }
     },
     {
@@ -583,14 +583,14 @@
       "main": [
         [
           {
-            "node": "Save Notification Status",
+            "node": "Return Provider Result",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Save Notification Status",
+            "node": "Return Provider Result",
             "type": "main",
             "index": 0
           }
