@@ -91,7 +91,7 @@
               "conditions": {
                 "conditions": [
                   {
-                    "leftValue": "={{Boolean($json.message || $json.text || $json.customer_reply_override || ($json.agent && $json.agent.response))}}",
+              "leftValue": "={{Boolean($json.customer_reply_override || (($json.ai || {}).response) || (($json.agent || {}).response) || (($json.data || {}).response) || $json.response || $json.reply || $json.messageText || $json.customerMessage || $json.text || (typeof $json.message === 'string' ? $json.message : (($json.message || {}).text || {}).body))}}",
                     "rightValue": true,
                     "operator": {
                       "type": "boolean",
@@ -119,7 +119,7 @@
         120
       ],
       "parameters": {
-        "jsCode": "const input = $json;\nconst agentResponse = input.agent && input.agent.response ? input.agent.response : '';\nreturn [{\n  json: {\n    ...input,\n    to: String(input.to || input.from || input.customerPhone || input.customer_phone || '').replace(/[^0-9]/g, ''),\n    messageType: 'text',\n    messageBody: String(input.customer_reply_override || agentResponse || input.message || input.text || '').trim(),\n    idempotencyKey: input.idempotencyKey || input.idempotency_key || input.wamid || input.correlationId || String($execution.id || ''),\n    correlationId: input.correlationId || input.correlation_id || 'corr_' + Date.now(),\n  },\n}];"
+        "jsCode": "const input = $json || {};\nconst firstText = (...values) => {\n  for (const value of values) {\n    if (typeof value === 'string' && value.trim()) return value.trim();\n  }\n  return '';\n};\nconst messageBody = firstText(\n  input.customer_reply_override,\n  input.ai?.response,\n  input.agent?.response,\n  input.data?.response,\n  input.response,\n  input.reply,\n  input.messageText,\n  input.customerMessage,\n  input.text,\n  typeof input.message === 'string' ? input.message : input.message?.text?.body\n);\nreturn [{\n  json: {\n    ...input,\n    to: String(input.to || input.from || input.customerPhone || input.customer_phone || '').replace(/[^0-9]/g, ''),\n    messageType: 'text',\n    messageBody: messageBody || 'وصلت رسالتك، وسيقوم فريق خدمة العملاء بمراجعتها والرد عليك قريباً.',\n    idempotencyKey: input.idempotencyKey || input.idempotency_key || input.wamid || input.correlationId || String($execution.id || ''),\n    correlationId: input.correlationId || input.correlation_id || 'corr_' + Date.now(),\n  },\n}];"
       }
     },
     {

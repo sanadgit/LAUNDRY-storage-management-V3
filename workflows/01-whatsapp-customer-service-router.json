@@ -336,7 +336,7 @@
           "conditions": [
             {
               "id": "duplicate-flag",
-          "leftValue": "={{Boolean($json.duplicate_message || (($json.data || {}).duplicate_message) || (($json.data || {}).duplicate) || (($json.agent || {}).duplicate_message))}}",
+          "leftValue": "={{Boolean($json.duplicate || $json.duplicate_message || $json.lockAcquired === false || (($json.data || {}).duplicate_message) || (($json.data || {}).duplicate) || (($json.data || {}).lockAcquired === false) || (($json.agent || {}).duplicate_message))}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
