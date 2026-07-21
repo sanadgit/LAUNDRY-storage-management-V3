@@ -11,6 +11,8 @@ Use this checklist before enabling any workflow in production.
 - Run `npm run test:ai`.
 - Confirm no real secrets or production phone numbers exist in exports.
 - Confirm `SERVICE_API_BASE_URL` is explicitly configured for the target environment.
+- Keep Meta WhatsApp Callback URL pointed at the existing site webhook when it is already used by the website: `/api/webhooks/whatsapp`.
+- Set `N8N_WHATSAPP_WEBHOOK_URL` in the backend environment to forward inbound customer messages to the n8n router webhook.
 - Confirm all `N8N_WF_*` variables point to imported workflow IDs.
 - Confirm WhatsApp webhook verification works in staging.
 - Confirm `wamid` idempotency works.

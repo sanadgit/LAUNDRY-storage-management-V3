@@ -1367,6 +1367,11 @@ const CUSTOMER_ALERT_SEND_TIMEOUT_MS = Math.max(
   3000,
   Math.min(30000, Number(process.env.CUSTOMER_ALERT_SEND_TIMEOUT_MS ?? 15000) || 15000)
 );
+const N8N_WHATSAPP_WEBHOOK_URL = String(process.env.N8N_WHATSAPP_WEBHOOK_URL ?? '').trim();
+const N8N_WHATSAPP_FORWARD_TIMEOUT_MS = Math.max(
+  1000,
+  Math.min(15000, Number(process.env.N8N_WHATSAPP_FORWARD_TIMEOUT_MS ?? 8000) || 8000)
+);
 const TELEGRAM_BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN ?? '').trim();
 const TELEGRAM_WEBHOOK_SECRET = String(process.env.TELEGRAM_WEBHOOK_SECRET ?? '').trim();
 const POS_BASE_URL = String(process.env.POS_BASE_URL ?? 'https://magnus.aipsoft.com/inout/sales').trim();
@@ -7837,6 +7842,100 @@ const maskPublicTrackPhone = (phone: unknown) => {
   const digits = String(phone ?? '').replace(/\D/g, '');
   if (!digits) return '*****';
   return `${'*'.repeat(Math.max(5, digits.length - 3))}${digits.slice(-3)}`;
+};
+
+const getWhatsappWebhookMessages = (body: any) => {
+  const messages: any[] = [];
+  for (const entry of Array.isArray(body?.entry) ? body.entry : []) {
+    for (const change of Array.isArray(entry?.changes) ? entry.changes : []) {
+      const value = change?.value ?? {};
+      for (const message of Array.isArray(value?.messages) ? value.messages : []) {
+        if (message && typeof message === 'object') messages.push(message);
+      }
+    }
+  }
+  return messages;
+};
+
+const buildWhatsappStatusOnlyWebhookBody = (body: any) => {
+  const entries: any[] = [];
+  for (const entry of Array.isArray(body?.entry) ? body.entry : []) {
+    const changes: any[] = [];
+    for (const change of Array.isArray(entry?.changes) ? entry.changes : []) {
+      const value = change?.value ?? {};
+      const statuses = Array.isArray(value?.statuses) ? value.statuses : [];
+      if (!statuses.length) continue;
+      const { messages: _messages, contacts: _contacts, ...statusOnlyValue } = value;
+      changes.push({
+        ...change,
+        value: {
+          ...statusOnlyValue,
+          statuses,
+        },
+      });
+    }
+    if (changes.length) {
+      entries.push({
+        ...entry,
+        changes,
+      });
+    }
+  }
+  return entries.length ? { ...body, entry: entries } : null;
+};
+
+const createWhatsappN8nCorrelationId = (body: any) => {
+  const firstMessage = getWhatsappWebhookMessages(body)[0];
+  const messageId = String(firstMessage?.id ?? '').trim();
+  return messageId ? `corr_${messageId.replace(/[^a-zA-Z0-9._-]/g, '_')}` : `corr_whatsapp_${randomUUID()}`;
+};
+
+const forwardWhatsappWebhookToN8n = async (body: any, correlationId: string) => {
+  if (!N8N_WHATSAPP_WEBHOOK_URL) {
+    return { forwarded: false, reason: 'not_configured' };
+  }
+
+  const targetUrl = new URL(N8N_WHATSAPP_WEBHOOK_URL);
+  if (!['http:', 'https:'].includes(targetUrl.protocol)) {
+    throw new Error('Invalid N8N_WHATSAPP_WEBHOOK_URL protocol.');
+  }
+
+  const messages = getWhatsappWebhookMessages(body);
+  const firstMessage = messages[0] ?? {};
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), N8N_WHATSAPP_FORWARD_TIMEOUT_MS);
+  try {
+    const response = await fetch(targetUrl.toString(), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Correlation-Id': correlationId,
+        'X-Forwarded-From': 'inandout-whatsapp-webhook',
+      },
+      body: JSON.stringify({
+        provider: 'whatsapp',
+        receivedAt: new Date().toISOString(),
+        correlationId,
+        rawEvent: body,
+      }),
+      signal: controller.signal,
+    });
+    await response.text().catch(() => '');
+    if (!response.ok) {
+      throw new Error(`n8n WhatsApp webhook returned HTTP ${response.status}.`);
+    }
+    console.log(
+      `[whatsapp-webhook] forwarded inbound messages to n8n correlation=${correlationId} count=${messages.length} first_message_id=${String(firstMessage?.id ?? 'n/a')} from=${maskPublicTrackPhone(firstMessage?.from)}`
+    );
+    return {
+      forwarded: true,
+      statusCode: response.status,
+      messageCount: messages.length,
+      firstMessageId: String(firstMessage?.id ?? ''),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 };
 
 const getPublicTrackOrderPhone = (order: Record<string, unknown>) => {
@@ -14683,6 +14782,24 @@ async function startServer() {
   app.post(
     '/api/webhooks/whatsapp',
     asyncHandler(async (req: any, res: any) => {
+      const inboundMessages = getWhatsappWebhookMessages(req.body);
+      if (N8N_WHATSAPP_WEBHOOK_URL && inboundMessages.length) {
+        const statusOnlyBody = buildWhatsappStatusOnlyWebhookBody(req.body);
+        const statusResults = statusOnlyBody ? await aiOperations.processWhatsappWebhook(statusOnlyBody) : [];
+        const correlationId =
+          String(req.headers['x-correlation-id'] ?? req.body?.correlationId ?? req.body?.correlation_id ?? '').trim() ||
+          createWhatsappN8nCorrelationId(req.body);
+        const forwardResult = await forwardWhatsappWebhookToN8n(req.body, correlationId);
+        return res.json({
+          ok: true,
+          processed: statusResults.length,
+          forwarded_to_n8n: true,
+          inbound_messages: inboundMessages.length,
+          n8n: forwardResult,
+          results: statusResults,
+        });
+      }
+
       const results = await aiOperations.processWhatsappWebhook(req.body, {
         onRoutedMessage: async ({ routed }) => {
           if (!routed.auto_create_pickup) return undefined;

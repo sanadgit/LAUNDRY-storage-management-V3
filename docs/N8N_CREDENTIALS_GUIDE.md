@@ -12,6 +12,8 @@ Prefer n8n credentials, environment variables, or the deployment secret manager.
 
 - `SERVICE_API_BASE_URL`
 - `SERVICE_API_TOKEN`
+- `N8N_WHATSAPP_WEBHOOK_URL`
+- `N8N_WHATSAPP_FORWARD_TIMEOUT_MS`
 - `N8N_API_KEY`
 - `WHATSAPP_PHONE_NUMBER_ID`
 - `WHATSAPP_BUSINESS_ACCOUNT_ID`
@@ -34,6 +36,8 @@ Prefer n8n credentials, environment variables, or the deployment secret manager.
 When Variables are unavailable, put workflow-facing values in the `Workflow Config` node instead of `Settings -> Variables`.
 
 Do not put POS credentials in n8n. POS credentials stay only in the backend `.env`.
+
+`N8N_WHATSAPP_WEBHOOK_URL` belongs in the backend `.env`, not inside the n8n workflow. It lets the existing website WhatsApp webhook forward inbound customer messages to the n8n router while Meta continues to call `/api/webhooks/whatsapp`.
 
 ## Workflow ID Variables
 
