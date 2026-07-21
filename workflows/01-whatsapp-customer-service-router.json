@@ -508,6 +508,19 @@
       }
     },
     {
+      "id": "prepare-save-conversation-input",
+      "name": "Prepare Save Conversation Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3030,
+        120
+      ],
+      "parameters": {
+        "jsCode": "const sendResult = $json || {};\nconst readNode = (name) => {\n  try {\n    return $node[name].json || {};\n  } catch (error) {\n    return {};\n  }\n};\nconst extracted = readNode('Extract Webhook Data');\nconst normalizedSource = readNode('Normalize WhatsApp Message');\nconst memorySource = readNode('Load Conversation Context');\nconst agentSource = readNode('Customer Service AI Agent');\nconst fallbackSource = readNode('Safe Fallback Message');\nconst normalizedMessage = normalizedSource.normalizedMessage || {};\nconst memory = memorySource.memory || {};\nconst identity = memorySource.identity || agentSource.identity || {};\nconst agent = agentSource.ai || agentSource.agent || agentSource.data || {};\nconst messageId = String(normalizedMessage.wamid || normalizedMessage.messageId || extracted.messageId || memorySource.messageId || '').trim();\nconst conversationId = String(memorySource.conversationId || memory.conversationId || agentSource.conversationId || agentSource.conversation_id || '').trim();\nconst correlationId = String(memorySource.correlationId || normalizedMessage.correlationId || extracted.correlationId || agentSource.correlationId || '').trim();\nconst customerId = memorySource.customerId || memory.customerId || identity.customer?.id || agentSource.customerId || null;\nconst customerPhone = memorySource.customerPhone || normalizedMessage.from || extracted.senderPhone || agentSource.customerPhone || '';\nconst customerMessage = normalizedMessage.messageText || memorySource.messageText || extracted.message?.text?.body || '';\nconst agentResponse = fallbackSource.customer_reply_override || agent.response || agentSource.response || agentSource.reply || '';\nreturn [{\n  json: {\n    ...memorySource,\n    ...agentSource,\n    providerSendResult: sendResult,\n    conversationId,\n    conversation_id: conversationId,\n    customerId,\n    customerPhone,\n    messageId,\n    wamid: messageId,\n    originalMessageId: messageId,\n    messageType: normalizedMessage.messageType || extracted.messageType || 'text',\n    messageText: customerMessage,\n    customerMessage,\n    agent: {\n      ...agent,\n      response: agentResponse,\n    },\n    agentResponse,\n    reply: agentResponse,\n    correlationId,\n    workflowExecutionId: normalizedMessage.workflowExecutionId || extracted.workflowExecutionId || String($execution.id || ''),\n  },\n}];"
+      }
+    },
+    {
       "id": "save-conversation",
       "name": "Save Conversation",
       "type": "n8n-nodes-base.executeWorkflow",
@@ -581,7 +594,7 @@
         120
       ],
       "parameters": {
-        "jsCode": "const current = $json || {};\nlet normalizedSource = {};\nlet extractedSource = {};\ntry {\n  normalizedSource = $node['Normalize WhatsApp Message'].json || {};\n} catch (error) {\n  normalizedSource = {};\n}\ntry {\n  extractedSource = $node['Extract Webhook Data'].json || {};\n} catch (error) {\n  extractedSource = {};\n}\nconst normalizedMessage = normalizedSource.normalizedMessage || {};\nconst currentMemory = current.memory || {};\nconst normalizedMemory = normalizedSource.memory || {};\nconst messageId = String(\n  normalizedMessage.wamid ||\n  normalizedMessage.messageId ||\n  extractedSource.messageId ||\n  current.messageId ||\n  current.originalMessageId ||\n  ''\n).trim();\nconst correlationId = String(\n  normalizedMessage.correlationId ||\n  extractedSource.correlationId ||\n  current.correlationId ||\n  current.correlation_id ||\n  ''\n).trim();\nconst conversationId = current.conversationId || currentMemory.conversationId || normalizedMemory.conversationId || null;\nreturn [{\n  json: {\n    ...current,\n    messageId,\n    originalMessageId: messageId,\n    correlationId,\n    processedEventReady: Boolean(messageId),\n    processedEventBody: {\n      messageId,\n      conversationId,\n      correlationId,\n    },\n  },\n}];"
+        "jsCode": "const current = $json || {};\nlet normalizedSource = {};\nlet extractedSource = {};\nlet saveInput = {};\ntry {\n  normalizedSource = $node['Normalize WhatsApp Message'].json || {};\n} catch (error) {\n  normalizedSource = {};\n}\ntry {\n  extractedSource = $node['Extract Webhook Data'].json || {};\n} catch (error) {\n  extractedSource = {};\n}\ntry {\n  saveInput = $node['Prepare Save Conversation Input'].json || {};\n} catch (error) {\n  saveInput = {};\n}\nconst normalizedMessage = normalizedSource.normalizedMessage || {};\nconst currentMemory = current.memory || {};\nconst normalizedMemory = normalizedSource.memory || {};\nconst saveMemory = saveInput.memory || {};\nconst messageId = String(\n  normalizedMessage.wamid ||\n  normalizedMessage.messageId ||\n  extractedSource.messageId ||\n  saveInput.messageId ||\n  saveInput.originalMessageId ||\n  current.messageId ||\n  current.originalMessageId ||\n  ''\n).trim();\nconst correlationId = String(\n  normalizedMessage.correlationId ||\n  extractedSource.correlationId ||\n  saveInput.correlationId ||\n  current.correlationId ||\n  current.correlation_id ||\n  ''\n).trim();\nconst conversationId = current.conversationId || currentMemory.conversationId || saveInput.conversationId || saveMemory.conversationId || normalizedMemory.conversationId || null;\nreturn [{\n  json: {\n    ...saveInput,\n    ...current,\n    messageId,\n    originalMessageId: messageId,\n    correlationId,\n    conversationId,\n    processedEventReady: Boolean(messageId),\n    processedEventBody: {\n      messageId,\n      conversationId,\n      correlationId,\n    },\n  },\n}];"
       }
     },
     {
@@ -1069,6 +1082,17 @@
       ]
     },
     "Send WhatsApp Reply": {
+      "main": [
+        [
+          {
+            "node": "Prepare Save Conversation Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Save Conversation Input": {
       "main": [
         [
           {

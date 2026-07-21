@@ -141,7 +141,7 @@
         },
         "sendBody": true,
         "contentType": "json",
-        "jsonBody": "={{$node[\"Remove Config From Item\"].json[\"createConversationBody\"]}}",
+        "jsonBody": "={{ { provider: 'whatsapp', channel: 'whatsapp', customerId: $node[\"Remove Config From Item\"].json[\"customerId\"] || null, customerPhone: $node[\"Remove Config From Item\"].json[\"normalizedPhone\"] || $node[\"Remove Config From Item\"].json[\"customerPhone\"] || $node[\"Remove Config From Item\"].json[\"phone\"] || null, phone: $node[\"Remove Config From Item\"].json[\"normalizedPhone\"] || $node[\"Remove Config From Item\"].json[\"customerPhone\"] || $node[\"Remove Config From Item\"].json[\"phone\"] || null, customerName: $node[\"Remove Config From Item\"].json[\"customerName\"] || (($node[\"Remove Config From Item\"].json[\"identity\"] || {}).customer || {}).name || null, language: $node[\"Remove Config From Item\"].json[\"language\"] || $node[\"Remove Config From Item\"].json[\"detectedLanguage\"] || null, detectedLanguage: $node[\"Remove Config From Item\"].json[\"detectedLanguage\"] || $node[\"Remove Config From Item\"].json[\"language\"] || null, intent: $node[\"Remove Config From Item\"].json[\"intent\"] || 'unknown', correlationId: $node[\"Remove Config From Item\"].json[\"correlationId\"] || $node[\"Remove Config From Item\"].json[\"correlation_id\"] || '', sourceMessageId: $node[\"Remove Config From Item\"].json[\"wamid\"] || $node[\"Remove Config From Item\"].json[\"messageId\"] || (($node[\"Remove Config From Item\"].json[\"normalizedMessage\"] || {}).wamid) || null } }}",
         "options": {
           "response": {
             "response": {
@@ -155,6 +155,19 @@
       }
     },
     {
+      "id": "resolve-conversation-identity",
+      "name": "Resolve Conversation Identity",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        20
+      ],
+      "parameters": {
+        "jsCode": "const response = $json || {};\nlet input = {};\nlet prepared = {};\ntry {\n  input = $node['Workflow Input'].json || {};\n} catch (error) {\n  input = {};\n}\ntry {\n  prepared = $node['Remove Config From Item'].json || {};\n} catch (error) {\n  prepared = {};\n}\nconst data = ((response.body || {}).data) || {};\nconst conversation = data.conversation || {};\nconst contact = data.contact || {};\nconst conversationId = String(\n  data.conversationId ||\n  data.conversation_id ||\n  conversation.id ||\n  response.conversationId ||\n  input.conversationId ||\n  input.conversation_id ||\n  ''\n).trim();\nreturn [{\n  json: {\n    ...input,\n    ...prepared,\n    conversationId,\n    conversation_id: conversationId,\n    contactId: contact.id || conversation.contact_id || input.contactId || input.contact_id || null,\n    correlationId: prepared.correlationId || prepared.correlation_id || input.correlationId || input.correlation_id || '',\n    memorySeed: {\n      contact,\n      conversation,\n      sourceWorkflow: response.body?.meta?.workflow || '',\n      statusCode: response.statusCode || null,\n    },\n    conversationResolved: Boolean(conversationId),\n  },\n}];"
+      }
+    },
+    {
       "id": "load-recent-messages",
       "name": "Load Recent Messages",
       "type": "n8n-nodes-base.httpRequest",
@@ -165,7 +178,7 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{$node[\"Remove Config From Item\"].json[\"serviceApiBaseUrl\"] + '/api/v1/ai/conversations/' + encodeURIComponent(($json.body && $json.body.data && ($json.body.data.conversationId || $json.body.data.conversation_id)) || 'unknown') + '/messages/recent?limit=8'}}",
+        "url": "={{$node[\"Remove Config From Item\"].json[\"serviceApiBaseUrl\"] + '/api/v1/ai/conversations/' + encodeURIComponent($node[\"Resolve Conversation Identity\"].json[\"conversationId\"] || 'unknown') + '/messages/recent?limit=8'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -213,7 +226,7 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{$node[\"Remove Config From Item\"].json[\"serviceApiBaseUrl\"] + '/api/v1/ai/conversations/' + encodeURIComponent(($json.body && $json.body.data && ($json.body.data.conversationId || $json.body.data.conversation_id)) || 'unknown') + '/summary'}}",
+        "url": "={{$node[\"Remove Config From Item\"].json[\"serviceApiBaseUrl\"] + '/api/v1/ai/conversations/' + encodeURIComponent($node[\"Resolve Conversation Identity\"].json[\"conversationId\"] || 'unknown') + '/summary'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -261,7 +274,7 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{$node[\"Remove Config From Item\"].json[\"serviceApiBaseUrl\"] + '/api/v1/ai/conversations/' + encodeURIComponent(($json.body && $json.body.data && ($json.body.data.conversationId || $json.body.data.conversation_id)) || 'unknown') + '/context'}}",
+        "url": "={{$node[\"Remove Config From Item\"].json[\"serviceApiBaseUrl\"] + '/api/v1/ai/conversations/' + encodeURIComponent($node[\"Resolve Conversation Identity\"].json[\"conversationId\"] || 'unknown') + '/context'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -342,7 +355,7 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{$node[\"Remove Config From Item\"].json[\"serviceApiBaseUrl\"] + '/api/v1/ai/conversations/' + encodeURIComponent(($json.body && $json.body.data && ($json.body.data.conversationId || $json.body.data.conversation_id)) || 'unknown') + '/summarize'}}",
+        "url": "={{$node[\"Remove Config From Item\"].json[\"serviceApiBaseUrl\"] + '/api/v1/ai/conversations/' + encodeURIComponent($node[\"Resolve Conversation Identity\"].json[\"conversationId\"] || 'unknown') + '/summarize'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -389,7 +402,7 @@
         20
       ],
       "parameters": {
-        "jsCode": "return $input.all().map((item) => {\n  const json = { ...(item.json || {}) };\n  const data = ((json.body || {}).data) || {};\n  const input = $('Workflow Input').first().json || {};\n  const conversationId = data.conversationId || data.conversation_id || json.conversationId || input.conversationId || '';\n  const correlationId = json.correlationId || json.correlation_id || input.correlationId || input.correlation_id || '';\n  const memory = {\n    customerId: data.customerId || data.customer_id || input.customerId || null,\n    conversationId: conversationId || null,\n    currentOrderId: data.currentOrderId || data.current_order_id || input.currentOrderId || null,\n    currentPickupId: data.currentPickupId || data.current_pickup_id || input.currentPickupId || null,\n    currentDeliveryId: data.currentDeliveryId || data.current_delivery_id || input.currentDeliveryId || null,\n    currentComplaintId: data.currentComplaintId || data.current_complaint_id || input.currentComplaintId || null,\n    branchId: data.branchId || data.branch_id || input.branchId || null,\n    language: data.language || input.detectedLanguage || input.language || null,\n    currentIntent: data.currentIntent || data.current_intent || input.intent || null,\n    humanHandoffStatus: data.humanHandoffStatus || data.human_handoff_status || null,\n    summary: data.summary || '',\n    recentMessages: Array.isArray(data.recentMessages) ? data.recentMessages : [],\n  };\n\n  return {\n    ...item,\n    json: {\n      ...json,\n      memory,\n      conversationId,\n      correlationId,\n      success: true,\n      status: 'SUCCESS',\n    },\n  };\n});"
+        "jsCode": "return $input.all().map((item) => {\n  const json = { ...(item.json || {}) };\n  const contextData = ((json.body || {}).data) || {};\n  let input = {};\n  let resolved = {};\n  let recentData = {};\n  let summaryData = {};\n  try {\n    input = $node['Workflow Input'].json || {};\n  } catch (error) {\n    input = {};\n  }\n  try {\n    resolved = $node['Resolve Conversation Identity'].json || {};\n  } catch (error) {\n    resolved = {};\n  }\n  try {\n    recentData = ((($node['Load Recent Messages'].json || {}).body || {}).data) || {};\n  } catch (error) {\n    recentData = {};\n  }\n  try {\n    summaryData = ((($node['Load Conversation Summary'].json || {}).body || {}).data) || {};\n  } catch (error) {\n    summaryData = {};\n  }\n  const conversation = contextData.conversation || resolved.memorySeed?.conversation || {};\n  const summaryRecord = contextData.summary || summaryData.summary || {};\n  const conversationId = String(\n    resolved.conversationId ||\n    contextData.conversationId ||\n    contextData.conversation_id ||\n    conversation.id ||\n    input.conversationId ||\n    input.conversation_id ||\n    ''\n  ).trim();\n  const correlationId = resolved.correlationId || json.correlationId || json.correlation_id || input.correlationId || input.correlation_id || '';\n  const memory = {\n    customerId: conversation.customer_id || conversation.contact_id || resolved.customerId || input.customerId || null,\n    conversationId: conversationId || null,\n    currentOrderId: conversation.current_order_id || input.currentOrderId || null,\n    currentPickupId: conversation.current_pickup_id || input.currentPickupId || null,\n    currentDeliveryId: conversation.current_delivery_id || input.currentDeliveryId || null,\n    currentComplaintId: conversation.current_complaint_id || input.currentComplaintId || null,\n    branchId: conversation.branch_id || input.branchId || null,\n    language: conversation.language || summaryRecord.language || input.detectedLanguage || input.language || null,\n    currentIntent: conversation.intent || conversation.current_intent || input.intent || null,\n    humanHandoffStatus: conversation.human_handoff_status || null,\n    summary: summaryRecord.summary || contextData.summaryText || '',\n    recentMessages: Array.isArray(recentData.messages) ? recentData.messages : [],\n  };\n\n  return {\n    ...item,\n    json: {\n      ...input,\n      ...resolved,\n      ...json,\n      memory,\n      conversationId,\n      conversation_id: conversationId,\n      correlationId,\n      success: true,\n      status: 'SUCCESS',\n    },\n  };\n});"
       }
     },
     {
@@ -639,7 +652,7 @@
       "main": [
         [
           {
-            "node": "Load Recent Messages",
+            "node": "Resolve Conversation Identity",
             "type": "main",
             "index": 0
           }
@@ -654,6 +667,17 @@
       ]
     },
     "Create Conversation": {
+      "main": [
+        [
+          {
+            "node": "Resolve Conversation Identity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Conversation Identity": {
       "main": [
         [
           {
