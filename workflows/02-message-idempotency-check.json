@@ -189,12 +189,25 @@
       }
     },
     {
+      "id": "prepare-processing-lock-request",
+      "name": "Prepare Processing Lock Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        120
+      ],
+      "parameters": {
+        "jsCode": "let extracted = {};\ntry {\n  extracted = $node['Extract WhatsApp Message ID'].json || {};\n} catch (error) {\n  extracted = {};\n}\nconst current = $json || {};\nconst messageId = String(extracted.messageId || current.messageId || current.wamid || '').trim();\nconst correlationId = String(extracted.correlationId || current.correlationId || current.correlation_id || '').trim();\nconst workflowExecutionId = String(extracted.workflowExecutionId || current.workflowExecutionId || $execution.id || '');\nreturn [{\n  json: {\n    ...current,\n    messageId,\n    correlationId,\n    workflowExecutionId,\n    lockRequestBody: {\n      provider: 'whatsapp',\n      messageId,\n      correlationId,\n      workflowExecutionId,\n      receivedAt: new Date().toISOString(),\n    },\n  },\n}];"
+      }
+    },
+    {
       "id": "register-processing-lock",
       "name": "Register Processing Lock",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        400,
+        660,
         120
       ],
       "parameters": {
@@ -213,17 +226,17 @@
             },
             {
               "name": "X-Correlation-Id",
-              "value": "={{$json.correlationId || $json.correlation_id}}"
+            "value": "={{$json.correlationId || $json.correlation_id}}"
             },
             {
               "name": "Idempotency-Key",
-              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
+            "value": "={{$json.messageId || $json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id}}"
             }
           ]
         },
         "sendBody": true,
         "contentType": "json",
-        "jsonBody": "={{ { provider: 'whatsapp', messageId: $('Extract WhatsApp Message ID').first().json.messageId, correlationId: $('Extract WhatsApp Message ID').first().json.correlationId, workflowExecutionId: $('Extract WhatsApp Message ID').first().json.workflowExecutionId, receivedAt: new Date().toISOString() } }}",
+        "jsonBody": "={{$json.lockRequestBody}}",
         "options": {
           "response": {
             "response": {
@@ -242,7 +255,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        660,
+        920,
         120
       ],
       "parameters": {
@@ -512,6 +525,17 @@
             "index": 0
           }
         ],
+        [
+          {
+            "node": "Prepare Processing Lock Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Processing Lock Request": {
+      "main": [
         [
           {
             "node": "Register Processing Lock",
