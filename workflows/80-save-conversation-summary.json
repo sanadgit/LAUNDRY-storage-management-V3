@@ -121,7 +121,7 @@
         },
         "sendBody": true,
         "contentType": "json",
-        "jsonBody": "={{ { conversationId: $('Redact Sensitive Data').first().json.conversationId, customerId: $('Redact Sensitive Data').first().json.customerId || null, direction: 'outbound', senderType: 'ai_agent', channel: 'whatsapp', body: $('Redact Sensitive Data').first().json.agent?.response || $('Redact Sensitive Data').first().json.agentResponse || $('Redact Sensitive Data').first().json.reply || '', intent: $('Redact Sensitive Data').first().json.agent?.intent || $('Redact Sensitive Data').first().json.intent || null, correlationId: $('Redact Sensitive Data').first().json.correlationId, workflowExecutionId: $('Redact Sensitive Data').first().json.workflowExecutionId } }}",
+        "jsonBody": "={{ { conversationId: $('Redact Sensitive Data').first().json.conversationId, customerId: $('Redact Sensitive Data').first().json.customerId || null, direction: 'outbound', senderType: 'ai_agent', channel: 'whatsapp', body: (($('Redact Sensitive Data').first().json.agent && $('Redact Sensitive Data').first().json.agent.response) || $('Redact Sensitive Data').first().json.agentResponse || $('Redact Sensitive Data').first().json.reply || ''), intent: (($('Redact Sensitive Data').first().json.agent && $('Redact Sensitive Data').first().json.agent.intent) || $('Redact Sensitive Data').first().json.intent || null), correlationId: $('Redact Sensitive Data').first().json.correlationId, workflowExecutionId: $('Redact Sensitive Data').first().json.workflowExecutionId } }}",
         "options": {
           "response": {
             "response": {
@@ -169,7 +169,7 @@
         },
         "sendBody": true,
         "contentType": "json",
-        "jsonBody": "={{ { conversationId: $('Redact Sensitive Data').first().json.conversationId, toolCalls: $('Redact Sensitive Data').first().json.agent?.toolCalls || $('Redact Sensitive Data').first().json.toolCalls || [], correlationId: $('Redact Sensitive Data').first().json.correlationId, workflowExecutionId: $('Redact Sensitive Data').first().json.workflowExecutionId } }}",
+        "jsonBody": "={{ { conversationId: $('Redact Sensitive Data').first().json.conversationId, toolCalls: (($('Redact Sensitive Data').first().json.agent && $('Redact Sensitive Data').first().json.agent.toolCalls) || $('Redact Sensitive Data').first().json.toolCalls || []), correlationId: $('Redact Sensitive Data').first().json.correlationId, workflowExecutionId: $('Redact Sensitive Data').first().json.workflowExecutionId } }}",
         "options": {
           "response": {
             "response": {
@@ -202,7 +202,7 @@
           "conditions": [
             {
               "id": "needs-summary",
-              "leftValue": "={{Boolean($(\"Redact Sensitive Data\").first().json.summaryNeeded || $(\"Redact Sensitive Data\").first().json.agent?.summaryNeeded || Number($(\"Redact Sensitive Data\").first().json.recentMessageCount || 0) >= Number($node[\"Workflow Config\"].json[\"CONVERSATION_SUMMARY_MESSAGE_THRESHOLD\"] || 12))}}",
+              "leftValue": "={{Boolean($(\"Redact Sensitive Data\").first().json.summaryNeeded || ($(\"Redact Sensitive Data\").first().json.agent && $(\"Redact Sensitive Data\").first().json.agent.summaryNeeded) || Number($(\"Redact Sensitive Data\").first().json.recentMessageCount || 0) >= Number($node[\"Workflow Config\"].json[\"CONVERSATION_SUMMARY_MESSAGE_THRESHOLD\"] || 12))}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -250,7 +250,7 @@
         },
         "sendBody": true,
         "contentType": "json",
-        "jsonBody": "={{ { conversationId: $('Redact Sensitive Data').first().json.conversationId, latestCustomerMessage: $('Redact Sensitive Data').first().json.messageText || $('Redact Sensitive Data').first().json.customerMessage || '', latestAgentResponse: $('Redact Sensitive Data').first().json.agent?.response || $('Redact Sensitive Data').first().json.agentResponse || '', currentSummary: $('Redact Sensitive Data').first().json.summary || $('Redact Sensitive Data').first().json.memory?.summary || '', correlationId: $('Redact Sensitive Data').first().json.correlationId } }}",
+        "jsonBody": "={{ { conversationId: $('Redact Sensitive Data').first().json.conversationId, latestCustomerMessage: $('Redact Sensitive Data').first().json.messageText || $('Redact Sensitive Data').first().json.customerMessage || '', latestAgentResponse: (($('Redact Sensitive Data').first().json.agent && $('Redact Sensitive Data').first().json.agent.response) || $('Redact Sensitive Data').first().json.agentResponse || ''), currentSummary: $('Redact Sensitive Data').first().json.summary || (($('Redact Sensitive Data').first().json.memory && $('Redact Sensitive Data').first().json.memory.summary) || ''), correlationId: $('Redact Sensitive Data').first().json.correlationId } }}",
         "options": {
           "response": {
             "response": {
@@ -298,7 +298,7 @@
         },
         "sendBody": true,
         "contentType": "json",
-        "jsonBody": "={{ { summary: (($items('Generate Summary', 0, 0)[0] || {}).json || {}).body?.data?.summary || $('Redact Sensitive Data').first().json.summary || $('Redact Sensitive Data').first().json.memory?.summary || '', currentIntent: $('Redact Sensitive Data').first().json.agent?.intent || $('Redact Sensitive Data').first().json.intent || null, language: $('Redact Sensitive Data').first().json.agent?.language || $('Redact Sensitive Data').first().json.language || null, lastMessageAt: new Date().toISOString(), summaryUpdated: Boolean((($items('Generate Summary', 0, 0)[0] || {}).json || {}).body?.data?.summary), correlationId: $('Redact Sensitive Data').first().json.correlationId } }}",
+        "jsonBody": "={{ { summary: $('Redact Sensitive Data').first().json.summary || (($('Redact Sensitive Data').first().json.memory && $('Redact Sensitive Data').first().json.memory.summary) || ''), currentIntent: (($('Redact Sensitive Data').first().json.agent && $('Redact Sensitive Data').first().json.agent.intent) || $('Redact Sensitive Data').first().json.intent || null), language: (($('Redact Sensitive Data').first().json.agent && $('Redact Sensitive Data').first().json.agent.language) || $('Redact Sensitive Data').first().json.language || null), lastMessageAt: new Date().toISOString(), summaryUpdated: false, correlationId: $('Redact Sensitive Data').first().json.correlationId } }}",
         "options": {
           "response": {
             "response": {
