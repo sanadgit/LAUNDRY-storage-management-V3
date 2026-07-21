@@ -75,7 +75,7 @@
               "conditions": {
                 "conditions": [
                   {
-                    "leftValue": "={{Boolean($json.templateName || $json.template?.name || $json.customerServiceWindowOpen === false || $json.requiresTemplate)}}",
+                  "leftValue": "={{Boolean($json.templateName || ($json.template && $json.template.name) || $json.customerServiceWindowOpen === false || $json.requiresTemplate)}}",
                     "rightValue": true,
                     "operator": {
                       "type": "boolean",
@@ -91,7 +91,7 @@
               "conditions": {
                 "conditions": [
                   {
-                    "leftValue": "={{Boolean($json.message || $json.text || $json.customer_reply_override || $json.agent?.response)}}",
+                  "leftValue": "={{Boolean($json.message || $json.text || $json.customer_reply_override || ($json.agent && $json.agent.response))}}",
                     "rightValue": true,
                     "operator": {
                       "type": "boolean",
@@ -112,113 +112,27 @@
     {
       "id": "prepare-text-message",
       "name": "Prepare Text Message",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         -220,
         120
       ],
       "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "to",
-              "name": "to",
-              "type": "string",
-              "value": "={{String($json.to || $json.from || $json.customerPhone || $json.customer_phone || \"\").replace(/[^0-9]/g, \"\")}}"
-            },
-            {
-              "id": "messageType",
-              "name": "messageType",
-              "type": "string",
-              "value": "text"
-            },
-            {
-              "id": "messageBody",
-              "name": "messageBody",
-              "type": "string",
-              "value": "={{String($json.customer_reply_override || $json.agent?.response || $json.message || $json.text || \"\").trim()}}"
-            },
-            {
-              "id": "idempotencyKey",
-              "name": "idempotencyKey",
-              "type": "string",
-              "value": "={{$json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $execution.id}}"
-            },
-            {
-              "id": "correlationId",
-              "name": "correlationId",
-              "type": "string",
-              "value": "={{$json.correlationId || $json.correlation_id || \"corr_\" + Date.now()}}"
-            }
-          ]
-        },
-        "includeOtherFields": true,
-        "options": {
-          "dotNotation": false
-        }
+        "jsCode": "const input = $json;\nconst agentResponse = input.agent && input.agent.response ? input.agent.response : '';\nreturn [{\n  json: {\n    ...input,\n    to: String(input.to || input.from || input.customerPhone || input.customer_phone || '').replace(/[^0-9]/g, ''),\n    messageType: 'text',\n    messageBody: String(input.customer_reply_override || agentResponse || input.message || input.text || '').trim(),\n    idempotencyKey: input.idempotencyKey || input.idempotency_key || input.wamid || input.correlationId || String($execution.id || ''),\n    correlationId: input.correlationId || input.correlation_id || 'corr_' + Date.now(),\n  },\n}];"
       }
     },
     {
       "id": "prepare-template-message",
       "name": "Prepare Template Message",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         -220,
         -100
       ],
       "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "to",
-              "name": "to",
-              "type": "string",
-              "value": "={{String($json.to || $json.from || $json.customerPhone || $json.customer_phone || \"\").replace(/[^0-9]/g, \"\")}}"
-            },
-            {
-              "id": "messageType",
-              "name": "messageType",
-              "type": "string",
-              "value": "template"
-            },
-            {
-              "id": "templateName",
-              "name": "templateName",
-              "type": "string",
-              "value": "={{$json.templateName || $json.template?.name || \"customer_service_followup\"}}"
-            },
-            {
-              "id": "templateLanguage",
-              "name": "templateLanguage",
-              "type": "string",
-              "value": "={{$json.templateLanguage || $json.language || \"ar\"}}"
-            },
-            {
-              "id": "templateParameters",
-              "name": "templateParameters",
-              "type": "array",
-              "value": "={{$json.templateParameters || $json.template?.parameters || []}}"
-            },
-            {
-              "id": "idempotencyKey",
-              "name": "idempotencyKey",
-              "type": "string",
-              "value": "={{$json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $execution.id}}"
-            },
-            {
-              "id": "correlationId",
-              "name": "correlationId",
-              "type": "string",
-              "value": "={{$json.correlationId || $json.correlation_id || \"corr_\" + Date.now()}}"
-            }
-          ]
-        },
-        "includeOtherFields": true,
-        "options": {
-          "dotNotation": false
-        }
+        "jsCode": "const input = $json;\nconst template = input.template || {};\nreturn [{\n  json: {\n    ...input,\n    to: String(input.to || input.from || input.customerPhone || input.customer_phone || '').replace(/[^0-9]/g, ''),\n    messageType: 'template',\n    templateName: input.templateName || template.name || 'customer_service_followup',\n    templateLanguage: input.templateLanguage || input.language || 'ar',\n    templateParameters: input.templateParameters || template.parameters || [],\n    idempotencyKey: input.idempotencyKey || input.idempotency_key || input.wamid || input.correlationId || String($execution.id || ''),\n    correlationId: input.correlationId || input.correlation_id || 'corr_' + Date.now(),\n  },\n}];"
       }
     },
     {
@@ -270,7 +184,7 @@
           "conditions": [
             {
               "id": "has-provider-message-id",
-              "leftValue": "={{Boolean($json.messages?.[0]?.id || $json.messageId || $json.id)}}",
+              "leftValue": "={{Boolean(($json.messages && $json.messages[0] && $json.messages[0].id) || $json.messageId || $json.id)}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -318,7 +232,7 @@
         },
         "sendBody": true,
         "contentType": "json",
-        "jsonBody": "={{ { direction: 'outbound', recipientType: 'customer', to: (($items('Prepare Text Message', 0, 0)[0] || $items('Prepare Template Message', 0, 0)[0] || {}).json || {}).to, provider: 'whatsapp_cloud_api', messageType: (($items('Prepare Text Message', 0, 0)[0] || $items('Prepare Template Message', 0, 0)[0] || {}).json || {}).messageType, providerMessageId: $json.messages?.[0]?.id || $json.messageId || '', status: ($json.messages?.[0]?.id || $json.messageId) ? 'sent' : 'failed', rateLimited: $json.statusCode === 429 || $json.error?.code === 429, idempotencyKey: (($items('Prepare Text Message', 0, 0)[0] || $items('Prepare Template Message', 0, 0)[0] || {}).json || {}).idempotencyKey, conversationId: $('Workflow Input').first().json.conversationId || $('Workflow Input').first().json.conversation_id || null, correlationId: (($items('Prepare Text Message', 0, 0)[0] || $items('Prepare Template Message', 0, 0)[0] || {}).json || {}).correlationId } }}",
+        "jsonBody": "={{ { direction: 'outbound', recipientType: 'customer', to: (($items('Prepare Text Message', 0, 0)[0] || $items('Prepare Template Message', 0, 0)[0] || {}).json || {}).to, provider: 'whatsapp_cloud_api', messageType: (($items('Prepare Text Message', 0, 0)[0] || $items('Prepare Template Message', 0, 0)[0] || {}).json || {}).messageType, providerMessageId: (($json.messages && $json.messages[0] && $json.messages[0].id) || $json.messageId || ''), status: (($json.messages && $json.messages[0] && $json.messages[0].id) || $json.messageId) ? 'sent' : 'failed', rateLimited: $json.statusCode === 429 || ($json.error && $json.error.code === 429), idempotencyKey: (($items('Prepare Text Message', 0, 0)[0] || $items('Prepare Template Message', 0, 0)[0] || {}).json || {}).idempotencyKey, conversationId: $('Workflow Input').first().json.conversationId || $('Workflow Input').first().json.conversation_id || null, correlationId: (($items('Prepare Text Message', 0, 0)[0] || $items('Prepare Template Message', 0, 0)[0] || {}).json || {}).correlationId } }}",
         "options": {
           "response": {
             "response": {
@@ -334,51 +248,14 @@
     {
       "id": "return-provider-result",
       "name": "Return Provider Result",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         840,
         20
       ],
       "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "success",
-              "name": "success",
-              "type": "boolean",
-              "value": "={{$json.statusCode >= 200 && $json.statusCode < 300 && $json.body?.ok !== false}}"
-            },
-            {
-              "id": "providerMessageId",
-              "name": "providerMessageId",
-              "type": "string",
-              "value": "={{$json.body?.data?.providerMessageId || \"\"}}"
-            },
-            {
-              "id": "notificationStatus",
-              "name": "notificationStatus",
-              "type": "string",
-              "value": "={{$json.body?.data?.status || \"sent\"}}"
-            },
-            {
-              "id": "to",
-              "name": "to",
-              "type": "string",
-              "value": "={{$json.body?.data?.to || \"\"}}"
-            },
-            {
-              "id": "correlationId",
-              "name": "correlationId",
-              "type": "string",
-              "value": "={{$json.body?.data?.correlationId || $(\"Workflow Input\").first().json.correlationId || $(\"Workflow Input\").first().json.correlation_id}}"
-            }
-          ]
-        },
-        "includeOtherFields": true,
-        "options": {
-          "dotNotation": false
-        }
+        "jsCode": "const input = $('Workflow Input').first().json;\nconst body = $json.body || {};\nconst data = body.data || {};\nreturn [{\n  json: {\n    ...$json,\n    success: $json.statusCode >= 200 && $json.statusCode < 300 && body.ok !== false,\n    providerMessageId: data.providerMessageId || '',\n    notificationStatus: data.status || 'sent',\n    to: data.to || '',\n    correlationId: data.correlationId || input.correlationId || input.correlation_id || '',\n  },\n}];"
       }
     },
     {
