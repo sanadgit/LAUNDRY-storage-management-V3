@@ -236,6 +236,7 @@
         },
         "sendBody": true,
         "contentType": "json",
+        "specifyBody": "json",
         "jsonBody": "={{$json.lockRequestBody}}",
         "options": {
           "response": {
