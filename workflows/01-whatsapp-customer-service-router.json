@@ -548,17 +548,17 @@
             },
             {
               "name": "X-Correlation-Id",
-              "value": "={{($('Normalize WhatsApp Message').first().json.normalizedMessage || {}).correlationId || $('Extract Webhook Data').first().json.correlationId || $json.correlationId || $json.correlation_id}}"
+              "value": "={{($json.processedEventBody || {}).correlationId || $json.correlationId || $json.correlation_id}}"
             },
             {
               "name": "Idempotency-Key",
-              "value": "={{(($('Normalize WhatsApp Message').first().json.normalizedMessage || {}).wamid) || $('Extract Webhook Data').first().json.messageId || $json.idempotencyKey || $json.idempotency_key || $execution.id}}"
+              "value": "={{($json.processedEventBody || {}).messageId || $json.idempotencyKey || $json.idempotency_key || $execution.id}}"
             }
           ]
         },
         "sendBody": true,
         "contentType": "json",
-    "jsonBody": "={{ { messageId: (($('Normalize WhatsApp Message').first().json.normalizedMessage || {}).wamid) || (($('Normalize WhatsApp Message').first().json.normalizedMessage || {}).messageId) || $('Extract Webhook Data').first().json.messageId, conversationId: $json.conversationId || (($json.memory || {}).conversationId) || null, correlationId: (($('Normalize WhatsApp Message').first().json.normalizedMessage || {}).correlationId) || $('Extract Webhook Data').first().json.correlationId || $json.correlationId } }}",
+    "jsonBody": "={{$json.processedEventBody}}",
         "options": {
           "response": {
             "response": {
@@ -569,6 +569,19 @@
           },
           "timeout": 60000
         }
+      }
+    },
+    {
+      "id": "prepare-processed-event-marker",
+      "name": "Prepare Processed Event Marker",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3290,
+        120
+      ],
+      "parameters": {
+        "jsCode": "const current = $json || {};\nlet normalizedSource = {};\nlet extractedSource = {};\ntry {\n  normalizedSource = $('Normalize WhatsApp Message').first().json || {};\n} catch (error) {\n  normalizedSource = {};\n}\ntry {\n  extractedSource = $('Extract Webhook Data').first().json || {};\n} catch (error) {\n  extractedSource = {};\n}\nconst normalizedMessage = normalizedSource.normalizedMessage || {};\nconst currentMemory = current.memory || {};\nconst normalizedMemory = normalizedSource.memory || {};\nconst messageId = String(\n  normalizedMessage.wamid ||\n  normalizedMessage.messageId ||\n  extractedSource.messageId ||\n  current.messageId ||\n  current.originalMessageId ||\n  ''\n);\nconst correlationId = String(\n  normalizedMessage.correlationId ||\n  extractedSource.correlationId ||\n  current.correlationId ||\n  current.correlation_id ||\n  ''\n);\nconst conversationId = current.conversationId || currentMemory.conversationId || normalizedMemory.conversationId || null;\nreturn [{\n  json: {\n    ...current,\n    messageId,\n    correlationId,\n    processedEventReady: Boolean(messageId),\n    processedEventBody: {\n      messageId,\n      conversationId,\n      correlationId,\n    },\n  },\n}];"
       }
     },
     {
@@ -1067,6 +1080,17 @@
       ]
     },
     "Save Conversation": {
+      "main": [
+        [
+          {
+            "node": "Prepare Processed Event Marker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Processed Event Marker": {
       "main": [
         [
           {
