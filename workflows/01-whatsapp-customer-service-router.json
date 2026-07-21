@@ -574,17 +574,14 @@
     {
       "id": "error-handler",
       "name": "Error Handler",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.1,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         40,
         -160
       ],
       "parameters": {
-        "workflowId": "={{$node[\"Workflow Config\"].json[\"N8N_WF_ERROR_HANDLER_ID\"]}}",
-        "options": {
-          "waitForSubWorkflow": true
-        }
+        "jsCode": "const input = $json || {};\nconst normalized = input.normalizedMessage || {};\nconst rawMessage = input.rawMessage || input.message || {};\nconst messageId = input.messageId || normalized.messageId || normalized.wamid || rawMessage.id || '';\nconst messageType = input.messageType || normalized.messageType || rawMessage.type || 'unknown';\nconst correlationId = input.correlationId || normalized.correlationId || `corr_${Date.now()}`;\nconst validationError = !input.senderPhone || !messageId || !messageType;\nconst unsupportedType = messageType === 'unsupported' || messageType === 'unknown';\nconst code = input.errorCode || (validationError ? 'INVALID_WHATSAPP_PAYLOAD' : unsupportedType ? 'UNSUPPORTED_MESSAGE_TYPE' : 'WHATSAPP_ROUTER_ERROR');\nconst message = input.errorMessage || (validationError ? 'Invalid WhatsApp webhook payload.' : unsupportedType ? 'Unsupported WhatsApp message type.' : 'WhatsApp router could not process this event safely.');\n\nreturn [\n  {\n    json: {\n      success: false,\n      status: 'ERROR',\n      data: {\n        replySent: false,\n        messageId,\n        messageType,\n        senderPhone: input.senderPhone || normalized.from || '',\n      },\n      error: {\n        code,\n        message,\n      },\n      meta: {\n        correlationId,\n        workflow: 'whatsapp.customer-service-router',\n        workflowExecutionId: String($execution.id || ''),\n      },\n    },\n  },\n];"
       }
     },
     {
