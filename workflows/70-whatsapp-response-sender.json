@@ -45,7 +45,7 @@
           "conditions": [
             {
               "id": "single-uae-recipient",
-              "leftValue": "={{/^9715\\d{8}$/.test(String($json.to || $json.from || $json.customerPhone || $json.customer_phone || \"\").replace(/[^0-9]/g, \"\")) && !String($json.to || \"\").includes(\",\") && !String($json.to || \"\").includes(\";\")}}",
+              "leftValue": "={{/^(9715\\d{8}|971[234679]\\d{7})$/.test(String($json.to || $json.from || $json.customerPhone || $json.customer_phone || \"\").replace(/[^0-9]/g, \"\")) && !String($json.to || \"\").includes(\",\") && !String($json.to || \"\").includes(\";\")}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -75,7 +75,7 @@
               "conditions": {
                 "conditions": [
                   {
-                    "leftValue": "={{Boolean($json.templateName || ($json.template && $json.template.name) || $json.customerServiceWindowOpen === false || $json.requiresTemplate)}}",
+                    "leftValue": "={{Boolean($json.templateName || $json.template?.name || $json.customerServiceWindowOpen === false || $json.requiresTemplate)}}",
                     "rightValue": true,
                     "operator": {
                       "type": "boolean",
@@ -91,7 +91,23 @@
               "conditions": {
                 "conditions": [
                   {
-              "leftValue": "={{Boolean($json.customer_reply_override || (($json.ai || {}).response) || (($json.agent || {}).response) || (($json.data || {}).response) || $json.response || $json.reply || $json.messageText || $json.customerMessage || $json.text || (typeof $json.message === 'string' ? $json.message : (($json.message || {}).text || {}).body))}}",
+                    "leftValue": "={{Boolean($json.mediaUrl || $json.media_url || $json.ai?.mediaUrl || $json.ai?.media_url || /PRICE|PRICING|سعر|اسعار|أسعار/i.test(String($json.intent || $json.ai?.intent || $json.message || $json.response || \"\")))}}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "DOCUMENT"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{Boolean($json.response || $json.ai?.response || $json.agent?.response || $json.message || $json.text || $json.customer_reply_override)}}",
                     "rightValue": true,
                     "operator": {
                       "type": "boolean",
@@ -119,20 +135,122 @@
         120
       ],
       "parameters": {
-        "jsCode": "const input = $json || {};\nconst firstText = (...values) => {\n  for (const value of values) {\n    if (typeof value === 'string' && value.trim()) return value.trim();\n  }\n  return '';\n};\nconst messageBody = firstText(\n  input.customer_reply_override,\n  input.ai?.response,\n  input.agent?.response,\n  input.data?.response,\n  input.response,\n  input.reply,\n  input.messageText,\n  input.customerMessage,\n  input.text,\n  typeof input.message === 'string' ? input.message : input.message?.text?.body\n);\nreturn [{\n  json: {\n    ...input,\n    to: String(input.to || input.from || input.customerPhone || input.customer_phone || '').replace(/[^0-9]/g, ''),\n    messageType: 'text',\n    messageBody: messageBody || 'وصلت رسالتك، وسيقوم فريق خدمة العملاء بمراجعتها والرد عليك قريباً.',\n    idempotencyKey: input.idempotencyKey || input.idempotency_key || input.wamid || input.correlationId || String($execution.id || ''),\n    correlationId: input.correlationId || input.correlation_id || 'corr_' + Date.now(),\n  },\n}];"
+        "jsCode": "const input = $json;\nconst normalizeText = (value, depth = 0) => {\n  if (value == null || depth > 4) return '';\n  if (typeof value === 'string') return value.trim();\n  if (typeof value === 'number' || typeof value === 'boolean') return String(value);\n  if (Array.isArray(value)) {\n    for (const item of value) {\n      const text = normalizeText(item, depth + 1);\n      if (text) return text;\n    }\n    return '';\n  }\n  if (typeof value === 'object') {\n    for (const key of ['response', 'customerReply', 'customer_reply', 'reply', 'text', 'message', 'body', 'content', 'output']) {\n      const text = normalizeText(value[key], depth + 1);\n      if (text) return text;\n    }\n    for (const key of ['ai', 'agent', 'data', 'result']) {\n      const text = normalizeText(value[key], depth + 1);\n      if (text) return text;\n    }\n  }\n  return '';\n};\nconst language = String(input.language || input.detectedLanguage || input.detected_language || input.ai?.language || '').toLowerCase();\nlet messageBody = normalizeText(input.customer_reply_override) || normalizeText(input.response) || normalizeText(input.ai?.response) || normalizeText(input.ai) || normalizeText(input.agent?.response) || normalizeText(input.agent) || normalizeText(input.message) || normalizeText(input.text) || normalizeText(input.body?.data?.response) || normalizeText(input.body?.response);\nif (!messageBody || /^\\[object Object\\]$/i.test(messageBody)) {\n  messageBody = language.startsWith('ar') ? 'أهلًا! كيف أقدر أساعدك؟' : 'Hi! How can I help you today?';\n}\nconst to = String(input.to || input.from || input.customerPhone || input.customer_phone || '').replace(/[^0-9]/g, '');\nconst idempotencyKey = input.idempotencyKey || input.idempotency_key || input.wamid || input.messageId || input.message_id || input.correlationId || String($execution.id || '');\nconst correlationId = input.correlationId || input.correlation_id || 'corr_' + Date.now();\nreturn [{ json: { ...input, to, messageType: 'text', messageBody, idempotencyKey, correlationId } }];"
+      }
+    },
+    {
+      "id": "prepare-document-message",
+      "name": "Prepare Document Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -220,
+        20
+      ],
+      "parameters": {
+        "jsCode": "const input = $json;\nconst normalizeText = (value, depth = 0) => {\n  if (value == null || depth > 4) return '';\n  if (typeof value === 'string') return value.trim();\n  if (typeof value === 'number' || typeof value === 'boolean') return String(value);\n  if (Array.isArray(value)) return value.map((item) => normalizeText(item, depth + 1)).find(Boolean) || '';\n  if (typeof value === 'object') {\n    for (const key of ['response', 'customerReply', 'customer_reply', 'reply', 'text', 'message', 'body', 'content', 'output']) {\n      const text = normalizeText(value[key], depth + 1);\n      if (text) return text;\n    }\n    for (const key of ['ai', 'agent', 'data', 'result']) {\n      const text = normalizeText(value[key], depth + 1);\n      if (text) return text;\n    }\n  }\n  return '';\n};\nconst language = String(input.language || input.detectedLanguage || input.detected_language || input.ai?.language || '').toLowerCase();\nconst defaultCaption = language.startsWith('ar')\n  ? 'تفضل قائمة أسعار In & Out Laundry المرفقة. الأسعار حسب نوع القطعة والخدمة، والقطع الحساسة قد تحتاج فحصًا قبل التأكيد النهائي.'\n  : 'Here is the In & Out Laundry price list. Prices depend on item and service type; delicate items may require inspection.';\nconst messageBody = normalizeText(input.customer_reply_override) || normalizeText(input.response) || normalizeText(input.ai?.response) || normalizeText(input.ai) || normalizeText(input.message) || defaultCaption;\nconst to = String(input.to || input.from || input.customerPhone || input.customer_phone || '').replace(/[^0-9]/g, '');\nconst runtimeConfig = input.workflowRuntimeConfig || {};\nconst mediaUrl = String(input.mediaUrl || input.media_url || input.ai?.mediaUrl || input.ai?.media_url || runtimeConfig.PUBLIC_PRICE_LIST_PDF_URL || input.PUBLIC_PRICE_LIST_PDF_URL || 'https://www.inandoutuae.com/pricing/inout-laundry-price-list.pdf').trim();\nconst mediaFilename = String(input.mediaFilename || input.media_filename || input.ai?.mediaFilename || input.ai?.media_filename || 'In-Out-Laundry-Price-List.pdf').trim();\nconst idempotencyKey = input.idempotencyKey || input.idempotency_key || input.wamid || input.messageId || input.message_id || input.correlationId || String($execution.id || '');\nconst correlationId = input.correlationId || input.correlation_id || 'corr_' + Date.now();\nreturn [{ json: { ...input, to, messageType: 'document', mediaUrl, mediaFilename, messageBody, idempotencyKey, correlationId } }];"
       }
     },
     {
       "id": "prepare-template-message",
       "name": "Prepare Template Message",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
       "position": [
         -220,
         -100
       ],
       "parameters": {
-        "jsCode": "const input = $json;\nconst template = input.template || {};\nreturn [{\n  json: {\n    ...input,\n    to: String(input.to || input.from || input.customerPhone || input.customer_phone || '').replace(/[^0-9]/g, ''),\n    messageType: 'template',\n    templateName: input.templateName || template.name || 'customer_service_followup',\n    templateLanguage: input.templateLanguage || input.language || 'ar',\n    templateParameters: input.templateParameters || template.parameters || [],\n    idempotencyKey: input.idempotencyKey || input.idempotency_key || input.wamid || input.correlationId || String($execution.id || ''),\n    correlationId: input.correlationId || input.correlation_id || 'corr_' + Date.now(),\n  },\n}];"
+        "assignments": {
+          "assignments": [
+            {
+              "id": "to",
+              "name": "to",
+              "type": "string",
+              "value": "={{String($json.to || $json.from || $json.customerPhone || $json.customer_phone || \"\").replace(/[^0-9]/g, \"\")}}"
+            },
+            {
+              "id": "messageType",
+              "name": "messageType",
+              "type": "string",
+              "value": "template"
+            },
+            {
+              "id": "templateName",
+              "name": "templateName",
+              "type": "string",
+              "value": "={{$json.templateName || $json.template?.name || \"customer_service_followup\"}}"
+            },
+            {
+              "id": "templateLanguage",
+              "name": "templateLanguage",
+              "type": "string",
+              "value": "={{$json.templateLanguage || $json.language || \"ar\"}}"
+            },
+            {
+              "id": "templateParameters",
+              "name": "templateParameters",
+              "type": "array",
+              "value": "={{$json.templateParameters || $json.template?.parameters || []}}"
+            },
+            {
+              "id": "idempotencyKey",
+              "name": "idempotencyKey",
+              "type": "string",
+              "value": "={{$json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $execution.id}}"
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$json.correlationId || $json.correlation_id || \"corr_\" + Date.now()}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
+      }
+    },
+    {
+      "id": "send-whatsapp-document-message",
+      "name": "Send WhatsApp Document Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        60,
+        20
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{\"https://graph.facebook.com/v20.0/\" + ($node[\"Workflow Config\"].json[\"WHATSAPP_PHONE_NUMBER_ID\"] || \"\") + \"/messages\"}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{\"Bearer \" + ($node[\"Workflow Config\"].json[\"WHATSAPP_ACCESS_TOKEN\"] || \"\")}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ { messaging_product: 'whatsapp', recipient_type: 'individual', to: $json.to, type: 'document', document: { link: $json.mediaUrl, filename: $json.mediaFilename || 'In-Out-Laundry-Price-List.pdf', caption: String($json.messageBody || '').slice(0, 1000) } } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 45000
+        }
       }
     },
     {
@@ -150,6 +268,34 @@
         "recipientPhoneNumber": "={{$json.to}}",
         "messageType": "text",
         "textBody": "={{$json.messageBody || \"\"}}",
+        "additionalFields": {}
+      },
+      "credentials": {
+        "whatsAppApi": {
+          "id": "replace_with_n8n_whatsapp_credential_id",
+          "name": "WhatsApp Cloud API account"
+        }
+      }
+    },
+    {
+      "id": "send-whatsapp-template-message",
+      "name": "Send WhatsApp Template Message",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        60,
+        -100
+      ],
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{$node[\"Workflow Config\"].json[\"WHATSAPP_PHONE_NUMBER_ID\"]}}",
+        "recipientPhoneNumber": "={{$json.to}}",
+        "messageType": "template",
+        "template": {
+          "name": "={{$json.templateName || \"\"}}",
+          "language": "={{$json.templateLanguage || \"ar\"}}",
+          "components": "={{$json.templateParameters || []}}"
+        },
         "additionalFields": {}
       },
       "credentials": {
@@ -179,7 +325,7 @@
           "conditions": [
             {
               "id": "has-provider-message-id",
-              "leftValue": "={{Boolean(($json.messages && $json.messages[0] && $json.messages[0].id) || $json.messageId || $json.id)}}",
+              "leftValue": "={{Boolean($json.messages?.[0]?.id || $json.body?.messages?.[0]?.id || $json.messageId || $json.id)}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -227,7 +373,7 @@
         },
         "sendBody": true,
         "contentType": "json",
-        "jsonBody": "={{ { direction: 'outbound', recipientType: 'customer', to: (($items('Prepare Text Message', 0, 0)[0] || $items('Prepare Template Message', 0, 0)[0] || {}).json || {}).to, provider: 'whatsapp_cloud_api', messageType: (($items('Prepare Text Message', 0, 0)[0] || $items('Prepare Template Message', 0, 0)[0] || {}).json || {}).messageType, providerMessageId: (($json.messages && $json.messages[0] && $json.messages[0].id) || $json.messageId || ''), status: (($json.messages && $json.messages[0] && $json.messages[0].id) || $json.messageId) ? 'sent' : 'failed', rateLimited: $json.statusCode === 429 || ($json.error && $json.error.code === 429), idempotencyKey: (($items('Prepare Text Message', 0, 0)[0] || $items('Prepare Template Message', 0, 0)[0] || {}).json || {}).idempotencyKey, conversationId: $('Workflow Input').first().json.conversationId || $('Workflow Input').first().json.conversation_id || null, correlationId: (($items('Prepare Text Message', 0, 0)[0] || $items('Prepare Template Message', 0, 0)[0] || {}).json || {}).correlationId } }}",
+        "jsonBody": "={{ { direction: 'outbound', recipientType: 'customer', to: (($items('Prepare Text Message', 0, 0)[0] || $items('Prepare Document Message', 0, 0)[0] || $items('Prepare Template Message', 0, 0)[0] || {}).json || {}).to, provider: 'whatsapp_cloud_api', messageType: (($items('Prepare Text Message', 0, 0)[0] || $items('Prepare Document Message', 0, 0)[0] || $items('Prepare Template Message', 0, 0)[0] || {}).json || {}).messageType, providerMessageId: $json.messages?.[0]?.id || $json.body?.messages?.[0]?.id || $json.messageId || '', status: ($json.messages?.[0]?.id || $json.body?.messages?.[0]?.id || $json.messageId) ? 'sent' : 'failed', rateLimited: $json.statusCode === 429 || $json.error?.code === 429 || $json.body?.error?.code === 429, idempotencyKey: (($items('Prepare Text Message', 0, 0)[0] || $items('Prepare Document Message', 0, 0)[0] || $items('Prepare Template Message', 0, 0)[0] || {}).json || {}).idempotencyKey, conversationId: $('Workflow Input').first().json.conversationId || $('Workflow Input').first().json.conversation_id || null, correlationId: (($items('Prepare Text Message', 0, 0)[0] || $items('Prepare Document Message', 0, 0)[0] || $items('Prepare Template Message', 0, 0)[0] || {}).json || {}).correlationId } }}",
         "options": {
           "response": {
             "response": {
@@ -243,14 +389,51 @@
     {
       "id": "return-provider-result",
       "name": "Return Provider Result",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
       "position": [
         840,
         20
       ],
       "parameters": {
-        "jsCode": "const input = $('Workflow Input').first().json;\nconst preparedText = (() => { try { return $('Prepare Text Message').first().json; } catch { return null; } })();\nconst preparedTemplate = (() => { try { return $('Prepare Template Message').first().json; } catch { return null; } })();\nconst prepared = preparedText || preparedTemplate || input;\nconst body = $json.body || {};\nconst data = body.data || {};\nconst providerMessageId =\n  ($json.messages && $json.messages[0] && $json.messages[0].id) ||\n  $json.messageId ||\n  $json.id ||\n  data.providerMessageId ||\n  (data.providerResponse && data.providerResponse.messages && data.providerResponse.messages[0] && data.providerResponse.messages[0].id) ||\n  '';\nconst statusCode = Number($json.statusCode || 200);\nconst success = Boolean(providerMessageId) || (statusCode >= 200 && statusCode < 300 && body.ok !== false && !$json.error);\nreturn [{\n  json: {\n    success,\n    providerMessageId,\n    notificationStatus: success ? 'sent' : 'failed',\n    to: prepared.to || '',\n    messageType: prepared.messageType || input.messageType || 'text',\n    correlationId: prepared.correlationId || input.correlationId || input.correlation_id || '',\n    meta: {\n      workflow: 'whatsapp.response-sender',\n      logged: false,\n      logSkippedReason: 'Avoid duplicate send: /api/v1/notifications/whatsapp currently sends WhatsApp instead of log-only.',\n    },\n    providerResponse: $json,\n  },\n}];"
+        "assignments": {
+          "assignments": [
+            {
+              "id": "success",
+              "name": "success",
+              "type": "boolean",
+              "value": "={{$json.statusCode >= 200 && $json.statusCode < 300 && $json.body?.ok !== false}}"
+            },
+            {
+              "id": "providerMessageId",
+              "name": "providerMessageId",
+              "type": "string",
+              "value": "={{$json.body?.data?.providerMessageId || $json.body?.messages?.[0]?.id || \"\"}}"
+            },
+            {
+              "id": "notificationStatus",
+              "name": "notificationStatus",
+              "type": "string",
+              "value": "={{$json.body?.data?.status || \"sent\"}}"
+            },
+            {
+              "id": "to",
+              "name": "to",
+              "type": "string",
+              "value": "={{$json.body?.data?.to || \"\"}}"
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$json.body?.data?.correlationId || $(\"Workflow Input\").first().json.correlationId || $(\"Workflow Input\").first().json.correlation_id}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
       }
     },
     {
@@ -270,6 +453,18 @@
               "name": "SERVICE_API_BASE_URL",
               "type": "string",
               "value": "PASTE_SERVICE_API_BASE_URL_HERE"
+            },
+            {
+              "id": "public_price_list_pdf_url",
+              "name": "PUBLIC_PRICE_LIST_PDF_URL",
+              "type": "string",
+              "value": "https://www.inandoutuae.com/pricing/inout-laundry-price-list.pdf"
+            },
+            {
+              "id": "public_price_list_image_url",
+              "name": "PUBLIC_PRICE_LIST_IMAGE_URL",
+              "type": "string",
+              "value": "https://www.inandoutuae.com/pricing/inout-laundry-price-card.png"
             },
             {
               "id": "n8n_api_key",
@@ -469,36 +664,7 @@
         20
       ],
       "parameters": {
-        "jsCode": "const configKeys = [\"SERVICE_API_BASE_URL\",\"N8N_API_KEY\",\"WHATSAPP_PHONE_NUMBER_ID\",\"WHATSAPP_ACCESS_TOKEN\",\"WHATSAPP_AUDIO_MAX_BYTES\",\"OPENAI_CHAT_MODEL\",\"OPENAI_TRANSCRIPTION_MODEL\",\"OPERATIONS_ALERT_PHONE\",\"CONVERSATION_SUMMARY_MESSAGE_THRESHOLD\",\"N8N_RETRY_MAX_ATTEMPTS\",\"N8N_RETRY_BASE_MS\",\"N8N_RETRY_MAX_BACKOFF_MS\",\"N8N_WF_IDEMPOTENCY_CHECK_ID\",\"N8N_WF_PHONE_NORMALIZATION_ID\",\"N8N_WF_CUSTOMER_IDENTITY_ID\",\"N8N_WF_MEMORY_MANAGER_ID\",\"N8N_WF_AI_AGENT_ID\",\"N8N_WF_ORDER_TRACKING_ID\",\"N8N_WF_PICKUP_REQUEST_ID\",\"N8N_WF_AREA_BRANCH_RESOLVER_ID\",\"N8N_WF_DRIVER_DISPATCH_ID\",\"N8N_WF_DRIVER_NOTIFICATION_ID\",\"N8N_WF_DRIVER_REASSIGNMENT_ID\",\"N8N_WF_COMPLAINT_ID\",\"N8N_WF_NOTIFY_BRANCH_MANAGER_ID\",\"N8N_WF_HUMAN_HANDOFF_ID\",\"N8N_WF_VOICE_PROCESSING_ID\",\"N8N_WF_RESPONSE_SENDER_ID\",\"N8N_WF_SAVE_SUMMARY_ID\",\"N8N_WF_ERROR_HANDLER_ID\",\"N8N_WF_RETRY_QUEUE_ID\"];\nreturn $input.all().map((item) => {\n  const json = { ...(item.json || {}) };\n  for (const key of configKeys) delete json[key];\n  return { ...item, json };\n});"
-      }
-    },
-    {
-      "id": "send-whatsapp-template-message",
-      "name": "Send WhatsApp Template Message",
-      "type": "n8n-nodes-base.whatsApp",
-      "typeVersion": 1,
-      "position": [
-        60,
-        -100
-      ],
-      "parameters": {
-        "operation": "send",
-        "phoneNumberId": "={{$node[\"Workflow Config\"].json[\"WHATSAPP_PHONE_NUMBER_ID\"]}}",
-        "recipientPhoneNumber": "={{$json.to}}",
-        "messageType": "template",
-        "textBody": "",
-        "additionalFields": {},
-        "template": {
-          "name": "={{$json.templateName || \"\"}}",
-          "language": "={{$json.templateLanguage || \"ar\"}}",
-          "components": "={{$json.templateParameters || []}}"
-        }
-      },
-      "credentials": {
-        "whatsAppApi": {
-          "id": "replace_with_n8n_whatsapp_credential_id",
-          "name": "WhatsApp Cloud API account"
-        }
+        "jsCode": "const configKeys = [\"SERVICE_API_BASE_URL\",\"PUBLIC_PRICE_LIST_PDF_URL\",\"PUBLIC_PRICE_LIST_IMAGE_URL\",\"N8N_API_KEY\",\"WHATSAPP_PHONE_NUMBER_ID\",\"WHATSAPP_ACCESS_TOKEN\",\"WHATSAPP_AUDIO_MAX_BYTES\",\"OPENAI_CHAT_MODEL\",\"OPENAI_TRANSCRIPTION_MODEL\",\"OPERATIONS_ALERT_PHONE\",\"CONVERSATION_SUMMARY_MESSAGE_THRESHOLD\",\"N8N_RETRY_MAX_ATTEMPTS\",\"N8N_RETRY_BASE_MS\",\"N8N_RETRY_MAX_BACKOFF_MS\",\"N8N_WF_IDEMPOTENCY_CHECK_ID\",\"N8N_WF_PHONE_NORMALIZATION_ID\",\"N8N_WF_CUSTOMER_IDENTITY_ID\",\"N8N_WF_MEMORY_MANAGER_ID\",\"N8N_WF_AI_AGENT_ID\",\"N8N_WF_ORDER_TRACKING_ID\",\"N8N_WF_PICKUP_REQUEST_ID\",\"N8N_WF_AREA_BRANCH_RESOLVER_ID\",\"N8N_WF_DRIVER_DISPATCH_ID\",\"N8N_WF_DRIVER_NOTIFICATION_ID\",\"N8N_WF_DRIVER_REASSIGNMENT_ID\",\"N8N_WF_COMPLAINT_ID\",\"N8N_WF_NOTIFY_BRANCH_MANAGER_ID\",\"N8N_WF_HUMAN_HANDOFF_ID\",\"N8N_WF_VOICE_PROCESSING_ID\",\"N8N_WF_RESPONSE_SENDER_ID\",\"N8N_WF_SAVE_SUMMARY_ID\",\"N8N_WF_ERROR_HANDLER_ID\",\"N8N_WF_RETRY_QUEUE_ID\"];\nreturn $input.all().map((item) => {\n  const json = { ...(item.json || {}) };\n  const workflowRuntimeConfig = {};\n  for (const key of configKeys) if (json[key] != null) workflowRuntimeConfig[key] = json[key];\n  for (const key of configKeys) delete json[key];\n  json.workflowRuntimeConfig = workflowRuntimeConfig;\n  return { ...item, json };\n});"
       }
     }
   ],
@@ -543,6 +709,13 @@
         ],
         [
           {
+            "node": "Prepare Document Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
             "node": "Prepare Text Message",
             "type": "main",
             "index": 0
@@ -568,6 +741,17 @@
         ]
       ]
     },
+    "Prepare Document Message": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Document Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Prepare Template Message": {
       "main": [
         [
@@ -579,18 +763,51 @@
         ]
       ]
     },
+    "Send WhatsApp Message": {
+      "main": [
+        [
+          {
+            "node": "Send Successful?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp Document Message": {
+      "main": [
+        [
+          {
+            "node": "Send Successful?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp Template Message": {
+      "main": [
+        [
+          {
+            "node": "Send Successful?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Send Successful?": {
       "main": [
         [
           {
-            "node": "Return Provider Result",
+            "node": "Save Notification Status",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Return Provider Result",
+            "node": "Save Notification Status",
             "type": "main",
             "index": 0
           }
@@ -624,28 +841,6 @@
         [
           {
             "node": "Validate Recipient",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Send WhatsApp Message": {
-      "main": [
-        [
-          {
-            "node": "Send Successful?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Send WhatsApp Template Message": {
-      "main": [
-        [
-          {
-            "node": "Send Successful?",
             "type": "main",
             "index": 0
           }

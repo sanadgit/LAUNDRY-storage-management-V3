@@ -70,7 +70,7 @@
               "id": "rawEvent",
               "name": "rawEvent",
               "type": "object",
-              "value": "={{$json.rawEvent || $json.body || $json}}"
+              "value": "={{$json.body || $json}}"
             }
           ]
         },
@@ -82,14 +82,87 @@
     {
       "id": "extract-webhook-data",
       "name": "Extract Webhook Data",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
       "position": [
         -720,
         120
       ],
       "parameters": {
-        "jsCode": "const input = $json;\nlet rawEvent = input.rawEvent || input.body || input;\nif (rawEvent && rawEvent.rawEvent && Array.isArray(rawEvent.rawEvent.entry)) rawEvent = rawEvent.rawEvent;\nif (rawEvent && rawEvent.body && Array.isArray(rawEvent.body.entry)) rawEvent = rawEvent.body;\nconst entry = Array.isArray(rawEvent.entry) ? (rawEvent.entry[0] || {}) : {};\nconst change = Array.isArray(entry.changes) ? (entry.changes[0] || {}) : {};\nconst value = change.value || {};\nconst message = Array.isArray(value.messages) ? (value.messages[0] || {}) : {};\nconst contact = Array.isArray(value.contacts) ? (value.contacts[0] || {}) : {};\nconst metadata = value.metadata || {};\nconst profile = contact.profile || {};\nreturn [{\n  json: {\n    ...input,\n    rawEvent,\n    entry,\n    change,\n    value,\n    message,\n    contact,\n    senderPhone: String(message.from || contact.wa_id || ''),\n    messageId: String(message.id || ''),\n    messageType: String(message.type || 'unsupported'),\n    timestamp: String(message.timestamp || ''),\n    receiverPhone: String(metadata.display_phone_number || metadata.phone_number_id || ''),\n    customerName: String(profile.name || ''),\n  },\n}];"
+        "assignments": {
+          "assignments": [
+            {
+              "id": "entry",
+              "name": "entry",
+              "type": "object",
+              "value": "={{($json.rawEvent.entry || [])[0] || {}}}"
+            },
+            {
+              "id": "change",
+              "name": "change",
+              "type": "object",
+              "value": "={{((($json.rawEvent.entry || [])[0] || {}).changes || [])[0] || {}}}"
+            },
+            {
+              "id": "value",
+              "name": "value",
+              "type": "object",
+              "value": "={{$json.change.value || {}}}"
+            },
+            {
+              "id": "message",
+              "name": "message",
+              "type": "object",
+              "value": "={{($json.value.messages || [])[0] || {}}}"
+            },
+            {
+              "id": "contact",
+              "name": "contact",
+              "type": "object",
+              "value": "={{($json.value.contacts || [])[0] || {}}}"
+            },
+            {
+              "id": "senderPhone",
+              "name": "senderPhone",
+              "type": "string",
+              "value": "={{String($json.message.from || $json.contact.wa_id || \"\")}}"
+            },
+            {
+              "id": "messageId",
+              "name": "messageId",
+              "type": "string",
+              "value": "={{String($json.message.id || \"\")}}"
+            },
+            {
+              "id": "messageType",
+              "name": "messageType",
+              "type": "string",
+              "value": "={{String($json.message.type || \"unsupported\")}}"
+            },
+            {
+              "id": "timestamp",
+              "name": "timestamp",
+              "type": "string",
+              "value": "={{String($json.message.timestamp || \"\")}}"
+            },
+            {
+              "id": "receiverPhone",
+              "name": "receiverPhone",
+              "type": "string",
+              "value": "={{String($json.value.metadata?.display_phone_number || $json.value.metadata?.phone_number_id || \"\")}}"
+            },
+            {
+              "id": "customerName",
+              "name": "customerName",
+              "type": "string",
+              "value": "={{String($json.contact.profile?.name || \"\")}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
       }
     },
     {
@@ -336,7 +409,7 @@
           "conditions": [
             {
               "id": "duplicate-flag",
-          "leftValue": "={{Boolean($json.duplicate || $json.duplicate_message || $json.lockAcquired === false || (($json.data || {}).duplicate_message) || (($json.data || {}).duplicate) || (($json.data || {}).lockAcquired === false) || (($json.agent || {}).duplicate_message))}}",
+              "leftValue": "={{Boolean($json.duplicate_message || $json.data?.duplicate_message || $json.data?.duplicate || $json.agent?.duplicate_message)}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -347,19 +420,6 @@
           "combinator": "and"
         },
         "options": {}
-      }
-    },
-    {
-      "id": "prepare-phone-normalization-input",
-      "name": "Prepare Phone Normalization Input",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        950,
-        120
-      ],
-      "parameters": {
-        "jsCode": "const duplicateResult = $json || {};\nlet normalizedSource = {};\nlet extractedSource = {};\ntry {\n  normalizedSource = $node['Normalize WhatsApp Message'].json || {};\n} catch (error) {\n  normalizedSource = {};\n}\ntry {\n  extractedSource = $node['Extract Webhook Data'].json || {};\n} catch (error) {\n  extractedSource = {};\n}\nconst normalizedMessage = normalizedSource.normalizedMessage || {};\nconst phone = String(normalizedMessage.from || extractedSource.senderPhone || normalizedSource.senderPhone || '').trim();\nconst messageId = String(normalizedMessage.wamid || normalizedMessage.messageId || extractedSource.messageId || '').trim();\nconst correlationId = String(normalizedMessage.correlationId || extractedSource.correlationId || normalizedSource.correlationId || '').trim();\nreturn [{\n  json: {\n    ...normalizedSource,\n    ...duplicateResult,\n    normalizedMessage,\n    phone,\n    from: phone,\n    senderPhone: phone,\n    customerPhone: phone,\n    messageId,\n    wamid: messageId,\n    correlationId,\n    workflowExecutionId: normalizedMessage.workflowExecutionId || extractedSource.workflowExecutionId || String($execution.id || ''),\n  },\n}];"
       }
     },
     {
@@ -395,19 +455,6 @@
       }
     },
     {
-      "id": "prepare-memory-context-input",
-      "name": "Prepare Memory Context Input",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1470,
-        120
-      ],
-      "parameters": {
-        "jsCode": "const identityResult = $json || {};\nconst readNode = (name) => {\n  try {\n    return $node[name].json || {};\n  } catch (error) {\n    return {};\n  }\n};\nconst normalizedSource = readNode('Normalize WhatsApp Message');\nconst phoneInput = readNode('Prepare Phone Normalization Input');\nconst phoneResult = readNode('Normalize Customer Phone');\nconst normalizedMessage = normalizedSource.normalizedMessage || phoneInput.normalizedMessage || {};\nconst identity = identityResult.identity || {};\nconst customer = identity.customer || identityResult.customer || null;\nconst normalizedPhone = String(identity.normalizedPhone || phoneResult.normalizedPhone || phoneInput.customerPhone || normalizedMessage.from || '').replace(/[^0-9]/g, '');\nconst messageId = String(normalizedMessage.wamid || normalizedMessage.messageId || phoneInput.messageId || identityResult.messageId || '').trim();\nconst correlationId = String(identityResult.correlationId || phoneResult.correlationId || phoneInput.correlationId || normalizedMessage.correlationId || '').trim();\nreturn [{\n  json: {\n    ...normalizedSource,\n    ...phoneInput,\n    ...phoneResult,\n    ...identityResult,\n    identity,\n    customer,\n    customerId: customer?.id || customer?.customerId || identityResult.customerId || null,\n    normalizedPhone,\n    customerPhone: normalizedPhone,\n    phone: normalizedPhone,\n    from: normalizedMessage.from || phoneInput.from || normalizedPhone,\n    senderPhone: normalizedMessage.from || phoneInput.senderPhone || normalizedPhone,\n    messageId,\n    wamid: messageId,\n    correlationId,\n    detectedLanguage: identityResult.detectedLanguage || phoneInput.detectedLanguage || 'ar',\n    language: identityResult.language || phoneInput.language || 'ar',\n    workflowExecutionId: normalizedMessage.workflowExecutionId || phoneInput.workflowExecutionId || String($execution.id || ''),\n  },\n}];"
-      }
-    },
-    {
       "id": "load-conversation-context",
       "name": "Load Conversation Context",
       "type": "n8n-nodes-base.executeWorkflow",
@@ -426,14 +473,27 @@
     {
       "id": "prepare-agent-input",
       "name": "Prepare Agent Input",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
       "position": [
         1860,
         120
       ],
       "parameters": {
-        "jsCode": "const input = $json;\nconst normalizedMessage = input.normalizedMessage || {};\nreturn [{\n  json: {\n    ...input,\n    agentInput: {\n      provider: 'whatsapp',\n      message: normalizedMessage.messageText || input.messageText || input.message || '',\n      messageText: normalizedMessage.messageText || input.messageText || input.message || '',\n      normalizedMessage: Object.keys(normalizedMessage).length ? normalizedMessage : input,\n      identity: input.identity || input.customer || null,\n      memory: input.memory || null,\n      correlationId: input.correlationId || normalizedMessage.correlationId || '',\n    },\n  },\n}];"
+        "assignments": {
+          "assignments": [
+            {
+              "id": "agentInput",
+              "name": "agentInput",
+              "type": "object",
+              "value": "={{ { provider: \"whatsapp\", message: $json.normalizedMessage || $json, identity: $json.identity || $json.customer || null, memory: $json.memory || null, correlationId: $json.correlationId || $json.normalizedMessage?.correlationId } }}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
       }
     },
     {
@@ -472,7 +532,7 @@
           "conditions": [
             {
               "id": "has-safe-reply",
-          "leftValue": "={{Boolean((($json.agent || {}).response) || (($json.data || {}).response) || $json.response || $json.customer_reply_override)}}",
+              "leftValue": "={{Boolean($json.agent?.response || $json.data?.response || $json.response || $json.customer_reply_override)}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -534,19 +594,6 @@
       }
     },
     {
-      "id": "prepare-save-conversation-input",
-      "name": "Prepare Save Conversation Input",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        3030,
-        120
-      ],
-      "parameters": {
-        "jsCode": "const sendResult = $json || {};\nconst readNode = (name) => {\n  try {\n    return $node[name].json || {};\n  } catch (error) {\n    return {};\n  }\n};\nconst extracted = readNode('Extract Webhook Data');\nconst normalizedSource = readNode('Normalize WhatsApp Message');\nconst memorySource = readNode('Load Conversation Context');\nconst agentSource = readNode('Customer Service AI Agent');\nconst fallbackSource = readNode('Safe Fallback Message');\nconst normalizedMessage = normalizedSource.normalizedMessage || {};\nconst memory = memorySource.memory || {};\nconst identity = memorySource.identity || agentSource.identity || {};\nconst agent = agentSource.ai || agentSource.agent || agentSource.data || {};\nconst messageId = String(normalizedMessage.wamid || normalizedMessage.messageId || extracted.messageId || memorySource.messageId || '').trim();\nconst conversationId = String(memorySource.conversationId || memory.conversationId || agentSource.conversationId || agentSource.conversation_id || '').trim();\nconst correlationId = String(memorySource.correlationId || normalizedMessage.correlationId || extracted.correlationId || agentSource.correlationId || '').trim();\nconst customerId = memorySource.customerId || memory.customerId || identity.customer?.id || agentSource.customerId || null;\nconst customerPhone = memorySource.customerPhone || normalizedMessage.from || extracted.senderPhone || agentSource.customerPhone || '';\nconst customerMessage = normalizedMessage.messageText || memorySource.messageText || extracted.message?.text?.body || '';\nconst agentResponse = fallbackSource.customer_reply_override || agent.response || agentSource.response || agentSource.reply || '';\nreturn [{\n  json: {\n    ...memorySource,\n    ...agentSource,\n    providerSendResult: sendResult,\n    conversationId,\n    conversation_id: conversationId,\n    customerId,\n    customerPhone,\n    messageId,\n    wamid: messageId,\n    originalMessageId: messageId,\n    messageType: normalizedMessage.messageType || extracted.messageType || 'text',\n    messageText: customerMessage,\n    customerMessage,\n    agent: {\n      ...agent,\n      response: agentResponse,\n    },\n    agentResponse,\n    reply: agentResponse,\n    correlationId,\n    workflowExecutionId: normalizedMessage.workflowExecutionId || extracted.workflowExecutionId || String($execution.id || ''),\n  },\n}];"
-      }
-    },
-    {
       "id": "save-conversation",
       "name": "Save Conversation",
       "type": "n8n-nodes-base.executeWorkflow",
@@ -573,7 +620,7 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/webhook-events/processed'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/ai/router'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -587,18 +634,17 @@
             },
             {
               "name": "X-Correlation-Id",
-              "value": "={{($json.processedEventBody || {}).correlationId || $json.correlationId || $json.correlation_id}}"
+              "value": "={{$json.correlationId || $json.correlation_id}}"
             },
             {
               "name": "Idempotency-Key",
-              "value": "={{($json.processedEventBody || {}).messageId || $json.idempotencyKey || $json.idempotency_key || $execution.id}}"
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
             }
           ]
         },
         "sendBody": true,
         "contentType": "json",
-        "specifyBody": "json",
-        "jsonBody": "={{$json.processedEventBody}}",
+        "jsonBody": "={{ { channel: 'whatsapp', from: $json.normalizedMessage?.from || $json.from, to: $json.normalizedMessage?.to || $json.to, message: 'mark event processed', message_type: 'processed', whatsapp_message_id: $json.normalizedMessage?.wamid || $json.messageId, correlationId: $json.correlationId || $json.normalizedMessage?.correlationId } }}",
         "options": {
           "response": {
             "response": {
@@ -612,29 +658,19 @@
       }
     },
     {
-      "id": "prepare-processed-event-marker",
-      "name": "Prepare Processed Event Marker",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        3290,
-        120
-      ],
-      "parameters": {
-        "jsCode": "const current = $json || {};\nlet normalizedSource = {};\nlet extractedSource = {};\nlet saveInput = {};\ntry {\n  normalizedSource = $node['Normalize WhatsApp Message'].json || {};\n} catch (error) {\n  normalizedSource = {};\n}\ntry {\n  extractedSource = $node['Extract Webhook Data'].json || {};\n} catch (error) {\n  extractedSource = {};\n}\ntry {\n  saveInput = $node['Prepare Save Conversation Input'].json || {};\n} catch (error) {\n  saveInput = {};\n}\nconst normalizedMessage = normalizedSource.normalizedMessage || {};\nconst currentMemory = current.memory || {};\nconst normalizedMemory = normalizedSource.memory || {};\nconst saveMemory = saveInput.memory || {};\nconst messageId = String(\n  normalizedMessage.wamid ||\n  normalizedMessage.messageId ||\n  extractedSource.messageId ||\n  saveInput.messageId ||\n  saveInput.originalMessageId ||\n  current.messageId ||\n  current.originalMessageId ||\n  ''\n).trim();\nconst correlationId = String(\n  normalizedMessage.correlationId ||\n  extractedSource.correlationId ||\n  saveInput.correlationId ||\n  current.correlationId ||\n  current.correlation_id ||\n  ''\n).trim();\nconst conversationId = current.conversationId || currentMemory.conversationId || saveInput.conversationId || saveMemory.conversationId || normalizedMemory.conversationId || null;\nreturn [{\n  json: {\n    ...saveInput,\n    ...current,\n    messageId,\n    originalMessageId: messageId,\n    correlationId,\n    conversationId,\n    processedEventReady: Boolean(messageId),\n    processedEventBody: {\n      messageId,\n      conversationId,\n      correlationId,\n    },\n  },\n}];"
-      }
-    },
-    {
       "id": "error-handler",
       "name": "Error Handler",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
       "position": [
         40,
         -160
       ],
       "parameters": {
-        "jsCode": "const input = $json || {};\nconst normalized = input.normalizedMessage || {};\nconst rawMessage = input.rawMessage || input.message || {};\nconst messageId = input.messageId || normalized.messageId || normalized.wamid || rawMessage.id || '';\nconst messageType = input.messageType || normalized.messageType || rawMessage.type || 'unknown';\nconst correlationId = input.correlationId || normalized.correlationId || `corr_${Date.now()}`;\nconst validationError = !input.senderPhone || !messageId || !messageType;\nconst unsupportedType = messageType === 'unsupported' || messageType === 'unknown';\nconst code = input.errorCode || (validationError ? 'INVALID_WHATSAPP_PAYLOAD' : unsupportedType ? 'UNSUPPORTED_MESSAGE_TYPE' : 'WHATSAPP_ROUTER_ERROR');\nconst message = input.errorMessage || (validationError ? 'Invalid WhatsApp webhook payload.' : unsupportedType ? 'Unsupported WhatsApp message type.' : 'WhatsApp router could not process this event safely.');\n\nreturn [\n  {\n    json: {\n      success: false,\n      status: 'ERROR',\n      data: {\n        replySent: false,\n        messageId,\n        messageType,\n        senderPhone: input.senderPhone || normalized.from || '',\n      },\n      error: {\n        code,\n        message,\n      },\n      meta: {\n        correlationId,\n        workflow: 'whatsapp.customer-service-router',\n        workflowExecutionId: String($execution.id || ''),\n      },\n    },\n  },\n];"
+        "workflowId": "={{$node[\"Workflow Config\"].json[\"N8N_WF_ERROR_HANDLER_ID\"]}}",
+        "options": {
+          "waitForSubWorkflow": true
+        }
       }
     },
     {
@@ -654,6 +690,18 @@
               "name": "SERVICE_API_BASE_URL",
               "type": "string",
               "value": "PASTE_SERVICE_API_BASE_URL_HERE"
+            },
+            {
+              "id": "public_price_list_pdf_url",
+              "name": "PUBLIC_PRICE_LIST_PDF_URL",
+              "type": "string",
+              "value": "https://www.inandoutuae.com/pricing/inout-laundry-price-list.pdf"
+            },
+            {
+              "id": "public_price_list_image_url",
+              "name": "PUBLIC_PRICE_LIST_IMAGE_URL",
+              "type": "string",
+              "value": "https://www.inandoutuae.com/pricing/inout-laundry-price-card.png"
             },
             {
               "id": "n8n_api_key",
@@ -853,7 +901,7 @@
         120
       ],
       "parameters": {
-        "jsCode": "const configKeys = [\"SERVICE_API_BASE_URL\",\"N8N_API_KEY\",\"WHATSAPP_PHONE_NUMBER_ID\",\"WHATSAPP_ACCESS_TOKEN\",\"WHATSAPP_AUDIO_MAX_BYTES\",\"OPENAI_CHAT_MODEL\",\"OPENAI_TRANSCRIPTION_MODEL\",\"OPERATIONS_ALERT_PHONE\",\"CONVERSATION_SUMMARY_MESSAGE_THRESHOLD\",\"N8N_RETRY_MAX_ATTEMPTS\",\"N8N_RETRY_BASE_MS\",\"N8N_RETRY_MAX_BACKOFF_MS\",\"N8N_WF_IDEMPOTENCY_CHECK_ID\",\"N8N_WF_PHONE_NORMALIZATION_ID\",\"N8N_WF_CUSTOMER_IDENTITY_ID\",\"N8N_WF_MEMORY_MANAGER_ID\",\"N8N_WF_AI_AGENT_ID\",\"N8N_WF_ORDER_TRACKING_ID\",\"N8N_WF_PICKUP_REQUEST_ID\",\"N8N_WF_AREA_BRANCH_RESOLVER_ID\",\"N8N_WF_DRIVER_DISPATCH_ID\",\"N8N_WF_DRIVER_NOTIFICATION_ID\",\"N8N_WF_DRIVER_REASSIGNMENT_ID\",\"N8N_WF_COMPLAINT_ID\",\"N8N_WF_NOTIFY_BRANCH_MANAGER_ID\",\"N8N_WF_HUMAN_HANDOFF_ID\",\"N8N_WF_VOICE_PROCESSING_ID\",\"N8N_WF_RESPONSE_SENDER_ID\",\"N8N_WF_SAVE_SUMMARY_ID\",\"N8N_WF_ERROR_HANDLER_ID\",\"N8N_WF_RETRY_QUEUE_ID\"];\nreturn $input.all().map((item) => {\n  const json = { ...(item.json || {}) };\n  for (const key of configKeys) delete json[key];\n  return { ...item, json };\n});"
+        "jsCode": "const configKeys = [\"SERVICE_API_BASE_URL\",\"PUBLIC_PRICE_LIST_PDF_URL\",\"PUBLIC_PRICE_LIST_IMAGE_URL\",\"N8N_API_KEY\",\"WHATSAPP_PHONE_NUMBER_ID\",\"WHATSAPP_ACCESS_TOKEN\",\"WHATSAPP_AUDIO_MAX_BYTES\",\"OPENAI_CHAT_MODEL\",\"OPENAI_TRANSCRIPTION_MODEL\",\"OPERATIONS_ALERT_PHONE\",\"CONVERSATION_SUMMARY_MESSAGE_THRESHOLD\",\"N8N_RETRY_MAX_ATTEMPTS\",\"N8N_RETRY_BASE_MS\",\"N8N_RETRY_MAX_BACKOFF_MS\",\"N8N_WF_IDEMPOTENCY_CHECK_ID\",\"N8N_WF_PHONE_NORMALIZATION_ID\",\"N8N_WF_CUSTOMER_IDENTITY_ID\",\"N8N_WF_MEMORY_MANAGER_ID\",\"N8N_WF_AI_AGENT_ID\",\"N8N_WF_ORDER_TRACKING_ID\",\"N8N_WF_PICKUP_REQUEST_ID\",\"N8N_WF_AREA_BRANCH_RESOLVER_ID\",\"N8N_WF_DRIVER_DISPATCH_ID\",\"N8N_WF_DRIVER_NOTIFICATION_ID\",\"N8N_WF_DRIVER_REASSIGNMENT_ID\",\"N8N_WF_COMPLAINT_ID\",\"N8N_WF_NOTIFY_BRANCH_MANAGER_ID\",\"N8N_WF_HUMAN_HANDOFF_ID\",\"N8N_WF_VOICE_PROCESSING_ID\",\"N8N_WF_RESPONSE_SENDER_ID\",\"N8N_WF_SAVE_SUMMARY_ID\",\"N8N_WF_ERROR_HANDLER_ID\",\"N8N_WF_RETRY_QUEUE_ID\"];\nreturn $input.all().map((item) => {\n  const json = { ...(item.json || {}) };\n  const workflowRuntimeConfig = {};\n  for (const key of configKeys) if (json[key] != null) workflowRuntimeConfig[key] = json[key];\n  for (const key of configKeys) delete json[key];\n  json.workflowRuntimeConfig = workflowRuntimeConfig;\n  return { ...item, json };\n});"
       }
     }
   ],
@@ -1017,17 +1065,6 @@
         ],
         [
           {
-            "node": "Prepare Phone Normalization Input",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Prepare Phone Normalization Input": {
-      "main": [
-        [
-          {
             "node": "Normalize Customer Phone",
             "type": "main",
             "index": 0
@@ -1047,17 +1084,6 @@
       ]
     },
     "Identify Customer": {
-      "main": [
-        [
-          {
-            "node": "Prepare Memory Context Input",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Prepare Memory Context Input": {
       "main": [
         [
           {
@@ -1134,17 +1160,6 @@
       "main": [
         [
           {
-            "node": "Prepare Save Conversation Input",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Prepare Save Conversation Input": {
-      "main": [
-        [
-          {
             "node": "Save Conversation",
             "type": "main",
             "index": 0
@@ -1153,17 +1168,6 @@
       ]
     },
     "Save Conversation": {
-      "main": [
-        [
-          {
-            "node": "Prepare Processed Event Marker",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Prepare Processed Event Marker": {
       "main": [
         [
           {

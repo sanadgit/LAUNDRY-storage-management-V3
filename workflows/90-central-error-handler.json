@@ -26,27 +26,71 @@
       "parameters": {}
     },
     {
-      "id": "workflow-input",
-      "name": "Workflow Input",
-      "type": "n8n-nodes-base.executeWorkflowTrigger",
-      "typeVersion": 1,
-      "position": [
-        -1040,
-        180
-      ],
-      "parameters": {}
-    },
-    {
       "id": "extract-error-data",
       "name": "Extract Error Data",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
       "position": [
         -780,
         20
       ],
       "parameters": {
-        "jsCode": "const input = $json || {};\nconst workflow = input.workflow || {};\nconst execution = input.execution || {};\nconst node = input.node || {};\nconst error = input.error || {};\nconst resultData = (((execution.data || {}).resultData || {}).runData || {});\nreturn [{\n  json: {\n    ...input,\n    workflowName: String(workflow.name || input.workflowName || execution.workflowName || input.sourceWorkflowName || 'unknown'),\n    failedNode: String(node.name || input.failedNode || execution.lastNodeExecuted || input.sourceNode || 'unknown'),\n    errorMessage: String(error.message || input.message || input.errorMessage || 'Unknown workflow error'),\n    errorCode: String(error.code || input.errorCode || input.statusCode || 'N8N_WORKFLOW_FAILED'),\n    statusCode: Number(input.statusCode || error.statusCode || 0),\n    correlationId: input.correlationId || input.correlation_id || resultData.correlationId || 'corr_' + Date.now(),\n    workflowExecutionId: String($execution.id || execution.id || input.workflowExecutionId || ''),\n    retryCount: Number(input.retryCount || input.retry_count || 0),\n  },\n}];"
+        "assignments": {
+          "assignments": [
+            {
+              "id": "workflowName",
+              "name": "workflowName",
+              "type": "string",
+              "value": "={{$json.workflow?.name || $json.workflowName || $json.execution?.workflowName || \"unknown\"}}"
+            },
+            {
+              "id": "failedNode",
+              "name": "failedNode",
+              "type": "string",
+              "value": "={{$json.node?.name || $json.failedNode || $json.execution?.lastNodeExecuted || \"unknown\"}}"
+            },
+            {
+              "id": "errorMessage",
+              "name": "errorMessage",
+              "type": "string",
+              "value": "={{String($json.error?.message || $json.message || \"Unknown workflow error\")}}"
+            },
+            {
+              "id": "errorCode",
+              "name": "errorCode",
+              "type": "string",
+              "value": "={{String($json.error?.code || $json.errorCode || $json.statusCode || \"N8N_WORKFLOW_FAILED\")}}"
+            },
+            {
+              "id": "statusCode",
+              "name": "statusCode",
+              "type": "number",
+              "value": "={{Number($json.statusCode || $json.error?.statusCode || 0)}}"
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$json.correlationId || $json.correlation_id || $json.execution?.data?.resultData?.runData?.correlationId || \"corr_\" + Date.now()}}"
+            },
+            {
+              "id": "workflowExecutionId",
+              "name": "workflowExecutionId",
+              "type": "string",
+              "value": "={{String($execution.id || $json.execution?.id || \"\")}}"
+            },
+            {
+              "id": "retryCount",
+              "name": "retryCount",
+              "type": "number",
+              "value": "={{Number($json.retryCount || $json.retry_count || 0)}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
       }
     },
     {
@@ -326,7 +370,7 @@
           "conditions": [
             {
               "id": "temporary-and-under-limit",
-              "leftValue": "={{Boolean(((($json.body || {}).data || {}).temporary) !== false && Number($(\"Redact Secrets\").first().json.retryCount || 0) < Number($node[\"Workflow Config\"].json[\"N8N_RETRY_MAX_ATTEMPTS\"] || 5))}}",
+              "leftValue": "={{Boolean($json.body?.data?.temporary !== false && Number($(\"Redact Secrets\").first().json.retryCount || 0) < Number($node[\"Workflow Config\"].json[\"N8N_RETRY_MAX_ATTEMPTS\"] || 5))}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -368,7 +412,7 @@
         "operation": "send",
         "phoneNumberId": "={{$node[\"Workflow Config\"].json[\"WHATSAPP_PHONE_NUMBER_ID\"]}}",
         "recipientPhoneNumber": "={{$node[\"Workflow Config\"].json[\"OPERATIONS_ALERT_PHONE\"]}}",
-        "textBody": "={{\"[In & Out Laundry] n8n error\\nWorkflow: \" + $(\"Redact Secrets\").first().json.workflowName + \"\\nNode: \" + $(\"Redact Secrets\").first().json.failedNode + \"\\nCategory: \" + (((($('Save Error Log').first().json.body || {}).data || {}).category) || \"WORKFLOW_LOGIC_FAILURE\") + \"\\nCorrelation: \" + $(\"Redact Secrets\").first().json.correlationId}}",
+        "textBody": "={{\"[In & Out Laundry] n8n error\\nWorkflow: \" + $(\"Redact Secrets\").first().json.workflowName + \"\\nNode: \" + $(\"Redact Secrets\").first().json.failedNode + \"\\nCategory: \" + ($(\"Save Error Log\").first().json.body?.data?.category || \"WORKFLOW_LOGIC_FAILURE\") + \"\\nCorrelation: \" + $(\"Redact Secrets\").first().json.correlationId}}",
         "additionalFields": {}
       },
       "credentials": {
@@ -400,7 +444,7 @@
               "id": "category",
               "name": "category",
               "type": "string",
-          "value": "={{(((($('Save Error Log').first().json.body || {}).data || {}).category) || \"WORKFLOW_LOGIC_FAILURE\")}}"
+              "value": "={{$(\"Save Error Log\").first().json.body?.data?.category || \"WORKFLOW_LOGIC_FAILURE\"}}"
             },
             {
               "id": "retryQueued",
@@ -445,6 +489,18 @@
               "name": "SERVICE_API_BASE_URL",
               "type": "string",
               "value": "PASTE_SERVICE_API_BASE_URL_HERE"
+            },
+            {
+              "id": "public_price_list_pdf_url",
+              "name": "PUBLIC_PRICE_LIST_PDF_URL",
+              "type": "string",
+              "value": "https://www.inandoutuae.com/pricing/inout-laundry-price-list.pdf"
+            },
+            {
+              "id": "public_price_list_image_url",
+              "name": "PUBLIC_PRICE_LIST_IMAGE_URL",
+              "type": "string",
+              "value": "https://www.inandoutuae.com/pricing/inout-laundry-price-card.png"
             },
             {
               "id": "n8n_api_key",
@@ -644,23 +700,12 @@
         20
       ],
       "parameters": {
-        "jsCode": "const configKeys = [\"SERVICE_API_BASE_URL\",\"N8N_API_KEY\",\"WHATSAPP_PHONE_NUMBER_ID\",\"WHATSAPP_ACCESS_TOKEN\",\"WHATSAPP_AUDIO_MAX_BYTES\",\"OPENAI_CHAT_MODEL\",\"OPENAI_TRANSCRIPTION_MODEL\",\"OPERATIONS_ALERT_PHONE\",\"CONVERSATION_SUMMARY_MESSAGE_THRESHOLD\",\"N8N_RETRY_MAX_ATTEMPTS\",\"N8N_RETRY_BASE_MS\",\"N8N_RETRY_MAX_BACKOFF_MS\",\"N8N_WF_IDEMPOTENCY_CHECK_ID\",\"N8N_WF_PHONE_NORMALIZATION_ID\",\"N8N_WF_CUSTOMER_IDENTITY_ID\",\"N8N_WF_MEMORY_MANAGER_ID\",\"N8N_WF_AI_AGENT_ID\",\"N8N_WF_ORDER_TRACKING_ID\",\"N8N_WF_PICKUP_REQUEST_ID\",\"N8N_WF_AREA_BRANCH_RESOLVER_ID\",\"N8N_WF_DRIVER_DISPATCH_ID\",\"N8N_WF_DRIVER_NOTIFICATION_ID\",\"N8N_WF_DRIVER_REASSIGNMENT_ID\",\"N8N_WF_COMPLAINT_ID\",\"N8N_WF_NOTIFY_BRANCH_MANAGER_ID\",\"N8N_WF_HUMAN_HANDOFF_ID\",\"N8N_WF_VOICE_PROCESSING_ID\",\"N8N_WF_RESPONSE_SENDER_ID\",\"N8N_WF_SAVE_SUMMARY_ID\",\"N8N_WF_ERROR_HANDLER_ID\",\"N8N_WF_RETRY_QUEUE_ID\"];\nreturn $input.all().map((item) => {\n  const json = { ...(item.json || {}) };\n  for (const key of configKeys) delete json[key];\n  return { ...item, json };\n});"
+        "jsCode": "const configKeys = [\"SERVICE_API_BASE_URL\",\"PUBLIC_PRICE_LIST_PDF_URL\",\"PUBLIC_PRICE_LIST_IMAGE_URL\",\"N8N_API_KEY\",\"WHATSAPP_PHONE_NUMBER_ID\",\"WHATSAPP_ACCESS_TOKEN\",\"WHATSAPP_AUDIO_MAX_BYTES\",\"OPENAI_CHAT_MODEL\",\"OPENAI_TRANSCRIPTION_MODEL\",\"OPERATIONS_ALERT_PHONE\",\"CONVERSATION_SUMMARY_MESSAGE_THRESHOLD\",\"N8N_RETRY_MAX_ATTEMPTS\",\"N8N_RETRY_BASE_MS\",\"N8N_RETRY_MAX_BACKOFF_MS\",\"N8N_WF_IDEMPOTENCY_CHECK_ID\",\"N8N_WF_PHONE_NORMALIZATION_ID\",\"N8N_WF_CUSTOMER_IDENTITY_ID\",\"N8N_WF_MEMORY_MANAGER_ID\",\"N8N_WF_AI_AGENT_ID\",\"N8N_WF_ORDER_TRACKING_ID\",\"N8N_WF_PICKUP_REQUEST_ID\",\"N8N_WF_AREA_BRANCH_RESOLVER_ID\",\"N8N_WF_DRIVER_DISPATCH_ID\",\"N8N_WF_DRIVER_NOTIFICATION_ID\",\"N8N_WF_DRIVER_REASSIGNMENT_ID\",\"N8N_WF_COMPLAINT_ID\",\"N8N_WF_NOTIFY_BRANCH_MANAGER_ID\",\"N8N_WF_HUMAN_HANDOFF_ID\",\"N8N_WF_VOICE_PROCESSING_ID\",\"N8N_WF_RESPONSE_SENDER_ID\",\"N8N_WF_SAVE_SUMMARY_ID\",\"N8N_WF_ERROR_HANDLER_ID\",\"N8N_WF_RETRY_QUEUE_ID\"];\nreturn $input.all().map((item) => {\n  const json = { ...(item.json || {}) };\n  const workflowRuntimeConfig = {};\n  for (const key of configKeys) if (json[key] != null) workflowRuntimeConfig[key] = json[key];\n  for (const key of configKeys) delete json[key];\n  json.workflowRuntimeConfig = workflowRuntimeConfig;\n  return { ...item, json };\n});"
       }
     }
   ],
   "connections": {
     "Workflow Error Trigger": {
-      "main": [
-        [
-          {
-            "node": "Workflow Config",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Workflow Input": {
       "main": [
         [
           {

@@ -35,7 +35,7 @@
         20
       ],
       "parameters": {
-        "jsCode": "const originalPhone = String($json.originalPhone || $json.phone || $json.from || $json.senderPhone || $json.normalizedMessage?.from || '').trim();\nconst normalizedPhone = String($json.normalizedPhone || $json.normalized_phone || $json.customer_phone || '').replace(/[^0-9]/g, '');\nconst whatsappPhone = String($json.wamidPhone || $json.whatsappPhone || $json.normalizedMessage?.from || $json.from || '').replace(/[^0-9]/g, '');\nconst digits = (normalizedPhone || originalPhone).replace(/[^0-9]/g, '').replace(/^00/, '');\nconst canonical = digits.startsWith('9715') ? digits : digits.startsWith('05') ? '971' + digits.slice(1) : digits.startsWith('5') && digits.length === 9 ? '971' + digits : normalizedPhone;\nconst local = canonical && canonical.startsWith('971') ? '0' + canonical.slice(3) : '';\nconst variants = [...new Set([originalPhone, digits, canonical, local, whatsappPhone].filter(Boolean))];\nconst primaryPhone = canonical || digits || whatsappPhone;\nconst correlationId = $json.correlationId || $json.normalizedMessage?.correlationId || 'corr_' + Date.now() + '_' + ($execution.id || 'n8n');\nreturn [{ json: { ...$json, originalPhone, normalizedPhone: canonical, primaryPhone, phoneVariants: variants, correlationId, workflowExecutionId: String($execution.id || '') } }];"
+        "jsCode": "const originalPhone = String($json.originalPhone || $json.phone || $json.from || $json.senderPhone || $json.normalizedMessage?.from || '').trim();\nconst normalizedPhone = String($json.normalizedPhone || $json.normalized_phone || $json.customer_phone || '').replace(/[^0-9]/g, '');\nconst whatsappPhone = String($json.wamidPhone || $json.whatsappPhone || $json.normalizedMessage?.from || $json.from || '').replace(/[^0-9]/g, '');\nconst digits = (normalizedPhone || originalPhone || whatsappPhone).replace(/[^0-9]/g, '').replace(/^00/, '');\nconst normalizeUaePhone = (value) => {\n  const candidate = String(value || '').replace(/[^0-9]/g, '').replace(/^00/, '');\n  if (/^9715\\d{8}$/.test(candidate)) return { normalizedPhone: candidate, phoneType: 'mobile' };\n  if (/^05\\d{8}$/.test(candidate)) return { normalizedPhone: '971' + candidate.slice(1), phoneType: 'mobile' };\n  if (/^5\\d{8}$/.test(candidate)) return { normalizedPhone: '971' + candidate, phoneType: 'mobile' };\n  if (/^971[234679]\\d{7}$/.test(candidate)) return { normalizedPhone: candidate, phoneType: 'landline' };\n  if (/^0[234679]\\d{7}$/.test(candidate)) return { normalizedPhone: '971' + candidate.slice(1), phoneType: 'landline' };\n  if (/^[234679]\\d{7}$/.test(candidate)) return { normalizedPhone: '971' + candidate, phoneType: 'landline' };\n  return { normalizedPhone: '', phoneType: 'unknown' };\n};\nconst normalized = normalizeUaePhone(digits || normalizedPhone || whatsappPhone || originalPhone);\nconst canonical = normalized.normalizedPhone || normalizedPhone || digits || whatsappPhone;\nconst local = canonical && canonical.startsWith('971') ? '0' + canonical.slice(3) : '';\nconst shortLocal = canonical && canonical.startsWith('971') ? canonical.slice(3) : '';\nconst variants = [...new Set([originalPhone, digits, canonical, local, shortLocal, whatsappPhone].filter(Boolean))];\nconst primaryPhone = canonical || digits || whatsappPhone;\nconst correlationId = $json.correlationId || $json.normalizedMessage?.correlationId || 'corr_' + Date.now() + '_' + ($execution.id || 'n8n');\nreturn [{ json: { ...$json, originalPhone, normalizedPhone: canonical, phoneType: normalized.phoneType, primaryPhone, phoneVariants: variants, correlationId, workflowExecutionId: String($execution.id || '') } }];"
       }
     },
     {
@@ -136,10 +136,10 @@
               "conditions": {
                 "conditions": [
                   {
-                    "leftValue": "={{(($json.body?.data?.customers || $json.body?.data || []).length || 0)}}",
-                    "rightValue": 1,
+                    "leftValue": "={{$json.body?.data?.status === \"FOUND\" || (($json.body?.data?.customers || []).length === 1)}}",
+                    "rightValue": true,
                     "operator": {
-                      "type": "number",
+                      "type": "boolean",
                       "operation": "equals"
                     }
                   }
@@ -152,21 +152,36 @@
               "conditions": {
                 "conditions": [
                   {
-                    "leftValue": "={{(($json.body?.data?.customers || $json.body?.data || []).length || 0)}}",
-                    "rightValue": 1,
+                    "leftValue": "={{$json.body?.data?.status === \"AMBIGUOUS\" || (($json.body?.data?.customers || []).length > 1)}}",
+                    "rightValue": true,
                     "operator": {
-                      "type": "number",
-                      "operation": "larger"
+                      "type": "boolean",
+                      "operation": "equals"
                     }
                   }
                 ]
               },
               "renameOutput": true,
               "outputKey": "AMBIGUOUS"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{[\"NOT_FOUND\", \"POS_UNAVAILABLE\"].includes($json.body?.data?.status) || (($json.body?.data?.customers || []).length === 0)}}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "NOT_FOUND"
             }
           ]
         },
-        "fallbackOutput": "extra",
         "options": {}
       }
     },
@@ -180,7 +195,7 @@
         -120
       ],
       "parameters": {
-        "jsCode": "const source = $json;\nconst phoneNode = $('Prepare Phone Variants').first().json;\nconst customers = Array.isArray(source.body?.data?.customers)\n  ? source.body.data.customers\n  : Array.isArray(source.body?.data)\n    ? source.body.data\n    : [];\nconst customer = customers[0] || {};\nreturn [{\n  json: {\n    status: 'FOUND',\n    customer,\n    identity: {\n      status: 'FOUND',\n      verified: true,\n      customer,\n      normalizedPhone: phoneNode.normalizedPhone || '',\n      phoneVariants: phoneNode.phoneVariants || [],\n    },\n    verificationRequired: false,\n    correlationId: phoneNode.correlationId || source.correlationId || '',\n  },\n}];"
+        "jsCode": "const source = $json;\nconst phoneNode = $('Prepare Phone Variants').first().json;\nconst data = source.body?.data || {};\nconst customers = Array.isArray(data.customers) ? data.customers : Array.isArray(data) ? data : data.customer ? [data.customer] : [];\nconst customer = customers[0] || data.customer || {};\nreturn [{ json: { status: 'FOUND', customer, identity: { status: 'FOUND', verified: true, customer, normalizedPhone: phoneNode.normalizedPhone || '', phoneType: phoneNode.phoneType || 'unknown', phoneVariants: phoneNode.phoneVariants || [] }, verificationRequired: false, correlationId: phoneNode.correlationId || source.correlationId || '' } }];"
       }
     },
     {
@@ -193,7 +208,7 @@
         40
       ],
       "parameters": {
-        "jsCode": "const source = $json;\nconst phoneNode = $('Prepare Phone Variants').first().json;\nconst customers = Array.isArray(source.body?.data?.customers)\n  ? source.body.data.customers\n  : Array.isArray(source.body?.data)\n    ? source.body.data\n    : [];\nconst customerMatches = customers.map((customer) => ({\n  customerId: customer.customerId || customer.id || null,\n  displayName: customer.displayName || customer.name || null,\n  branchId: customer.branchId || customer.branch_id || null,\n}));\nreturn [{\n  json: {\n    status: 'AMBIGUOUS',\n    customerMatches,\n    identity: {\n      status: 'AMBIGUOUS',\n      verified: false,\n      normalizedPhone: phoneNode.normalizedPhone || '',\n      requires: ['order_number_or_registered_name'],\n      matchCount: customers.length,\n    },\n    verificationRequired: true,\n    safePrompt: 'Please verify with an order number or registered name before showing account or order details.',\n    correlationId: phoneNode.correlationId || source.correlationId || '',\n  },\n}];"
+        "jsCode": "const source = $json;\nconst phoneNode = $('Prepare Phone Variants').first().json;\nconst data = source.body?.data || {};\nconst customers = Array.isArray(data.customers) ? data.customers : Array.isArray(data) ? data : [];\nconst customerMatches = customers.map((customer) => ({ customerId: customer.customerId || customer.id || null, displayName: customer.displayName || customer.name || null, branchId: customer.branchId || customer.branch_id || null }));\nreturn [{ json: { status: 'AMBIGUOUS', customerMatches, identity: { status: 'AMBIGUOUS', verified: false, normalizedPhone: phoneNode.normalizedPhone || '', phoneType: phoneNode.phoneType || 'unknown', requires: ['order_number_or_registered_name'], matchCount: customers.length }, verificationRequired: true, safePrompt: 'Please verify with an order number or registered name before showing account or order details.', correlationId: phoneNode.correlationId || source.correlationId || '' } }];"
       }
     },
     {
@@ -206,7 +221,7 @@
         220
       ],
       "parameters": {
-        "jsCode": "const source = $json;\nconst phoneNode = $('Prepare Phone Variants').first().json;\nconst temporaryCodes = ['POS_TIMEOUT', 'POS_SESSION_EXPIRED', 'POS_UNEXPECTED_RESPONSE'];\nconst errorCode = source.body?.error?.code || '';\nconst status = source.statusCode >= 500 || source.statusCode === 0 || temporaryCodes.includes(errorCode)\n  ? 'POS_UNAVAILABLE'\n  : 'NOT_FOUND';\nreturn [{\n  json: {\n    status,\n    identity: {\n      status,\n      verified: false,\n      normalizedPhone: phoneNode.normalizedPhone || '',\n      phoneVariants: phoneNode.phoneVariants || [],\n    },\n    verificationRequired: false,\n    error: source.body?.error || null,\n    correlationId: phoneNode.correlationId || source.correlationId || '',\n  },\n}];"
+        "jsCode": "const source = $json;\nconst phoneNode = $('Prepare Phone Variants').first().json;\nconst temporaryCodes = ['POS_TIMEOUT', 'POS_SESSION_EXPIRED', 'POS_UNEXPECTED_RESPONSE'];\nconst errorCode = source.body?.error?.code || '';\nconst status = source.body?.data?.status === 'POS_UNAVAILABLE' || source.statusCode >= 500 || source.statusCode === 0 || temporaryCodes.includes(errorCode) ? 'POS_UNAVAILABLE' : 'NOT_FOUND';\nreturn [{ json: { status, identity: { status, verified: false, normalizedPhone: phoneNode.normalizedPhone || '', phoneType: phoneNode.phoneType || 'unknown', phoneVariants: phoneNode.phoneVariants || [] }, verificationRequired: false, error: source.body?.error || null, correlationId: phoneNode.correlationId || source.correlationId || '' } }];"
       }
     },
     {
@@ -226,6 +241,18 @@
               "name": "SERVICE_API_BASE_URL",
               "type": "string",
               "value": "PASTE_SERVICE_API_BASE_URL_HERE"
+            },
+            {
+              "id": "public_price_list_pdf_url",
+              "name": "PUBLIC_PRICE_LIST_PDF_URL",
+              "type": "string",
+              "value": "https://www.inandoutuae.com/pricing/inout-laundry-price-list.pdf"
+            },
+            {
+              "id": "public_price_list_image_url",
+              "name": "PUBLIC_PRICE_LIST_IMAGE_URL",
+              "type": "string",
+              "value": "https://www.inandoutuae.com/pricing/inout-laundry-price-card.png"
             },
             {
               "id": "n8n_api_key",
@@ -425,7 +452,7 @@
         20
       ],
       "parameters": {
-        "jsCode": "const configKeys = [\"SERVICE_API_BASE_URL\",\"N8N_API_KEY\",\"WHATSAPP_PHONE_NUMBER_ID\",\"WHATSAPP_ACCESS_TOKEN\",\"WHATSAPP_AUDIO_MAX_BYTES\",\"OPENAI_CHAT_MODEL\",\"OPENAI_TRANSCRIPTION_MODEL\",\"OPERATIONS_ALERT_PHONE\",\"CONVERSATION_SUMMARY_MESSAGE_THRESHOLD\",\"N8N_RETRY_MAX_ATTEMPTS\",\"N8N_RETRY_BASE_MS\",\"N8N_RETRY_MAX_BACKOFF_MS\",\"N8N_WF_IDEMPOTENCY_CHECK_ID\",\"N8N_WF_PHONE_NORMALIZATION_ID\",\"N8N_WF_CUSTOMER_IDENTITY_ID\",\"N8N_WF_MEMORY_MANAGER_ID\",\"N8N_WF_AI_AGENT_ID\",\"N8N_WF_ORDER_TRACKING_ID\",\"N8N_WF_PICKUP_REQUEST_ID\",\"N8N_WF_AREA_BRANCH_RESOLVER_ID\",\"N8N_WF_DRIVER_DISPATCH_ID\",\"N8N_WF_DRIVER_NOTIFICATION_ID\",\"N8N_WF_DRIVER_REASSIGNMENT_ID\",\"N8N_WF_COMPLAINT_ID\",\"N8N_WF_NOTIFY_BRANCH_MANAGER_ID\",\"N8N_WF_HUMAN_HANDOFF_ID\",\"N8N_WF_VOICE_PROCESSING_ID\",\"N8N_WF_RESPONSE_SENDER_ID\",\"N8N_WF_SAVE_SUMMARY_ID\",\"N8N_WF_ERROR_HANDLER_ID\",\"N8N_WF_RETRY_QUEUE_ID\"];\nreturn $input.all().map((item) => {\n  const json = { ...(item.json || {}) };\n  for (const key of configKeys) delete json[key];\n  return { ...item, json };\n});"
+        "jsCode": "const configKeys = [\"SERVICE_API_BASE_URL\",\"PUBLIC_PRICE_LIST_PDF_URL\",\"PUBLIC_PRICE_LIST_IMAGE_URL\",\"N8N_API_KEY\",\"WHATSAPP_PHONE_NUMBER_ID\",\"WHATSAPP_ACCESS_TOKEN\",\"WHATSAPP_AUDIO_MAX_BYTES\",\"OPENAI_CHAT_MODEL\",\"OPENAI_TRANSCRIPTION_MODEL\",\"OPERATIONS_ALERT_PHONE\",\"CONVERSATION_SUMMARY_MESSAGE_THRESHOLD\",\"N8N_RETRY_MAX_ATTEMPTS\",\"N8N_RETRY_BASE_MS\",\"N8N_RETRY_MAX_BACKOFF_MS\",\"N8N_WF_IDEMPOTENCY_CHECK_ID\",\"N8N_WF_PHONE_NORMALIZATION_ID\",\"N8N_WF_CUSTOMER_IDENTITY_ID\",\"N8N_WF_MEMORY_MANAGER_ID\",\"N8N_WF_AI_AGENT_ID\",\"N8N_WF_ORDER_TRACKING_ID\",\"N8N_WF_PICKUP_REQUEST_ID\",\"N8N_WF_AREA_BRANCH_RESOLVER_ID\",\"N8N_WF_DRIVER_DISPATCH_ID\",\"N8N_WF_DRIVER_NOTIFICATION_ID\",\"N8N_WF_DRIVER_REASSIGNMENT_ID\",\"N8N_WF_COMPLAINT_ID\",\"N8N_WF_NOTIFY_BRANCH_MANAGER_ID\",\"N8N_WF_HUMAN_HANDOFF_ID\",\"N8N_WF_VOICE_PROCESSING_ID\",\"N8N_WF_RESPONSE_SENDER_ID\",\"N8N_WF_SAVE_SUMMARY_ID\",\"N8N_WF_ERROR_HANDLER_ID\",\"N8N_WF_RETRY_QUEUE_ID\"];\nreturn $input.all().map((item) => {\n  const json = { ...(item.json || {}) };\n  const workflowRuntimeConfig = {};\n  for (const key of configKeys) if (json[key] != null) workflowRuntimeConfig[key] = json[key];\n  for (const key of configKeys) delete json[key];\n  json.workflowRuntimeConfig = workflowRuntimeConfig;\n  return { ...item, json };\n});"
       }
     }
   ],

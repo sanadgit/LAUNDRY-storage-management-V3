@@ -9,6 +9,8 @@ const CLEAN_NODE_NAME = 'Remove Config From Item';
 
 const CONFIG_FIELDS = {
   SERVICE_API_BASE_URL: 'PASTE_SERVICE_API_BASE_URL_HERE',
+  PUBLIC_PRICE_LIST_PDF_URL: 'https://www.inandoutuae.com/pricing/inout-laundry-price-list.pdf',
+  PUBLIC_PRICE_LIST_IMAGE_URL: 'https://www.inandoutuae.com/pricing/inout-laundry-price-card.png',
   N8N_API_KEY: 'PASTE_SERVICE_API_TOKEN_HERE',
   WHATSAPP_PHONE_NUMBER_ID: 'PASTE_WHATSAPP_PHONE_NUMBER_ID_HERE',
   WHATSAPP_ACCESS_TOKEN: 'PASTE_WHATSAPP_ACCESS_TOKEN_HERE',
@@ -122,7 +124,10 @@ const makeCleanupNode = (position) => ({
       `const configKeys = ${JSON.stringify(CONFIG_FIELD_NAMES)};\n` +
       'return $input.all().map((item) => {\n' +
       '  const json = { ...(item.json || {}) };\n' +
+      '  const workflowRuntimeConfig = {};\n' +
+      '  for (const key of configKeys) if (json[key] != null) workflowRuntimeConfig[key] = json[key];\n' +
       '  for (const key of configKeys) delete json[key];\n' +
+      '  json.workflowRuntimeConfig = workflowRuntimeConfig;\n' +
       '  return { ...item, json };\n' +
       '});',
   },

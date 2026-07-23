@@ -45,7 +45,7 @@
           "conditions": [
             {
               "id": "has-customer-id",
-              "leftValue": "={{Boolean($json.customerId || $json.customer_id || ($json.identity && $json.identity.customer && $json.identity.customer.id))}}",
+              "leftValue": "={{Boolean($json.customerId || $json.customer_id || $json.identity?.customer?.id)}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -87,7 +87,7 @@
           "conditions": [
             {
               "id": "has-order-id",
-              "leftValue": "={{Boolean($json.orderId || $json.order_id || ($json.memory && $json.memory.currentOrderId))}}",
+              "leftValue": "={{Boolean($json.orderId || $json.order_id || $json.memory?.currentOrderId)}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -111,7 +111,7 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/pos/orders/' + encodeURIComponent($json.orderId || $json.order_id || (($json.memory && $json.memory.currentOrderId) || 'unknown')) + '/status?customerId=' + encodeURIComponent($json.customerId || $json.customer_id || (($json.identity && $json.identity.customer && $json.identity.customer.id) || '')) + '&phone=' + encodeURIComponent($json.phone || $json.customerPhone || $json.normalizedPhone || $json.normalized_phone || '')}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/pos/orders/' + encodeURIComponent($json.orderId || $json.order_id || $json.memory?.currentOrderId || 'unknown') + '/status?customerId=' + encodeURIComponent($json.customerId || $json.customer_id || $json.identity?.customer?.id || '') + '&phone=' + encodeURIComponent($json.phone || $json.customerPhone || $json.normalizedPhone || $json.normalized_phone || '')}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -159,7 +159,7 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/customers/' + encodeURIComponent($json.customerId || $json.customer_id || (($json.identity && $json.identity.customer && $json.identity.customer.id) || 'unknown')) + '/orders/active?phone=' + encodeURIComponent($json.phone || $json.customerPhone || $json.normalizedPhone || $json.normalized_phone || '')}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/customers/' + encodeURIComponent($json.customerId || $json.customer_id || $json.identity?.customer?.id || 'unknown') + '/orders/active?phone=' + encodeURIComponent($json.phone || $json.customerPhone || $json.normalizedPhone || $json.normalized_phone || '')}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -216,7 +216,7 @@
           "conditions": [
             {
               "id": "order-ok",
-              "leftValue": "={{$json.statusCode >= 200 && $json.statusCode < 300 && (!$json.body || $json.body.ok !== false)}}",
+              "leftValue": "={{$json.statusCode >= 200 && $json.statusCode < 300 && $json.body?.ok !== false}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -225,7 +225,7 @@
             },
             {
               "id": "order-owned",
-              "leftValue": "={{Boolean((!$json.body || !$json.body.data || $json.body.data.owned !== false) && (!$json.body || !$json.body.error || ($json.body.error.code !== \"ORDER_NOT_AUTHORIZED\" && $json.body.error.code !== \"CUSTOMER_NOT_VERIFIED\")))}}",
+              "leftValue": "={{Boolean($json.body?.data?.owned !== false && $json.body?.error?.code !== \"ORDER_NOT_AUTHORIZED\" && $json.body?.error?.code !== \"CUSTOMER_NOT_VERIFIED\")}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -350,14 +350,69 @@
     {
       "id": "return-order-result",
       "name": "Return Order Result",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
       "position": [
         1160,
         80
       ],
       "parameters": {
-        "jsCode": "const input = $('Workflow Input').first().json;\nconst body = $json.body || {};\nconst errorCode = body.error && body.error.code ? body.error.code : '';\nlet resultBranch = $json.resultBranch || '';\nif (!resultBranch) {\n  resultBranch = ['ORDER_NOT_AUTHORIZED', 'CUSTOMER_NOT_VERIFIED'].includes(errorCode) ? 'ORDER_NOT_OWNED' : 'POS_UNAVAILABLE';\n}\nconst messages = {\n  ORDER_NOT_OWNED: 'Order cannot be shown for this customer.',\n  NO_ACTIVE_ORDERS: 'No active orders found for this verified customer.',\n  MULTIPLE_ACTIVE_ORDERS: 'Multiple active orders found. Ask the customer for the order number.',\n  POS_UNAVAILABLE: 'POS is unavailable. Escalate for branch confirmation.',\n  UNKNOWN_STATUS: 'Order status needs branch review.',\n};\nconst successBranches = ['NO_ACTIVE_ORDERS', 'ONE_ACTIVE_ORDER', 'MULTIPLE_ACTIVE_ORDERS'];\nreturn [{\n  json: {\n    ...$json,\n    success: successBranches.includes(resultBranch),\n    resultBranch,\n    order: $json.order || body.data || null,\n    orders: $json.orders || [],\n    canonicalStatus: $json.canonicalStatus || '',\n    rawStatus: $json.rawStatus || '',\n    message: messages[resultBranch] || 'Order status returned from POS.',\n    correlationId: $json.correlationId || input.correlationId || '',\n  },\n}];"
+        "assignments": {
+          "assignments": [
+            {
+              "id": "success",
+              "name": "success",
+              "type": "boolean",
+              "value": "={{[\"NO_ACTIVE_ORDERS\", \"ONE_ACTIVE_ORDER\", \"MULTIPLE_ACTIVE_ORDERS\"].includes($json.resultBranch)}}"
+            },
+            {
+              "id": "resultBranch",
+              "name": "resultBranch",
+              "type": "string",
+              "value": "={{$json.resultBranch || ($json.body?.error?.code === \"ORDER_NOT_AUTHORIZED\" || $json.body?.error?.code === \"CUSTOMER_NOT_VERIFIED\" ? \"ORDER_NOT_OWNED\" : \"POS_UNAVAILABLE\")}}"
+            },
+            {
+              "id": "order",
+              "name": "order",
+              "type": "object",
+              "value": "={{$json.order || $json.body?.data || null}}"
+            },
+            {
+              "id": "orders",
+              "name": "orders",
+              "type": "array",
+              "value": "={{$json.orders || []}}"
+            },
+            {
+              "id": "canonicalStatus",
+              "name": "canonicalStatus",
+              "type": "string",
+              "value": "={{$json.canonicalStatus || \"\"}}"
+            },
+            {
+              "id": "rawStatus",
+              "name": "rawStatus",
+              "type": "string",
+              "value": "={{$json.rawStatus || \"\"}}"
+            },
+            {
+              "id": "message",
+              "name": "message",
+              "type": "string",
+              "value": "={{$json.resultBranch === \"ORDER_NOT_OWNED\" ? \"Order cannot be shown for this customer.\" : $json.resultBranch === \"NO_ACTIVE_ORDERS\" ? \"No active orders found for this verified customer.\" : $json.resultBranch === \"MULTIPLE_ACTIVE_ORDERS\" ? \"Multiple active orders found. Ask the customer for the order number.\" : $json.resultBranch === \"POS_UNAVAILABLE\" ? \"POS is unavailable. Escalate for branch confirmation.\" : $json.resultBranch === \"UNKNOWN_STATUS\" ? \"Order status needs branch review.\" : \"Order status returned from POS.\"}}"
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$json.correlationId || $(\"Workflow Input\").first().json.correlationId}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
       }
     },
     {
@@ -377,6 +432,18 @@
               "name": "SERVICE_API_BASE_URL",
               "type": "string",
               "value": "PASTE_SERVICE_API_BASE_URL_HERE"
+            },
+            {
+              "id": "public_price_list_pdf_url",
+              "name": "PUBLIC_PRICE_LIST_PDF_URL",
+              "type": "string",
+              "value": "https://www.inandoutuae.com/pricing/inout-laundry-price-list.pdf"
+            },
+            {
+              "id": "public_price_list_image_url",
+              "name": "PUBLIC_PRICE_LIST_IMAGE_URL",
+              "type": "string",
+              "value": "https://www.inandoutuae.com/pricing/inout-laundry-price-card.png"
             },
             {
               "id": "n8n_api_key",
@@ -576,7 +643,7 @@
         20
       ],
       "parameters": {
-        "jsCode": "const configKeys = [\"SERVICE_API_BASE_URL\",\"N8N_API_KEY\",\"WHATSAPP_PHONE_NUMBER_ID\",\"WHATSAPP_ACCESS_TOKEN\",\"WHATSAPP_AUDIO_MAX_BYTES\",\"OPENAI_CHAT_MODEL\",\"OPENAI_TRANSCRIPTION_MODEL\",\"OPERATIONS_ALERT_PHONE\",\"CONVERSATION_SUMMARY_MESSAGE_THRESHOLD\",\"N8N_RETRY_MAX_ATTEMPTS\",\"N8N_RETRY_BASE_MS\",\"N8N_RETRY_MAX_BACKOFF_MS\",\"N8N_WF_IDEMPOTENCY_CHECK_ID\",\"N8N_WF_PHONE_NORMALIZATION_ID\",\"N8N_WF_CUSTOMER_IDENTITY_ID\",\"N8N_WF_MEMORY_MANAGER_ID\",\"N8N_WF_AI_AGENT_ID\",\"N8N_WF_ORDER_TRACKING_ID\",\"N8N_WF_PICKUP_REQUEST_ID\",\"N8N_WF_AREA_BRANCH_RESOLVER_ID\",\"N8N_WF_DRIVER_DISPATCH_ID\",\"N8N_WF_DRIVER_NOTIFICATION_ID\",\"N8N_WF_DRIVER_REASSIGNMENT_ID\",\"N8N_WF_COMPLAINT_ID\",\"N8N_WF_NOTIFY_BRANCH_MANAGER_ID\",\"N8N_WF_HUMAN_HANDOFF_ID\",\"N8N_WF_VOICE_PROCESSING_ID\",\"N8N_WF_RESPONSE_SENDER_ID\",\"N8N_WF_SAVE_SUMMARY_ID\",\"N8N_WF_ERROR_HANDLER_ID\",\"N8N_WF_RETRY_QUEUE_ID\"];\nreturn $input.all().map((item) => {\n  const json = { ...(item.json || {}) };\n  for (const key of configKeys) delete json[key];\n  return { ...item, json };\n});"
+        "jsCode": "const configKeys = [\"SERVICE_API_BASE_URL\",\"PUBLIC_PRICE_LIST_PDF_URL\",\"PUBLIC_PRICE_LIST_IMAGE_URL\",\"N8N_API_KEY\",\"WHATSAPP_PHONE_NUMBER_ID\",\"WHATSAPP_ACCESS_TOKEN\",\"WHATSAPP_AUDIO_MAX_BYTES\",\"OPENAI_CHAT_MODEL\",\"OPENAI_TRANSCRIPTION_MODEL\",\"OPERATIONS_ALERT_PHONE\",\"CONVERSATION_SUMMARY_MESSAGE_THRESHOLD\",\"N8N_RETRY_MAX_ATTEMPTS\",\"N8N_RETRY_BASE_MS\",\"N8N_RETRY_MAX_BACKOFF_MS\",\"N8N_WF_IDEMPOTENCY_CHECK_ID\",\"N8N_WF_PHONE_NORMALIZATION_ID\",\"N8N_WF_CUSTOMER_IDENTITY_ID\",\"N8N_WF_MEMORY_MANAGER_ID\",\"N8N_WF_AI_AGENT_ID\",\"N8N_WF_ORDER_TRACKING_ID\",\"N8N_WF_PICKUP_REQUEST_ID\",\"N8N_WF_AREA_BRANCH_RESOLVER_ID\",\"N8N_WF_DRIVER_DISPATCH_ID\",\"N8N_WF_DRIVER_NOTIFICATION_ID\",\"N8N_WF_DRIVER_REASSIGNMENT_ID\",\"N8N_WF_COMPLAINT_ID\",\"N8N_WF_NOTIFY_BRANCH_MANAGER_ID\",\"N8N_WF_HUMAN_HANDOFF_ID\",\"N8N_WF_VOICE_PROCESSING_ID\",\"N8N_WF_RESPONSE_SENDER_ID\",\"N8N_WF_SAVE_SUMMARY_ID\",\"N8N_WF_ERROR_HANDLER_ID\",\"N8N_WF_RETRY_QUEUE_ID\"];\nreturn $input.all().map((item) => {\n  const json = { ...(item.json || {}) };\n  const workflowRuntimeConfig = {};\n  for (const key of configKeys) if (json[key] != null) workflowRuntimeConfig[key] = json[key];\n  for (const key of configKeys) delete json[key];\n  json.workflowRuntimeConfig = workflowRuntimeConfig;\n  return { ...item, json };\n});"
       }
     }
   ],

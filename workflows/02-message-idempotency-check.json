@@ -131,7 +131,7 @@
           "conditions": [
             {
               "id": "existing-event",
-              "leftValue": "={{$json.statusCode === 200 && Boolean(($json.body?.data || {}).duplicate || ($json.body?.data || {}).processed || ($json.body?.data || {}).event || ($json.body?.data || {}).message || $json.body?.event || $json.body?.messageId)}}",
+              "leftValue": "={{$json.statusCode === 200 && Boolean($json.body?.ok !== false && ($json.body?.data || $json.body?.event || $json.body?.messageId))}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -189,25 +189,12 @@
       }
     },
     {
-      "id": "prepare-processing-lock-request",
-      "name": "Prepare Processing Lock Request",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        400,
-        120
-      ],
-      "parameters": {
-        "jsCode": "let extracted = {};\ntry {\n  extracted = $node['Extract WhatsApp Message ID'].json || {};\n} catch (error) {\n  extracted = {};\n}\nconst current = $json || {};\nconst messageId = String(extracted.messageId || current.messageId || current.wamid || '').trim();\nconst correlationId = String(extracted.correlationId || current.correlationId || current.correlation_id || '').trim();\nconst workflowExecutionId = String(extracted.workflowExecutionId || current.workflowExecutionId || $execution.id || '');\nreturn [{\n  json: {\n    ...current,\n    messageId,\n    correlationId,\n    workflowExecutionId,\n    lockRequestBody: {\n      provider: 'whatsapp',\n      messageId,\n      correlationId,\n      workflowExecutionId,\n      receivedAt: new Date().toISOString(),\n    },\n  },\n}];"
-      }
-    },
-    {
       "id": "register-processing-lock",
       "name": "Register Processing Lock",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        660,
+        400,
         120
       ],
       "parameters": {
@@ -226,18 +213,17 @@
             },
             {
               "name": "X-Correlation-Id",
-            "value": "={{$json.correlationId || $json.correlation_id}}"
+              "value": "={{$json.correlationId || $json.correlation_id}}"
             },
             {
               "name": "Idempotency-Key",
-            "value": "={{$json.messageId || $json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id}}"
+              "value": "={{($json.idempotencyKey || $json.idempotency_key || $json.wamid || $json.correlationId || $json.correlation_id || $execution.id)}}"
             }
           ]
         },
         "sendBody": true,
         "contentType": "json",
-        "specifyBody": "json",
-        "jsonBody": "={{$json.lockRequestBody}}",
+        "jsonBody": "={{ { provider: 'whatsapp', messageId: $('Extract WhatsApp Message ID').first().json.messageId, correlationId: $('Extract WhatsApp Message ID').first().json.correlationId, workflowExecutionId: $('Extract WhatsApp Message ID').first().json.workflowExecutionId, receivedAt: new Date().toISOString() } }}",
         "options": {
           "response": {
             "response": {
@@ -248,19 +234,6 @@
           },
           "timeout": 30000
         }
-      }
-    },
-    {
-      "id": "return-lock-result",
-      "name": "Return Lock Result",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        920,
-        120
-      ],
-      "parameters": {
-        "jsCode": "const response = $json || {};\nconst body = (response.body && typeof response.body === 'object') ? response.body : {};\nconst data = body.data || response.data || {};\nlet extracted = {};\ntry {\n  extracted = $node['Extract WhatsApp Message ID'].json || {};\n} catch (error) {\n  extracted = {};\n}\nconst messageId = String(data.messageId || response.messageId || extracted.messageId || '').trim();\nconst correlationId = String(body.meta?.correlationId || response.correlationId || extracted.correlationId || '').trim();\nconst lockAcquired = data.lockAcquired === true || response.lockAcquired === true;\nconst explicitDuplicate = data.duplicate === true || response.duplicate === true;\nconst hasLockResponse = Boolean(\n  Object.prototype.hasOwnProperty.call(data, 'lockAcquired') ||\n  Object.prototype.hasOwnProperty.call(data, 'duplicate') ||\n  data.messageId ||\n  response.lockAcquired !== undefined ||\n  response.duplicate !== undefined\n);\nconst temporaryFailure = !hasLockResponse || Boolean(body.error || response.error);\nconst duplicate = explicitDuplicate || (!lockAcquired && hasLockResponse);\nreturn [{\n  json: {\n    duplicate: duplicate || temporaryFailure,\n    lockAcquired,\n    messageId,\n    correlationId,\n    status: lockAcquired ? 'LOCKED' : duplicate ? 'DUPLICATE' : 'LOCK_FAILED',\n    error: temporaryFailure ? (body.error || response.error || { code: 'LOCK_RESPONSE_UNREADABLE', message: 'Could not confirm processing lock.' }) : null,\n  },\n}];"
       }
     },
     {
@@ -280,6 +253,18 @@
               "name": "SERVICE_API_BASE_URL",
               "type": "string",
               "value": "PASTE_SERVICE_API_BASE_URL_HERE"
+            },
+            {
+              "id": "public_price_list_pdf_url",
+              "name": "PUBLIC_PRICE_LIST_PDF_URL",
+              "type": "string",
+              "value": "https://www.inandoutuae.com/pricing/inout-laundry-price-list.pdf"
+            },
+            {
+              "id": "public_price_list_image_url",
+              "name": "PUBLIC_PRICE_LIST_IMAGE_URL",
+              "type": "string",
+              "value": "https://www.inandoutuae.com/pricing/inout-laundry-price-card.png"
             },
             {
               "id": "n8n_api_key",
@@ -479,7 +464,7 @@
         20
       ],
       "parameters": {
-        "jsCode": "const configKeys = [\"SERVICE_API_BASE_URL\",\"N8N_API_KEY\",\"WHATSAPP_PHONE_NUMBER_ID\",\"WHATSAPP_ACCESS_TOKEN\",\"WHATSAPP_AUDIO_MAX_BYTES\",\"OPENAI_CHAT_MODEL\",\"OPENAI_TRANSCRIPTION_MODEL\",\"OPERATIONS_ALERT_PHONE\",\"CONVERSATION_SUMMARY_MESSAGE_THRESHOLD\",\"N8N_RETRY_MAX_ATTEMPTS\",\"N8N_RETRY_BASE_MS\",\"N8N_RETRY_MAX_BACKOFF_MS\",\"N8N_WF_IDEMPOTENCY_CHECK_ID\",\"N8N_WF_PHONE_NORMALIZATION_ID\",\"N8N_WF_CUSTOMER_IDENTITY_ID\",\"N8N_WF_MEMORY_MANAGER_ID\",\"N8N_WF_AI_AGENT_ID\",\"N8N_WF_ORDER_TRACKING_ID\",\"N8N_WF_PICKUP_REQUEST_ID\",\"N8N_WF_AREA_BRANCH_RESOLVER_ID\",\"N8N_WF_DRIVER_DISPATCH_ID\",\"N8N_WF_DRIVER_NOTIFICATION_ID\",\"N8N_WF_DRIVER_REASSIGNMENT_ID\",\"N8N_WF_COMPLAINT_ID\",\"N8N_WF_NOTIFY_BRANCH_MANAGER_ID\",\"N8N_WF_HUMAN_HANDOFF_ID\",\"N8N_WF_VOICE_PROCESSING_ID\",\"N8N_WF_RESPONSE_SENDER_ID\",\"N8N_WF_SAVE_SUMMARY_ID\",\"N8N_WF_ERROR_HANDLER_ID\",\"N8N_WF_RETRY_QUEUE_ID\"];\nreturn $input.all().map((item) => {\n  const json = { ...(item.json || {}) };\n  for (const key of configKeys) delete json[key];\n  return { ...item, json };\n});"
+        "jsCode": "const configKeys = [\"SERVICE_API_BASE_URL\",\"PUBLIC_PRICE_LIST_PDF_URL\",\"PUBLIC_PRICE_LIST_IMAGE_URL\",\"N8N_API_KEY\",\"WHATSAPP_PHONE_NUMBER_ID\",\"WHATSAPP_ACCESS_TOKEN\",\"WHATSAPP_AUDIO_MAX_BYTES\",\"OPENAI_CHAT_MODEL\",\"OPENAI_TRANSCRIPTION_MODEL\",\"OPERATIONS_ALERT_PHONE\",\"CONVERSATION_SUMMARY_MESSAGE_THRESHOLD\",\"N8N_RETRY_MAX_ATTEMPTS\",\"N8N_RETRY_BASE_MS\",\"N8N_RETRY_MAX_BACKOFF_MS\",\"N8N_WF_IDEMPOTENCY_CHECK_ID\",\"N8N_WF_PHONE_NORMALIZATION_ID\",\"N8N_WF_CUSTOMER_IDENTITY_ID\",\"N8N_WF_MEMORY_MANAGER_ID\",\"N8N_WF_AI_AGENT_ID\",\"N8N_WF_ORDER_TRACKING_ID\",\"N8N_WF_PICKUP_REQUEST_ID\",\"N8N_WF_AREA_BRANCH_RESOLVER_ID\",\"N8N_WF_DRIVER_DISPATCH_ID\",\"N8N_WF_DRIVER_NOTIFICATION_ID\",\"N8N_WF_DRIVER_REASSIGNMENT_ID\",\"N8N_WF_COMPLAINT_ID\",\"N8N_WF_NOTIFY_BRANCH_MANAGER_ID\",\"N8N_WF_HUMAN_HANDOFF_ID\",\"N8N_WF_VOICE_PROCESSING_ID\",\"N8N_WF_RESPONSE_SENDER_ID\",\"N8N_WF_SAVE_SUMMARY_ID\",\"N8N_WF_ERROR_HANDLER_ID\",\"N8N_WF_RETRY_QUEUE_ID\"];\nreturn $input.all().map((item) => {\n  const json = { ...(item.json || {}) };\n  const workflowRuntimeConfig = {};\n  for (const key of configKeys) if (json[key] != null) workflowRuntimeConfig[key] = json[key];\n  for (const key of configKeys) delete json[key];\n  json.workflowRuntimeConfig = workflowRuntimeConfig;\n  return { ...item, json };\n});"
       }
     }
   ],
@@ -528,29 +513,7 @@
         ],
         [
           {
-            "node": "Prepare Processing Lock Request",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Prepare Processing Lock Request": {
-      "main": [
-        [
-          {
             "node": "Register Processing Lock",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Register Processing Lock": {
-      "main": [
-        [
-          {
-            "node": "Return Lock Result",
             "type": "main",
             "index": 0
           }

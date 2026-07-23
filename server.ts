@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
-import { existsSync, statSync } from 'fs';
+import { existsSync, readFileSync, statSync } from 'fs';
 import cors from 'cors';
 import Database from 'better-sqlite3';
 import { Pool } from 'pg';
@@ -12849,6 +12849,145 @@ const clampText = (value: unknown, maxLength: number) => {
   return trimmed.length > maxLength ? trimmed.slice(0, maxLength) : trimmed;
 };
 
+type CustomerServiceKbArticle = {
+  id: string;
+  category: string;
+  title: string;
+  content: string;
+  language: string;
+  source: string;
+  is_active: number;
+  updated_at: string;
+};
+
+const CUSTOMER_SERVICE_KB_PATH = path.join(__dirname, 'workflows', 'INOUT_LAUNDRY_CUSTOMER_SERVICE_KB.md');
+const CUSTOMER_SERVICE_PRICE_KB_PATH = path.join(__dirname, 'workflows', 'INOUT_LAUNDRY_PRICE_LIST.md');
+const PUBLIC_PRICE_LIST_PDF_URL =
+  String(process.env.PUBLIC_PRICE_LIST_PDF_URL ?? '').trim() ||
+  'https://www.inandoutuae.com/pricing/inout-laundry-price-list.pdf';
+const PUBLIC_PRICE_LIST_IMAGE_URL =
+  String(process.env.PUBLIC_PRICE_LIST_IMAGE_URL ?? '').trim() ||
+  'https://www.inandoutuae.com/pricing/inout-laundry-price-card.png';
+let customerServiceKbCache:
+  | {
+      raw: string;
+      systemPrompt: string;
+      articles: CustomerServiceKbArticle[];
+      loadedAt: string;
+    }
+  | null = null;
+
+const compactMarkdown = (value: string, maxLength: number) =>
+  value
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, maxLength);
+
+const getCustomerServiceKb = () => {
+  if (customerServiceKbCache) return customerServiceKbCache;
+
+  const loadedAt = new Date().toISOString();
+  let raw = '';
+  let priceRaw = '';
+  try {
+    raw = existsSync(CUSTOMER_SERVICE_KB_PATH)
+      ? readFileSync(CUSTOMER_SERVICE_KB_PATH, 'utf8')
+      : '';
+  } catch (error) {
+    console.warn('[ai-kb] failed to read customer service KB:', (error as Error).message);
+    raw = '';
+  }
+  try {
+    priceRaw = existsSync(CUSTOMER_SERVICE_PRICE_KB_PATH)
+      ? readFileSync(CUSTOMER_SERVICE_PRICE_KB_PATH, 'utf8')
+      : '';
+  } catch (error) {
+    console.warn('[ai-kb] failed to read price list KB:', (error as Error).message);
+    priceRaw = '';
+  }
+
+  const systemPromptMatch = raw.match(/## System Prompt\s*([\s\S]*)$/i);
+  const systemPrompt = compactMarkdown(systemPromptMatch?.[1] || '', 12000);
+  const articleSource = `${raw.replace(/## System Prompt\s*[\s\S]*$/i, '').trim()}\n\n${priceRaw}`.trim();
+  const sections = articleSource
+    .split(/\n(?=###\s+)/g)
+    .map((section) => section.trim())
+    .filter(Boolean);
+
+  const articles: CustomerServiceKbArticle[] = sections.map((section, index) => {
+    const title = clampText(section.match(/^###\s+(.+)$/m)?.[1] || `Customer service KB ${index + 1}`, 160);
+    const category = clampText(
+      [...section.matchAll(/^##\s+(.+)$/gm)].map((match) => match[1]).pop() || 'customer_service',
+      80
+    );
+    return {
+      id: `file:inout-customer-service-kb:${index + 1}`,
+      category,
+      title,
+      content: compactMarkdown(section.replace(/^###\s+.+$/m, '').trim(), 3000),
+      language: /[اأإآء-ي]/.test(section) ? 'ar' : 'en',
+      source: section.includes('Price List Media')
+        ? 'workflows/INOUT_LAUNDRY_PRICE_LIST.md'
+        : 'workflows/INOUT_LAUNDRY_CUSTOMER_SERVICE_KB.md',
+      is_active: 1,
+      updated_at: loadedAt,
+    };
+  });
+
+  customerServiceKbCache = {
+    raw,
+    systemPrompt,
+    articles,
+    loadedAt,
+  };
+  return customerServiceKbCache;
+};
+
+const searchCustomerServiceKbFile = (query: string, language = 'auto', limit = 10) => {
+  const normalizedQuery = query.trim().toLowerCase();
+  const terms = normalizedQuery.split(/\s+/).filter(Boolean);
+  const wantsArabic = language.toLowerCase().startsWith('ar') || /[اأإآء-ي]/.test(query);
+
+  return getCustomerServiceKb()
+    .articles.map((article) => {
+      const haystack = `${article.title}\n${article.category}\n${article.content}`.toLowerCase();
+      const score = terms.length
+        ? terms.reduce((total, term) => total + (haystack.includes(term) ? 2 : 0), 0) +
+          (wantsArabic && article.language === 'ar' ? 1 : 0)
+        : wantsArabic && article.language === 'ar'
+          ? 1
+          : 0;
+      return { article, score };
+    })
+    .filter(({ score }) => !terms.length || score > 0)
+    .sort((a, b) => b.score - a.score || a.article.title.localeCompare(b.article.title))
+    .slice(0, limit)
+    .map(({ article }) => article);
+};
+
+const getInOutCustomerServiceSystemPrompt = () => {
+  const kb = getCustomerServiceKb();
+  const fallbackPrompt =
+    'You are the In & Out Laundry WhatsApp customer-service agent. POS is the source of truth. Never invent prices, order status, compensation, liability, or customer data. Reply in the customer language and escalate high-risk complaints.';
+  const kbPrompt = kb.systemPrompt || fallbackPrompt;
+  const availableToolsNote = `
+
+Runtime tool boundary:
+- Available n8n tools are search_knowledge_base, find_customer_by_phone, get_customer_active_orders, get_order_status, create_pickup_request, create_complaint, and escalate_to_human.
+- If the knowledge base mentions a tool that is not available in this workflow, do not call it. Use search_knowledge_base or ask for the missing detail, then escalate when live confirmation is required.
+- Prices, branch hours, delivery fees, branch coverage, invoices, payments, and order readiness must come from approved tools/POS/knowledge base. If not found, say that confirmation is required instead of guessing.
+- Treat short replies as follow-ups to the recent conversation context. Do not ask again for a detail the customer already gave.
+- Ask at most one focused missing question. If area, time, service, or item were already provided, reuse them.
+- For pricing inquiries, use search_knowledge_base. If the customer provides item + service, answer with the exact approved price from the knowledge base. Example: كندورة + غسيل فقط/wash only means Wash & Dry price = 6 درهم. Do not say prices differ by service after service is known.
+- If the customer asks for the full price list, return mediaUrl "${PUBLIC_PRICE_LIST_PDF_URL}", mediaType "document", and mediaFilename "In-Out-Laundry-Price-List.pdf". The image fallback is "${PUBLIC_PRICE_LIST_IMAGE_URL}".
+- Pickup request: if area, time, and items/service are known, ask only for exact address or Google Maps location. Delivery request without order number should ask for order number or clarify if the customer means pickup.
+- Customer-facing JSON must use response, not reply: { response, intent, confidence, language, missingFields, needsHuman, toolCalls, safetyFlags, mediaUrl, mediaType, mediaFilename }.
+- Omit mediaUrl for non-pricing replies unless the customer explicitly needs an approved file.`;
+  return compactMarkdown(`${kbPrompt}${availableToolsNote}`, 14000);
+};
+
 const normalizeStoreColor = (value: unknown) => {
   const raw = typeof value === 'string' ? value.trim() : '';
   return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(raw) ? raw : '#3b82f6';
@@ -14469,9 +14608,10 @@ async function startServer() {
           'ai.customer-service-agent.prompt',
           req.query.correlationId ?? req.query.correlation_id,
           {
-            prompt:
-              'You are the In & Out Laundry WhatsApp customer-service agent. POS is the source of truth. Never invent prices, order status, compensation, liability, or customer data. Reply in the customer language and escalate high-risk complaints.',
-            version: 'mvp-v1',
+            prompt: getInOutCustomerServiceSystemPrompt(),
+            systemPrompt: getInOutCustomerServiceSystemPrompt(),
+            knowledgeBaseSource: 'workflows/INOUT_LAUNDRY_CUSTOMER_SERVICE_KB.md',
+            version: 'customer-service-kb-v1',
           },
           startedAt
         )
@@ -14486,16 +14626,40 @@ async function startServer() {
       const startedAt = Date.now();
       const q = clampText(req.query.q ?? req.query.query, 120).toLowerCase();
       const params = q ? [`%${q}%`] : [];
-      const articles = await v1Rows(
-        q
-          ? `SELECT * FROM ai_knowledge_base WHERE is_active = 1 AND (LOWER(title) LIKE ? OR LOWER(content) LIKE ? OR LOWER(category) LIKE ?) ORDER BY updated_at DESC LIMIT 10`
-          : `SELECT * FROM ai_knowledge_base WHERE is_active = 1 ORDER BY updated_at DESC LIMIT 10`,
-        q
-          ? `SELECT * FROM ai_knowledge_base WHERE is_active = TRUE AND (LOWER(title) LIKE $1 OR LOWER(content) LIKE $2 OR LOWER(category) LIKE $3) ORDER BY updated_at DESC LIMIT 10`
-          : `SELECT * FROM ai_knowledge_base WHERE is_active = TRUE ORDER BY updated_at DESC LIMIT 10`,
-        q ? [params[0], params[0], params[0]] : []
+      let databaseArticles: any[] = [];
+      try {
+        databaseArticles = await v1Rows(
+          q
+            ? `SELECT * FROM ai_knowledge_base WHERE is_active = 1 AND (LOWER(title) LIKE ? OR LOWER(content) LIKE ? OR LOWER(category) LIKE ?) ORDER BY updated_at DESC LIMIT 10`
+            : `SELECT * FROM ai_knowledge_base WHERE is_active = 1 ORDER BY updated_at DESC LIMIT 10`,
+          q
+            ? `SELECT * FROM ai_knowledge_base WHERE is_active = TRUE AND (LOWER(title) LIKE $1 OR LOWER(content) LIKE $2 OR LOWER(category) LIKE $3) ORDER BY updated_at DESC LIMIT 10`
+            : `SELECT * FROM ai_knowledge_base WHERE is_active = TRUE ORDER BY updated_at DESC LIMIT 10`,
+          q ? [params[0], params[0], params[0]] : []
+        );
+      } catch (error) {
+        console.warn('[ai-kb] database knowledge-base search unavailable:', (error as Error).message);
+      }
+      const fileArticles = searchCustomerServiceKbFile(q, clampText(req.query.language, 20) || 'auto', 10);
+      const seen = new Set<string>();
+      const articles = [...databaseArticles, ...fileArticles]
+        .filter((article: any) => {
+          const key = String(article.id ?? `${article.title}:${article.category}`);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .slice(0, 10);
+      res.json(
+        v1Success('knowledge-base.search', req.query.correlationId ?? req.query.correlation_id, {
+          articles,
+          sources: {
+            databaseCount: databaseArticles.length,
+            fileCount: fileArticles.length,
+            file: 'workflows/INOUT_LAUNDRY_CUSTOMER_SERVICE_KB.md',
+          },
+        }, startedAt)
       );
-      res.json(v1Success('knowledge-base.search', req.query.correlationId ?? req.query.correlation_id, { articles }, startedAt));
     })
   );
 

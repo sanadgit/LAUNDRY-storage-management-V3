@@ -36,13 +36,13 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{$json.activeConversationUrl}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/active?customerId=' + encodeURIComponent($json.customerId || $json.customer?.id || $json.identity?.customer?.id || '') + '&phone=' + encodeURIComponent($json.normalizedPhone || $json.normalized_phone || $json.customer_phone || $json.identity?.normalizedPhone || '')}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-            "value": "={{'Bearer ' + ($node[\"Remove Config From Item\"].json[\"apiToken\"] || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -93,7 +93,7 @@
           "conditions": [
             {
               "id": "has-conversation",
-              "leftValue": "={{$json.statusCode >= 200 && $json.statusCode < 300 && Boolean(($json.body && $json.body.data && ($json.body.data.conversationId || $json.body.data.conversation_id)))}}",
+              "leftValue": "={{$json.statusCode >= 200 && $json.statusCode < 300 && Boolean($json.body?.data?.conversationId || $json.body?.data?.conversation_id)}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -117,13 +117,13 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{$node[\"Remove Config From Item\"].json[\"createConversationUrl\"]}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-            "value": "={{'Bearer ' + ($node[\"Remove Config From Item\"].json[\"apiToken\"] || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -141,7 +141,7 @@
         },
         "sendBody": true,
         "contentType": "json",
-        "jsonBody": "={{ { provider: 'whatsapp', channel: 'whatsapp', customerId: $node[\"Remove Config From Item\"].json[\"customerId\"] || null, customerPhone: $node[\"Remove Config From Item\"].json[\"normalizedPhone\"] || $node[\"Remove Config From Item\"].json[\"customerPhone\"] || $node[\"Remove Config From Item\"].json[\"phone\"] || null, phone: $node[\"Remove Config From Item\"].json[\"normalizedPhone\"] || $node[\"Remove Config From Item\"].json[\"customerPhone\"] || $node[\"Remove Config From Item\"].json[\"phone\"] || null, customerName: $node[\"Remove Config From Item\"].json[\"customerName\"] || (($node[\"Remove Config From Item\"].json[\"identity\"] || {}).customer || {}).name || null, language: $node[\"Remove Config From Item\"].json[\"language\"] || $node[\"Remove Config From Item\"].json[\"detectedLanguage\"] || null, detectedLanguage: $node[\"Remove Config From Item\"].json[\"detectedLanguage\"] || $node[\"Remove Config From Item\"].json[\"language\"] || null, intent: $node[\"Remove Config From Item\"].json[\"intent\"] || 'unknown', correlationId: $node[\"Remove Config From Item\"].json[\"correlationId\"] || $node[\"Remove Config From Item\"].json[\"correlation_id\"] || '', sourceMessageId: $node[\"Remove Config From Item\"].json[\"wamid\"] || $node[\"Remove Config From Item\"].json[\"messageId\"] || (($node[\"Remove Config From Item\"].json[\"normalizedMessage\"] || {}).wamid) || null } }}",
+        "jsonBody": "={{ { provider: 'whatsapp', customerId: $json.customerId || $json.customer?.id || $json.identity?.customer?.id || null, normalizedPhone: $json.normalizedPhone || $json.normalized_phone || $json.customer_phone || $json.identity?.normalizedPhone || null, language: $json.language || $json.detectedLanguage || null, correlationId: $json.correlationId || $json.correlation_id, sourceMessageId: $json.wamid || $json.messageId || $json.normalizedMessage?.wamid || null } }}",
         "options": {
           "response": {
             "response": {
@@ -155,19 +155,6 @@
       }
     },
     {
-      "id": "resolve-conversation-identity",
-      "name": "Resolve Conversation Identity",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        320,
-        20
-      ],
-      "parameters": {
-        "jsCode": "const response = $json || {};\nlet input = {};\nlet prepared = {};\ntry {\n  input = $node['Workflow Input'].json || {};\n} catch (error) {\n  input = {};\n}\ntry {\n  prepared = $node['Remove Config From Item'].json || {};\n} catch (error) {\n  prepared = {};\n}\nconst data = ((response.body || {}).data) || {};\nconst conversation = data.conversation || {};\nconst contact = data.contact || {};\nconst conversationId = String(\n  data.conversationId ||\n  data.conversation_id ||\n  conversation.id ||\n  response.conversationId ||\n  input.conversationId ||\n  input.conversation_id ||\n  ''\n).trim();\nreturn [{\n  json: {\n    ...input,\n    ...prepared,\n    conversationId,\n    conversation_id: conversationId,\n    contactId: contact.id || conversation.contact_id || input.contactId || input.contact_id || null,\n    correlationId: prepared.correlationId || prepared.correlation_id || input.correlationId || input.correlation_id || '',\n    memorySeed: {\n      contact,\n      conversation,\n      sourceWorkflow: response.body?.meta?.workflow || '',\n      statusCode: response.statusCode || null,\n    },\n    conversationResolved: Boolean(conversationId),\n  },\n}];"
-      }
-    },
-    {
       "id": "load-recent-messages",
       "name": "Load Recent Messages",
       "type": "n8n-nodes-base.httpRequest",
@@ -178,13 +165,13 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{$node[\"Remove Config From Item\"].json[\"serviceApiBaseUrl\"] + '/api/v1/ai/conversations/' + encodeURIComponent($node[\"Resolve Conversation Identity\"].json[\"conversationId\"] || 'unknown') + '/messages/recent?limit=8'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent($json.body?.data?.conversationId || $json.body?.data?.conversation_id || 'unknown') + '/messages/recent?limit=8'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-            "value": "={{'Bearer ' + ($node[\"Remove Config From Item\"].json[\"apiToken\"] || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -226,13 +213,13 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{$node[\"Remove Config From Item\"].json[\"serviceApiBaseUrl\"] + '/api/v1/ai/conversations/' + encodeURIComponent($node[\"Resolve Conversation Identity\"].json[\"conversationId\"] || 'unknown') + '/summary'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent($json.body?.data?.conversationId || $json.body?.data?.conversation_id || 'unknown') + '/summary'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-            "value": "={{'Bearer ' + ($node[\"Remove Config From Item\"].json[\"apiToken\"] || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -274,13 +261,13 @@
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{$node[\"Remove Config From Item\"].json[\"serviceApiBaseUrl\"] + '/api/v1/ai/conversations/' + encodeURIComponent($node[\"Resolve Conversation Identity\"].json[\"conversationId\"] || 'unknown') + '/context'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent($json.body?.data?.conversationId || $json.body?.data?.conversation_id || 'unknown') + '/context'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-            "value": "={{'Bearer ' + ($node[\"Remove Config From Item\"].json[\"apiToken\"] || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -331,7 +318,7 @@
           "conditions": [
             {
               "id": "context-size",
-              "leftValue": "={{Number(($json.body && $json.body.data && ($json.body.data.estimatedTokens || $json.body.data.contextSize)) || 0)}}",
+              "leftValue": "={{Number($json.body?.data?.estimatedTokens || $json.body?.data?.contextSize || 0)}}",
               "rightValue": 6000,
               "operator": {
                 "type": "number",
@@ -355,13 +342,13 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{$node[\"Remove Config From Item\"].json[\"serviceApiBaseUrl\"] + '/api/v1/ai/conversations/' + encodeURIComponent($node[\"Resolve Conversation Identity\"].json[\"conversationId\"] || 'unknown') + '/summarize'}}",
+        "url": "={{($node[\"Workflow Config\"].json[\"SERVICE_API_BASE_URL\"] || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '') + '/api/v1/ai/conversations/' + encodeURIComponent($json.body?.data?.conversationId || $json.body?.data?.conversation_id || 'unknown') + '/summarize'}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Authorization",
-            "value": "={{'Bearer ' + ($node[\"Remove Config From Item\"].json[\"apiToken\"] || '')}}"
+              "value": "={{'Bearer ' + ($node[\"Workflow Config\"].json[\"N8N_API_KEY\"] || '')}}"
             },
             {
               "name": "Content-Type",
@@ -395,14 +382,39 @@
     {
       "id": "return-memory-context",
       "name": "Return Memory Context",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
       "position": [
         1680,
         20
       ],
       "parameters": {
-        "jsCode": "return $input.all().map((item) => {\n  const json = { ...(item.json || {}) };\n  const contextData = ((json.body || {}).data) || {};\n  let input = {};\n  let resolved = {};\n  let recentData = {};\n  let summaryData = {};\n  try {\n    input = $node['Workflow Input'].json || {};\n  } catch (error) {\n    input = {};\n  }\n  try {\n    resolved = $node['Resolve Conversation Identity'].json || {};\n  } catch (error) {\n    resolved = {};\n  }\n  try {\n    recentData = ((($node['Load Recent Messages'].json || {}).body || {}).data) || {};\n  } catch (error) {\n    recentData = {};\n  }\n  try {\n    summaryData = ((($node['Load Conversation Summary'].json || {}).body || {}).data) || {};\n  } catch (error) {\n    summaryData = {};\n  }\n  const conversation = contextData.conversation || resolved.memorySeed?.conversation || {};\n  const summaryRecord = contextData.summary || summaryData.summary || {};\n  const conversationId = String(\n    resolved.conversationId ||\n    contextData.conversationId ||\n    contextData.conversation_id ||\n    conversation.id ||\n    input.conversationId ||\n    input.conversation_id ||\n    ''\n  ).trim();\n  const correlationId = resolved.correlationId || json.correlationId || json.correlation_id || input.correlationId || input.correlation_id || '';\n  const memory = {\n    customerId: conversation.customer_id || conversation.contact_id || resolved.customerId || input.customerId || null,\n    conversationId: conversationId || null,\n    currentOrderId: conversation.current_order_id || input.currentOrderId || null,\n    currentPickupId: conversation.current_pickup_id || input.currentPickupId || null,\n    currentDeliveryId: conversation.current_delivery_id || input.currentDeliveryId || null,\n    currentComplaintId: conversation.current_complaint_id || input.currentComplaintId || null,\n    branchId: conversation.branch_id || input.branchId || null,\n    language: conversation.language || summaryRecord.language || input.detectedLanguage || input.language || null,\n    currentIntent: conversation.intent || conversation.current_intent || input.intent || null,\n    humanHandoffStatus: conversation.human_handoff_status || null,\n    summary: summaryRecord.summary || contextData.summaryText || '',\n    recentMessages: Array.isArray(recentData.messages) ? recentData.messages : [],\n  };\n\n  return {\n    ...item,\n    json: {\n      ...input,\n      ...resolved,\n      ...json,\n      memory,\n      conversationId,\n      conversation_id: conversationId,\n      correlationId,\n      success: true,\n      status: 'SUCCESS',\n    },\n  };\n});"
+        "assignments": {
+          "assignments": [
+            {
+              "id": "memory",
+              "name": "memory",
+              "type": "object",
+              "value": "={{ { customerId: $json.body?.data?.customerId || null, conversationId: $json.body?.data?.conversationId || $json.body?.data?.conversation_id || null, currentOrderId: $json.body?.data?.currentOrderId || null, currentPickupId: $json.body?.data?.currentPickupId || null, currentDeliveryId: $json.body?.data?.currentDeliveryId || null, currentComplaintId: $json.body?.data?.currentComplaintId || null, branchId: $json.body?.data?.branchId || null, language: $json.body?.data?.language || null, currentIntent: $json.body?.data?.currentIntent || null, humanHandoffStatus: $json.body?.data?.humanHandoffStatus || null, summary: $json.body?.data?.summary || \"\", recentMessages: $json.body?.data?.recentMessages || [] } }}"
+            },
+            {
+              "id": "conversationId",
+              "name": "conversationId",
+              "type": "string",
+              "value": "={{$json.body?.data?.conversationId || $json.body?.data?.conversation_id || \"\"}}"
+            },
+            {
+              "id": "correlationId",
+              "name": "correlationId",
+              "type": "string",
+              "value": "={{$json.correlationId || $json.correlation_id || $(\"Workflow Input\").first().json.correlationId}}"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {
+          "dotNotation": false
+        }
       }
     },
     {
@@ -422,6 +434,18 @@
               "name": "SERVICE_API_BASE_URL",
               "type": "string",
               "value": "PASTE_SERVICE_API_BASE_URL_HERE"
+            },
+            {
+              "id": "public_price_list_pdf_url",
+              "name": "PUBLIC_PRICE_LIST_PDF_URL",
+              "type": "string",
+              "value": "https://www.inandoutuae.com/pricing/inout-laundry-price-list.pdf"
+            },
+            {
+              "id": "public_price_list_image_url",
+              "name": "PUBLIC_PRICE_LIST_IMAGE_URL",
+              "type": "string",
+              "value": "https://www.inandoutuae.com/pricing/inout-laundry-price-card.png"
             },
             {
               "id": "n8n_api_key",
@@ -621,7 +645,7 @@
         20
       ],
       "parameters": {
-        "jsCode": "const configKeys = [\"SERVICE_API_BASE_URL\",\"N8N_API_KEY\",\"WHATSAPP_PHONE_NUMBER_ID\",\"WHATSAPP_ACCESS_TOKEN\",\"WHATSAPP_AUDIO_MAX_BYTES\",\"OPENAI_CHAT_MODEL\",\"OPENAI_TRANSCRIPTION_MODEL\",\"OPERATIONS_ALERT_PHONE\",\"CONVERSATION_SUMMARY_MESSAGE_THRESHOLD\",\"N8N_RETRY_MAX_ATTEMPTS\",\"N8N_RETRY_BASE_MS\",\"N8N_RETRY_MAX_BACKOFF_MS\",\"N8N_WF_IDEMPOTENCY_CHECK_ID\",\"N8N_WF_PHONE_NORMALIZATION_ID\",\"N8N_WF_CUSTOMER_IDENTITY_ID\",\"N8N_WF_MEMORY_MANAGER_ID\",\"N8N_WF_AI_AGENT_ID\",\"N8N_WF_ORDER_TRACKING_ID\",\"N8N_WF_PICKUP_REQUEST_ID\",\"N8N_WF_AREA_BRANCH_RESOLVER_ID\",\"N8N_WF_DRIVER_DISPATCH_ID\",\"N8N_WF_DRIVER_NOTIFICATION_ID\",\"N8N_WF_DRIVER_REASSIGNMENT_ID\",\"N8N_WF_COMPLAINT_ID\",\"N8N_WF_NOTIFY_BRANCH_MANAGER_ID\",\"N8N_WF_HUMAN_HANDOFF_ID\",\"N8N_WF_VOICE_PROCESSING_ID\",\"N8N_WF_RESPONSE_SENDER_ID\",\"N8N_WF_SAVE_SUMMARY_ID\",\"N8N_WF_ERROR_HANDLER_ID\",\"N8N_WF_RETRY_QUEUE_ID\"];\nreturn $input.all().map((item) => {\n  const json = { ...(item.json || {}) };\n  const serviceApiBaseUrl = String(json.SERVICE_API_BASE_URL || 'MISSING_SERVICE_API_BASE_URL').replace(/\\/$/, '').replace(/\\/api\\/v1$/i, '');\n  const apiToken = String(json.N8N_API_KEY || '');\n  const identityCustomer = ((json.identity || {}).customer) || {};\n  const normalizedMessage = json.normalizedMessage || {};\n  const customerId = json.customerId || ((json.customer || {}).id) || identityCustomer.id || '';\n  const normalizedPhone = json.normalizedPhone || json.normalized_phone || json.customerPhone || json.customer_phone || (json.identity || {}).normalizedPhone || '';\n  const correlationId = json.correlationId || json.correlation_id || '';\n  const sourceMessageId = json.wamid || json.messageId || normalizedMessage.wamid || null;\n  json.serviceApiBaseUrl = serviceApiBaseUrl;\n  json.apiToken = apiToken;\n  json.activeConversationUrl = serviceApiBaseUrl + '/api/v1/ai/conversations/active?customerId=' + encodeURIComponent(customerId) + '&phone=' + encodeURIComponent(normalizedPhone);\n  json.createConversationUrl = serviceApiBaseUrl + '/api/v1/ai/conversations';\n  json.createConversationBody = {\n    provider: 'whatsapp',\n    customerId: customerId || null,\n    normalizedPhone: normalizedPhone || null,\n    language: json.language || json.detectedLanguage || null,\n    correlationId,\n    sourceMessageId,\n  };\n  for (const key of configKeys) delete json[key];\n  return { ...item, json };\n});"
+        "jsCode": "const configKeys = [\"SERVICE_API_BASE_URL\",\"PUBLIC_PRICE_LIST_PDF_URL\",\"PUBLIC_PRICE_LIST_IMAGE_URL\",\"N8N_API_KEY\",\"WHATSAPP_PHONE_NUMBER_ID\",\"WHATSAPP_ACCESS_TOKEN\",\"WHATSAPP_AUDIO_MAX_BYTES\",\"OPENAI_CHAT_MODEL\",\"OPENAI_TRANSCRIPTION_MODEL\",\"OPERATIONS_ALERT_PHONE\",\"CONVERSATION_SUMMARY_MESSAGE_THRESHOLD\",\"N8N_RETRY_MAX_ATTEMPTS\",\"N8N_RETRY_BASE_MS\",\"N8N_RETRY_MAX_BACKOFF_MS\",\"N8N_WF_IDEMPOTENCY_CHECK_ID\",\"N8N_WF_PHONE_NORMALIZATION_ID\",\"N8N_WF_CUSTOMER_IDENTITY_ID\",\"N8N_WF_MEMORY_MANAGER_ID\",\"N8N_WF_AI_AGENT_ID\",\"N8N_WF_ORDER_TRACKING_ID\",\"N8N_WF_PICKUP_REQUEST_ID\",\"N8N_WF_AREA_BRANCH_RESOLVER_ID\",\"N8N_WF_DRIVER_DISPATCH_ID\",\"N8N_WF_DRIVER_NOTIFICATION_ID\",\"N8N_WF_DRIVER_REASSIGNMENT_ID\",\"N8N_WF_COMPLAINT_ID\",\"N8N_WF_NOTIFY_BRANCH_MANAGER_ID\",\"N8N_WF_HUMAN_HANDOFF_ID\",\"N8N_WF_VOICE_PROCESSING_ID\",\"N8N_WF_RESPONSE_SENDER_ID\",\"N8N_WF_SAVE_SUMMARY_ID\",\"N8N_WF_ERROR_HANDLER_ID\",\"N8N_WF_RETRY_QUEUE_ID\"];\nreturn $input.all().map((item) => {\n  const json = { ...(item.json || {}) };\n  const workflowRuntimeConfig = {};\n  for (const key of configKeys) if (json[key] != null) workflowRuntimeConfig[key] = json[key];\n  for (const key of configKeys) delete json[key];\n  json.workflowRuntimeConfig = workflowRuntimeConfig;\n  return { ...item, json };\n});"
       }
     }
   ],
@@ -652,7 +676,7 @@
       "main": [
         [
           {
-            "node": "Resolve Conversation Identity",
+            "node": "Load Recent Messages",
             "type": "main",
             "index": 0
           }
@@ -667,17 +691,6 @@
       ]
     },
     "Create Conversation": {
-      "main": [
-        [
-          {
-            "node": "Resolve Conversation Identity",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Resolve Conversation Identity": {
       "main": [
         [
           {

@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>In & Out Laundry Price Card</title>
+  <style>
+    
+  @page { size: A4; margin: 14mm; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Aptos Display", "Segoe UI Variable Display", "Segoe UI", Tahoma, Arial, sans-serif;
+    color: #180b20;
+    background:
+      radial-gradient(circle at 10% 8%, rgba(255, 209, 102, .34), transparent 30%),
+      radial-gradient(circle at 92% 5%, rgba(38, 224, 230, .32), transparent 34%),
+      radial-gradient(circle at 70% 85%, rgba(154, 47, 131, .30), transparent 32%),
+      linear-gradient(135deg, #170623 0%, #2b084f 34%, #6f1d63 70%, #083f4a 100%);
+    direction: rtl;
+  }
+  .page {
+    min-height: 100vh;
+    padding: 28px;
+  }
+  .sheet {
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.96), rgba(255,250,255,.93)),
+      radial-gradient(circle at top right, rgba(255,255,255,.92), transparent 45%);
+    border: 1px solid rgba(255, 223, 150, .34);
+    border-radius: 28px;
+    box-shadow: 0 28px 95px rgba(7, 0, 18, .28);
+    overflow: hidden;
+  }
+  .hero {
+    padding: 28px 32px;
+    background:
+      radial-gradient(circle at 14% 16%, rgba(255, 220, 140, .34), transparent 30%),
+      radial-gradient(circle at 86% 0%, rgba(72, 226, 231, .24), transparent 28%),
+      linear-gradient(135deg, rgba(43,8,79,.98), rgba(111,29,99,.96) 58%, rgba(8,63,74,.94));
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .brand-mark {
+    width: 62px;
+    height: 62px;
+    border-radius: 20px;
+    background: linear-gradient(145deg, #ffffff, #fff4dc);
+    padding: 8px;
+    object-fit: contain;
+    box-shadow: 0 18px 38px rgba(0, 0, 0, .20);
+  }
+  .eyebrow {
+    margin: 0 0 8px;
+    font-size: 12px;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    opacity: .78;
+  }
+  h1 {
+    margin: 0;
+    font-size: 34px;
+    line-height: 1.15;
+    font-weight: 900;
+    letter-spacing: -.02em;
+    text-shadow: 0 6px 26px rgba(0, 0, 0, .22);
+  }
+  .subtitle {
+    margin: 10px 0 0;
+    opacity: .9;
+    font-size: 15px;
+  }
+  .badge {
+    padding: 10px 14px;
+    border-radius: 999px;
+    background: rgba(255, 231, 169, .18);
+    border: 1px solid rgba(255, 223, 150, .36);
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .note {
+    margin: 20px 24px 0;
+    padding: 14px 18px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #fff8e6, #fff1f8);
+    color: #51310a;
+    font-size: 13px;
+    border: 1px solid rgba(158,111,10,.18);
+  }
+  .section {
+    padding: 22px 24px 6px;
+  }
+  h2 {
+    margin: 0 0 14px;
+    font-size: 19px;
+    color: #62124f;
+    font-weight: 900;
+  }
+  table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    overflow: hidden;
+    border-radius: 18px;
+    border: 1px solid #ead9ea;
+    background: white;
+    font-size: 12px;
+  }
+  th {
+    background: linear-gradient(135deg, #f9ecfb, #fff5df);
+    color: #4f0e42;
+    font-size: 11px;
+    padding: 10px 8px;
+    text-align: right;
+    white-space: nowrap;
+  }
+  td {
+    padding: 10px 8px;
+    border-top: 1px solid #f0e7f0;
+    vertical-align: middle;
+  }
+  tr:nth-child(even) td { background: #fcf8fc; }
+  .item-cell {
+    min-width: 185px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  .icon-wrap {
+    width: 34px;
+    height: 34px;
+    flex: 0 0 34px;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    background: radial-gradient(circle at 30% 20%, #ffffff, #f5eaf7 58%, #f3dba5);
+    border: 1px solid rgba(98, 18, 79, .12);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.8), 0 8px 20px rgba(69, 15, 72, .08);
+    overflow: hidden;
+  }
+  .item-icon {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+    display: block;
+  }
+  strong { display: block; font-size: 13px; color: #190a21; font-weight: 850; }
+  em { display: block; font-family: "Segoe UI", Arial, sans-serif; font-style: normal; color: #6f6073; font-size: 10px; margin-top: 2px; direction: ltr; text-align: right; font-weight: 700; }
+  .footer {
+    padding: 18px 24px 24px;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    color: #6d6170;
+    font-size: 11px;
+  }
+  .ltr { direction: ltr; }
+
+    body { width: 1080px; height: 1440px; overflow: hidden; }
+    .page { width: 1080px; height: 1440px; padding: 44px; }
+    .sheet { height: 100%; border-radius: 42px; position: relative; }
+    .sheet::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at 8% 12%, rgba(255, 219, 140, .18), transparent 18%),
+        radial-gradient(circle at 92% 78%, rgba(37, 219, 226, .16), transparent 22%);
+      z-index: 0;
+    }
+    .sheet > * { position: relative; z-index: 1; }
+    .hero { padding: 42px 48px; }
+    .brand-mark { width: 86px; height: 86px; border-radius: 26px; }
+    h1 { font-size: 60px; }
+    .subtitle { font-size: 25px; }
+    .badge { font-size: 20px; padding: 16px 22px; }
+    .note { margin: 28px 36px 0; font-size: 21px; line-height: 1.55; padding: 22px 26px; }
+    .grid { padding: 34px 36px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+    .card {
+      border-radius: 26px;
+      background: linear-gradient(145deg, rgba(255,255,255,.98), rgba(255,247,254,.96));
+      border: 1px solid rgba(111,29,99,.13);
+      padding: 20px;
+      display: grid;
+      grid-template-columns: 78px 1fr;
+      gap: 16px;
+      align-items: start;
+      box-shadow: 0 16px 38px rgba(35, 8, 52, .11);
+    }
+    .card .icon-wrap {
+      width: 78px;
+      height: 78px;
+      border-radius: 24px;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at 26% 20%, #ffffff, #fff8e8 44%, #edd8f0 78%),
+        linear-gradient(135deg, #fff6dc, #f1e1f5);
+      border: 1px solid rgba(255, 210, 120, .50);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 14px 30px rgba(50, 13, 62, .14);
+      overflow: hidden;
+    }
+    .card .item-icon {
+      width: 64px;
+      height: 64px;
+      object-fit: contain;
+    }
+    .card h3 { margin: 0; font-size: 27px; color: #170723; font-weight: 900; }
+    .card p { margin: 4px 0 12px; font-size: 15px; color: #67546c; direction: ltr; text-align: right; font-weight: 800; }
+    .prices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .pill { border-radius: 14px; background: linear-gradient(135deg, #fbf6ff, #fff8e9); padding: 9px 10px; border: 1px solid rgba(111, 29, 99, .08); }
+    .pill span { display: block; font-size: 12px; color: #755c79; font-weight: 800; }
+    .pill strong { font-size: 17px; color: #7a145f; font-weight: 950; }
+    .footer { padding: 0 38px 32px; font-size: 20px; align-items: center; }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="sheet">
+      <header class="hero">
+        <div class="brand">
+          <img class="brand-mark" src="../brand/logo-in-and-out-laundry.png" alt="In & Out Laundry" />
+          <div>
+            <p class="eyebrow">IN & OUT LAUNDRY</p>
+            <h1>أسعارنا المختصرة</h1>
+            <p class="subtitle">أشهر القطع المطلوبة عبر واتساب</p>
+          </div>
+        </div>
+      </header>
+      <p class="note">للقائمة الكاملة: اطلب “قائمة الأسعار” أو افتح ملف PDF المرفق. الأسعار بالدرهم وقد تتطلب القطع الحساسة فحصًا قبل التأكيد.</p>
+      <section class="grid">
+        
+        <article class="card">
+          <div class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Women__women_abaya.png" alt="" />
+          </div>
+          <div>
+            <h3>عباءة</h3>
+            <p>ABAYA</p>
+            <div class="prices">
+              <div class="pill"><span>غسيل وتجفيف</span><strong>15 درهم</strong></div>
+              <div class="pill"><span>كي فقط</span><strong>7 درهم</strong></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Home__home_blanket_big.png" alt="" />
+          </div>
+          <div>
+            <h3>بطانية كبيرة</h3>
+            <p>BLANKET-BIG</p>
+            <div class="prices">
+              <div class="pill"><span>غسيل وتجفيف</span><strong>20 درهم</strong></div>
+              <div class="pill"><span>كي فقط</span><strong>غير متاح</strong></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Home__home_blanket_small.png" alt="" />
+          </div>
+          <div>
+            <h3>بطانية صغيرة</h3>
+            <p>BLANKET-SMALL</p>
+            <div class="prices">
+              <div class="pill"><span>غسيل وتجفيف</span><strong>15 درهم</strong></div>
+              <div class="pill"><span>كي فقط</span><strong>غير متاح</strong></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/OUTTY__outty-washing-machine.png" alt="" />
+          </div>
+          <div>
+            <h3>سجاد</h3>
+            <p>CARPET</p>
+            <div class="prices">
+              <div class="pill"><span>غسيل وتجفيف</span><strong>10 لكل م²</strong></div>
+              <div class="pill"><span>كي فقط</span><strong>غير متاح</strong></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Home__home_curtain_big.png" alt="" />
+          </div>
+          <div>
+            <h3>ستارة كبيرة</h3>
+            <p>CURTAIN-BIG</p>
+            <div class="prices">
+              <div class="pill"><span>غسيل وتجفيف</span><strong>40 درهم</strong></div>
+              <div class="pill"><span>كي فقط</span><strong>20 درهم</strong></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Women__women_jallabiya.png" alt="" />
+          </div>
+          <div>
+            <h3>فستان نسائي</h3>
+            <p>DRESS LADY</p>
+            <div class="prices">
+              <div class="pill"><span>غسيل وتجفيف</span><strong>20 درهم</strong></div>
+              <div class="pill"><span>كي فقط</span><strong>10 درهم</strong></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_gutra.png" alt="" />
+          </div>
+          <div>
+            <h3>غترة</h3>
+            <p>GUTRA</p>
+            <div class="prices">
+              <div class="pill"><span>غسيل وتجفيف</span><strong>4 درهم</strong></div>
+              <div class="pill"><span>كي فقط</span><strong>3 درهم</strong></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_kandoora.png" alt="" />
+          </div>
+          <div>
+            <h3>كندورة</h3>
+            <p>KANDOORA</p>
+            <div class="prices">
+              <div class="pill"><span>غسيل وتجفيف</span><strong>6 درهم</strong></div>
+              <div class="pill"><span>كي فقط</span><strong>3.50 درهم</strong></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_pants.png" alt="" />
+          </div>
+          <div>
+            <h3>بنطلون</h3>
+            <p>PANTS</p>
+            <div class="prices">
+              <div class="pill"><span>غسيل وتجفيف</span><strong>5 درهم</strong></div>
+              <div class="pill"><span>كي فقط</span><strong>3 درهم</strong></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Women__women_sheela.png" alt="" />
+          </div>
+          <div>
+            <h3>شيلة</h3>
+            <p>SHEELA</p>
+            <div class="prices">
+              <div class="pill"><span>غسيل وتجفيف</span><strong>5 درهم</strong></div>
+              <div class="pill"><span>كي فقط</span><strong>3 درهم</strong></div>
+            </div>
+          </div>
+        </article>
+      </section>
+      <footer class="footer">
+        <span>In & Out Laundry</span>
+        <span class="ltr">https://www.inandoutuae.com</span>
+      </footer>
+    </section>
+  </main>
+</body>
+</html>

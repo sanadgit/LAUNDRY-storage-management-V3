@@ -1,0 +1,1203 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>In & Out Laundry Price List</title>
+  <style>
+  @page { size: A4; margin: 14mm; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Aptos Display", "Segoe UI Variable Display", "Segoe UI", Tahoma, Arial, sans-serif;
+    color: #180b20;
+    background:
+      radial-gradient(circle at 10% 8%, rgba(255, 209, 102, .34), transparent 30%),
+      radial-gradient(circle at 92% 5%, rgba(38, 224, 230, .32), transparent 34%),
+      radial-gradient(circle at 70% 85%, rgba(154, 47, 131, .30), transparent 32%),
+      linear-gradient(135deg, #170623 0%, #2b084f 34%, #6f1d63 70%, #083f4a 100%);
+    direction: rtl;
+  }
+  .page {
+    min-height: 100vh;
+    padding: 28px;
+  }
+  .sheet {
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.96), rgba(255,250,255,.93)),
+      radial-gradient(circle at top right, rgba(255,255,255,.92), transparent 45%);
+    border: 1px solid rgba(255, 223, 150, .34);
+    border-radius: 28px;
+    box-shadow: 0 28px 95px rgba(7, 0, 18, .28);
+    overflow: hidden;
+  }
+  .hero {
+    padding: 28px 32px;
+    background:
+      radial-gradient(circle at 14% 16%, rgba(255, 220, 140, .34), transparent 30%),
+      radial-gradient(circle at 86% 0%, rgba(72, 226, 231, .24), transparent 28%),
+      linear-gradient(135deg, rgba(43,8,79,.98), rgba(111,29,99,.96) 58%, rgba(8,63,74,.94));
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .brand-mark {
+    width: 62px;
+    height: 62px;
+    border-radius: 20px;
+    background: linear-gradient(145deg, #ffffff, #fff4dc);
+    padding: 8px;
+    object-fit: contain;
+    box-shadow: 0 18px 38px rgba(0, 0, 0, .20);
+  }
+  .eyebrow {
+    margin: 0 0 8px;
+    font-size: 12px;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    opacity: .78;
+  }
+  h1 {
+    margin: 0;
+    font-size: 34px;
+    line-height: 1.15;
+    font-weight: 900;
+    letter-spacing: -.02em;
+    text-shadow: 0 6px 26px rgba(0, 0, 0, .22);
+  }
+  .subtitle {
+    margin: 10px 0 0;
+    opacity: .9;
+    font-size: 15px;
+  }
+  .badge {
+    padding: 10px 14px;
+    border-radius: 999px;
+    background: rgba(255, 231, 169, .18);
+    border: 1px solid rgba(255, 223, 150, .36);
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .note {
+    margin: 20px 24px 0;
+    padding: 14px 18px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #fff8e6, #fff1f8);
+    color: #51310a;
+    font-size: 13px;
+    border: 1px solid rgba(158,111,10,.18);
+  }
+  .section {
+    padding: 22px 24px 6px;
+  }
+  h2 {
+    margin: 0 0 14px;
+    font-size: 19px;
+    color: #62124f;
+    font-weight: 900;
+  }
+  table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    overflow: hidden;
+    border-radius: 18px;
+    border: 1px solid #ead9ea;
+    background: white;
+    font-size: 12px;
+  }
+  th {
+    background: linear-gradient(135deg, #f9ecfb, #fff5df);
+    color: #4f0e42;
+    font-size: 11px;
+    padding: 10px 8px;
+    text-align: right;
+    white-space: nowrap;
+  }
+  td {
+    padding: 10px 8px;
+    border-top: 1px solid #f0e7f0;
+    vertical-align: middle;
+  }
+  tr:nth-child(even) td { background: #fcf8fc; }
+  .item-cell {
+    min-width: 185px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  .icon-wrap {
+    width: 34px;
+    height: 34px;
+    flex: 0 0 34px;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    background: radial-gradient(circle at 30% 20%, #ffffff, #f5eaf7 58%, #f3dba5);
+    border: 1px solid rgba(98, 18, 79, .12);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.8), 0 8px 20px rgba(69, 15, 72, .08);
+    overflow: hidden;
+  }
+  .item-icon {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+    display: block;
+  }
+  strong { display: block; font-size: 13px; color: #190a21; font-weight: 850; }
+  em { display: block; font-family: "Segoe UI", Arial, sans-serif; font-style: normal; color: #6f6073; font-size: 10px; margin-top: 2px; direction: ltr; text-align: right; font-weight: 700; }
+  .footer {
+    padding: 18px 24px 24px;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    color: #6d6170;
+    font-size: 11px;
+  }
+  .ltr { direction: ltr; }
+</style>
+</head>
+<body>
+  <main class="page">
+    <section class="sheet">
+      <header class="hero">
+        <div class="brand">
+          <img class="brand-mark" src="../brand/logo-in-and-out-laundry.png" alt="In & Out Laundry" />
+          <div>
+            <p class="eyebrow">IN & OUT LAUNDRY</p>
+            <h1>قائمة الأسعار</h1>
+            <p class="subtitle">غسيل، كي، وخدمات مستعجلة حسب نوع القطعة</p>
+          </div>
+        </div>
+        <div class="badge">AED • شامل الأسعار الأساسية</div>
+      </header>
+      <p class="note">ملاحظة: الأسعار من قائمة الموقع الحالية. القطع الحساسة أو المزينة أو الحالات الخاصة قد تحتاج فحصًا قبل تأكيد الخدمة النهائية.</p>
+      
+      <section class="section">
+        <h2>رجالي</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>القطعة</th>
+              <th>غسيل وتجفيف</th>
+              <th>غسيل وكي مستعجل</th>
+              <th>كي فقط</th>
+              <th>كي مستعجل</th>
+            </tr>
+          </thead>
+          <tbody>
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_army_uniform.png" alt="" />
+          </span>
+          <span>
+            <strong>زي عسكري</strong>
+            <em>Army Uniform</em>
+          </span>
+        </td>
+        
+  <td>15 درهم</td>
+  <td>18 درهم</td>
+  <td>8 درهم</td>
+  <td>10 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_bisht.png" alt="" />
+          </span>
+          <span>
+            <strong>بشت فاخر</strong>
+            <em>BISHT</em>
+          </span>
+        </td>
+        
+  <td>30 درهم</td>
+  <td>60 درهم</td>
+  <td>15 درهم</td>
+  <td>20 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_fanela.png" alt="" />
+          </span>
+          <span>
+            <strong>فانيلة</strong>
+            <em>FANELA</em>
+          </span>
+        </td>
+        
+  <td>3 درهم</td>
+  <td>5 درهم</td>
+  <td>1.50 درهم</td>
+  <td>3 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_gutra.png" alt="" />
+          </span>
+          <span>
+            <strong>غترة</strong>
+            <em>GUTRA</em>
+          </span>
+        </td>
+        
+  <td>4 درهم</td>
+  <td>7 درهم</td>
+  <td>3 درهم</td>
+  <td>5 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_gutra_wool.png" alt="" />
+          </span>
+          <span>
+            <strong>غترة صوف</strong>
+            <em>Gutra Whool</em>
+          </span>
+        </td>
+        
+  <td>10 درهم</td>
+  <td>15 درهم</td>
+  <td>5 درهم</td>
+  <td>7 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_jacket.png" alt="" />
+          </span>
+          <span>
+            <strong>جاكيت</strong>
+            <em>JACKET</em>
+          </span>
+        </td>
+        
+  <td>15 درهم</td>
+  <td>20 درهم</td>
+  <td>5 درهم</td>
+  <td>8 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_jacket_leather.png" alt="" />
+          </span>
+          <span>
+            <strong>جاكيت جلد</strong>
+            <em>JACKET LEATHER</em>
+          </span>
+        </td>
+        
+  <td>20 درهم</td>
+  <td>30 درهم</td>
+  <td>8 درهم</td>
+  <td>15 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_jujitsu_uniform.png" alt="" />
+          </span>
+          <span>
+            <strong>زي جوجيتسو</strong>
+            <em>Jujitsu uniform</em>
+          </span>
+        </td>
+        
+  <td>15 درهم</td>
+  <td>20 درهم</td>
+  <td>8 درهم</td>
+  <td>10 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_kandoora.png" alt="" />
+          </span>
+          <span>
+            <strong>كندورة</strong>
+            <em>KANDOORA</em>
+          </span>
+        </td>
+        
+  <td>6 درهم</td>
+  <td>13 درهم</td>
+  <td>3.50 درهم</td>
+  <td>5 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_kandoora_tarbosh.png" alt="" />
+          </span>
+          <span>
+            <strong>كندورة مع طربوش</strong>
+            <em>Kandoora + tarbosh</em>
+          </span>
+        </td>
+        
+  <td>6 درهم</td>
+  <td>13 درهم</td>
+  <td>3.50 درهم</td>
+  <td>5 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_kandoora_wool.png" alt="" />
+          </span>
+          <span>
+            <strong>كندورة صوف</strong>
+            <em>Kandoora Whool</em>
+          </span>
+        </td>
+        
+  <td>15 درهم</td>
+  <td>20 درهم</td>
+  <td>5 درهم</td>
+  <td>7 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_overholl.png" alt="" />
+          </span>
+          <span>
+            <strong>بدلة عمل</strong>
+            <em>OVERHOLL</em>
+          </span>
+        </td>
+        
+  <td>10 درهم</td>
+  <td>18 درهم</td>
+  <td>5 درهم</td>
+  <td>7 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_overcoat.png" alt="" />
+          </span>
+          <span>
+            <strong>معطف طويل</strong>
+            <em>Over coat</em>
+          </span>
+        </td>
+        
+  <td>15 درهم</td>
+  <td>20 درهم</td>
+  <td>5 درهم</td>
+  <td>7 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_pants.png" alt="" />
+          </span>
+          <span>
+            <strong>بنطلون</strong>
+            <em>PANTS</em>
+          </span>
+        </td>
+        
+  <td>5 درهم</td>
+  <td>7 درهم</td>
+  <td>3 درهم</td>
+  <td>5 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_police_uniform.png" alt="" />
+          </span>
+          <span>
+            <strong>زي شرطة</strong>
+            <em>Police Uniform</em>
+          </span>
+        </td>
+        
+  <td>15 درهم</td>
+  <td>18 درهم</td>
+  <td>8 درهم</td>
+  <td>10 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_shirt.png" alt="" />
+          </span>
+          <span>
+            <strong>قميص</strong>
+            <em>SHIRT</em>
+          </span>
+        </td>
+        
+  <td>5 درهم</td>
+  <td>7 درهم</td>
+  <td>3 درهم</td>
+  <td>5 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_short.png" alt="" />
+          </span>
+          <span>
+            <strong>شورت</strong>
+            <em>SHORT</em>
+          </span>
+        </td>
+        
+  <td>4 درهم</td>
+  <td>6 درهم</td>
+  <td>2 درهم</td>
+  <td>4 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_socks.png" alt="" />
+          </span>
+          <span>
+            <strong>جوارب</strong>
+            <em>SOCKS</em>
+          </span>
+        </td>
+        
+  <td>2 درهم</td>
+  <td>4 درهم</td>
+  <td>1 درهم</td>
+  <td>2 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_suit.png" alt="" />
+          </span>
+          <span>
+            <strong>بدلة رجالي كاملة</strong>
+            <em>SUIT</em>
+          </span>
+        </td>
+        
+  <td>20 درهم</td>
+  <td>30 درهم</td>
+  <td>10 درهم</td>
+  <td>15 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_sweater_wool.png" alt="" />
+          </span>
+          <span>
+            <strong>سويتر صوف</strong>
+            <em>SWEATER WOOL</em>
+          </span>
+        </td>
+        
+  <td>10 درهم</td>
+  <td>15 درهم</td>
+  <td>5 درهم</td>
+  <td>8 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_special_takeya.png" alt="" />
+          </span>
+          <span>
+            <strong>طاقية خاصة</strong>
+            <em>Special Takeya</em>
+          </span>
+        </td>
+        
+  <td>5 درهم</td>
+  <td>7 درهم</td>
+  <td>2 درهم</td>
+  <td>5 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_t_shirt.png" alt="" />
+          </span>
+          <span>
+            <strong>تي شيرت</strong>
+            <em>T SHIRT</em>
+          </span>
+        </td>
+        
+  <td>5 درهم</td>
+  <td>7 درهم</td>
+  <td>3 درهم</td>
+  <td>5 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_takeya.png" alt="" />
+          </span>
+          <span>
+            <strong>طاقية</strong>
+            <em>TAKIYA</em>
+          </span>
+        </td>
+        
+  <td>2 درهم</td>
+  <td>4 درهم</td>
+  <td>1 درهم</td>
+  <td>2 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_tie.png" alt="" />
+          </span>
+          <span>
+            <strong>ربطة عنق</strong>
+            <em>TIE</em>
+          </span>
+        </td>
+        
+  <td>5 درهم</td>
+  <td>7 درهم</td>
+  <td>2 درهم</td>
+  <td>4 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_underwear.png" alt="" />
+          </span>
+          <span>
+            <strong>ملابس داخلية</strong>
+            <em>UNDERWEAR</em>
+          </span>
+        </td>
+        
+  <td>3 درهم</td>
+  <td>6 درهم</td>
+  <td>1.50 درهم</td>
+  <td>3 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/men_wezar.png" alt="" />
+          </span>
+          <span>
+            <strong>وزار</strong>
+            <em>WEZAR</em>
+          </span>
+        </td>
+        
+  <td>3 درهم</td>
+  <td>6 درهم</td>
+  <td>1.50 درهم</td>
+  <td>3 درهم</td>
+
+      </tr></tbody>
+        </table>
+      </section>
+
+      <section class="section">
+        <h2>نسائي</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>القطعة</th>
+              <th>غسيل وتجفيف</th>
+              <th>غسيل وكي مستعجل</th>
+              <th>كي فقط</th>
+              <th>كي مستعجل</th>
+            </tr>
+          </thead>
+          <tbody>
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Women__women_abaya.png" alt="" />
+          </span>
+          <span>
+            <strong>عباءة</strong>
+            <em>ABAYA</em>
+          </span>
+        </td>
+        
+  <td>15 درهم</td>
+  <td>20 درهم</td>
+  <td>7 درهم</td>
+  <td>10 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Women__women_blouse.png" alt="" />
+          </span>
+          <span>
+            <strong>بلوزة</strong>
+            <em>BLOUSE</em>
+          </span>
+        </td>
+        
+  <td>5 درهم</td>
+  <td>10 درهم</td>
+  <td>3 درهم</td>
+  <td>5 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Women__women_abaya.png" alt="" />
+          </span>
+          <span>
+            <strong>حمالة صدر</strong>
+            <em>BRA</em>
+          </span>
+        </td>
+        
+  <td>5 درهم</td>
+  <td>8 درهم</td>
+  <td>2.50 درهم</td>
+  <td>4 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Women__women_jallabiya.png" alt="" />
+          </span>
+          <span>
+            <strong>فستان نسائي</strong>
+            <em>DRESS LADY</em>
+          </span>
+        </td>
+        
+  <td>20 درهم</td>
+  <td>40 درهم</td>
+  <td>10 درهم</td>
+  <td>15 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Women__women_jallabiya.png" alt="" />
+          </span>
+          <span>
+            <strong>فستان زفاف</strong>
+            <em>DRESS WEDDING</em>
+          </span>
+        </td>
+        
+  <td>200 درهم</td>
+  <td>غير متاح</td>
+  <td>50 درهم</td>
+  <td>غير متاح</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Women__women_jallabiya.png" alt="" />
+          </span>
+          <span>
+            <strong>جلابية</strong>
+            <em>JALLABIYA</em>
+          </span>
+        </td>
+        
+  <td>15 درهم</td>
+  <td>20 درهم</td>
+  <td>8 درهم</td>
+  <td>10 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Women__women_sheela.png" alt="" />
+          </span>
+          <span>
+            <strong>شيلة</strong>
+            <em>SHEELA</em>
+          </span>
+        </td>
+        
+  <td>5 درهم</td>
+  <td>7 درهم</td>
+  <td>3 درهم</td>
+  <td>5 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Women__women_jallabiya.png" alt="" />
+          </span>
+          <span>
+            <strong>تنورة</strong>
+            <em>SKIRT</em>
+          </span>
+        </td>
+        
+  <td>5 درهم</td>
+  <td>7 درهم</td>
+  <td>3 درهم</td>
+  <td>5 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Women__women_jallabiya.png" alt="" />
+          </span>
+          <span>
+            <strong>تنورة طويلة</strong>
+            <em>TANORA</em>
+          </span>
+        </td>
+        
+  <td>5 درهم</td>
+  <td>8 درهم</td>
+  <td>3 درهم</td>
+  <td>5 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Women__women_niqab.png" alt="" />
+          </span>
+          <span>
+            <strong>نقاب</strong>
+            <em>niqab</em>
+          </span>
+        </td>
+        
+  <td>3 درهم</td>
+  <td>5 درهم</td>
+  <td>1.50 درهم</td>
+  <td>3 درهم</td>
+
+      </tr></tbody>
+        </table>
+      </section>
+
+      <section class="section">
+        <h2>أطفال</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>القطعة</th>
+              <th>غسيل وتجفيف</th>
+              <th>غسيل وكي مستعجل</th>
+              <th>كي فقط</th>
+              <th>كي مستعجل</th>
+            </tr>
+          </thead>
+          <tbody>
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/OUTTY__outty-order-basket.png" alt="" />
+          </span>
+          <span>
+            <strong>ملابس أطفال</strong>
+            <em>Baby clothes</em>
+          </span>
+        </td>
+        
+  <td>3 درهم</td>
+  <td>6 درهم</td>
+  <td>2 درهم</td>
+  <td>4 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/OUTTY__outty-order-basket.png" alt="" />
+          </span>
+          <span>
+            <strong>زي مدرسي أطفال</strong>
+            <em>baby dress school</em>
+          </span>
+        </td>
+        
+  <td>5 درهم</td>
+  <td>8 درهم</td>
+  <td>3 درهم</td>
+  <td>5 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Women__women_jallabiya.png" alt="" />
+          </span>
+          <span>
+            <strong>فساتين أطفال</strong>
+            <em>baby dresses</em>
+          </span>
+        </td>
+        
+  <td>8 درهم</td>
+  <td>15 درهم</td>
+  <td>3 درهم</td>
+  <td>5 درهم</td>
+
+      </tr></tbody>
+        </table>
+      </section>
+
+      <section class="section">
+        <h2>منزلي</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>القطعة</th>
+              <th>غسيل وتجفيف</th>
+              <th>غسيل وكي مستعجل</th>
+              <th>كي فقط</th>
+              <th>كي مستعجل</th>
+            </tr>
+          </thead>
+          <tbody>
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Home__home_bedsheet_big.png" alt="" />
+          </span>
+          <span>
+            <strong>شرشف سرير كبير</strong>
+            <em>BEDSHEET-BIG</em>
+          </span>
+        </td>
+        
+  <td>15 درهم</td>
+  <td>20 درهم</td>
+  <td>5 درهم</td>
+  <td>8 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Home__home_bedsheet_small.png" alt="" />
+          </span>
+          <span>
+            <strong>شرشف سرير صغير</strong>
+            <em>BEDSHEET-SMALL</em>
+          </span>
+        </td>
+        
+  <td>8 درهم</td>
+  <td>15 درهم</td>
+  <td>5 درهم</td>
+  <td>8 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Home__home_blanket_big.png" alt="" />
+          </span>
+          <span>
+            <strong>بطانية كبيرة</strong>
+            <em>BLANKET-BIG</em>
+          </span>
+        </td>
+        
+  <td>20 درهم</td>
+  <td>40 درهم</td>
+  <td>غير متاح</td>
+  <td>غير متاح</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Home__home_blanket_small.png" alt="" />
+          </span>
+          <span>
+            <strong>بطانية صغيرة</strong>
+            <em>BLANKET-SMALL</em>
+          </span>
+        </td>
+        
+  <td>15 درهم</td>
+  <td>30 درهم</td>
+  <td>غير متاح</td>
+  <td>غير متاح</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/OUTTY__outty-washing-machine.png" alt="" />
+          </span>
+          <span>
+            <strong>سجاد</strong>
+            <em>CARPET</em>
+          </span>
+        </td>
+        
+  <td>10 لكل م²</td>
+  <td>غير متاح</td>
+  <td>غير متاح</td>
+  <td>غير متاح</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Home__home_curtain_big.png" alt="" />
+          </span>
+          <span>
+            <strong>ستارة كبيرة</strong>
+            <em>CURTAIN-BIG</em>
+          </span>
+        </td>
+        
+  <td>40 درهم</td>
+  <td>غير متاح</td>
+  <td>20 درهم</td>
+  <td>25 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Home__home_curtain_medium.png" alt="" />
+          </span>
+          <span>
+            <strong>ستارة متوسطة</strong>
+            <em>CURTAIN-MEDIUM</em>
+          </span>
+        </td>
+        
+  <td>30 درهم</td>
+  <td>غير متاح</td>
+  <td>15 درهم</td>
+  <td>20 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Home__home_curtain_small.png" alt="" />
+          </span>
+          <span>
+            <strong>ستارة صغيرة</strong>
+            <em>CURTAIN-SMALL</em>
+          </span>
+        </td>
+        
+  <td>20 درهم</td>
+  <td>غير متاح</td>
+  <td>10 درهم</td>
+  <td>15 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Home__home_pillow_case.png" alt="" />
+          </span>
+          <span>
+            <strong>غطاء وسادة</strong>
+            <em>PILLOW CASE</em>
+          </span>
+        </td>
+        
+  <td>3 درهم</td>
+  <td>5 درهم</td>
+  <td>1 درهم</td>
+  <td>3 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Home__home_towel.png" alt="" />
+          </span>
+          <span>
+            <strong>منشفة</strong>
+            <em>TOWEL</em>
+          </span>
+        </td>
+        
+  <td>3 درهم</td>
+  <td>6 درهم</td>
+  <td>غير متاح</td>
+  <td>غير متاح</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Home__home_bedsheet_single.png" alt="" />
+          </span>
+          <span>
+            <strong>شرشف سرير مفرد</strong>
+            <em>bed sheet single</em>
+          </span>
+        </td>
+        
+  <td>5 درهم</td>
+  <td>8 درهم</td>
+  <td>3 درهم</td>
+  <td>5 درهم</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Home__home_dovet.png" alt="" />
+          </span>
+          <span>
+            <strong>لحاف</strong>
+            <em>dovet</em>
+          </span>
+        </td>
+        
+  <td>30 درهم</td>
+  <td>غير متاح</td>
+  <td>غير متاح</td>
+  <td>غير متاح</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Home__home_pillow.png" alt="" />
+          </span>
+          <span>
+            <strong>وسادة</strong>
+            <em>pilow</em>
+          </span>
+        </td>
+        
+  <td>8 درهم</td>
+  <td>غير متاح</td>
+  <td>غير متاح</td>
+  <td>غير متاح</td>
+
+      </tr>
+
+      <tr>
+        <td class="item-cell">
+          <span class="icon-wrap">
+            <img class="item-icon" src="./icon-thumbs/Home__home_sofa_cover.png" alt="" />
+          </span>
+          <span>
+            <strong>غطاء صوفا</strong>
+            <em>sofa cover</em>
+          </span>
+        </td>
+        
+  <td>10 درهم</td>
+  <td>غير متاح</td>
+  <td>غير متاح</td>
+  <td>غير متاح</td>
+
+      </tr></tbody>
+        </table>
+      </section>
+      <footer class="footer">
+        <span>In & Out Laundry • خدمة عملاء واتساب</span>
+        <span class="ltr">https://www.inandoutuae.com/pricing/inout-laundry-price-list.pdf</span>
+      </footer>
+    </section>
+  </main>
+</body>
+</html>
