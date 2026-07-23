@@ -240,6 +240,7 @@
         },
         "sendBody": true,
         "contentType": "json",
+        "specifyBody": "json",
         "jsonBody": "={{ { messaging_product: 'whatsapp', recipient_type: 'individual', to: $json.to, type: 'document', document: { link: $json.mediaUrl, filename: $json.mediaFilename || 'In-Out-Laundry-Price-List.pdf', caption: String($json.messageBody || '').slice(0, 1000) } } }}",
         "options": {
           "response": {
