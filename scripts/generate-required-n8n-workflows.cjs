@@ -332,7 +332,8 @@ const routerWorkflow = {
       parameters: {
         jsCode:
           "const input = $json || {};\n" +
-          "const rawEvent = input.rawEvent || input.body?.rawEvent || input.body || {};\n" +
+          "const envelope = input.rawEvent || input.body || input;\n" +
+          "const rawEvent = envelope.rawEvent || input.body?.rawEvent || input.body?.body?.rawEvent || envelope;\n" +
           "const entry = Array.isArray(rawEvent.entry) ? (rawEvent.entry[0] || {}) : {};\n" +
           "const change = Array.isArray(entry.changes) ? (entry.changes[0] || {}) : {};\n" +
           "const value = change.value || {};\n" +
@@ -340,13 +341,13 @@ const routerWorkflow = {
           "const contact = Array.isArray(value.contacts) ? (value.contacts[0] || {}) : {};\n" +
           "const status = Array.isArray(value.statuses) ? (value.statuses[0] || {}) : {};\n" +
           "const metadata = value.metadata || {};\n" +
-          "const senderPhone = String(message.from || contact.wa_id || input.senderPhone || input.from || '').replace(/[^0-9]/g, '');\n" +
-          "const messageId = String(message.id || input.messageId || input.wamid || '').trim();\n" +
-          "const messageType = String(message.type || input.messageType || (status.id ? 'status' : 'unsupported')).trim() || 'unsupported';\n" +
-          "const timestamp = String(message.timestamp || status.timestamp || input.timestamp || '').trim();\n" +
-          "const receiverPhone = String(metadata.display_phone_number || metadata.phone_number_id || input.receiverPhone || '').trim();\n" +
-          "const customerName = String(contact.profile?.name || input.customerName || '').trim();\n" +
-          "return [{ json: { ...input, rawEvent, entry, change, value, message, contact, status, senderPhone, messageId, wamid: messageId, messageType, timestamp, receiverPhone, customerName, correlationId: input.correlationId || input.body?.correlationId || (messageId ? 'corr_' + messageId : 'corr_' + Date.now()), receivedAt: input.receivedAt || input.body?.receivedAt || new Date().toISOString() } }];",
+          "const senderPhone = String(message.from || contact.wa_id || envelope.senderPhone || envelope.from || input.senderPhone || input.from || '').replace(/[^0-9]/g, '');\n" +
+          "const messageId = String(message.id || envelope.messageId || envelope.wamid || input.messageId || input.wamid || '').trim();\n" +
+          "const messageType = String(message.type || envelope.messageType || input.messageType || (status.id ? 'status' : 'unsupported')).trim() || 'unsupported';\n" +
+          "const timestamp = String(message.timestamp || status.timestamp || envelope.timestamp || input.timestamp || '').trim();\n" +
+          "const receiverPhone = String(metadata.display_phone_number || metadata.phone_number_id || envelope.receiverPhone || input.receiverPhone || '').trim();\n" +
+          "const customerName = String(contact.profile?.name || envelope.customerName || input.customerName || '').trim();\n" +
+          "return [{ json: { ...input, rawEvent, webhookEnvelope: envelope, entry, change, value, message, contact, status, senderPhone, messageId, wamid: messageId, messageType, timestamp, receiverPhone, customerName, correlationId: input.correlationId || envelope.correlationId || input.body?.correlationId || (messageId ? 'corr_' + messageId : 'corr_' + Date.now()), receivedAt: input.receivedAt || envelope.receivedAt || input.body?.receivedAt || new Date().toISOString() } }];",
       },
     },
     {
