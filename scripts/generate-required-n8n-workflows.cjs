@@ -3653,20 +3653,57 @@ const voiceMessageProcessingWorkflow = {
       ],
     }),
     triggerNode(),
+    codeNode({
+      id: 'extract-media-id',
+      name: 'Extract Media ID',
+      position: [-760, 20],
+      jsCode:
+        "const input = $json;\n" +
+        "const message = input.rawEvent?.entry?.[0]?.changes?.[0]?.value?.messages?.[0] || input.message || {};\n" +
+        "const normalized = input.normalizedMessage || {};\n" +
+        "const mediaId = String(input.mediaId || input.media_id || normalized.mediaId || normalized.media_id || input.audio?.id || input.voice?.id || message.audio?.id || message.voice?.id || '').trim();\n" +
+        "const wamid = String(input.wamid || input.messageId || input.message_id || normalized.wamid || normalized.messageId || message.id || '').trim();\n" +
+        "const senderPhone = String(input.senderPhone || input.customerPhone || input.customer_phone || input.from || normalized.from || message.from || '').replace(/[^0-9]/g, '');\n" +
+        "const receiverPhone = String(input.receiverPhone || input.to || normalized.to || '').replace(/[^0-9]/g, '');\n" +
+        "const correlationId = input.correlationId || input.correlation_id || normalized.correlationId || (wamid ? 'corr_' + wamid : 'corr_' + Date.now());\n" +
+        "if (!mediaId) {\n" +
+        "  return [{ json: { ...input, success: false, mediaId: '', wamid, senderPhone, receiverPhone, correlationId, errorCode: 'MISSING_MEDIA_ID', message: 'WhatsApp audio media id is required.' } }];\n" +
+        "}\n" +
+        "return [{ json: { ...input, mediaId, wamid, senderPhone, receiverPhone, correlationId } }];",
+    }),
+    {
+      id: 'media-id-present',
+      name: 'Media ID Present?',
+      type: 'n8n-nodes-base.if',
+      typeVersion: 2.2,
+      position: [-500, 20],
+      parameters: {
+        conditions: {
+          options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+          conditions: [
+            { id: 'has-media-id', leftValue: '={{Boolean($json.mediaId)}}', rightValue: true, operator: { type: 'boolean', operation: 'equals' } },
+          ],
+          combinator: 'and',
+        },
+        options: {},
+      },
+    },
     {
       id: 'get-whatsapp-media-url',
       name: 'Get WhatsApp Media URL',
-      type: 'n8n-nodes-base.whatsApp',
-      typeVersion: 1,
-      position: [-760, 20],
+      type: 'n8n-nodes-base.httpRequest',
+      typeVersion: 4.2,
+      position: [-240, -80],
       parameters: {
-        operation: 'getMediaUrl',
-        mediaId: '={{$json.mediaId || $json.media_id || $json.audio?.id || $json.voice?.id}}',
-      },
-      credentials: {
-        whatsAppApi: {
-          id: 'replace_with_n8n_whatsapp_credential_id',
-          name: 'WhatsApp Cloud API account',
+        method: 'GET',
+        url: '={{"https://graph.facebook.com/v20.0/" + encodeURIComponent($json.mediaId || "")}}',
+        sendHeaders: true,
+        headerParameters: {
+          parameters: [{ name: 'Authorization', value: "={{'Bearer ' + ($vars.WHATSAPP_ACCESS_TOKEN || '')}}" }],
+        },
+        options: {
+          response: { response: { fullResponse: true, neverError: true, responseFormat: 'json' } },
+          timeout: 45000,
         },
       },
     },
@@ -3675,7 +3712,7 @@ const voiceMessageProcessingWorkflow = {
       name: 'Validate Media Download URL',
       type: 'n8n-nodes-base.if',
       typeVersion: 2.2,
-      position: [-630, 20],
+      position: [20, -80],
       parameters: {
         conditions: {
           options: { caseSensitive: false, leftValue: '', typeValidation: 'loose', version: 2 },
@@ -3693,7 +3730,7 @@ const voiceMessageProcessingWorkflow = {
       name: 'Download Audio',
       type: 'n8n-nodes-base.httpRequest',
       typeVersion: 4.2,
-      position: [-380, 20],
+      position: [280, -80],
       parameters: {
         method: 'GET',
         url: '={{$json.url || $json.mediaUrl || $json.body?.url}}',
@@ -3707,7 +3744,7 @@ const voiceMessageProcessingWorkflow = {
       name: 'Validate Audio Type',
       type: 'n8n-nodes-base.if',
       typeVersion: 2.2,
-      position: [-120, 20],
+      position: [540, -80],
       parameters: {
         conditions: {
           options: { caseSensitive: false, leftValue: '', typeValidation: 'loose', version: 2 },
@@ -3723,22 +3760,22 @@ const voiceMessageProcessingWorkflow = {
     codeNode({
       id: 'prepare-binary-audio',
       name: 'Prepare Binary Audio',
-      position: [140, -80],
+      position: [800, -180],
       jsCode:
-        "const input = $('Workflow Input').first().json;\n" +
+        "const input = $('Extract Media ID').first().json;\n" +
         "const binary = $binary.audio || $binary.data;\n" +
         "if (!binary) throw new Error('audio binary is required');\n" +
         "const requestedLanguage = String(input.language || input.detectedLanguage || 'auto').toLowerCase();\n" +
         "const supported = ['auto','ar','arabic','en','english','ur','urdu','hi','hindi','tl','tagalog','fil'];\n" +
         "const language = supported.includes(requestedLanguage) ? requestedLanguage : 'auto';\n" +
-        "return [{ json: { mediaId: input.mediaId || input.media_id || input.audio?.id || input.voice?.id || '', wamid: input.wamid || input.messageId || input.message_id || '', senderPhone: input.senderPhone || input.customerPhone || input.from || '', receiverPhone: input.receiverPhone || input.to || '', customerName: input.customerName || input.profile?.name || '', language, mimeType: binary.mimeType || '', fileSize: binary.fileSize || 0, temporaryStorageOnly: true, deleteTemporaryAudio: true, routeToWorkflow01: true, correlationId: input.correlationId || input.correlation_id || 'corr_' + Date.now() }, binary: { audio: binary } }];",
+        "return [{ json: { mediaId: input.mediaId || '', wamid: input.wamid || '', senderPhone: input.senderPhone || '', receiverPhone: input.receiverPhone || '', customerName: input.customerName || input.profile?.name || '', language, mimeType: binary.mimeType || '', fileSize: binary.fileSize || 0, temporaryStorageOnly: true, deleteTemporaryAudio: true, routeToWorkflow01: true, correlationId: input.correlationId || input.correlation_id || 'corr_' + Date.now() }, binary: { audio: binary } }];",
     }),
     {
       id: 'transcribe-audio',
       name: 'Transcribe Audio',
       type: 'n8n-nodes-base.openAi',
       typeVersion: 1.8,
-      position: [400, -80],
+      position: [1060, -180],
       parameters: {
         resource: 'audio',
         operation: 'transcribe',
@@ -3761,7 +3798,7 @@ const voiceMessageProcessingWorkflow = {
       name: 'Transcription Valid?',
       type: 'n8n-nodes-base.if',
       typeVersion: 2.2,
-      position: [660, -80],
+      position: [1320, -180],
       parameters: {
         conditions: {
           options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
@@ -3776,7 +3813,7 @@ const voiceMessageProcessingWorkflow = {
     codeNode({
       id: 'delete-temporary-audio',
       name: 'Delete Temporary Audio',
-      position: [920, -80],
+      position: [1580, -180],
       jsCode:
         "const prepared = $('Prepare Binary Audio').first().json;\n" +
         "const text = String($json.text || $json.transcription || '').trim();\n" +
@@ -3787,7 +3824,7 @@ const voiceMessageProcessingWorkflow = {
       name: 'Return Normalized Text',
       type: 'n8n-nodes-base.set',
       typeVersion: 3.4,
-      position: [1180, -140],
+      position: [1840, -240],
       parameters: {
         assignments: {
           assignments: [
@@ -3812,14 +3849,14 @@ const voiceMessageProcessingWorkflow = {
       name: 'Audio Error Response',
       type: 'n8n-nodes-base.set',
       typeVersion: 3.4,
-      position: [1180, 100],
+      position: [1840, 80],
       parameters: {
         assignments: {
           assignments: [
             { id: 'success', name: 'success', type: 'boolean', value: false },
-            { id: 'errorCode', name: 'errorCode', type: 'string', value: 'AUDIO_TRANSCRIPTION_UNCLEAR_OR_INVALID' },
+            { id: 'errorCode', name: 'errorCode', type: 'string', value: '={{$json.errorCode || $json.body?.error?.code || "AUDIO_TRANSCRIPTION_UNCLEAR_OR_INVALID"}}' },
             { id: 'normalizedText', name: 'normalizedText', type: 'string', value: '' },
-            { id: 'message', name: 'message', type: 'string', value: 'Audio could not be transcribed clearly. Ask the customer to send text or a clearer voice note.' },
+            { id: 'message', name: 'message', type: 'string', value: '={{$json.message || $json.body?.error?.message || "Audio could not be transcribed clearly. Ask the customer to send text or a clearer voice note."}}' },
             { id: 'deleteTemporaryAudio', name: 'deleteTemporaryAudio', type: 'boolean', value: true },
             { id: 'temporaryAudioDeleted', name: 'temporaryAudioDeleted', type: 'boolean', value: true },
             { id: 'routeToWorkflow01', name: 'routeToWorkflow01', type: 'boolean', value: false },
@@ -3832,7 +3869,9 @@ const voiceMessageProcessingWorkflow = {
     },
   ],
   connections: {
-    'Workflow Input': { main: [[{ node: 'Get WhatsApp Media URL', type: 'main', index: 0 }]] },
+    'Workflow Input': { main: [[{ node: 'Extract Media ID', type: 'main', index: 0 }]] },
+    'Extract Media ID': { main: [[{ node: 'Media ID Present?', type: 'main', index: 0 }]] },
+    'Media ID Present?': { main: [[{ node: 'Get WhatsApp Media URL', type: 'main', index: 0 }], [{ node: 'Audio Error Response', type: 'main', index: 0 }]] },
     'Get WhatsApp Media URL': { main: [[{ node: 'Validate Media Download URL', type: 'main', index: 0 }]] },
     'Validate Media Download URL': { main: [[{ node: 'Download Audio', type: 'main', index: 0 }], [{ node: 'Audio Error Response', type: 'main', index: 0 }]] },
     'Download Audio': { main: [[{ node: 'Validate Audio Type', type: 'main', index: 0 }]] },
