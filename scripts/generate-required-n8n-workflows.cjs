@@ -4635,21 +4635,23 @@ const retryQueueWorkflow = {
     {
       id: 'return-result',
       name: 'Return Result',
-      type: 'n8n-nodes-base.set',
-      typeVersion: 3.4,
+      type: 'n8n-nodes-base.code',
+      typeVersion: 2,
       position: [1040, 20],
       parameters: {
-        assignments: {
-          assignments: [
-            { id: 'success', name: 'success', type: 'boolean', value: '={{$json.statusCode ? ($json.statusCode >= 200 && $json.statusCode < 300 && $json.body?.ok !== false) : false}}' },
-            { id: 'completed', name: 'completed', type: 'boolean', value: '={{Boolean((($items("Mark Completed", 0, 0)[0] || {}).json || {}).body?.ok)}}' },
-            { id: 'retryScheduled', name: 'retryScheduled', type: 'boolean', value: '={{Boolean((($items("Increment Retry Count", 0, 0)[0] || {}).json || {}).body?.ok)}}' },
-            { id: 'escalated', name: 'escalated', type: 'boolean', value: '={{Boolean((($items("Escalate Permanent Failure", 0, 0)[0] || {}).json || {}).body?.ok)}}' },
-            { id: 'correlationId', name: 'correlationId', type: 'string', value: '={{$("Calculate Backoff").first().json.correlationId || $("Workflow Input").first().json.correlationId}}' },
-          ],
-        },
-        includeOtherFields: true,
-        options: { dotNotation: false },
+        jsCode:
+          "const input = $json || {};\n" +
+          "const body = input.body || {};\n" +
+          "const statusCode = Number(input.statusCode || 0);\n" +
+          "const success = statusCode >= 200 && statusCode < 300 && body.ok !== false && body.success !== false && !body.error;\n" +
+          "const calc = (() => { try { return $('Calculate Backoff').first().json || {}; } catch { return {}; } })();\n" +
+          "const workflowInput = (() => { try { return $('Workflow Input').first().json || {}; } catch { return {}; } })();\n" +
+          "const responseText = JSON.stringify(body).toLowerCase();\n" +
+          "const currentStatus = String(body.data?.status || body.status || input.status || '').toUpperCase();\n" +
+          "const completed = success && (currentStatus === 'COMPLETED' || responseText.includes('completed'));\n" +
+          "const escalated = success && (currentStatus.includes('DEAD') || currentStatus.includes('ESCALATED') || responseText.includes('dead-letter') || responseText.includes('humanreview'));\n" +
+          "const retryScheduled = success && !completed && !escalated;\n" +
+          "return [{ json: { ...input, success, completed, retryScheduled, escalated, retryRecordId: calc.retryRecordId || workflowInput.retryRecordId || '', attempt: calc.nextAttempt ?? workflowInput.attempt ?? null, correlationId: calc.correlationId || workflowInput.correlationId || input.correlationId || '', status: completed ? 'COMPLETED' : escalated ? 'ESCALATED' : retryScheduled ? 'RETRY_SCHEDULED' : 'FAILED' } }];",
       },
     },
   ],
