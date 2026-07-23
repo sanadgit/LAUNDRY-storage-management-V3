@@ -4358,24 +4358,37 @@ const centralErrorHandlerWorkflow = {
     {
       id: 'extract-error-data',
       name: 'Extract Error Data',
-      type: 'n8n-nodes-base.set',
-      typeVersion: 3.4,
+      type: 'n8n-nodes-base.code',
+      typeVersion: 2,
       position: [-780, 20],
       parameters: {
-        assignments: {
-          assignments: [
-            { id: 'workflowName', name: 'workflowName', type: 'string', value: '={{$json.workflow?.name || $json.workflowName || $json.execution?.workflowName || "unknown"}}' },
-            { id: 'failedNode', name: 'failedNode', type: 'string', value: '={{$json.node?.name || $json.failedNode || $json.execution?.lastNodeExecuted || "unknown"}}' },
-            { id: 'errorMessage', name: 'errorMessage', type: 'string', value: '={{String($json.error?.message || $json.message || "Unknown workflow error")}}' },
-            { id: 'errorCode', name: 'errorCode', type: 'string', value: '={{String($json.error?.code || $json.errorCode || $json.statusCode || "N8N_WORKFLOW_FAILED")}}' },
-            { id: 'statusCode', name: 'statusCode', type: 'number', value: '={{Number($json.statusCode || $json.error?.statusCode || 0)}}' },
-            { id: 'correlationId', name: 'correlationId', type: 'string', value: '={{$json.correlationId || $json.correlation_id || $json.execution?.data?.resultData?.runData?.correlationId || "corr_" + Date.now()}}' },
-            { id: 'workflowExecutionId', name: 'workflowExecutionId', type: 'string', value: '={{String($execution.id || $json.execution?.id || "")}}' },
-            { id: 'retryCount', name: 'retryCount', type: 'number', value: '={{Number($json.retryCount || $json.retry_count || 0)}}' },
-          ],
-        },
-        includeOtherFields: true,
-        options: { dotNotation: false },
+        jsCode:
+          "const input = $json || {};\n" +
+          "const execution = input.execution || input.error?.execution || input.body?.execution || {};\n" +
+          "const workflow = input.workflow || input.error?.workflow || input.body?.workflow || {};\n" +
+          "const node = input.node || input.error?.node || input.body?.node || {};\n" +
+          "const error = input.error || execution.error || input.body?.error || {};\n" +
+          "const firstString = (...values) => values.map((value) => String(value || '').trim()).find(Boolean) || '';\n" +
+          "const findCorrelation = (value, depth = 0) => {\n" +
+          "  if (!value || depth > 5) return '';\n" +
+          "  if (typeof value !== 'object') return '';\n" +
+          "  for (const key of ['correlationId','correlation_id','correlationID','x-correlation-id']) {\n" +
+          "    if (value[key]) return String(value[key]);\n" +
+          "  }\n" +
+          "  for (const child of Object.values(value)) {\n" +
+          "    const found = findCorrelation(child, depth + 1);\n" +
+          "    if (found) return found;\n" +
+          "  }\n" +
+          "  return '';\n" +
+          "};\n" +
+          "const workflowName = firstString(workflow.name, input.workflowName, input.workflow_name, execution.workflowName, execution.workflow?.name, input.workflowData?.name, input.workflowId, workflow.id, 'unknown_workflow');\n" +
+          "const failedNode = firstString(node.name, input.failedNode, input.failed_node, execution.lastNodeExecuted, error.node?.name, error.nodeName, error.node, 'unknown_node');\n" +
+          "const errorMessage = firstString(error.message, input.errorMessage, input.error_message, input.message, execution.error?.message, 'Unknown workflow error');\n" +
+          "const errorCode = firstString(error.code, input.errorCode, input.error_code, error.name, input.statusCode, 'N8N_WORKFLOW_FAILED');\n" +
+          "const statusCode = Number(input.statusCode || error.statusCode || error.httpCode || error.responseCode || 0);\n" +
+          "const correlationId = firstString(input.correlationId, input.correlation_id, findCorrelation(input), 'corr_' + Date.now());\n" +
+          "const workflowExecutionId = firstString(execution.id, input.workflowExecutionId, input.workflow_execution_id, $execution.id, '');\n" +
+          "return [{ json: { ...input, workflowName, failedNode, errorMessage, errorCode, statusCode, correlationId, workflowExecutionId, retryCount: Number(input.retryCount || input.retry_count || 0) } }];",
       },
     },
     codeNode({
@@ -4472,7 +4485,7 @@ const centralErrorHandlerWorkflow = {
       id: 'notify-operations',
       name: 'Notify Operations',
       recipient: '={{$vars.OPERATIONS_ALERT_PHONE}}',
-      message: '={{"[In & Out Laundry] n8n error\\nWorkflow: " + $("Redact Secrets").first().json.workflowName + "\\nNode: " + $("Redact Secrets").first().json.failedNode + "\\nCategory: " + ($("Save Error Log").first().json.body?.data?.category || "WORKFLOW_LOGIC_FAILURE") + "\\nCorrelation: " + $("Redact Secrets").first().json.correlationId}}',
+      message: '={{"[In & Out Laundry] n8n error\\nWorkflow: " + ($("Redact Secrets").first().json.workflowName || "unknown_workflow") + "\\nNode: " + ($("Redact Secrets").first().json.failedNode || "unknown_node") + "\\nCategory: " + ($("Save Error Log").first().json.body?.data?.category || $("Redact Secrets").first().json.category || "WORKFLOW_LOGIC_FAILURE") + "\\nCorrelation: " + ($("Redact Secrets").first().json.correlationId || "missing_correlation") + "\\nMessage: " + String($("Redact Secrets").first().json.errorMessage || "Unknown workflow error").slice(0, 500)}}',
       position: [1060, 20],
     }),
     {
