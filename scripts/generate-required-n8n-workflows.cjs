@@ -442,7 +442,7 @@ const routerWorkflow = {
         conditions: {
           options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
           conditions: [
-            { id: 'duplicate-flag', leftValue: '={{Boolean($json.duplicate_message || $json.data?.duplicate_message || $json.data?.duplicate || $json.agent?.duplicate_message)}}', rightValue: true, operator: { type: 'boolean', operation: 'equals' } },
+            { id: 'duplicate-flag', leftValue: "={{Boolean($json.duplicate === true || $json.duplicate_message === true || $json.data?.duplicate_message === true || $json.data?.duplicate === true || $json.body?.data?.duplicate === true || $json.body?.data?.processed === true || $json.agent?.duplicate_message === true || $json.status === 'DUPLICATE' || $json.status === 'LOCK_FAILED' || $json.lockAcquired === false)}}", rightValue: true, operator: { type: 'boolean', operation: 'equals' } },
           ],
           combinator: 'and',
         },
@@ -654,7 +654,7 @@ const idempotencyWorkflow = {
         conditions: {
           options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
           conditions: [
-            { id: 'existing-event', leftValue: '={{$json.statusCode === 200 && Boolean($json.body?.ok !== false && ($json.body?.data || $json.body?.event || $json.body?.messageId))}}', rightValue: true, operator: { type: 'boolean', operation: 'equals' } },
+            { id: 'existing-event', leftValue: '={{$json.statusCode === 200 && $json.body?.ok !== false && Boolean($json.body?.data?.duplicate === true || $json.body?.data?.processed === true || $json.body?.data?.event || $json.body?.data?.message || $json.body?.event || $json.body?.messageId)}}', rightValue: true, operator: { type: 'boolean', operation: 'equals' } },
           ],
           combinator: 'and',
         },
@@ -673,7 +673,9 @@ const idempotencyWorkflow = {
             { id: 'duplicate', name: 'duplicate', type: 'boolean', value: true },
             { id: 'lockAcquired', name: 'lockAcquired', type: 'boolean', value: false },
             { id: 'messageId', name: 'messageId', type: 'string', value: '={{$("Extract WhatsApp Message ID").first().json.messageId}}' },
+            { id: 'wamid', name: 'wamid', type: 'string', value: '={{$("Extract WhatsApp Message ID").first().json.messageId}}' },
             { id: 'correlationId', name: 'correlationId', type: 'string', value: '={{$("Extract WhatsApp Message ID").first().json.correlationId}}' },
+            { id: 'status', name: 'status', type: 'string', value: 'DUPLICATE' },
           ],
         },
         includeOtherFields: false,
@@ -688,12 +690,39 @@ const idempotencyWorkflow = {
       body: "={{ { provider: 'whatsapp', messageId: $('Extract WhatsApp Message ID').first().json.messageId, correlationId: $('Extract WhatsApp Message ID').first().json.correlationId, workflowExecutionId: $('Extract WhatsApp Message ID').first().json.workflowExecutionId, receivedAt: new Date().toISOString() } }}",
       timeout: 30000,
     }),
+    {
+      id: 'return-lock-result',
+      name: 'Return Lock Result',
+      type: 'n8n-nodes-base.set',
+      typeVersion: 3.4,
+      position: [660, 120],
+      parameters: {
+        assignments: {
+          assignments: [
+            { id: 'duplicate', name: 'duplicate', type: 'boolean', value: '={{Boolean($json.body?.data?.duplicate === true || $json.body?.data?.processed === true)}}' },
+            { id: 'lockAcquired', name: 'lockAcquired', type: 'boolean', value: '={{$json.statusCode >= 200 && $json.statusCode < 300 && $json.body?.ok !== false && $json.body?.success !== false && !($json.body?.error)}}' },
+            { id: 'messageId', name: 'messageId', type: 'string', value: '={{$("Extract WhatsApp Message ID").first().json.messageId}}' },
+            { id: 'wamid', name: 'wamid', type: 'string', value: '={{$("Extract WhatsApp Message ID").first().json.messageId}}' },
+            { id: 'correlationId', name: 'correlationId', type: 'string', value: '={{$("Extract WhatsApp Message ID").first().json.correlationId}}' },
+            { id: 'status', name: 'status', type: 'string', value: "={{($json.statusCode >= 200 && $json.statusCode < 300 && $json.body?.ok !== false && $json.body?.success !== false && !($json.body?.error)) ? 'LOCKED' : 'LOCK_FAILED'}}" },
+            { id: 'error', name: 'error', type: 'object', value: '={{$json.body?.error || null}}' },
+            { id: 'normalizedMessage', name: 'normalizedMessage', type: 'object', value: '={{$("Extract WhatsApp Message ID").first().json.normalizedMessage || {}}}' },
+            { id: 'senderPhone', name: 'senderPhone', type: 'string', value: '={{$("Extract WhatsApp Message ID").first().json.senderPhone || $("Extract WhatsApp Message ID").first().json.normalizedMessage?.from || ""}}' },
+            { id: 'customerPhone', name: 'customerPhone', type: 'string', value: '={{$("Extract WhatsApp Message ID").first().json.customerPhone || $("Extract WhatsApp Message ID").first().json.normalizedMessage?.from || ""}}' },
+            { id: 'messageText', name: 'messageText', type: 'string', value: '={{$("Extract WhatsApp Message ID").first().json.messageText || $("Extract WhatsApp Message ID").first().json.normalizedMessage?.messageText || ""}}' },
+          ],
+        },
+        includeOtherFields: false,
+        options: { dotNotation: false },
+      },
+    },
   ],
   connections: {
     'Workflow Input': { main: [[{ node: 'Extract WhatsApp Message ID', type: 'main', index: 0 }]] },
     'Extract WhatsApp Message ID': { main: [[{ node: 'Find Processed Event', type: 'main', index: 0 }]] },
     'Find Processed Event': { main: [[{ node: 'Message Already Exists?', type: 'main', index: 0 }]] },
     'Message Already Exists?': { main: [[{ node: 'Return Duplicate Result', type: 'main', index: 0 }], [{ node: 'Register Processing Lock', type: 'main', index: 0 }]] },
+    'Register Processing Lock': { main: [[{ node: 'Return Lock Result', type: 'main', index: 0 }]] },
   },
   active: false,
   settings: { timezone: 'Asia/Dubai', executionOrder: 'v1' },
