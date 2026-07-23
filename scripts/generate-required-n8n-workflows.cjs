@@ -3773,23 +3773,29 @@ const voiceMessageProcessingWorkflow = {
     {
       id: 'transcribe-audio',
       name: 'Transcribe Audio',
-      type: 'n8n-nodes-base.openAi',
-      typeVersion: 1.8,
+      type: 'n8n-nodes-base.httpRequest',
+      typeVersion: 4.2,
       position: [1060, -180],
       parameters: {
-        resource: 'audio',
-        operation: 'transcribe',
-        binaryPropertyName: 'audio',
-        model: '={{$vars.OPENAI_TRANSCRIPTION_MODEL || "gpt-4o-mini-transcribe"}}',
-        options: {
-          language: '={{$("Prepare Binary Audio").first().json.language === "auto" ? undefined : $("Prepare Binary Audio").first().json.language}}',
-          temperature: 0,
+        method: 'POST',
+        url: 'https://api.openai.com/v1/audio/transcriptions',
+        sendHeaders: true,
+        headerParameters: {
+          parameters: [{ name: 'Authorization', value: "={{'Bearer ' + ($vars.OPENAI_API_KEY || '')}}" }],
         },
-      },
-      credentials: {
-        openAiApi: {
-          id: 'replace_with_n8n_openai_credential_id',
-          name: 'OpenAI account',
+        sendBody: true,
+        contentType: 'multipart-form-data',
+        bodyParameters: {
+          parameters: [
+            { name: 'model', value: '={{$vars.OPENAI_TRANSCRIPTION_MODEL || "gpt-4o-mini-transcribe"}}' },
+            { name: 'file', parameterType: 'formBinaryData', inputDataFieldName: 'audio' },
+            { name: 'temperature', value: '0' },
+            { name: 'response_format', value: 'json' },
+          ],
+        },
+        options: {
+          response: { response: { fullResponse: true, neverError: true, responseFormat: 'json' } },
+          timeout: 90000,
         },
       },
     },
@@ -3803,7 +3809,7 @@ const voiceMessageProcessingWorkflow = {
         conditions: {
           options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
           conditions: [
-            { id: 'has-text', leftValue: '={{String($json.text || $json.transcription || "").trim().length >= 2}}', rightValue: true, operator: { type: 'boolean', operation: 'equals' } },
+            { id: 'has-text', leftValue: '={{String($json.body?.text || $json.text || $json.transcription || "").trim().length >= 2}}', rightValue: true, operator: { type: 'boolean', operation: 'equals' } },
           ],
           combinator: 'and',
         },
@@ -3816,7 +3822,7 @@ const voiceMessageProcessingWorkflow = {
       position: [1580, -180],
       jsCode:
         "const prepared = $('Prepare Binary Audio').first().json;\n" +
-        "const text = String($json.text || $json.transcription || '').trim();\n" +
+        "const text = String($json.body?.text || $json.text || $json.transcription || '').trim();\n" +
         "return [{ json: { ...prepared, transcriptionText: text, normalizedText: text, temporaryAudioDeleted: true, deleteTemporaryAudio: true, routeToWorkflow01: true } }];",
     }),
     {
