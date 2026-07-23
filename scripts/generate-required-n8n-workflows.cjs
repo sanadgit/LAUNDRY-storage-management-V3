@@ -326,27 +326,27 @@ const routerWorkflow = {
     {
       id: 'extract-webhook-data',
       name: 'Extract Webhook Data',
-      type: 'n8n-nodes-base.set',
-      typeVersion: 3.4,
+      type: 'n8n-nodes-base.code',
+      typeVersion: 2,
       position: [-720, 120],
       parameters: {
-        assignments: {
-          assignments: [
-            { id: 'entry', name: 'entry', type: 'object', value: '={{($json.rawEvent.entry || [])[0] || {}}}' },
-            { id: 'change', name: 'change', type: 'object', value: '={{((($json.rawEvent.entry || [])[0] || {}).changes || [])[0] || {}}}' },
-            { id: 'value', name: 'value', type: 'object', value: '={{$json.change.value || {}}}' },
-            { id: 'message', name: 'message', type: 'object', value: '={{($json.value.messages || [])[0] || {}}}' },
-            { id: 'contact', name: 'contact', type: 'object', value: '={{($json.value.contacts || [])[0] || {}}}' },
-            { id: 'senderPhone', name: 'senderPhone', type: 'string', value: '={{String($json.message.from || $json.contact.wa_id || "")}}' },
-            { id: 'messageId', name: 'messageId', type: 'string', value: '={{String($json.message.id || "")}}' },
-            { id: 'messageType', name: 'messageType', type: 'string', value: '={{String($json.message.type || "unsupported")}}' },
-            { id: 'timestamp', name: 'timestamp', type: 'string', value: '={{String($json.message.timestamp || "")}}' },
-            { id: 'receiverPhone', name: 'receiverPhone', type: 'string', value: '={{String($json.value.metadata?.display_phone_number || $json.value.metadata?.phone_number_id || "")}}' },
-            { id: 'customerName', name: 'customerName', type: 'string', value: '={{String($json.contact.profile?.name || "")}}' },
-          ],
-        },
-        includeOtherFields: true,
-        options: { dotNotation: false },
+        jsCode:
+          "const input = $json || {};\n" +
+          "const rawEvent = input.rawEvent || input.body?.rawEvent || input.body || {};\n" +
+          "const entry = Array.isArray(rawEvent.entry) ? (rawEvent.entry[0] || {}) : {};\n" +
+          "const change = Array.isArray(entry.changes) ? (entry.changes[0] || {}) : {};\n" +
+          "const value = change.value || {};\n" +
+          "const message = Array.isArray(value.messages) ? (value.messages[0] || {}) : {};\n" +
+          "const contact = Array.isArray(value.contacts) ? (value.contacts[0] || {}) : {};\n" +
+          "const status = Array.isArray(value.statuses) ? (value.statuses[0] || {}) : {};\n" +
+          "const metadata = value.metadata || {};\n" +
+          "const senderPhone = String(message.from || contact.wa_id || input.senderPhone || input.from || '').replace(/[^0-9]/g, '');\n" +
+          "const messageId = String(message.id || input.messageId || input.wamid || '').trim();\n" +
+          "const messageType = String(message.type || input.messageType || (status.id ? 'status' : 'unsupported')).trim() || 'unsupported';\n" +
+          "const timestamp = String(message.timestamp || status.timestamp || input.timestamp || '').trim();\n" +
+          "const receiverPhone = String(metadata.display_phone_number || metadata.phone_number_id || input.receiverPhone || '').trim();\n" +
+          "const customerName = String(contact.profile?.name || input.customerName || '').trim();\n" +
+          "return [{ json: { ...input, rawEvent, entry, change, value, message, contact, status, senderPhone, messageId, wamid: messageId, messageType, timestamp, receiverPhone, customerName, correlationId: input.correlationId || input.body?.correlationId || (messageId ? 'corr_' + messageId : 'corr_' + Date.now()), receivedAt: input.receivedAt || input.body?.receivedAt || new Date().toISOString() } }];",
       },
     },
     {
@@ -567,7 +567,7 @@ const routerWorkflow = {
     'WhatsApp Incoming Message': { main: [[{ node: 'Generate Correlation ID', type: 'main', index: 0 }]] },
     'Generate Correlation ID': { main: [[{ node: 'Extract Webhook Data', type: 'main', index: 0 }]] },
     'Extract Webhook Data': { main: [[{ node: 'Validate Payload', type: 'main', index: 0 }]] },
-    'Validate Payload': { main: [[{ node: 'Check Message Type', type: 'main', index: 0 }], [{ node: 'Error Handler', type: 'main', index: 0 }]] },
+    'Validate Payload': { main: [[{ node: 'Check Message Type', type: 'main', index: 0 }], [{ node: 'Invalid Payload Response', type: 'main', index: 0 }]] },
     'Error Handler': { main: [[{ node: 'Invalid Payload Response', type: 'main', index: 0 }]] },
     'Check Message Type': {
       main: [
@@ -577,7 +577,7 @@ const routerWorkflow = {
         [{ node: 'Normalize WhatsApp Message', type: 'main', index: 0 }],
         [{ node: 'Normalize WhatsApp Message', type: 'main', index: 0 }],
         [{ node: 'Normalize WhatsApp Message', type: 'main', index: 0 }],
-        [{ node: 'Error Handler', type: 'main', index: 0 }],
+        [{ node: 'Invalid Payload Response', type: 'main', index: 0 }],
       ],
     },
     'Process Voice Message': { main: [[{ node: 'Normalize WhatsApp Message', type: 'main', index: 0 }]] },

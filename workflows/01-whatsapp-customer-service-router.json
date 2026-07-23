@@ -82,87 +82,14 @@
     {
       "id": "extract-webhook-data",
       "name": "Extract Webhook Data",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         -720,
         120
       ],
       "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "entry",
-              "name": "entry",
-              "type": "object",
-              "value": "={{($json.rawEvent.entry || [])[0] || {}}}"
-            },
-            {
-              "id": "change",
-              "name": "change",
-              "type": "object",
-              "value": "={{((($json.rawEvent.entry || [])[0] || {}).changes || [])[0] || {}}}"
-            },
-            {
-              "id": "value",
-              "name": "value",
-              "type": "object",
-              "value": "={{$json.change.value || {}}}"
-            },
-            {
-              "id": "message",
-              "name": "message",
-              "type": "object",
-              "value": "={{($json.value.messages || [])[0] || {}}}"
-            },
-            {
-              "id": "contact",
-              "name": "contact",
-              "type": "object",
-              "value": "={{($json.value.contacts || [])[0] || {}}}"
-            },
-            {
-              "id": "senderPhone",
-              "name": "senderPhone",
-              "type": "string",
-              "value": "={{String($json.message.from || $json.contact.wa_id || \"\")}}"
-            },
-            {
-              "id": "messageId",
-              "name": "messageId",
-              "type": "string",
-              "value": "={{String($json.message.id || \"\")}}"
-            },
-            {
-              "id": "messageType",
-              "name": "messageType",
-              "type": "string",
-              "value": "={{String($json.message.type || \"unsupported\")}}"
-            },
-            {
-              "id": "timestamp",
-              "name": "timestamp",
-              "type": "string",
-              "value": "={{String($json.message.timestamp || \"\")}}"
-            },
-            {
-              "id": "receiverPhone",
-              "name": "receiverPhone",
-              "type": "string",
-              "value": "={{String($json.value.metadata?.display_phone_number || $json.value.metadata?.phone_number_id || \"\")}}"
-            },
-            {
-              "id": "customerName",
-              "name": "customerName",
-              "type": "string",
-              "value": "={{String($json.contact.profile?.name || \"\")}}"
-            }
-          ]
-        },
-        "includeOtherFields": true,
-        "options": {
-          "dotNotation": false
-        }
+        "jsCode": "const input = $json || {};\nconst rawEvent = input.rawEvent || input.body?.rawEvent || input.body || {};\nconst entry = Array.isArray(rawEvent.entry) ? (rawEvent.entry[0] || {}) : {};\nconst change = Array.isArray(entry.changes) ? (entry.changes[0] || {}) : {};\nconst value = change.value || {};\nconst message = Array.isArray(value.messages) ? (value.messages[0] || {}) : {};\nconst contact = Array.isArray(value.contacts) ? (value.contacts[0] || {}) : {};\nconst status = Array.isArray(value.statuses) ? (value.statuses[0] || {}) : {};\nconst metadata = value.metadata || {};\nconst senderPhone = String(message.from || contact.wa_id || input.senderPhone || input.from || '').replace(/[^0-9]/g, '');\nconst messageId = String(message.id || input.messageId || input.wamid || '').trim();\nconst messageType = String(message.type || input.messageType || (status.id ? 'status' : 'unsupported')).trim() || 'unsupported';\nconst timestamp = String(message.timestamp || status.timestamp || input.timestamp || '').trim();\nconst receiverPhone = String(metadata.display_phone_number || metadata.phone_number_id || input.receiverPhone || '').trim();\nconst customerName = String(contact.profile?.name || input.customerName || '').trim();\nreturn [{ json: { ...input, rawEvent, entry, change, value, message, contact, status, senderPhone, messageId, wamid: messageId, messageType, timestamp, receiverPhone, customerName, correlationId: input.correlationId || input.body?.correlationId || (messageId ? 'corr_' + messageId : 'corr_' + Date.now()), receivedAt: input.receivedAt || input.body?.receivedAt || new Date().toISOString() } }];"
       }
     },
     {
@@ -956,7 +883,7 @@
         ],
         [
           {
-            "node": "Error Handler",
+            "node": "Invalid Payload Response",
             "type": "main",
             "index": 0
           }
@@ -1020,7 +947,7 @@
         ],
         [
           {
-            "node": "Error Handler",
+            "node": "Invalid Payload Response",
             "type": "main",
             "index": 0
           }
